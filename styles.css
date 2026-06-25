@@ -92,6 +92,7 @@ body {
   justify-content: space-between;
   align-items: center;
 }
+.pane-head-left { display: inline-flex; align-items: center; gap: 6px; }
 
 /* session list */
 #session-list { list-style: none; margin: 0; padding: 0; flex: 1; overflow-y: auto; }
