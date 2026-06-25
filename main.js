@@ -54,6 +54,30 @@ function replayEdits(base, ops) {
   return { content: s, clean };
 }
 
+// De-apply a session's ops from the current working string (the inverse of
+// replayEdits) — back out just this session's substitutions, leaving any other
+// session's edits to the same file untouched. Ops are inverted newest-first:
+// for an Edit, new->old. Returns { content, clean }; clean=false means an op
+// can't be safely inverted (a full Write or opaque op has no stored pre-image,
+// a pure deletion can't be relocated, or the new_string is gone) — caller then
+// decides whether a hard reset to HEAD is safe.
+function inverseEdits(working, ops) {
+  let s = working, clean = true;
+  for (let i = ops.length - 1; i >= 0; i--) {
+    const op = ops[i];
+    if (op.t === 'write' || op.t === 'opaque') { clean = false; continue; }
+    const edits = op.t === 'multi' ? op.edits : [op];
+    for (let j = edits.length - 1; j >= 0; j--) {
+      const e = edits[j];
+      if (!e.new) { clean = false; continue; } // pure deletion: can't relocate the old text
+      if (!s.includes(e.new)) { clean = false; continue; }
+      s = e.all ? s.split(e.new).join(e.old)
+        : s.slice(0, s.indexOf(e.new)) + e.old + s.slice(s.indexOf(e.new) + e.new.length);
+    }
+  }
+  return { content: s, clean };
+}
+
 // Extension → MIME for the asset viewer (image preview / pixel editor / audio).
 const ASSET_MIME = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
@@ -203,11 +227,16 @@ function repoRoot(dir) {
 }
 
 ipcMain.handle('open-folder', async () => {
-  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
-  if (r.canceled || !r.filePaths[0]) return { canceled: true };
-  repoPath = repoRoot(r.filePaths[0]);
-  try { fs.writeFileSync(lastFolderFile, repoPath); } catch {}
-  return { canceled: false, repo: repoPath };
+  try {
+    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
+    if (r.canceled || !r.filePaths[0]) return { canceled: true };
+    repoPath = repoRoot(r.filePaths[0]);
+    try { fs.writeFileSync(lastFolderFile, repoPath); } catch {}
+    return { canceled: false, repo: repoPath };
+  } catch (err) {
+    console.error('[open-folder failed]', err);
+    return { canceled: true, error: String(err) };
+  }
 });
 
 ipcMain.handle('git-status', () => gitStatus());
@@ -248,6 +277,45 @@ ipcMain.handle('list-dir', (_e, rel) => {
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
     return { ok: true, entries };
   } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Recursive filename search for the explorer. Walks the tree async, skipping
+// .git/node_modules; case-insensitive substring match, capped at 500 hits.
+const SEARCH_SKIP = new Set(['.git', 'node_modules']);
+ipcMain.handle('search-names', async (_e, q) => {
+  const needle = (q || '').toLowerCase();
+  if (!needle) return { ok: true, files: [] };
+  const files = [];
+  async function walk(rel) {
+    if (files.length >= 500) return;
+    let ents;
+    try { ents = await fs.promises.readdir(path.join(repoPath, rel), { withFileTypes: true }); }
+    catch { return; }
+    for (const d of ents) {
+      if (SEARCH_SKIP.has(d.name)) continue;
+      const childRel = rel ? rel + '/' + d.name : d.name;
+      if (d.isDirectory()) await walk(childRel);
+      else if (d.name.toLowerCase().includes(needle) && files.length < 500) files.push(childRel);
+    }
+  }
+  await walk('');
+  return { ok: true, files };
+});
+
+// Content search ("References"): git grep runs in a subprocess so it never
+// blocks the main thread. --untracked also greps new (un-ignored) files; capped
+// at 500 matches. ponytail: parse stdout regardless of exit code — grep exits 1
+// on no matches (and when repoPath isn't a git repo, yielding empty results).
+ipcMain.handle('search-refs', async (_e, q) => {
+  if (!q) return { ok: true, matches: [] };
+  const r = await git(['grep', '-n', '-I', '-F', '-i', '--untracked', '--', q]);
+  const matches = [];
+  for (const line of r.stdout.split('\n')) {
+    if (!line || matches.length >= 500) break;
+    const m = line.match(/^(.*?):(\d+):(.*)$/);
+    if (m) matches.push({ file: m[1], line: Number(m[2]), text: m[3].slice(0, 200) });
+  }
+  return { ok: true, matches };
 });
 
 // Read a repo-relative text file for the explorer's read-only viewer.
@@ -332,6 +400,37 @@ ipcMain.handle('commit-session', async (_e, id) => {
   return commitBlobs(entries, msg);
 });
 
+// Revert ONLY this session's working-tree changes by de-applying its own edits,
+// so another session's edits to the same file survive. For each touched file we
+// back its ops out of the current working contents (inverseEdits). If an op
+// can't be inverted (a full Write, opaque, or moved text), a hard reset to HEAD
+// is only safe when NO other live session also edited that file — otherwise we
+// skip it (clobbering another agent's work is worse than leaving ours). Reverted
+// files are forgotten so a later commit/revert won't double-apply them.
+ipcMain.handle('revert-session', async (_e, id) => {
+  const s = sessions.get(id);
+  if (!s) return { ok: false, stderr: 'Session is gone' };
+  const sharedWithOther = (abs) => [...sessions].some(([sid, o]) => sid !== id && o.edits.has(abs));
+  const reverted = [], skipped = [];
+  for (const [abs, ops] of s.edits) {
+    const rel = path.relative(repoPath, abs).split(path.sep).join('/');
+    if (!rel || rel.startsWith('..')) continue; // outside the repo
+    let working = null;
+    try { working = fs.readFileSync(abs, 'utf8'); } catch { /* deleted */ }
+    const inv = working == null ? { clean: false } : inverseEdits(working, ops);
+    if (inv.clean) { fs.writeFileSync(abs, inv.content); reverted.push(abs); continue; }
+    if (sharedWithOther(abs)) { skipped.push(rel); continue; }
+    const head = await git(['show', `HEAD:${rel}`]);
+    if (head.ok) fs.writeFileSync(abs, head.stdout); // restore committed version
+    else { try { fs.unlinkSync(abs); } catch {} } // file was new this session
+    reverted.push(abs);
+  }
+  for (const abs of reverted) s.edits.delete(abs); // forget only what we backed out; skips stay tracked
+  if (win) win.webContents.send('session-meta', { id, firstPrompt: s.firstPrompt || '', files: [...s.edits.keys()] });
+  if (!reverted.length && !skipped.length) return { ok: false, stderr: 'This session changed no files' };
+  return { ok: true, reverted: reverted.length, skipped };
+});
+
 ipcMain.handle('new-session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();
   const p = pty.spawn(resolveClaude(), ['--session-id', id, '--settings', hooksSettings()], {
@@ -376,7 +475,24 @@ function createWindow() {
     },
   });
   win.loadFile('index.html');
+
+  // Surface renderer-side problems in the `npm start` terminal — by default
+  // console output and uncaught errors only show in DevTools, so a silently
+  // broken button (e.g. a thrown click handler) leaves no trace otherwise.
+  const levels = ['log', 'info', 'warning', 'error']; // chromium console levels
+  win.webContents.on('console-message', (_e, level, message, line, source) => {
+    console.log(`[renderer:${levels[level] || level}] ${message} (${source}:${line})`);
+  });
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[renderer gone]', details.reason, details.exitCode);
+  });
+  win.webContents.on('preload-error', (_e, preloadPath, error) => {
+    console.error('[preload error]', preloadPath, error);
+  });
 }
+
+process.on('uncaughtException', (err) => console.error('[main uncaught]', err));
+process.on('unhandledRejection', (err) => console.error('[main unhandledRejection]', err));
 
 app.whenReady().then(() => {
   startHookServer();
