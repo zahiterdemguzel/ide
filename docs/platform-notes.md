@@ -14,6 +14,10 @@ node-pty on Windows does **not** search `PATH`. Spawning bare `'claude'` throws 
 
 `sandbox: false` is intentional — the preload requires the native node-pty module. Keep `contextIsolation: true` and `nodeIntegration: false`.
 
+## Launching from the VS Code debugger leaks debug env into sessions
+
+When the app is started via `.vscode/launch.json` (VS Code's Node debugger) instead of `npm start`, VS Code injects debugger/inspector variables into our `process.env`: `ELECTRON_RUN_AS_NODE`, `VSCODE_INSPECTOR_OPTIONS`, and a `NODE_OPTIONS=--require <js-debug bootloader>`. Spawning the `claude` CLI (a Node process) with that env makes it boot as a debug-attached target, so **new sessions never open**. `sessionEnv()` in `src/main/sessions.js` strips these before `pty.spawn` — keep that scrub. The launch config also sets `"console": "integratedTerminal"` so the main process actually has a visible console.
+
 ## curl dependency
 
 Hook payloads are delivered with `curl` (ships with Windows 11). If hooks stop firing on a stripped-down machine, confirm `curl` is on PATH.

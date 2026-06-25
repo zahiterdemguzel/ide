@@ -10,6 +10,10 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
       "cwd": "${workspaceFolder}",
+      // Run in a real terminal so the main process's stdout/stderr is visible.
+      // The default ("internalConsole") routes Electron output to the Debug
+      // Console, where it mostly doesn't show up.
+      "console": "integratedTerminal",
       // Electron spawns Chromium renderer/GPU child processes. If VS Code
       // auto-attaches its debugger to them (the default), it injects an inspector
       // into the renderer and the window stops responding to clicks/keys. Attach

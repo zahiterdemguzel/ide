@@ -11,6 +11,26 @@ const hookServer = require('./hook-server');
 
 const sessions = new Map(); // id -> { pty, edits: Map<absPath, op[]>, firstPrompt, name }
 
+// When the app is launched from VS Code's debugger (.vscode/launch.json), VS Code
+// injects debugger/inspector variables into our env. node-pty would pass these to
+// the spawned `claude` CLI — itself a Node process — which then boots as a
+// debug-attached target and never starts the session. Strip them so a session
+// spawns identically regardless of how the app itself was launched.
+function sessionEnv() {
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  delete env.VSCODE_INSPECTOR_OPTIONS;
+  delete env.VSCODE_PID;
+  if (env.NODE_OPTIONS) {
+    const cleaned = env.NODE_OPTIONS
+      .replace(/--require[= ]\S*(vscode|js-debug|bootloader)\S*/gi, '')
+      .replace(/--inspect(-brk|-port)?(=\S*)?/gi, '')
+      .trim();
+    if (cleaned) env.NODE_OPTIONS = cleaned; else delete env.NODE_OPTIONS;
+  }
+  return env;
+}
+
 // Attribute the user's first prompt and any edited files to their session, so
 // we can later commit just that session's work. Returns updated meta, or null.
 function recordSessionActivity(payload) {
@@ -55,7 +75,7 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
     cols: cols || 80,
     rows: rows || 24,
     cwd: getRepoPath(),
-    env: process.env,
+    env: sessionEnv(),
   });
   p.onData((data) => { const win = getWin(); if (win) win.webContents.send('pty-data', { id, data }); });
   p.onExit(() => {
