@@ -45,10 +45,11 @@ ipcMain.handle('create-file', (_e, rel) => {
 
 // Recursive filename search for the explorer. Walks the tree async, skipping
 // .git/node_modules; case-insensitive, capped at 500 hits. The query is split on
-// whitespace into terms that ALL must match the filename (e.g. "enemy .mp3" finds
-// files containing both "enemy" and ".mp3"). A term of "*.png" or ".png" matches
-// by extension; any other term is a substring of the filename (which includes the
-// extension, so a bare "png" / "js" gathers that type too).
+// whitespace into terms that ALL must match the file's full repo-relative path
+// (e.g. "enemy .mp3" finds files whose path contains both "enemy" and ".mp3", so
+// folder names count too). A term of "*.png" or ".png" matches by extension; any
+// other term is a substring of the path (which includes the extension, so a bare
+// "png" / "js" gathers that type too).
 const SEARCH_SKIP = new Set(['.git', 'node_modules']);
 ipcMain.handle('search-names', async (_e, q) => {
   const needle = (q || '').trim().toLowerCase();
@@ -68,8 +69,8 @@ ipcMain.handle('search-names', async (_e, q) => {
       if (SEARCH_SKIP.has(d.name)) continue;
       const childRel = rel ? rel + '/' + d.name : d.name;
       if (d.isDirectory()) { await walk(childRel); continue; }
-      const name = d.name.toLowerCase();
-      const hit = terms.every((t) => (t.suffix ? name.endsWith(t.suffix) : name.includes(t.sub)));
+      const hay = childRel.toLowerCase();
+      const hit = terms.every((t) => (t.suffix ? hay.endsWith(t.suffix) : hay.includes(t.sub)));
       if (hit && files.length < 500) files.push(childRel);
     }
   }
