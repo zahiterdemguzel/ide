@@ -24,7 +24,7 @@ function sessionEnv() {
   if (env.NODE_OPTIONS) {
     const cleaned = env.NODE_OPTIONS
       .replace(/--require[= ]\S*(vscode|js-debug|bootloader)\S*/gi, '')
-      .replace(/--inspect(-brk|-port)?(=\S*)?/gi, '')
+      .replace(/--inspect[\w-]*(=\S*)?/gi, '')
       .trim();
     if (cleaned) env.NODE_OPTIONS = cleaned; else delete env.NODE_OPTIONS;
   }

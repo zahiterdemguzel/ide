@@ -16,7 +16,11 @@ node-pty on Windows does **not** search `PATH`. Spawning bare `'claude'` throws 
 
 ## Launching from the VS Code debugger leaks debug env into sessions
 
-When the app is started via `.vscode/launch.json` (VS Code's Node debugger) instead of `npm start`, VS Code injects debugger/inspector variables into our `process.env`: `ELECTRON_RUN_AS_NODE`, `VSCODE_INSPECTOR_OPTIONS`, and a `NODE_OPTIONS=--require <js-debug bootloader>`. Spawning the `claude` CLI (a Node process) with that env makes it boot as a debug-attached target, so **new sessions never open**. `sessionEnv()` in `src/main/sessions.js` strips these before `pty.spawn` — keep that scrub. The launch config also sets `"console": "integratedTerminal"` so the main process actually has a visible console.
+When the app is started via `.vscode/launch.json` (VS Code's Node debugger) instead of `npm start`, VS Code injects debugger/inspector variables into our `process.env`: `ELECTRON_RUN_AS_NODE`, `VSCODE_INSPECTOR_OPTIONS`, and a `NODE_OPTIONS=--require <js-debug bootloader> --inspect-publish-uid=http`. Spawning the `claude` CLI (a Node process) with that env makes it boot as a debug-attached target, so **new sessions never open**. `sessionEnv()` in `src/main/sessions.js` strips these before `pty.spawn` — keep that scrub.
+
+The `--inspect` scrub must match **every** `--inspect*` variant, not just `--inspect-brk`/`--inspect-port`. js-debug uses `--inspect-publish-uid=http`; a regex that only knows the two common suffixes strips the `--inspect` prefix and leaves `-publish-uid=http` orphaned in `NODE_OPTIONS`. That junk then rides into any Node child the CLI spawns — notably `code.cmd` during the VS Code extension install — which rejects it with `-publish-uid=http is not allowed in NODE_OPTIONS` and aborts. Hence the broad `--inspect[\w-]*(=\S*)?` pattern; keep it broad.
+
+The launch config also sets `"console": "integratedTerminal"` so the main process actually has a visible console.
 
 ## GPU disk-cache errors + multiple instances
 
