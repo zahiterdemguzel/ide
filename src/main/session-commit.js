@@ -58,17 +58,27 @@ ipcMain.handle('commit-session', async (_e, id) => {
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
   const entries = [];
+  const committedAbs = []; // paths actually folded into this commit, to forget after
   for (const [abs, ops] of s.edits) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     if (!rel || rel.startsWith('..')) continue; // outside the repo
     const headFile = await git(['show', `HEAD:${rel}`]);
     const { content, clean } = replayEdits(headFile.ok ? headFile.stdout : '', ops);
-    if (clean) { entries.push({ path: rel, content }); continue; }
-    try { entries.push({ path: rel, content: fs.readFileSync(abs, 'utf8') }); } catch { /* gone */ }
+    if (clean) { entries.push({ path: rel, content }); committedAbs.push(abs); continue; }
+    try { entries.push({ path: rel, content: fs.readFileSync(abs, 'utf8') }); committedAbs.push(abs); } catch { /* gone */ }
   }
   if (!entries.length) return { ok: false, stderr: 'This session changed no files yet' };
   const msg = (s.firstPrompt || `session ${id.slice(0, 8)}`).slice(0, 500);
-  return commitBlobs(entries, msg);
+  const ct = await commitBlobs(entries, msg);
+  // Forget what we committed so the button reads "nothing to commit" until the
+  // session edits again — and a later commit only carries those new edits, not a
+  // re-commit of blobs already at HEAD. Re-push the shrunk file list to the bar.
+  if (ct.ok) {
+    for (const abs of committedAbs) s.edits.delete(abs);
+    const win = getWin();
+    if (win) win.webContents.send('session-meta', { id, firstPrompt: s.firstPrompt || '', files: [...s.edits.keys()] });
+  }
+  return ct;
 });
 
 // Revert ONLY this session's working-tree changes by de-applying its own edits,

@@ -70,8 +70,18 @@ function updateSessionBar() {
   const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || ('session ' + s.id.slice(0, 8));
   sessionTitle.textContent = name;
   sessionTitle.title = name;
+  // The button itself reports commit state, driven purely by the session's
+  // tracked-file list: live "Commit N files" while edits remain, disabled
+  // "Nothing to commit" once empty. A successful commit forgets those files
+  // (main re-pushes session-meta), so the same button works repeatedly across a
+  // session — it re-enables as soon as the session edits again.
   const n = s.files.length;
-  sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Commit changes';
+  sessionCommitBtn.disabled = n === 0;
+  sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing to commit';
+  // The notice is now only for failures / revert results, kept per-session so
+  // switching sessions never carries a stale message over from another.
+  sessionCommitMsg.textContent = s.commitMsg || '';
+  sessionCommitMsg.className = 'git-msg ' + (s.commitMsgClass || '');
 }
 
 export function fit(s) {
@@ -138,11 +148,13 @@ function closeSession(id) {
 // --- session-bar buttons: commit / revert just this session's work ---
 sessionCommitBtn.onclick = async () => {
   if (!activeId) return;
-  sessionCommitMsg.textContent = '';
-  const r = await window.api.commitSession(activeId);
-  sessionCommitMsg.textContent = r.ok ? 'Committed' : (r.stderr || 'Commit failed');
-  sessionCommitMsg.className = 'git-msg ' + (r.ok ? 'ok' : 'err');
-  if (r.ok) setState(activeId, 'pushed');
+  const s = sessions.get(activeId);
+  s.commitMsg = '';
+  updateSessionBar();
+  const r = await window.api.commitSession(s.id);
+  if (r.ok) setState(s.id, 'pushed'); // the file list (→ button) is refreshed by the session-meta main re-pushes
+  else { s.commitMsg = r.stderr || 'Commit failed'; s.commitMsgClass = 'err'; }
+  if (activeId === s.id) updateSessionBar();
   refreshGit();};
 
 // Two-click revert: first click arms, second de-applies just this session's edits.
@@ -155,13 +167,16 @@ sessionRevertBtn.onclick = async () => {
   }
   sessionRevertBtn.classList.remove('armed');
   sessionRevertBtn.textContent = 'Revert';
-  sessionCommitMsg.textContent = '';
-  const r = await window.api.revertSession(activeId);
+  const s = sessions.get(activeId);
+  s.commitMsg = '';
+  updateSessionBar();
+  const r = await window.api.revertSession(s.id);
   const skipped = r.skipped && r.skipped.length;
-  sessionCommitMsg.textContent = !r.ok ? (r.stderr || 'Revert failed')
+  s.commitMsg = !r.ok ? (r.stderr || 'Revert failed')
     : skipped ? `Reverted; ${skipped} file${skipped > 1 ? 's' : ''} skipped (also edited by another session)`
     : 'Reverted';
-  sessionCommitMsg.className = 'git-msg ' + (r.ok && !skipped ? 'ok' : 'err');
+  s.commitMsgClass = r.ok && !skipped ? 'ok' : 'err';
+  if (activeId === s.id) updateSessionBar();
   refreshGit();};
 
 document.getElementById('new-session').onclick = newSession;

@@ -36,7 +36,8 @@
   background: var(--accent); color: #fff; border: none; border-radius: 4px;
   padding: 6px 12px; cursor: pointer; font-size: 12px;
 }
-#session-commit:hover { background: var(--accent-hi); }
+#session-commit:hover:not(:disabled) { background: var(--accent-hi); }
+#session-commit:disabled { background: var(--bg-3); color: var(--fg-dim); cursor: default; }
 #session-revert {
   background: transparent; color: var(--fg); border: 1px solid var(--border);
   border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 12px;
