@@ -372,6 +372,9 @@ searchInput.oninput = (e) => {
 function hideSessionViews() {
   for (const o of sessions.values()) o.container.style.display = 'none';
   emptyHint.style.display = 'none';
+  // The session bar (title + scoped commit/revert) belongs to the terminal, not
+  // to an opened file — hide it so a file view fully replaces the terminal.
+  sessionBar.style.display = 'none';
 }
 
 // Route a clicked git file: images/audio open the asset viewer, everything
