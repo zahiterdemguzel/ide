@@ -31,7 +31,7 @@ export async function showAsset(file, ext) {
   if (!r.ok) { assetBody.textContent = r.error || 'Could not read file'; return; }
   const dataUrl = `data:${r.mime};base64,${r.base64}`;
 
-  if (AUDIO_EXT.has(ext)) { renderAudio(dataUrl, r.base64, assetBody); return; }
+  if (AUDIO_EXT.has(ext)) { renderAudio(dataUrl, r.base64, assetBody, registerCleanup); return; }
 
   const img = new Image();
   // PNGs small enough to paint pixel-by-pixel get the editor; the rest, zoom.
