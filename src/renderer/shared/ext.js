@@ -16,7 +16,7 @@ const FILE_COLORS = {
   ts: '#4a9eff', tsx: '#4a9eff', py: '#4b8bbe', rb: '#d44', php: '#8892bf',
   java: '#b07219', kt: '#a97bff', go: '#00add8', rs: '#dea584', swift: '#f05138',
   c: '#a8b9cc', h: '#a8b9cc', cpp: '#f34b7d', cc: '#f34b7d', hpp: '#f34b7d', cs: '#5bb464',
-  html: '#e34c26', vue: '#41b883', css: '#9d7cd8', scss: '#c6538c', sass: '#c6538c',
+  html: '#ff5733', vue: '#41b883', css: '#9d7cd8', scss: '#c6538c', sass: '#c6538c',
   sh: '#89e051', bash: '#89e051', zsh: '#89e051', lua: '#7aa3ff', dart: '#00b4ab',
   md: '#7aa6da', json: '#f1e05a', yml: '#cb9a52', yaml: '#cb9a52', toml: '#cb9a52',
   // made-up family colors (no Linguist standard):
