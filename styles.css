@@ -16,6 +16,10 @@
 
 * { box-sizing: border-box; }
 
+/* UI chrome is not selectable; terminal output and form fields still are. */
+body { user-select: none; }
+.xterm, input, textarea { user-select: text; }
+
 /* Thin scrollbars that match the dark palette; overlay so they only show on hover/scroll. */
 * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -35,9 +39,15 @@ body {
 
 #app {
   display: grid;
-  grid-template-columns: 240px 1fr 300px;
+  grid-template-columns: var(--left, 240px) 5px minmax(0, 1fr) 5px var(--right, 300px);
   height: 100vh;
 }
+
+/* drag handles between panes (col = between columns, row = sidebar split) */
+.gutter { z-index: 5; }
+.gutter-col { cursor: col-resize; }
+.gutter-row { flex: none; height: 5px; cursor: row-resize; }
+.gutter:hover, .gutter.dragging { background: var(--accent-hi); }
 
 #sidebar, #git {
   background: var(--bg-2);
@@ -96,8 +106,9 @@ body {
   border-top: 1px solid var(--border); word-break: break-all;
 }
 
-/* sidebar split: sessions (top) + explorer (bottom), 50/50 */
-#sessions-pane, #files-pane { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+/* sidebar split: sessions (top, drag-resizable) + explorer (bottom fills rest) */
+#sessions-pane { flex: 0 0 var(--sess-h, 50%); min-height: 0; display: flex; flex-direction: column; }
+#files-pane { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 #files-pane { border-top: 1px solid var(--border); }
 
 /* file explorer tree */
