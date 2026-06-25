@@ -191,6 +191,60 @@ revertAllBtn.onclick = async () => {
   for (const it of unstagedFiles) await window.api.gitRevert({ file: it.file, untracked: it.status === '?' });
   refreshGit();};
 
+// --- file explorer (left, below sessions) ---
+// Lazy tree: each folder fetches its children the first time it's expanded.
+const fileTree = document.getElementById('file-tree');
+
+async function loadDir(rel, container, depth) {
+  const r = await window.api.listDir(rel);
+  container.innerHTML = '';
+  if (!r.ok) return;
+  for (const e of r.entries) {
+    const childRel = rel ? rel + '/' + e.name : e.name;
+    const row = document.createElement('div');
+    row.className = 'tree-row';
+    row.style.paddingLeft = (depth * 12 + 8) + 'px';
+    const twist = document.createElement('span');
+    twist.className = 'tree-twist';
+    twist.textContent = e.dir ? '▸' : '';
+    const name = document.createElement('span');
+    name.className = 'tree-name';
+    name.textContent = e.name;
+    name.title = e.name;
+    row.append(twist, name);
+    container.appendChild(row);
+
+    if (e.dir) {
+      const kids = document.createElement('div');
+      kids.style.display = 'none';
+      container.appendChild(kids);
+      let loaded = false;
+      row.onclick = async () => {
+        const open = kids.style.display === 'none';
+        kids.style.display = open ? 'block' : 'none';
+        twist.textContent = open ? '▾' : '▸';
+        if (open && !loaded) { loaded = true; await loadDir(childRel, kids, depth + 1); }
+      };
+    } else {
+      row.onclick = () => {
+        document.querySelectorAll('.tree-row.sel').forEach((x) => x.classList.remove('sel'));
+        row.classList.add('sel');
+        openFromTree(childRel);
+      };
+    }
+  }
+}
+
+// Reuse the media viewer for images/audio, the diff container for text.
+function openFromTree(file) {
+  const ext = extOf(file);
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext)) showAsset(file, ext);
+  else showFile(file);
+}
+
+function refreshTree() { loadDir('', fileTree, 0); }
+document.getElementById('files-refresh').onclick = refreshTree;
+
 // --- center overlays (diff / asset) over the terminal ---
 function hideSessionViews() {
   for (const o of sessions.values()) o.container.style.display = 'none';
@@ -254,6 +308,27 @@ function renderDiff(text) {
     else if (line.startsWith('-')) diffBody.appendChild(diffRow(oldNo++, '', 'del', line.slice(1)));
     else diffBody.appendChild(diffRow(oldNo++, newNo++, 'ctx', line.slice(1)));
   }
+}
+
+// Read-only file view for the explorer: reuse the diff container, render each
+// line with a single line-number gutter (no +/- colouring).
+async function showFile(file) {
+  const r = await window.api.readText(file);
+  document.getElementById('diff-file').textContent = file;
+  let text = r.ok ? r.text : (r.error || '(could not read)');
+  if (r.ok && text.includes(' ')) text = '(binary file)'; // ponytail: null-byte sniff is enough
+  renderText(text);
+  hideAsset();
+  hideSessionViews();
+  diffView.style.display = 'flex';
+}
+
+function renderText(text) {
+  diffBody.innerHTML = '';
+  // ponytail: cap render at 5000 lines; virtualize only if huge files matter
+  const lines = text.split('\n').slice(0, 5000);
+  let n = 1;
+  for (const line of lines) diffBody.appendChild(diffRow('', n++, '', line));
 }
 
 function closeOverlay() {

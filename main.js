@@ -233,7 +233,28 @@ ipcMain.handle('git-revert', (_e, { file, untracked }) => {
 });
 
 ipcMain.handle('git-commit', (_e, msg) => git(['commit', '-m', msg]));
+// Undo last commit, keep its changes staged. ponytail: soft reset, no HEAD~1 history rewrite beyond one.
+ipcMain.handle('git-undo', () => git(['reset', '--soft', 'HEAD~1']));
 ipcMain.handle('git-push', () => git(['push']));
+
+// List one directory level for the file explorer (lazy: children fetched on
+// expand). Folders first, then alphabetical — VS Code order. `.git` is hidden.
+ipcMain.handle('list-dir', (_e, rel) => {
+  try {
+    const dir = path.join(repoPath, rel || '');
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((d) => d.name !== '.git')
+      .map((d) => ({ name: d.name, dir: d.isDirectory() }))
+      .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+    return { ok: true, entries };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Read a repo-relative text file for the explorer's read-only viewer.
+ipcMain.handle('read-text', (_e, file) => {
+  try { return { ok: true, text: fs.readFileSync(path.join(repoPath, file), 'utf8') }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
 
 // Read/write a repo-relative binary asset as base64 for the viewer/editor.
 // Paths come from git porcelain (inside the repo), so no traversal guard.
