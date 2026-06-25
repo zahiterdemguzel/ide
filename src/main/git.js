@@ -6,9 +6,17 @@ const { runHaiku } = require('./claude');
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
 // is written to stdin (e.g. blob content for hash-object). 64M buffer for files.
+//
+// core.quotePath=false: emit non-ASCII paths verbatim instead of C-quoting them
+// (e.g. "\303\251.txt"), so the porcelain paths we parse round-trip back to add/diff.
+// GIT_TERMINAL_PROMPT=0: a remote that wants credentials with no helper would
+// otherwise block forever on a prompt we can't answer (no tty) — fail fast instead.
+// timeout: backstop so a stuck network op (push/pull/fetch) can't wedge the UI.
 function git(args, opts = {}) {
   return new Promise((resolve) => {
-    const child = execFile('git', args, { cwd: getRepoPath(), env: opts.env || process.env, maxBuffer: 64 * 1024 * 1024 },
+    const env = { ...(opts.env || process.env), GIT_TERMINAL_PROMPT: '0' };
+    const child = execFile('git', ['-c', 'core.quotePath=false', ...args],
+      { cwd: getRepoPath(), env, maxBuffer: 64 * 1024 * 1024, timeout: opts.timeout || 120000 },
       // git often reports failures on stdout (e.g. "nothing to commit"), so fall
       // back to stdout before err.message — otherwise the UI shows a bare "Command failed".
       (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && (stdout.trim() || err.message)) || '' }));
@@ -16,22 +24,29 @@ function git(args, opts = {}) {
   });
 }
 
+// Unmerged index states from `git status --porcelain` (both columns set).
+const CONFLICT = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
+
 async function gitStatus() {
   // --untracked-files=all: list each untracked file individually instead of
   // collapsing a wholly-untracked folder into one "assets/" entry (which the
   // pane can't open or stage per-file).
   const r = await git(['status', '--porcelain=v1', '--untracked-files=all']);
-  if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [] };
-  const staged = [], unstaged = [];
+  if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [], conflicts: [] };
+  const staged = [], unstaged = [], conflicts = [];
   for (const line of r.stdout.split('\n')) {
     if (!line) continue;
     const x = line[0], y = line[1];
     let file = line.slice(3);
     if (file.includes(' -> ')) file = file.split(' -> ')[1]; // rename
+    // Unmerged (conflicted) entries have both columns set in one of these pairs.
+    // They must NOT go into staged/unstaged — the +/− actions there would be wrong
+    // (and would list the file twice). Surface them separately so they're visible.
+    if (CONFLICT.has(x + y)) { conflicts.push({ status: x + y, file }); continue; }
     if (x !== ' ' && x !== '?') staged.push({ status: x, file });
     if (y !== ' ') unstaged.push({ status: y === '?' ? '?' : y, file });
   }
-  return { ok: true, staged, unstaged, repo: getRepoPath(), ahead: await aheadCount() };
+  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead: await aheadCount() };
 }
 
 // Commits on HEAD not yet on its upstream. Returns 0 when there is no upstream
@@ -92,7 +107,18 @@ ipcMain.handle('git-commit', async (_e, msg) => {
 });
 // Undo last commit, keep its changes staged. ponytail: soft reset, no HEAD~1 history rewrite beyond one.
 ipcMain.handle('git-undo', () => git(['reset', '--soft', 'HEAD~1']));
-ipcMain.handle('git-push', () => git(['push']));
+
+// Push. A branch with no upstream fails with "has no upstream branch"; retry once
+// with -u to create the tracking ref (the common first-push case) so the user
+// doesn't have to drop to a terminal.
+ipcMain.handle('git-push', async () => {
+  const r = await git(['push']);
+  if (r.ok) return r;
+  if (/no upstream|set-upstream|--set-upstream/i.test(r.stderr)) {
+    return git(['push', '-u', 'origin', 'HEAD']);
+  }
+  return r;
+});
 
 // --- history (History tab) ---
 // Recent commits for the History tab. Fields are unit-separator (\x1f) delimited,
@@ -119,6 +145,9 @@ ipcMain.handle('git-commit-diff', (_e, hash) => git(['show', '--format=', hash])
 // not rewrite history, so it's safe even on pushed commits.
 ipcMain.handle('git-revert-commit', (_e, hash) => git(['revert', '--no-edit', hash]));
 ipcMain.handle('git-fetch', () => git(['fetch']));
-ipcMain.handle('git-pull', () => git(['pull']));
+// Fast-forward only: a plain `git pull` that needs a merge would try to open an
+// editor (no tty → hang) or leave conflicts. --ff-only fails cleanly when the
+// branches diverged, and the user can hand the merge/conflict to a Claude session.
+ipcMain.handle('git-pull', () => git(['pull', '--ff-only']));
 
 module.exports = { git, gitStatus };

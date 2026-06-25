@@ -44,6 +44,8 @@
 .g-A { color: var(--green); }
 .g-D { color: var(--red); }
 .g-u { color: var(--green); }
+.g-conflict { color: var(--red); }
+.git-conflicts-title { color: var(--red); font-weight: 700; }
 .git-file { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; }
 .git-btn {
   background: none; border: 1px solid var(--border); color: var(--fg);

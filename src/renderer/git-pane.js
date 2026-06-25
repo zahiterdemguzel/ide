@@ -50,14 +50,20 @@ function gitItem(file, status, staged, action, label) {
       revert.title = 'Click again to discard — this cannot be undone';
       return;
     }
-    await window.api.gitRevert({ file, untracked: status === '?' });
+    const r = await window.api.gitRevert({ file, untracked: status === '?' });
+    if (r && !r.ok) showGitErrorDialog(r.stderr || 'Discard failed', 'Discard failed');
     refreshGit();
   };
 
   const btn = document.createElement('button');
   btn.className = 'git-btn';
   btn.textContent = label;
-  btn.onclick = async (e) => { e.stopPropagation(); await action(file); refreshGit(); };
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    const r = await action(file);
+    if (r && !r.ok) showGitErrorDialog(r.stderr || 'Operation failed', label === '+' ? 'Stage failed' : 'Unstage failed');
+    refreshGit();
+  };
 
   li.append(st, name, revert, btn);
   return li;
@@ -68,14 +74,51 @@ export async function refreshGit() {
   if (r.repo) window.api.setWindowTitle(r.repo);
   stagedEl.innerHTML = '';
   unstagedEl.innerHTML = '';
-  if (!r.ok) return;
+  conflictsEl.innerHTML = '';
+  if (!r.ok) { conflictsSection.hidden = true; return; }
   const aheadEl = document.getElementById('git-ahead');
   aheadEl.textContent = r.ahead;
   aheadEl.hidden = !r.ahead;
   unstagedFiles = r.unstaged;
   revertAllBtn.classList.remove('armed');
+  // Conflicted files can't be staged/discarded by the +/− actions; show them in
+  // their own section. Staging a resolved file is done after the user (or a Claude
+  // session) edits it — it then moves out of conflicts on the next refresh.
+  const conflicts = r.conflicts || [];
+  conflictsSection.hidden = !conflicts.length;
+  for (const it of conflicts) conflictsEl.appendChild(conflictItem(it.file, it.status));
   for (const it of r.staged) stagedEl.appendChild(gitItem(it.file, it.status, true, window.api.gitUnstage, '−'));
   for (const it of r.unstaged) unstagedEl.appendChild(gitItem(it.file, it.status, false, window.api.gitStage, '+'));
+}
+
+const conflictsSection = document.getElementById('conflicts-section');
+const conflictsEl = document.getElementById('conflicts-list');
+
+// A conflicted file: click to view its diff, "+" to mark resolved (git add) once
+// the markers are sorted out. No discard here — resolving is a deliberate edit.
+function conflictItem(file, status) {
+  const li = document.createElement('li');
+  li.onclick = () => openGitFile(file, status, false);
+  const st = document.createElement('span');
+  st.className = 'git-status g-conflict';
+  st.textContent = '!';
+  st.title = 'Conflict (' + status + ')';
+  const name = document.createElement('span');
+  name.className = 'git-file';
+  name.textContent = shortenPath(file);
+  name.title = file;
+  const btn = document.createElement('button');
+  btn.className = 'git-btn';
+  btn.textContent = '✓';
+  btn.title = 'Mark resolved (stage)';
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    const r = await window.api.gitStage(file);
+    if (r && !r.ok) showGitErrorDialog(r.stderr || 'Stage failed', 'Resolve failed');
+    refreshGit();
+  };
+  li.append(st, name, btn);
+  return li;
 }
 
 // "Changes" header buttons: stage / discard every unstaged file at once.
