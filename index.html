@@ -25,7 +25,11 @@
       <div id="gutter-sess" class="gutter gutter-row" title="Drag to resize"></div>
       <div id="files-pane">
         <div class="pane-head">
-          <span class="pane-head-left">EXPLORER <button id="files-collapse" title="Collapse all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 11-5-5-5 5"/><path d="m17 18-5-5-5 5"/></svg></button></span><button id="files-refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg></button>
+          <span class="pane-head-left">EXPLORER</span>
+          <span class="pane-head-actions">
+            <button id="files-collapse" title="Collapse all">−</button>
+            <button id="files-refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg></button>
+          </span>
         </div>
         <input id="file-search" type="search" placeholder="Search files…" />
         <div id="file-tree"></div>
@@ -111,8 +115,8 @@
       <div id="gutter-console" class="gutter gutter-row" title="Drag to resize"></div>
 
       <div id="git-console">
-        <div class="pane-head" id="console-head">
-          <span class="pane-head-label">TERMINAL</span>
+        <div class="pane-head" id="console-title">TERMINAL</div>
+        <div id="console-head">
           <div id="term-tabs"></div>
           <div id="term-tools">
             <button id="term-clear" title="Clear terminal">Clear</button>

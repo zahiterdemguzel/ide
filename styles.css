@@ -256,9 +256,8 @@ body {
   padding: 6px 12px; cursor: pointer; font-size: 12px;
   transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
 }
-#session-commit:hover:not(:disabled) { background: var(--accent-hi); box-shadow: var(--shadow-1); }
-#session-commit:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
-#session-commit:disabled { background: var(--bg-3); color: var(--fg-dim); cursor: default; }
+#session-commit:hover { background: var(--accent-hi); box-shadow: var(--shadow-1); }
+#session-commit:active { transform: translateY(1px); box-shadow: none; }
 #session-revert {
   background: transparent; color: var(--fg); border: 1px solid var(--border);
   border-radius: var(--r); padding: 6px 12px; cursor: pointer; font-size: 12px;
@@ -385,7 +384,7 @@ body {
 
 /* git pane */
 .git-section-title {
-  padding: 6px 12px; font-size: 9px; color: var(--fg-dim);
+  padding: 6px 12px; font-size: 11px; color: var(--fg-dim);
   text-transform: uppercase; letter-spacing: .06em; font-weight: 600;
 }
 .git-head-row { display: flex; align-items: center; justify-content: space-between; }

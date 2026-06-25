@@ -650,7 +650,7 @@ const consoles = new Map(); // id -> pty
 function availableShells() {
   if (process.platform === 'win32') {
     return [
-      { name: 'ps', path: 'powershell.exe' },
+      { name: 'powershell', path: 'powershell.exe' },
       { name: 'cmd', path: process.env.COMSPEC || 'cmd.exe' },
     ];
   }
