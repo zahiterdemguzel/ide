@@ -23,7 +23,8 @@
       "output": "dist"
     },
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "assets/icon.png"
     }
   },
   "dependencies": {
