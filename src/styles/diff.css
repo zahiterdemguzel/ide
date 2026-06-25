@@ -59,3 +59,6 @@
 .diff-row.ctx .diff-code::before { content: ' '; margin-left: -8px; padding-right: 4px; }
 .diff-row.hunk { color: var(--accent-hi); background: var(--bg-3); }
 .diff-row.hunk .diff-ln { background: var(--bg-3); }
+/* per-file header in a multi-file commit patch (History tab) */
+.diff-row.file { background: var(--bg-2); border-top: 1px solid var(--border); font-weight: 600; }
+.diff-row.file .diff-code { padding: 4px 12px; color: var(--fg); }

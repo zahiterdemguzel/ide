@@ -1,4 +1,4 @@
-import { openGitFile } from './viewer/center.js';
+import { openGitFile, openCommit } from './viewer/center.js';
 
 // --- git pane ---
 const stagedEl = document.getElementById('staged-list');
@@ -96,6 +96,71 @@ revertAllBtn.onclick = async () => {
   for (const it of unstagedFiles) await window.api.gitRevert({ file: it.file, untracked: it.status === '?' });
   refreshGit();};
 
+// --- tabs: Changes / History ---
+const gitTabs = document.getElementById('git-tabs');
+const changesView = document.getElementById('git-changes-view');
+const historyView = document.getElementById('git-history-view');
+const historyEl = document.getElementById('history-list');
+
+gitTabs.querySelectorAll('.git-tab').forEach((tab) => {
+  tab.onclick = () => {
+    gitTabs.querySelectorAll('.git-tab').forEach((t) => t.classList.toggle('active', t === tab));
+    const history = tab.dataset.tab === 'history';
+    changesView.hidden = history;
+    historyView.hidden = !history;
+    if (history) refreshHistory();
+  };
+});
+
+// rotate-ccw icon (same glyph the discard buttons use)
+const REVERT_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+
+function commitItem(c) {
+  const li = document.createElement('li');
+  li.className = 'commit-item';
+  li.onclick = () => openCommit(c.hash, c.subject);
+
+  const main = document.createElement('div');
+  main.className = 'commit-main';
+  const subject = document.createElement('div');
+  subject.className = 'commit-subject';
+  subject.textContent = c.subject;
+  subject.title = c.subject;
+  const meta = document.createElement('div');
+  meta.className = 'commit-meta';
+  meta.textContent = `${c.short} · ${c.author} · ${c.relDate}`;
+  main.append(subject, meta);
+
+  // Two-click revert: first click arms (red), second creates the revert commit.
+  const revert = document.createElement('button');
+  revert.className = 'git-btn git-revert';
+  revert.innerHTML = REVERT_SVG;
+  revert.title = 'Revert this commit';
+  revert.onclick = async (e) => {
+    e.stopPropagation();
+    if (!revert.classList.contains('armed')) {
+      revert.classList.add('armed');
+      li.classList.add('warn');
+      revert.title = 'Click again to revert this commit';
+      return;
+    }
+    const r = await window.api.gitRevertCommit(c.hash);
+    if (!r.ok) showGitErrorDialog(r.stderr || 'Revert failed', 'Revert failed');
+    refreshHistory();
+    refreshGit();
+  };
+
+  li.append(main, revert);
+  return li;
+}
+
+export async function refreshHistory() {
+  const r = await window.api.gitLog();
+  historyEl.innerHTML = '';
+  if (!r.ok) return;
+  for (const c of r.commits) historyEl.appendChild(commitItem(c));
+}
+
 // --- commit / undo / push ---
 const gitMsgEl = document.getElementById('git-msg');
 function showGitMsg(text, ok) {
@@ -103,7 +168,8 @@ function showGitMsg(text, ok) {
   gitMsgEl.className = 'git-msg ' + (ok ? 'ok' : 'err');
 }
 
-function showGitErrorDialog(message) {
+function showGitErrorDialog(message, title = 'Push failed') {
+  document.getElementById('git-error-title').textContent = title;
   document.getElementById('git-error-msg').textContent = message;
   document.getElementById('git-error-dialog').showModal();
 }
@@ -138,11 +204,11 @@ commitBtn.onclick = async () => {
   } else {
     showGitMsg(r.stderr || 'Commit failed', false);
   }
-  refreshGit();};
+  refreshGit(); refreshHistory();};
 document.getElementById('git-undo').onclick = async () => {
   const r = await window.api.gitUndo();
   showGitMsg(r.ok ? 'Last commit undone' : (r.stderr || 'Undo failed'), r.ok);
-  refreshGit();};
+  refreshGit(); refreshHistory();};
 const pushBtn = document.getElementById('git-push');
 pushBtn.onclick = async () => {
   const aheadEl = document.getElementById('git-ahead');

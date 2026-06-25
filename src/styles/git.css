@@ -7,6 +7,32 @@
 .git-head-actions { display: flex; gap: 8px; }
 .git-head-actions .git-btn { visibility: visible; }
 
+/* Changes / History tabs (mirrors the session filter tabs) */
+.git-tabs { display: flex; gap: 4px; padding: 6px 12px 8px; }
+.git-tab {
+  flex: 1; text-align: center; padding: 3px 8px; background: none;
+  border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+  color: var(--fg-dim); font-size: 11px; line-height: 1.4;
+}
+.git-tab:hover { color: var(--fg); }
+.git-tab.active { color: var(--fg); border-color: var(--accent); background: var(--accent-hi); }
+
+/* Each tab's body fills the pane; the commit box pins to the bottom of Changes. */
+#git-changes-view, #git-history-view {
+  flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
+}
+#git-history-view[hidden], #git-changes-view[hidden] { display: none; }
+#history-list { flex: 1; max-height: none; }
+
+/* history commit rows */
+.commit-item { align-items: flex-start; }
+.commit-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-meta {
+  font-size: 10.5px; color: var(--fg-dim); font-family: Consolas, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 .git-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 40vh; }
 .git-list li {
   display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer;

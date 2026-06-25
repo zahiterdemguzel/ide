@@ -15,4 +15,7 @@ module.exports = {
   gitPush: () => ipcRenderer.invoke('git-push'),
   gitFetch: () => ipcRenderer.invoke('git-fetch'),
   gitPull: () => ipcRenderer.invoke('git-pull'),
+  gitLog: () => ipcRenderer.invoke('git-log'),
+  gitCommitDiff: (hash) => ipcRenderer.invoke('git-commit-diff', hash),
+  gitRevertCommit: (hash) => ipcRenderer.invoke('git-revert-commit', hash),
 };

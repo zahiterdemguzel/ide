@@ -1,6 +1,6 @@
 import { IMG_EXT, AUDIO_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
-import { showDiff } from './diff.js';
+import { showDiff, showCommit } from './diff.js';
 import { showFile } from './file.js';
 import { showAsset, hideAsset } from './asset/index.js';
 import { showWeb as showWebView, hideWeb } from './web.js';
@@ -45,6 +45,9 @@ export function openGitFile(file, status, staged) {
   if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext)) showAsset(file, ext);
   else showDiff(file, status, staged);
 }
+
+// Open a historical commit's patch (History tab) in the diff overlay.
+export function openCommit(hash, subject) { clearCenter(); showCommit(hash, subject); }
 
 export function showWeb(url) { clearCenter(); showWebView(url); }
 
