@@ -9,14 +9,16 @@
   display: inline-flex; align-items: center; gap: 4px; flex: none;
   max-width: 160px; padding: 2px 4px 2px 8px; border: 1px solid var(--border);
   border-radius: 4px; cursor: pointer; color: var(--fg-dim);
-  font-size: 11px; text-transform: none; letter-spacing: 0; background: none;
+  font-size: 12.5px; text-transform: none; letter-spacing: 0; background: none;
 }
 .term-tab:hover { color: var(--fg); }
 .term-tab.active { color: var(--fg); border-color: var(--accent); background: var(--accent-hi, #2a2d2e); }
 .term-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-tab-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; flex: none;
   background: none; border: none; color: inherit; cursor: pointer;
-  font-size: 13px; line-height: 1; padding: 0 2px; opacity: .6; border-radius: 3px;
+  font-size: 16px; line-height: 1; padding: 0; opacity: .6; border-radius: 3px;
 }
 .term-tab-close:hover { opacity: 1; background: rgba(255,255,255,.12); }
 
