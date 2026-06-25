@@ -21,11 +21,20 @@ function runButton(kind, name, compound) {
     b.classList.add('busy');
     const r = await window.api.runConfig({ kind, name });
     b.classList.remove('busy');
-    if (!r || !r.ok) { console.error('run-config failed:', (r && r.error) || 'unknown'); return; }
+    if (!r || !r.ok) { showRunError((r && r.error) || 'Unknown error while resolving this config.'); return; }
     for (const spec of (r.runs || [])) await runSpecInConsole(spec);
   };
   return b;
 }
+
+// A config the app can't translate into a terminal command (e.g. a browser/attach
+// launch config) surfaces here instead of failing silently in the dev console.
+function showRunError(message) {
+  document.getElementById('run-error-msg').textContent = message;
+  document.getElementById('run-error-dialog').showModal();
+}
+document.getElementById('run-error-ok').onclick = () =>
+  document.getElementById('run-error-dialog').close();
 
 // Main watches .vscode/launch.json + tasks.json and pushes this when either
 // changes (created/edited/deleted), so the buttons track the files live.
