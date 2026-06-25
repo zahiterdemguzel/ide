@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-An Electron desktop app for running and monitoring multiple interactive `claude` CLI sessions side by side. Three columns: the left split 50/50 between a session list (top, colored status dots) and a file-tree explorer (bottom); the selected session's live terminal (center); and a git manager — stage/unstage/commit/push for one shared repo (right).
+An Electron desktop app for running and monitoring multiple interactive `claude` CLI sessions side by side. A top run toolbar spans the full width (a button per `.vscode/launch.json` config + per `tasks.json` task, each opening an external terminal). Below it, three columns: the left split 50/50 between a session list (top, colored status dots) and a file-tree explorer (bottom); the selected session's live terminal (center); and a git manager — stage/unstage/commit/push for one shared repo (right).
 
 ## Commands
 

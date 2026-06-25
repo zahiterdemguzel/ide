@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('api', {
   openExternal: (target) => ipcRenderer.invoke('open-external', target),
   readAsset: (file) => ipcRenderer.invoke('read-asset', file),
   writeAsset: (file, base64) => ipcRenderer.invoke('write-asset', { file, base64 }),
+  getRunConfigs: () => ipcRenderer.invoke('get-run-configs'),
+  runConfig: (args) => ipcRenderer.invoke('run-config', args),
   commitSession: (id) => ipcRenderer.invoke('commit-session', id),
   onSessionMeta: (cb) => ipcRenderer.on('session-meta', (_e, msg) => cb(msg)),
   onSessionName: (cb) => ipcRenderer.on('session-name', (_e, msg) => cb(msg)),

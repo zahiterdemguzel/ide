@@ -59,6 +59,19 @@ Binary assets have no meaningful text diff, so clicking one in the git pane open
 
 `data:` URLs for `<img>`/`<audio>` require the CSP in `index.html` to allow `img-src`/`media-src 'self' data:`.
 
+## Run toolbar
+
+The native Electron application menu is removed (`Menu.setApplicationMenu(null)` in `main.js`); a full-width **run toolbar** (`#toolbar`) sits at the very top of the window instead (`body` is a flex column: toolbar then the `#app` grid). It surfaces VS Code run configs as buttons: **one per launch config** (`.vscode/launch.json`), a separator, then **one per task** (`.vscode/tasks.json`). Clicking a button opens an **external terminal** running that config/task — there is no in-process debugger.
+
+`main.js` parses both files as **JSONC** (`parseJsonc()` strips `//` and `/* */` comments outside strings, then trailing commas, then `JSON.parse`). `get-run-configs` returns the launch names (configs + compounds) and task labels for the toolbar; `run-config({kind, name})` **re-reads** the file each time (so edits are picked up), finds the entry by name, and builds a command line:
+
+- **Launch** (`buildLaunchCommand`): `node`/`python` types map to `node`/`python <program> <args>` (honouring `runtimeExecutable`/`runtimeArgs`); anything with a `runtimeExecutable` or bare `program` falls back to running that. A **compound** opens one terminal per referenced configuration.
+- **Task** (`buildTaskCommand`): the `command` (verbatim for `shell` tasks, which may be a whole command line) followed by its quoted `args`.
+
+`substVars()` resolves the editor-free VS Code variables (`${workspaceFolder}`, `${workspaceFolderBasename}`, `${workspaceRoot}`, `${cwd}`, `${pathSeparator}`, `${env:NAME}`); other `${…}` placeholders are left as-is (best effort). `cwd`/`env` come from the launch config or the task's `options`.
+
+`openTerminal(command, cwd, env, title)` spawns a new OS terminal window that stays open. On Windows it writes a temp `.cmd` (`cd /d`, `set` each env var, then the command) and launches it with `start "" cmd /k <bat>` — this sidesteps `cmd`/`start` quoting and `cmd /k` keeps the window up. macOS uses `osascript` → Terminal `do script`; Linux uses `$TERMINAL`/`x-terminal-emulator -e`. The renderer rebuilds the toolbar (`loadToolbar()`) on startup and after **Open folder**.
+
 ## Resizable panes
 
 Four drag-gutters (`.gutter` divs in `index.html`) let the user resize, **not reorder**, the panes. The column layout is a CSS grid whose left/right tracks are the vars `--left`/`--right` on `#app` (`grid-template-columns: var(--left) 5px minmax(0,1fr) 5px var(--right)`); the center is the remaining `1fr`. The sidebar split is the var `--sess-h` on `#sidebar` (`#sessions-pane`'s flex-basis; `#files-pane` takes the rest). The git pane is itself split vertically: `#git-main` (status/commit) fills the top and `#git-console` takes a `--console-h` flex-basis at the bottom (default `33%`); see [Git-pane console](#git-pane-console).

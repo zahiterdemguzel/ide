@@ -1,0 +1,19 @@
+{
+  // Tasks surfaced as buttons in the app's top toolbar (right of the launch
+  // configs, after the separator). Each one opens an external terminal.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install deps",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "Start app",
+      "type": "shell",
+      "command": "npm start",
+      "options": { "cwd": "${workspaceFolder}" }
+    }
+  ]
+}

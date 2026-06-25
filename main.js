@@ -1,9 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const http = require('http');
-const { execFile, execFileSync } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
 const crypto = require('crypto');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 
@@ -189,6 +189,158 @@ function startHookServer() {
   });
   server.listen(0, '127.0.0.1', () => { hookPort = server.address().port; });
 }
+
+// --- VS Code run configs (.vscode/launch.json + tasks.json) ---
+// We don't run a real debugger; each launch config / task is translated into a
+// shell command and opened in a NEW external terminal window (see openTerminal).
+
+// Parse JSONC (VS Code config files allow // and /* */ comments and trailing
+// commas). Strip comments outside of strings, drop trailing commas, JSON.parse.
+function parseJsonc(text) {
+  let out = '', inStr = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i], c2 = text[i + 1];
+    if (inStr) {
+      out += c;
+      if (c === '\\') { out += c2 ?? ''; i++; continue; }
+      if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; out += c; continue; }
+    if (c === '/' && c2 === '/') { while (i < text.length && text[i] !== '\n') i++; out += '\n'; continue; }
+    if (c === '/' && c2 === '*') { i += 2; while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++; i++; continue; }
+    out += c;
+  }
+  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'));
+}
+
+function readVscodeJson(name) {
+  try { return parseJsonc(fs.readFileSync(path.join(repoPath, '.vscode', name), 'utf8')); }
+  catch { return null; }
+}
+
+// Resolve the VS Code variables we can without a live editor context. Unknown
+// ${...} placeholders (e.g. ${file}) are left untouched — best effort.
+function substVars(str) {
+  if (typeof str !== 'string') return str;
+  return str
+    .replace(/\$\{workspaceFolder(?:Basename)?\}/g, (m) => m.includes('Basename') ? path.basename(repoPath) : repoPath)
+    .replace(/\$\{workspaceRoot\}/g, repoPath)
+    .replace(/\$\{cwd\}/g, repoPath)
+    .replace(/\$\{pathSeparator\}/g, path.sep)
+    .replace(/\$\{env:([^}]+)\}/g, (_, n) => process.env[n] || '');
+}
+
+const quoteArg = (a) => { a = String(a); return /\s/.test(a) ? `"${a}"` : a; };
+function envMap(env) {
+  const out = {};
+  for (const [k, v] of Object.entries(env || {})) out[k] = substVars(String(v));
+  return out;
+}
+
+// Turn a launch config into a runnable command line. Covers the common node /
+// python cases plus a generic runtimeExecutable/program fallback; returns null
+// when there's nothing executable to derive.
+function buildLaunchCommand(cfg) {
+  const program = cfg.program ? substVars(cfg.program) : '';
+  const args = (cfg.args || []).map(substVars);
+  const runExe = cfg.runtimeExecutable ? substVars(cfg.runtimeExecutable) : '';
+  const runArgs = (cfg.runtimeArgs || []).map(substVars);
+  const type = (cfg.type || '').toLowerCase();
+  let parts;
+  if (type.includes('node')) parts = [runExe || 'node', ...runArgs, program, ...args];
+  else if (type.includes('python') || type === 'debugpy') parts = [runExe || 'python', ...runArgs, program, ...args];
+  else if (runExe) parts = [runExe, ...runArgs, program, ...args];
+  else if (program) parts = [program, ...args];
+  else return null;
+  return parts.filter((p) => p !== '' && p != null).map(quoteArg).join(' ');
+}
+
+// Turn a task into a command line: `command` (verbatim for shell tasks, which may
+// be a full line) followed by its quoted args. Returns null with no command.
+function buildTaskCommand(task) {
+  let command = task.command;
+  if (command && typeof command === 'object') command = command.value;
+  command = substVars(command || '');
+  if (!command) return null;
+  const args = (task.args || []).map((a) => substVars(typeof a === 'object' ? (a.value ?? '') : a));
+  if (task.type === 'process') return [command, ...args].map(quoteArg).join(' ');
+  return [command, ...args.map(quoteArg)].join(' '); // shell task: command stays verbatim
+}
+
+// Open `command` in a NEW external terminal window that stays open afterwards.
+// On Windows we write a temp .cmd (cwd + env + the command) and launch it via
+// `start "" cmd /k <bat>` — sidesteps cmd/start quoting and keeps the window up.
+function openTerminal(command, cwd, env, title) {
+  cwd = cwd || repoPath;
+  try {
+    if (process.platform === 'win32') {
+      const bat = path.join(os.tmpdir(), `ide-run-${crypto.randomUUID()}.cmd`);
+      const lines = ['@echo off', `title ${String(title || 'Run').replace(/[<>|&^%]/g, ' ')}`, `cd /d "${cwd}"`];
+      for (const [k, v] of Object.entries(env || {})) lines.push(`set "${k}=${v}"`);
+      lines.push(command);
+      fs.writeFileSync(bat, lines.join('\r\n'));
+      const child = spawn('cmd.exe', ['/c', 'start', '', 'cmd', '/k', bat], { cwd, detached: true, stdio: 'ignore' });
+      child.unref();
+    } else if (process.platform === 'darwin') {
+      const script = `cd ${JSON.stringify(cwd)}\n` + Object.entries(env || {}).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`).join('\n') + `\n${command}`;
+      spawn('osascript', ['-e', `tell application "Terminal" to do script ${JSON.stringify(script)}`], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      const term = process.env.TERMINAL || 'x-terminal-emulator';
+      spawn(term, ['-e', `bash -lc ${JSON.stringify(command + '; exec bash')}`], { cwd, env: { ...process.env, ...env }, detached: true, stdio: 'ignore' }).unref();
+    }
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e) }; }
+}
+
+function runLaunchCfg(cfg) {
+  const cmd = buildLaunchCommand(cfg);
+  if (!cmd) return { ok: false, error: 'Could not derive a run command for this config' };
+  return openTerminal(cmd, cfg.cwd ? substVars(cfg.cwd) : repoPath, envMap(cfg.env), cfg.name);
+}
+
+// Names for the toolbar: launch configs + compounds, then task labels.
+ipcMain.handle('get-run-configs', () => {
+  const launch = readVscodeJson('launch.json');
+  const tasks = readVscodeJson('tasks.json');
+  const launchList = [];
+  if (launch) {
+    for (const c of (launch.configurations || [])) if (c && c.name) launchList.push({ name: c.name });
+    for (const c of (launch.compounds || [])) if (c && c.name) launchList.push({ name: c.name, compound: true });
+  }
+  const taskList = [];
+  if (tasks) for (const t of (tasks.tasks || [])) { const n = t && (t.label || t.taskName); if (n) taskList.push({ name: n }); }
+  return { launch: launchList, tasks: taskList };
+});
+
+// Run one config/task by name (re-reads the files so edits are always picked up).
+// A compound opens one terminal per referenced configuration.
+ipcMain.handle('run-config', (_e, { kind, name }) => {
+  if (kind === 'task') {
+    const tasks = readVscodeJson('tasks.json');
+    const t = (tasks && tasks.tasks || []).find((x) => (x.label || x.taskName) === name);
+    if (!t) return { ok: false, error: 'Task not found' };
+    const cmd = buildTaskCommand(t);
+    if (!cmd) return { ok: false, error: 'Task has no command' };
+    const opt = t.options || {};
+    return openTerminal(cmd, opt.cwd ? substVars(opt.cwd) : repoPath, envMap(opt.env), name);
+  }
+  const launch = readVscodeJson('launch.json');
+  if (!launch) return { ok: false, error: 'No launch.json' };
+  const compound = (launch.compounds || []).find((c) => c.name === name);
+  if (compound) {
+    let any = false;
+    for (const ref of (compound.configurations || [])) {
+      const refName = typeof ref === 'object' ? ref.name : ref;
+      const cfg = (launch.configurations || []).find((c) => c.name === refName);
+      if (cfg) { runLaunchCfg(cfg); any = true; }
+    }
+    return any ? { ok: true } : { ok: false, error: 'Compound references no known configs' };
+  }
+  const cfg = (launch.configurations || []).find((c) => c.name === name);
+  if (!cfg) return { ok: false, error: 'Config not found' };
+  return runLaunchCfg(cfg);
+});
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
@@ -549,6 +701,7 @@ process.on('uncaughtException', (err) => console.error('[main uncaught]', err));
 process.on('unhandledRejection', (err) => console.error('[main unhandledRejection]', err));
 
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null); // no native File/Edit/View menu — the in-app run toolbar replaces it
   startHookServer();
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
