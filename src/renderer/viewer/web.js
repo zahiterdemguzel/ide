@@ -6,7 +6,14 @@ const webView = document.getElementById('web-view');
 const webFrame = document.getElementById('web-frame');
 const webUrlEl = document.getElementById('web-url');
 
-export function hideWeb() { webView.style.display = 'none'; webFrame.src = 'about:blank'; }
+export function hideWeb() {
+  webView.style.display = 'none';
+  // Only unload a real page. Re-navigating an already-blank webview to
+  // about:blank makes Electron abort the duplicate navigation and log a noisy
+  // ERR_ABORTED — which fires on every session switch, since hideAllOverlays()
+  // calls this even when no page was ever opened.
+  if (webFrame.src && webFrame.src !== 'about:blank') webFrame.src = 'about:blank';
+}
 
 export function showWeb(url) {
   webUrlEl.textContent = url;
