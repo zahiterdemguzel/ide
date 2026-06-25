@@ -95,6 +95,20 @@ ipcMain.handle('read-text', (_e, file) => {
   catch (e) { return { ok: false, error: e.message }; }
 });
 
+// Write a repo-relative text file from the in-app editor.
+ipcMain.handle('write-text', (_e, { file, text }) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, file);
+    const rel = path.relative(repoPath, abs);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+      return { ok: false, error: 'Invalid path' };
+    }
+    fs.writeFileSync(abs, text, 'utf8');
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 // Resolve a path the user Ctrl+clicked in the terminal. Absolute paths are used
 // as-is; bare ones resolve against the session cwd (= repoPath). Reports whether
 // it exists, is a file, and sits inside the repo — the renderer routes in-repo

@@ -1,25 +1,83 @@
 import { diffBody, setDiffTitle, showDiffContainer } from './code-render.js';
 import { langFor, hlLines } from '../shared/highlight.js';
 
-// Read-only file view for the explorer: reuse the diff container, render each
-// line with a single line-number gutter (no +/- colouring). `jump`
-// (optional { line, term }) scrolls to that line and marks the matched word.
-// Peer overlays / session terminals are hidden by the center coordinator first.
+let currentFile = null;
+let currentText = '';
+let editMode = false;
+
+const editBtn = document.getElementById('diff-edit');
+const saveBtn = document.getElementById('diff-save');
+
+// Show a file from the explorer. `jump` (optional { line, term }) scrolls to
+// that line and marks the matched word. Resets any active edit mode.
 export async function showFile(file, jump) {
   const r = await window.api.readText(file);
+  currentFile = file;
   setDiffTitle(file);
   let text = r.ok ? r.text : (r.error || '(could not read)');
   let lang = langFor(file);
-  if (!r.ok || text.includes('\\u0000')) {   // can't highlight an error or binary
-    if (r.ok) text = '(binary file)';         // ponytail: null-byte sniff is enough
+  const isBinary = r.ok && text.indexOf('\x00') !== -1;
+  const canEdit = r.ok && !isBinary;
+  if (!canEdit) {
+    if (r.ok) text = '(binary file)';
     lang = null;
   }
+  currentText = text;
+  editMode = false;
+  editBtn.hidden = !canEdit;
+  saveBtn.hidden = true;
   renderText(text, lang);
   showDiffContainer();
   if (jump) jumpToLine(jump.line, jump.term);
 }
 
-// Scroll a reference hit into view and visually mark the matched word inside it.
+// Hide edit/save buttons — called by center when showing a diff instead of a file.
+export function hideFileButtons() {
+  editBtn.hidden = true;
+  saveBtn.hidden = true;
+  editMode = false;
+  currentFile = null;
+}
+
+editBtn.addEventListener('click', () => {
+  editMode = true;
+  editBtn.hidden = true;
+  saveBtn.hidden = false;
+  diffBody.innerHTML = '';
+  const ta = document.createElement('textarea');
+  ta.id = 'file-edit-area';
+  ta.value = currentText;
+  ta.spellcheck = false;
+  diffBody.appendChild(ta);
+  ta.focus();
+});
+
+saveBtn.addEventListener('click', () => saveFile());
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's' && editMode && currentFile) {
+    e.preventDefault();
+    saveFile();
+  }
+});
+
+async function saveFile() {
+  if (!currentFile || !editMode) return;
+  const ta = document.getElementById('file-edit-area');
+  if (!ta) return;
+  const text = ta.value;
+  const r = await window.api.writeText(currentFile, text);
+  if (!r.ok) {
+    console.error('Save failed:', r.error);
+    return;
+  }
+  currentText = text;
+  editMode = false;
+  editBtn.hidden = false;
+  saveBtn.hidden = true;
+  renderText(text, langFor(currentFile));
+}
+
 function jumpToLine(line, term) {
   const row = diffBody.children[(line || 1) - 1];
   if (!row) return;
@@ -28,8 +86,6 @@ function jumpToLine(line, term) {
   row.scrollIntoView({ block: 'center' });
 }
 
-// Wrap each case-insensitive occurrence of `term` in <mark>, walking text nodes
-// so we don't disturb hljs's existing <span> structure.
 function markTerm(el, term) {
   if (!el || !term) return;
   const needle = term.toLowerCase();
@@ -58,7 +114,6 @@ function renderText(text, lang) {
   diffBody.innerHTML = '';
   // ponytail: cap render at 5000 lines; virtualize only if huge files matter
   const lines = text.split('\n').slice(0, 5000);
-  // Known extension -> that grammar; null lang -> hlLines auto-detects.
   const hl = hlLines(lines.join('\n'), lang);
   let n = 1;
   for (let i = 0; i < lines.length; i++) {

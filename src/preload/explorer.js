@@ -8,6 +8,7 @@ module.exports = {
   searchNames: (q) => ipcRenderer.invoke('search-names', q),
   searchRefs: (q) => ipcRenderer.invoke('search-refs', q),
   readText: (file) => ipcRenderer.invoke('read-text', file),
+  writeText: (file, text) => ipcRenderer.invoke('write-text', { file, text }),
   resolveLinkPath: (raw) => ipcRenderer.invoke('resolve-link-path', raw),
   openExternal: (target) => ipcRenderer.invoke('open-external', target),
   readAsset: (file) => ipcRenderer.invoke('read-asset', file),
