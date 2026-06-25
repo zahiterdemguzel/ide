@@ -1,7 +1,7 @@
 import { IMG_EXT, AUDIO_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
 import { showDiff } from './diff.js';
-import { showFile, hideFileButtons } from './file.js';
+import { showFile } from './file.js';
 import { showAsset, hideAsset } from './asset/index.js';
 import { showWeb as showWebView, hideWeb } from './web.js';
 
@@ -41,7 +41,6 @@ export function openFromTree(file, jump) {
 // Route a clicked git row: images/audio → asset viewer, everything else → diff.
 export function openGitFile(file, status, staged) {
   clearCenter();
-  hideFileButtons();
   const ext = extOf(file);
   if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext)) showAsset(file, ext);
   else showDiff(file, status, staged);
