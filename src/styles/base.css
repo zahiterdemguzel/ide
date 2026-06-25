@@ -38,3 +38,33 @@ body {
   display: flex;
   flex-direction: column;
 }
+
+/* Modal text prompt (shared/prompt.js) */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: #1b2838; border: 1px solid var(--border); border-radius: 6px;
+  padding: 16px; width: 320px; max-width: 90vw;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+.modal-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+.modal-label { font-size: 11px; color: var(--fg-dim); margin-bottom: 4px; }
+.modal-input {
+  width: 100%; box-sizing: border-box; padding: 6px 8px;
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 3px; font-size: 13px;
+}
+.modal-input:focus { outline: none; border-color: var(--accent-hi); }
+.modal-error { color: var(--red); font-size: 11px; margin-top: 6px; min-height: 0; }
+.modal-error:empty { display: none; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.modal-actions button {
+  padding: 6px 14px; border-radius: 3px; cursor: pointer; font-size: 12px;
+  border: 1px solid var(--border); background: var(--bg-3); color: var(--fg);
+}
+.modal-cancel:hover { background: var(--border); }
+.modal-ok { background: var(--accent); border-color: var(--accent); }
+.modal-ok:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
