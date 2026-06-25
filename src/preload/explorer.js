@@ -4,6 +4,7 @@ const { ipcRenderer } = require('electron');
 // resolver + external opener.
 module.exports = {
   listDir: (rel) => ipcRenderer.invoke('list-dir', rel),
+  createFile: (rel) => ipcRenderer.invoke('create-file', rel),
   searchNames: (q) => ipcRenderer.invoke('search-names', q),
   searchRefs: (q) => ipcRenderer.invoke('search-refs', q),
   readText: (file) => ipcRenderer.invoke('read-text', file),

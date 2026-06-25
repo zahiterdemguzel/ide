@@ -24,6 +24,25 @@ ipcMain.handle('list-dir', (_e, rel) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
+// Create an empty file at a repo-relative path for the explorer's "New file"
+// action. Parent folders are created as needed; refuses to clobber an existing
+// file and guards against paths escaping the repo.
+ipcMain.handle('create-file', (_e, rel) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, rel || '');
+    const inside = path.relative(repoPath, abs);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) {
+      return { ok: false, error: 'Invalid path' };
+    }
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, '', { flag: 'wx' }); // wx: fail if it already exists
+    return { ok: true, rel: inside.split(path.sep).join('/') };
+  } catch (e) {
+    return { ok: false, error: e.code === 'EEXIST' ? 'A file with that name already exists' : e.message };
+  }
+});
+
 // Recursive filename search for the explorer. Walks the tree async, skipping
 // .git/node_modules; case-insensitive, capped at 500 hits. A query of "*.png" or
 // ".png" matches by extension; any other query is a substring of the filename

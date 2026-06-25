@@ -4,6 +4,12 @@ const path = require('path');
 let win = null;
 const getWin = () => win;
 
+// The OS window title doubles as the "which folder is open" indicator (there is
+// no in-app folder label). Show the project name — the repo path's basename.
+function setWindowTitle(folderPath) {
+  if (win && folderPath) win.setTitle(`IDE / ${path.basename(folderPath)}`);
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1400,
@@ -18,6 +24,9 @@ function createWindow() {
     },
   });
   win.loadFile('index.html');
+  win.setTitle('IDE');
+  // Keep the title under our control: ignore the <title> the page would push.
+  win.on('page-title-updated', (e) => e.preventDefault());
 
   // Surface renderer-side problems in the `npm start` terminal — by default
   // console output and uncaught errors only show in DevTools, so a silently
@@ -35,4 +44,4 @@ function createWindow() {
   return win;
 }
 
-module.exports = { createWindow, getWin };
+module.exports = { createWindow, getWin, setWindowTitle };

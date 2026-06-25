@@ -16,7 +16,10 @@ function git(args, opts = {}) {
 }
 
 async function gitStatus() {
-  const r = await git(['status', '--porcelain=v1']);
+  // --untracked-files=all: list each untracked file individually instead of
+  // collapsing a wholly-untracked folder into one "assets/" entry (which the
+  // pane can't open or stage per-file).
+  const r = await git(['status', '--porcelain=v1', '--untracked-files=all']);
   if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [] };
   const staged = [], unstaged = [];
   for (const line of r.stdout.split('\n')) {

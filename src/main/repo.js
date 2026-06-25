@@ -2,7 +2,7 @@ const { app, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
-const { getWin } = require('./window');
+const { getWin, setWindowTitle } = require('./window');
 
 // Restore the last opened folder; fall back to cwd on first run / bad path.
 const lastFolderFile = path.join(app.getPath('userData'), 'last-folder.txt');
@@ -41,5 +41,9 @@ ipcMain.handle('open-folder', async () => {
     return { canceled: true, error: String(err) };
   }
 });
+
+// The renderer drives the title (on startup via refreshGit, and on Open folder)
+// since it already has the repo path in hand.
+ipcMain.handle('set-window-title', (_e, folderPath) => setWindowTitle(folderPath || repoPath));
 
 module.exports = { getRepoPath, setRepoPath, repoRoot };

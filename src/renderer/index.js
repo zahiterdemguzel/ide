@@ -16,12 +16,11 @@ import './panes.js';
 onClose(showActiveSession);
 
 // Open folder: re-point the repo, then reload everything that depends on it.
-const repoLabel = document.getElementById('repo-label');
 document.getElementById('open-folder').onclick = async () => {
   try {
     const r = await window.api.openFolder();
     if (r.error) console.error('open-folder:', r.error);
-    if (!r.canceled) { repoLabel.textContent = r.repo; refreshGit(); refreshTree(); loadToolbar(); }
+    if (!r.canceled) { window.api.setWindowTitle(r.repo); refreshGit(); refreshTree(); loadToolbar(); }
   } catch (err) {
     console.error('open-folder click failed:', err);
   }

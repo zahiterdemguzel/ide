@@ -1,7 +1,6 @@
 import { openGitFile } from './viewer/center.js';
 
 // --- git pane ---
-const repoLabel = document.getElementById('repo-label');
 const stagedEl = document.getElementById('staged-list');
 const unstagedEl = document.getElementById('unstaged-list');
 
@@ -66,13 +65,10 @@ function gitItem(file, status, staged, action, label) {
 
 export async function refreshGit() {
   const r = await window.api.gitStatus();
+  if (r.repo) window.api.setWindowTitle(r.repo);
   stagedEl.innerHTML = '';
   unstagedEl.innerHTML = '';
-  if (!r.ok) {
-    repoLabel.textContent = (r.repo || '') + '  (not a git repo)';
-    return;
-  }
-  repoLabel.textContent = r.repo || '';
+  if (!r.ok) return;
   unstagedFiles = r.unstaged;
   revertAllBtn.classList.remove('armed');
   for (const it of r.staged) stagedEl.appendChild(gitItem(it.file, it.status, true, window.api.gitUnstage, '−'));
