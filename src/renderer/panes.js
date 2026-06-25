@@ -55,4 +55,26 @@ resizer(document.getElementById('gutter-console'), 'y', -1,
   (v) => gitEl.style.setProperty('--console-h', v),
   80, () => gitEl.getBoundingClientRect().height - 160);
 
+// Commit box: custom top-right grip that grows the textarea upward (dragging up
+// adds height), since a native resize handle can only sit at the bottom-end.
+const commitMsg = document.getElementById('commit-msg');
+const commitGrip = document.getElementById('commit-msg-grip');
+commitGrip.onpointerdown = (e) => {
+  e.preventDefault();
+  commitGrip.setPointerCapture(e.pointerId);
+  const startY = e.clientY;
+  const base = commitMsg.getBoundingClientRect().height;
+  const move = (ev) => {
+    const h = Math.max(40, Math.min(400, base - (ev.clientY - startY)));
+    commitMsg.style.height = h + 'px';
+  };
+  const up = (ev) => {
+    commitGrip.releasePointerCapture(ev.pointerId);
+    commitGrip.removeEventListener('pointermove', move);
+    commitGrip.removeEventListener('pointerup', up);
+  };
+  commitGrip.addEventListener('pointermove', move);
+  commitGrip.addEventListener('pointerup', up);
+};
+
 window.addEventListener('resize', () => { fitActive(); fitConsole(); });

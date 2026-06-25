@@ -60,12 +60,21 @@
 #git-refresh:hover, #git-fetch:hover, #git-pull:hover, #files-new:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
 
 .git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
-.commit-msg-flip { transform: scaleY(-1); }
+/* Native textarea grips only ever sit bottom-end; to put the resize point at
+   the top-right we disable it and drive a custom grip (panes.js) that grows the
+   box upward. */
+.commit-msg-wrap { position: relative; }
 #commit-msg {
-  width: 100%; resize: vertical; background: var(--bg-3); color: var(--fg);
+  display: block; width: 100%; resize: none; background: var(--bg-3); color: var(--fg);
   border: 1px solid var(--border); border-radius: 3px; padding: 6px;
-  font-family: inherit; font-size: 13px; transform: scaleY(-1);
+  font-family: inherit; font-size: 13px;
 }
+#commit-msg-grip {
+  position: absolute; top: 0; right: 0; width: 14px; height: 14px;
+  cursor: ns-resize;
+  background: linear-gradient(45deg, transparent 50%, var(--border) 50%, var(--border) 70%, transparent 70%);
+}
+#commit-msg-grip:hover { background: linear-gradient(45deg, transparent 50%, var(--fg) 50%, var(--fg) 70%, transparent 70%); }
 .git-commit-actions { display: flex; gap: 8px; margin-top: 8px; }
 .git-commit-actions button {
   flex: 1; background: var(--accent); color: #fff; border: none;
