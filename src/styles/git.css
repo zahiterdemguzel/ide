@@ -79,6 +79,25 @@
   border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px;
 }
 #git-error-ok:hover { background: var(--accent-hi); }
+
+/* confirm dialog (e.g. change folder) — shares the error dialog's chrome */
+#confirm-dialog {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-2); color: var(--fg);
+  padding: 20px 24px; max-width: 420px; width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+#confirm-dialog::backdrop { background: rgba(0,0,0,0.45); }
+#confirm-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--fg); }
+#confirm-msg { font-size: 12px; white-space: pre-wrap; word-break: break-word; margin-bottom: 16px; color: var(--fg-dim); }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm-actions button {
+  border: none; border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px;
+}
+.confirm-btn-primary { background: var(--accent); color: #fff; }
+.confirm-btn-primary:hover { background: var(--accent-hi); }
+.confirm-btn-secondary { background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); }
+.confirm-btn-secondary:hover { background: var(--border); }
 .git-ahead-badge {
   position: absolute; top: -6px; right: -6px;
   min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
