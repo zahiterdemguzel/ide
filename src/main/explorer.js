@@ -7,7 +7,7 @@ const { git } = require('./git');
 // Extension → MIME for the asset viewer (image preview / pixel editor / audio).
 const ASSET_MIME = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
-  bmp: 'image/bmp', webp: 'image/webp',
+  bmp: 'image/bmp', webp: 'image/webp', svg: 'image/svg+xml',
   wav: 'audio/wav', ogg: 'audio/ogg', mp3: 'audio/mpeg',
 };
 

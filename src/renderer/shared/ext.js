@@ -4,7 +4,7 @@
 export function extOf(file) { const m = /\.([^.]+)$/.exec(file); return m ? m[1].toLowerCase() : ''; }
 
 // Images/audio open the asset viewer; everything else gets the text diff/viewer.
-export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']);
+export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg']);
 export const AUDIO_EXT = new Set(['wav', 'ogg', 'mp3']);
 
 // Filename color by extension. Languages use GitHub Linguist's colors (the dots
