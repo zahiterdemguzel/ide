@@ -348,7 +348,9 @@ ipcMain.handle('run-config', (_e, { kind, name }) => {
 function git(args, opts = {}) {
   return new Promise((resolve) => {
     const child = execFile('git', args, { cwd: repoPath, env: opts.env || process.env, maxBuffer: 64 * 1024 * 1024 },
-      (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && err.message) || '' }));
+      // git often reports failures on stdout (e.g. "nothing to commit"), so fall
+      // back to stdout before err.message — otherwise the UI shows a bare "Command failed".
+      (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && (stdout.trim() || err.message)) || '' }));
     if (opts.input != null) child.stdin.end(opts.input);
   });
 }
@@ -413,7 +415,13 @@ ipcMain.handle('git-revert', (_e, { file, untracked }) => {
   return git(['restore', '--staged', '--worktree', '--', file]);
 });
 
-ipcMain.handle('git-commit', (_e, msg) => git(['commit', '-m', msg]));
+// Commit staged changes. If nothing is staged, stage everything first so a bare
+// Commit click behaves like "commit all" rather than failing with "nothing to commit".
+ipcMain.handle('git-commit', async (_e, msg) => {
+  const nothingStaged = (await git(['diff', '--cached', '--quiet'])).ok;
+  if (nothingStaged) await git(['add', '-A']);
+  return git(['commit', '-m', msg]);
+});
 // Undo last commit, keep its changes staged. ponytail: soft reset, no HEAD~1 history rewrite beyond one.
 ipcMain.handle('git-undo', () => git(['reset', '--soft', 'HEAD~1']));
 ipcMain.handle('git-push', () => git(['push']));
