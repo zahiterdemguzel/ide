@@ -133,7 +133,7 @@ function gitItem(file, status, staged, action, label) {
   // Two-click discard: first click arms (red), second click reverts.
   const revert = document.createElement('button');
   revert.className = 'git-btn git-revert';
-  revert.textContent = '⟲';
+  revert.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
   revert.title = 'Discard changes';
   revert.onclick = async (e) => {
     e.stopPropagation();
@@ -316,7 +316,7 @@ async function showFile(file) {
   const r = await window.api.readText(file);
   document.getElementById('diff-file').textContent = file;
   let text = r.ok ? r.text : (r.error || '(could not read)');
-  if (r.ok && text.includes(' ')) text = '(binary file)'; // ponytail: null-byte sniff is enough
+  if (r.ok && text.includes('\\u0000')) text = '(binary file)'; // ponytail: null-byte sniff is enough
   renderText(text);
   hideAsset();
   hideSessionViews();
@@ -328,7 +328,18 @@ function renderText(text) {
   // ponytail: cap render at 5000 lines; virtualize only if huge files matter
   const lines = text.split('\n').slice(0, 5000);
   let n = 1;
-  for (const line of lines) diffBody.appendChild(diffRow('', n++, '', line));
+  for (const line of lines) {
+    const row = document.createElement('div');
+    row.className = 'diff-row';
+    const ln = document.createElement('span');
+    ln.className = 'diff-ln';
+    ln.textContent = n++;
+    const code = document.createElement('span');
+    code.className = 'diff-code';
+    code.textContent = line;
+    row.append(ln, code);
+    diffBody.appendChild(row);
+  }
 }
 
 function closeOverlay() {
@@ -559,6 +570,10 @@ document.getElementById('git-commit').onclick = async () => {
   showGitMsg(r.ok ? 'Committed' : (r.stderr || 'Commit failed'), r.ok);
   if (r.ok) box.value = '';
   refreshGit();};
+document.getElementById('git-undo').onclick = async () => {
+  const r = await window.api.gitUndo();
+  showGitMsg(r.ok ? 'Last commit undone' : (r.stderr || 'Undo failed'), r.ok);
+  refreshGit();};
 document.getElementById('git-push').onclick = async () => {
   showGitMsg('Pushing…', true);
   const r = await window.api.gitPush();
@@ -566,11 +581,12 @@ document.getElementById('git-push').onclick = async () => {
 };
 document.getElementById('open-folder').onclick = async () => {
   const r = await window.api.openFolder();
-  if (!r.canceled) { repoLabel.textContent = r.repo; refreshGit(); }
+  if (!r.canceled) { repoLabel.textContent = r.repo; refreshGit(); refreshTree(); }
 };
 
 window.addEventListener('resize', () => { if (activeId) fit(sessions.get(activeId)); });
 
 refreshGit();
+refreshTree();
 // ponytail: poll while focused; a file watcher would be more code for no real gain
 setInterval(() => { if (document.hasFocus()) refreshGit(); }, 3000);

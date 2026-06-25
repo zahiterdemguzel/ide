@@ -15,6 +15,15 @@
 }
 
 * { box-sizing: border-box; }
+
+/* Thin scrollbars that match the dark palette; overlay so they only show on hover/scroll. */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
+::-webkit-scrollbar-corner { background: transparent; }
+:hover::-webkit-scrollbar-thumb { background: var(--border); }
+::-webkit-scrollbar-thumb:hover { background: var(--gray); }
 html, body { margin: 0; height: 100%; }
 body {
   font-family: "Segoe UI", system-ui, sans-serif;
@@ -99,7 +108,7 @@ body {
 }
 .tree-row:hover { background: var(--bg-3); }
 .tree-row.sel { background: var(--list-sel); }
-.tree-twist { flex: none; width: 12px; text-align: center; font-size: 9px; color: var(--fg-dim); }
+.tree-twist { flex: none; width: 16px; text-align: center; font-size: 14px; color: var(--fg-dim); }
 .tree-name { overflow: hidden; text-overflow: ellipsis; }
 
 /* center / terminal */
@@ -215,6 +224,7 @@ body {
 .git-btn {
   background: none; border: 1px solid var(--border); color: var(--fg);
   border-radius: 3px; cursor: pointer; width: 22px; height: 20px; line-height: 1; visibility: hidden;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .git-list li:hover .git-btn { visibility: visible; }
 .git-btn:hover { background: var(--accent); border-color: var(--accent); }
@@ -222,7 +232,7 @@ body {
 .git-revert.armed { visibility: visible; color: var(--red); border-color: var(--red); }
 .git-revert.armed:hover { background: var(--red); border-color: var(--red); color: #fff; }
 
-#git-refresh, #files-refresh { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 14px; }
+#git-refresh, #files-refresh { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
 #git-refresh:hover, #files-refresh:hover { color: var(--fg); }
 
 .git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
@@ -235,6 +245,7 @@ body {
 .git-commit-actions button {
   flex: 1; background: var(--accent); color: #fff; border: none;
   border-radius: 3px; padding: 6px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
 }
 .git-commit-actions button:hover { background: var(--accent-hi); }
 .git-msg { margin-top: 6px; font-size: 12px; min-height: 14px; }
