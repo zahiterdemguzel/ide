@@ -30,8 +30,8 @@
 .git-revert.armed { visibility: visible; color: var(--red); border-color: var(--red); }
 .git-revert.armed:hover { background: var(--red); border-color: var(--red); color: #fff; }
 
-#git-refresh, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
-#git-refresh:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
+#git-refresh, #files-new, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
+#git-refresh:hover, #files-new:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
 
 .git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
 #commit-msg {

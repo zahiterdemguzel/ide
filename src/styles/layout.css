@@ -40,10 +40,6 @@
 }
 .sidebar-actions button .btn-icon { width: 16px; height: 16px; display: block; }
 .sidebar-actions button:hover { background: var(--accent-hi); }
-.repo-label {
-  padding: 6px 12px; font-size: 11px; color: var(--fg-dim);
-  border-top: 1px solid var(--border); word-break: break-all;
-}
 
 /* sidebar split: sessions (top, drag-resizable) + explorer (bottom fills rest) */
 #sessions-pane { flex: 0 0 var(--sess-h, 50%); min-height: 0; display: flex; flex-direction: column; }
