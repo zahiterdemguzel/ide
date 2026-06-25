@@ -34,10 +34,11 @@
 #git-refresh:hover, #files-new:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
 
 .git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
+.commit-msg-flip { transform: scaleY(-1); }
 #commit-msg {
   width: 100%; resize: vertical; background: var(--bg-3); color: var(--fg);
   border: 1px solid var(--border); border-radius: 3px; padding: 6px;
-  font-family: inherit; font-size: 13px;
+  font-family: inherit; font-size: 13px; transform: scaleY(-1);
 }
 .git-commit-actions { display: flex; gap: 8px; margin-top: 8px; }
 .git-commit-actions button {
