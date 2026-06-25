@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const http = require('http');
-const { execFile, execFileSync, spawn } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 const crypto = require('crypto');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 
@@ -268,35 +268,12 @@ function buildTaskCommand(task) {
   return [command, ...args.map(quoteArg)].join(' '); // shell task: command stays verbatim
 }
 
-// Open `command` in a NEW external terminal window that stays open afterwards.
-// On Windows we write a temp .cmd (cwd + env + the command) and launch it via
-// `start "" cmd /k <bat>` — sidesteps cmd/start quoting and keeps the window up.
-function openTerminal(command, cwd, env, title) {
-  cwd = cwd || repoPath;
-  try {
-    if (process.platform === 'win32') {
-      const bat = path.join(os.tmpdir(), `ide-run-${crypto.randomUUID()}.cmd`);
-      const lines = ['@echo off', `title ${String(title || 'Run').replace(/[<>|&^%]/g, ' ')}`, `cd /d "${cwd}"`];
-      for (const [k, v] of Object.entries(env || {})) lines.push(`set "${k}=${v}"`);
-      lines.push(command);
-      fs.writeFileSync(bat, lines.join('\r\n'));
-      const child = spawn('cmd.exe', ['/c', 'start', '', 'cmd', '/k', bat], { cwd, detached: true, stdio: 'ignore' });
-      child.unref();
-    } else if (process.platform === 'darwin') {
-      const script = `cd ${JSON.stringify(cwd)}\n` + Object.entries(env || {}).map(([k, v]) => `export ${k}=${JSON.stringify(v)}`).join('\n') + `\n${command}`;
-      spawn('osascript', ['-e', `tell application "Terminal" to do script ${JSON.stringify(script)}`], { detached: true, stdio: 'ignore' }).unref();
-    } else {
-      const term = process.env.TERMINAL || 'x-terminal-emulator';
-      spawn(term, ['-e', `bash -lc ${JSON.stringify(command + '; exec bash')}`], { cwd, env: { ...process.env, ...env }, detached: true, stdio: 'ignore' }).unref();
-    }
-    return { ok: true };
-  } catch (e) { return { ok: false, error: String(e) }; }
-}
-
-function runLaunchCfg(cfg) {
+// A run spec the renderer turns into an in-app terminal tab: the command line plus
+// the cwd/env to spawn its shell in, and the name used as the tab label.
+function launchSpec(cfg) {
   const cmd = buildLaunchCommand(cfg);
-  if (!cmd) return { ok: false, error: 'Could not derive a run command for this config' };
-  return openTerminal(cmd, cfg.cwd ? substVars(cfg.cwd) : repoPath, envMap(cfg.env), cfg.name);
+  if (!cmd) return null;
+  return { command: cmd, cwd: cfg.cwd ? substVars(cfg.cwd) : repoPath, env: envMap(cfg.env), name: cfg.name };
 }
 
 // Names for the toolbar: launch configs + compounds, then task labels.
@@ -313,8 +290,9 @@ ipcMain.handle('get-run-configs', () => {
   return { launch: launchList, tasks: taskList };
 });
 
-// Run one config/task by name (re-reads the files so edits are always picked up).
-// A compound opens one terminal per referenced configuration.
+// Resolve one config/task by name into run specs (re-reads the files so edits are
+// always picked up). The renderer opens an in-app terminal per spec; a compound
+// yields one spec per referenced configuration.
 ipcMain.handle('run-config', (_e, { kind, name }) => {
   if (kind === 'task') {
     const tasks = readVscodeJson('tasks.json');
@@ -323,23 +301,24 @@ ipcMain.handle('run-config', (_e, { kind, name }) => {
     const cmd = buildTaskCommand(t);
     if (!cmd) return { ok: false, error: 'Task has no command' };
     const opt = t.options || {};
-    return openTerminal(cmd, opt.cwd ? substVars(opt.cwd) : repoPath, envMap(opt.env), name);
+    return { ok: true, runs: [{ command: cmd, cwd: opt.cwd ? substVars(opt.cwd) : repoPath, env: envMap(opt.env), name }] };
   }
   const launch = readVscodeJson('launch.json');
   if (!launch) return { ok: false, error: 'No launch.json' };
   const compound = (launch.compounds || []).find((c) => c.name === name);
   if (compound) {
-    let any = false;
+    const runs = [];
     for (const ref of (compound.configurations || [])) {
       const refName = typeof ref === 'object' ? ref.name : ref;
       const cfg = (launch.configurations || []).find((c) => c.name === refName);
-      if (cfg) { runLaunchCfg(cfg); any = true; }
+      if (cfg) { const s = launchSpec(cfg); if (s) runs.push(s); }
     }
-    return any ? { ok: true } : { ok: false, error: 'Compound references no known configs' };
+    return runs.length ? { ok: true, runs } : { ok: false, error: 'Compound references no runnable configs' };
   }
   const cfg = (launch.configurations || []).find((c) => c.name === name);
   if (!cfg) return { ok: false, error: 'Config not found' };
-  return runLaunchCfg(cfg);
+  const s = launchSpec(cfg);
+  return s ? { ok: true, runs: [s] } : { ok: false, error: 'Could not derive a run command for this config' };
 });
 
 // --- git (plain porcelain, no dep) ---
@@ -654,31 +633,68 @@ ipcMain.on('kill-session', (_e, { id }) => {
   if (s) { s.pty.kill(); sessions.delete(id); }
 });
 
-// --- git-pane console: one shared interactive shell PTY in the repo dir ---
-let consolePty = null;
-function spawnConsole(cols, rows) {
-  const shell = process.platform === 'win32'
-    ? (process.env.COMSPEC || 'powershell.exe')
-    : (process.env.SHELL || '/bin/bash');
-  const p = pty.spawn(shell, [], {
+// --- git-pane consoles: interactive shell PTYs in the repo dir, keyed by id.
+// The renderer shows one tab per terminal. A terminal may run a launch config /
+// task command, which is written into the freshly-spawned shell.
+const consoles = new Map(); // id -> pty
+
+// Shells the user can pick from the + menu. The `name` becomes the tab label.
+function availableShells() {
+  if (process.platform === 'win32') {
+    return [
+      { name: 'ps', path: 'powershell.exe' },
+      { name: 'cmd', path: process.env.COMSPEC || 'cmd.exe' },
+    ];
+  }
+  const sh = process.env.SHELL || '/bin/bash';
+  return [{ name: path.basename(sh).replace(/\.exe$/i, ''), path: sh }];
+}
+
+// Spawn a shell PTY under `id` (reused across restarts so term-data keeps routing
+// to the same tab). The onExit guard ignores a pty we've already replaced, so a
+// restart doesn't tear down its successor or report the tab as closed.
+function spawnConsole(id, { cols, rows, shell, command, cwd, env } = {}) {
+  const shPath = shell || availableShells()[0].path;
+  const p = pty.spawn(shPath, [], {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
-    cwd: repoPath,
-    env: process.env,
+    cwd: cwd || repoPath,
+    env: env ? { ...process.env, ...env } : process.env,
   });
-  p.onData((data) => win && win.webContents.send('term-data', data));
-  // On exit (e.g. the user typed `exit`) drop it; the renderer respawns a fresh shell.
-  p.onExit(() => { consolePty = null; if (win) win.webContents.send('term-exit'); });
-  consolePty = p;
+  p.onData((data) => win && win.webContents.send('term-data', { id, data }));
+  p.onExit(() => {
+    if (consoles.get(id) !== p) return; // replaced by a restart — stay quiet
+    consoles.delete(id);
+    if (win) win.webContents.send('term-exit', { id });
+  });
+  consoles.set(id, p);
+  if (command) p.write(command + '\r');
+  return p;
 }
-ipcMain.handle('term-start', (_e, { cols, rows } = {}) => {
-  if (!consolePty) spawnConsole(cols, rows);
+
+ipcMain.handle('term-shells', () => availableShells());
+ipcMain.handle('term-create', (_e, opts = {}) => {
+  const id = crypto.randomUUID();
+  spawnConsole(id, opts);
+  return { id };
+});
+// Relaunch a config into an existing tab: kill the old pty (its onExit is silenced
+// by the guard above once we've removed it) and spawn a fresh one under the same id.
+ipcMain.handle('term-restart', (_e, opts = {}) => {
+  const old = consoles.get(opts.id);
+  if (old) { consoles.delete(opts.id); try { old.kill(); } catch { /* already gone */ } }
+  spawnConsole(opts.id, opts);
   return { ok: true };
 });
-ipcMain.on('term-input', (_e, data) => { if (consolePty) consolePty.write(data); });
-ipcMain.on('term-resize', (_e, { cols, rows }) => {
-  if (consolePty) try { consolePty.resize(cols, rows); } catch { /* race on close */ }
+ipcMain.on('term-input', (_e, { id, data }) => { const p = consoles.get(id); if (p) p.write(data); });
+ipcMain.on('term-resize', (_e, { id, cols, rows }) => {
+  const p = consoles.get(id);
+  if (p) try { p.resize(cols, rows); } catch { /* race on close */ }
+});
+ipcMain.on('term-kill', (_e, { id }) => {
+  const p = consoles.get(id);
+  if (p) { consoles.delete(id); try { p.kill(); } catch { /* already gone */ } }
 });
 
 function createWindow() {

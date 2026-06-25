@@ -111,10 +111,14 @@
       <div id="gutter-console" class="gutter gutter-row" title="Drag to resize"></div>
 
       <div id="git-console">
-        <div class="pane-head">
-          TERMINAL <button id="term-clear" title="Clear terminal">Clear</button>
+        <div class="pane-head" id="console-head">
+          <div id="term-tabs"></div>
+          <div id="term-tools">
+            <button id="term-clear" title="Clear terminal">Clear</button>
+            <button id="term-add" title="New terminal">+</button>
+          </div>
         </div>
-        <div id="console-host"></div>
+        <div id="console-hosts"></div>
       </div>
     </aside>
   </div>
