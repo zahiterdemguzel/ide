@@ -17,6 +17,7 @@ const repoLabel = document.getElementById('repo-label');
 const sessionBar = document.getElementById('session-bar');
 const sessionTitle = document.getElementById('session-title');
 const sessionCommitBtn = document.getElementById('session-commit');
+const sessionRevertBtn = document.getElementById('session-revert');
 const sessionCommitMsg = document.getElementById('session-commit-msg');
 
 const STATE_LABEL = {
@@ -47,6 +48,7 @@ function selectSession(id) {
   activeId = id;
   hideDiff();
   hideAsset();
+  hideWeb();
   emptyHint.style.display = 'none';
   for (const [, o] of sessions) o.container.style.display = o === s ? 'block' : 'none';
   for (const o of listEl.children) o.classList.toggle('active', o.dataset.id === id);
@@ -60,6 +62,8 @@ function updateSessionBar() {
   const s = sessions.get(activeId);
   if (!s) { sessionBar.style.display = 'none'; return; }
   sessionBar.style.display = 'flex';
+  sessionRevertBtn.classList.remove('armed');
+  sessionRevertBtn.textContent = 'Revert';
   const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || ('session ' + s.id.slice(0, 8));
   sessionTitle.textContent = name;
   sessionTitle.title = name;
@@ -88,6 +92,7 @@ async function newSession() {
   term.loadAddon(fitAddon);
   term.open(container);
   term.onData((data) => window.api.sendInput(id, data));
+  registerTerminalLinks(term);
 
   const li = document.createElement('li');
   li.dataset.id = id;
@@ -242,15 +247,28 @@ async function loadDir(rel, container, depth) {
   }
 }
 
-// Reuse the media viewer for images/audio, the diff container for text.
-function openFromTree(file) {
+// Reuse the media viewer for images/audio, the diff container for text. `jump`
+// (optional { line, term }) scrolls a reference hit into view and marks the word.
+function openFromTree(file, jump) {
   const ext = extOf(file);
   if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext)) showAsset(file, ext);
-  else showFile(file);
+  else showFile(file, jump);
 }
 
 function refreshTree() { loadDir('', fileTree, 0); }
 document.getElementById('files-refresh').onclick = refreshTree;
+
+// Collapse every open folder, keeping already-loaded children in the DOM.
+function collapseAll() {
+  for (const row of fileTree.querySelectorAll('.tree-row')) {
+    const twist = row.querySelector('.tree-twist');
+    if (twist && twist.textContent === '▾') {
+      twist.textContent = '▸';
+      if (row.nextElementSibling) row.nextElementSibling.style.display = 'none';
+    }
+  }
+}
+document.getElementById('files-collapse').onclick = collapseAll;
 
 // Search: filenames first (fast, recursive), then references (git grep, slower)
 // streamed in under a "References" heading once they arrive. A run token guards
@@ -259,7 +277,7 @@ const searchInput = document.getElementById('file-search');
 const searchResults = document.getElementById('search-results');
 let searchRun = 0;
 
-function resultRow(file, lineNo, text) {
+function resultRow(file, lineNo, text, term) {
   const row = document.createElement('div');
   row.className = 'tree-row search-row';
   const name = document.createElement('span');
@@ -277,7 +295,7 @@ function resultRow(file, lineNo, text) {
   row.onclick = () => {
     document.querySelectorAll('.tree-row.sel').forEach((x) => x.classList.remove('sel'));
     row.classList.add('sel');
-    openFromTree(file);
+    openFromTree(file, lineNo ? { line: lineNo, term } : null);
   };
   return row;
 }
@@ -310,7 +328,7 @@ async function runSearch(q) {
     const matches = refRes.matches || [];
     refsHeading.textContent = `References (${matches.length})`;
     if (!matches.length) searchResults.appendChild(searchHeading('— no matches'));
-    for (const m of matches) searchResults.appendChild(resultRow(m.file, m.line, m.text));
+    for (const m of matches) searchResults.appendChild(resultRow(m.file, m.line, m.text, q));
   });
 }
 
@@ -428,6 +446,7 @@ async function showDiff(file, status, staged) {
   document.getElementById('diff-file').textContent = file;
   renderDiff(r.stdout || r.stderr || '(no changes)', langFor(file));
   hideAsset();
+  hideWeb();
   hideSessionViews();
   diffView.style.display = 'flex';
 }
@@ -467,8 +486,9 @@ function renderDiff(text, lang) {
 }
 
 // Read-only file view for the explorer: reuse the diff container, render each
-// line with a single line-number gutter (no +/- colouring).
-async function showFile(file) {
+// line with a single line-number gutter (no +/- colouring). `jump`
+// (optional { line, term }) scrolls to that line and marks the matched word.
+async function showFile(file, jump) {
   const r = await window.api.readText(file);
   document.getElementById('diff-file').textContent = file;
   let text = r.ok ? r.text : (r.error || '(could not read)');
@@ -479,8 +499,45 @@ async function showFile(file) {
   }
   renderText(text, lang);
   hideAsset();
+  hideWeb();
   hideSessionViews();
   diffView.style.display = 'flex';
+  if (jump) jumpToLine(jump.line, jump.term);
+}
+
+// Scroll a reference hit into view and visually mark the matched word inside it.
+function jumpToLine(line, term) {
+  const row = diffBody.children[(line || 1) - 1];
+  if (!row) return;
+  row.classList.add('diff-hit');
+  if (term) markTerm(row.querySelector('.diff-code'), term);
+  row.scrollIntoView({ block: 'center' });
+}
+
+// Wrap each case-insensitive occurrence of `term` in <mark>, walking text nodes
+// so we don't disturb hljs's existing <span> structure.
+function markTerm(el, term) {
+  if (!el || !term) return;
+  const needle = term.toLowerCase();
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeValue.toLowerCase().includes(needle)) nodes.push(n);
+  }
+  for (const node of nodes) {
+    const text = node.nodeValue, low = text.toLowerCase();
+    const frag = document.createDocumentFragment();
+    let i = 0, idx;
+    while ((idx = low.indexOf(needle, i)) !== -1) {
+      if (idx > i) frag.appendChild(document.createTextNode(text.slice(i, idx)));
+      const mark = document.createElement('mark');
+      mark.textContent = text.slice(idx, idx + needle.length);
+      frag.appendChild(mark);
+      i = idx + needle.length;
+    }
+    frag.appendChild(document.createTextNode(text.slice(i)));
+    node.parentNode.replaceChild(frag, node);
+  }
 }
 
 function renderText(text, lang) {
@@ -506,10 +563,118 @@ function renderText(text, lang) {
 
 function closeOverlay() {
   if (activeId) selectSession(activeId);
-  else { hideDiff(); hideAsset(); emptyHint.style.display = 'block'; }
+  else { hideDiff(); hideAsset(); hideWeb(); emptyHint.style.display = 'block'; }
 }
 document.getElementById('diff-close').onclick = closeOverlay;
 document.getElementById('asset-close').onclick = closeOverlay;
+
+// --- inline web browser (Ctrl+clicked http/https links) ---
+// A <webview> runs the page out-of-process, so the host CSP doesn't restrict it.
+const webView = document.getElementById('web-view');
+const webFrame = document.getElementById('web-frame');
+const webUrlEl = document.getElementById('web-url');
+
+function hideWeb() { webView.style.display = 'none'; webFrame.src = 'about:blank'; }
+
+function showWeb(url) {
+  hideDiff();
+  hideAsset();
+  hideSessionViews();
+  webUrlEl.textContent = url;
+  webUrlEl.title = url;
+  webFrame.src = url;
+  webView.style.display = 'flex';
+}
+
+// Keep the address bar in sync as the guest page navigates.
+const syncWebUrl = (e) => { webUrlEl.textContent = e.url; webUrlEl.title = e.url; };
+webFrame.addEventListener('did-navigate', syncWebUrl);
+webFrame.addEventListener('did-navigate-in-page', syncWebUrl);
+document.getElementById('web-back').onclick = () => { try { if (webFrame.canGoBack()) webFrame.goBack(); } catch {} };
+document.getElementById('web-fwd').onclick = () => { try { if (webFrame.canGoForward()) webFrame.goForward(); } catch {} };
+document.getElementById('web-reload').onclick = () => { try { webFrame.reload(); } catch {} };
+document.getElementById('web-external').onclick = () => window.api.openExternal(webUrlEl.textContent);
+document.getElementById('web-close').onclick = closeOverlay;
+
+// --- terminal Ctrl+click links (file paths + web URLs) ---
+// VS Code feel: links only light up while Ctrl (Cmd on mac) is held, so normal
+// hover and drag-to-select are untouched. provideLinks is gated on that key
+// state; activating a link routes to the file viewer or the inline browser.
+let linkModDown = false;
+const onMac = navigator.platform.toLowerCase().includes('mac');
+window.addEventListener('keydown', (e) => { if (e.key === (onMac ? 'Meta' : 'Control')) linkModDown = true; });
+window.addEventListener('keyup', (e) => { if (e.key === (onMac ? 'Meta' : 'Control')) linkModDown = false; });
+window.addEventListener('blur', () => { linkModDown = false; });
+
+const URL_RE = /\bhttps?:\/\/[^\s)<>"'`]+/gi;
+// A path-ish token: an optional drive/anchor, then path chars, with optional
+// trailing :line[:col]. Over-matches plain words; looksLikePath() filters those.
+const PATH_RE = /(?:[A-Za-z]:[\\/]|\.{0,2}[\\/]|~[\\/])?[\w.@+-]+(?:[\\/][\w.@+-]+)*(?::\d+(?::\d+)?)?/g;
+
+// Extensions that make a separator-less token (e.g. "renderer.js") a real link.
+const PATH_EXT = new Set([
+  ...Object.keys(EXT_LANG), ...IMG_EXT, ...AUDIO_EXT,
+  'txt', 'log', 'lock', 'env', 'conf', 'gd', 'tscn', 'tres', 'godot',
+]);
+
+function looksLikePath(raw) {
+  const core = raw.replace(/:\d+(?::\d+)?$/, '');
+  if (core.length < 2) return false;
+  if (/[\\/]/.test(core)) return true;        // has a separator -> treat as a path
+  const ext = extOf(core);
+  return !!ext && PATH_EXT.has(ext);          // bare filename with a known extension
+}
+
+// Find non-overlapping URL (first) then path matches in one terminal line.
+function findTerminalLinks(text) {
+  const out = [];
+  const taken = new Array(text.length).fill(false);
+  const scan = (re, kind, keep) => {
+    re.lastIndex = 0;
+    let m;
+    while ((m = re.exec(text))) {
+      const s = m.index, e = s + m[0].length;
+      if (keep && !keep(m[0])) continue;
+      let free = true;
+      for (let i = s; i < e; i++) if (taken[i]) { free = false; break; }
+      if (!free) continue;
+      for (let i = s; i < e; i++) taken[i] = true;
+      out.push({ start: s, end: e, raw: m[0], kind });
+    }
+  };
+  scan(URL_RE, 'url');
+  scan(PATH_RE, 'path', looksLikePath);
+  return out;
+}
+
+async function openTerminalLink(kind, raw) {
+  if (kind === 'url') { showWeb(raw); return; }
+  const m = /^(.*?):(\d+)(?::\d+)?$/.exec(raw); // split a trailing :line[:col]
+  const p = m ? m[1] : raw;
+  const line = m ? Number(m[2]) : null;
+  const r = await window.api.resolveLinkPath(p);
+  if (!r || !r.ok || !r.isFile) return;
+  if (r.inRepo) openFromTree(r.rel, line ? { line, term: null } : null);
+  else window.api.openExternal(r.abs);
+}
+
+function registerTerminalLinks(term) {
+  term.registerLinkProvider({
+    provideLinks(y, callback) {
+      if (!linkModDown) return callback(undefined);
+      const bufLine = term.buffer.active.getLine(y - 1);
+      if (!bufLine) return callback(undefined);
+      const text = bufLine.translateToString(true);
+      const links = findTerminalLinks(text).map((f) => ({
+        text: f.raw,
+        range: { start: { x: f.start + 1, y }, end: { x: f.end, y } },
+        decorations: { pointerCursor: true, underline: true },
+        activate: (event) => { event.preventDefault(); openTerminalLink(f.kind, f.raw); },
+      }));
+      callback(links.length ? links : undefined);
+    },
+  });
+}
 
 // --- asset view: image zoom / pixel editor / audio waveform ---
 const assetView = document.getElementById('asset-view');
@@ -522,6 +687,7 @@ function hideAsset() { removePixelKeys(); assetView.style.display = 'none'; asse
 async function showAsset(file, ext) {
   removePixelKeys();
   hideDiff();
+  hideWeb();
   hideSessionViews();
   document.getElementById('asset-file').textContent = file;
   assetTools.innerHTML = '';
@@ -750,6 +916,52 @@ function drawWaveform(canvas, audioBuffer) {
   }
 }
 
+// --- top run toolbar (.vscode/launch.json + tasks.json) ---
+// One button per launch config, a separator, then one per task. Clicking a
+// button opens an external terminal running that config/task (main builds the
+// command). Rebuilt on startup and whenever the open folder changes.
+const toolbarRuns = document.getElementById('toolbar-runs');
+
+function runButton(kind, name, compound) {
+  const b = document.createElement('button');
+  b.className = 'tool-btn ' + kind;
+  b.title = (kind === 'launch' ? (compound ? 'Launch compound: ' : 'Launch: ') : 'Task: ')
+    + name + ' — opens an external terminal';
+  const ico = document.createElement('span');
+  ico.className = 'tool-ico';
+  ico.textContent = kind === 'launch' ? '▶' : '⚙';
+  const label = document.createElement('span');
+  label.textContent = name;
+  b.append(ico, label);
+  b.onclick = async () => {
+    b.classList.add('busy');
+    const r = await window.api.runConfig({ kind, name });
+    b.classList.remove('busy');
+    if (!r || !r.ok) console.error('run-config failed:', (r && r.error) || 'unknown');
+  };
+  return b;
+}
+
+async function loadToolbar() {
+  const r = await window.api.getRunConfigs();
+  toolbarRuns.innerHTML = '';
+  const launch = r.launch || [], tasks = r.tasks || [];
+  if (!launch.length && !tasks.length) {
+    const hint = document.createElement('span');
+    hint.className = 'toolbar-hint';
+    hint.textContent = 'No .vscode/launch.json or tasks.json in this folder';
+    toolbarRuns.appendChild(hint);
+    return;
+  }
+  for (const c of launch) toolbarRuns.appendChild(runButton('launch', c.name, c.compound));
+  if (launch.length && tasks.length) {
+    const sep = document.createElement('span');
+    sep.className = 'tool-sep';
+    toolbarRuns.appendChild(sep);
+  }
+  for (const t of tasks) toolbarRuns.appendChild(runButton('task', t.name));
+}
+
 // --- wiring ---
 window.api.onPtyData(({ id, data }) => {
   const s = sessions.get(id);
@@ -785,6 +997,25 @@ sessionCommitBtn.onclick = async () => {
   sessionCommitMsg.className = 'git-msg ' + (r.ok ? 'ok' : 'err');
   refreshGit();};
 
+// Two-click revert: first click arms, second de-applies just this session's edits.
+sessionRevertBtn.onclick = async () => {
+  if (!activeId) return;
+  if (!sessionRevertBtn.classList.contains('armed')) {
+    sessionRevertBtn.classList.add('armed');
+    sessionRevertBtn.textContent = 'Revert — sure?';
+    return;
+  }
+  sessionRevertBtn.classList.remove('armed');
+  sessionRevertBtn.textContent = 'Revert';
+  sessionCommitMsg.textContent = '';
+  const r = await window.api.revertSession(activeId);
+  const skipped = r.skipped && r.skipped.length;
+  sessionCommitMsg.textContent = !r.ok ? (r.stderr || 'Revert failed')
+    : skipped ? `Reverted; ${skipped} file${skipped > 1 ? 's' : ''} skipped (also edited by another session)`
+    : 'Reverted';
+  sessionCommitMsg.className = 'git-msg ' + (r.ok && !skipped ? 'ok' : 'err');
+  refreshGit();};
+
 document.getElementById('new-session').onclick = newSession;
 document.getElementById('git-refresh').onclick = refreshGit;
 document.getElementById('git-commit').onclick = async () => {
@@ -808,13 +1039,13 @@ document.getElementById('open-folder').onclick = async () => {
   try {
     const r = await window.api.openFolder();
     if (r.error) console.error('open-folder:', r.error);
-    if (!r.canceled) { repoLabel.textContent = r.repo; refreshGit(); refreshTree(); }
+    if (!r.canceled) { repoLabel.textContent = r.repo; refreshGit(); refreshTree(); loadToolbar(); }
   } catch (err) {
     console.error('open-folder click failed:', err);
   }
 };
 
-window.addEventListener('resize', () => { if (activeId) fit(sessions.get(activeId)); });
+window.addEventListener('resize', () => { if (activeId) fit(sessions.get(activeId)); fitConsole(); });
 
 // --- resizable panes ---
 // Drag a gutter to resize the pane on its near side; clamp to [min, max()].
@@ -836,6 +1067,7 @@ function resizer(gutter, axis, sign, read, write, min, max) {
       const d = (axis === 'x' ? ev.clientX : ev.clientY) - start;
       write(Math.max(min, Math.min(max(), base + sign * d)) + 'px');
       if (activeId) fit(sessions.get(activeId)); // ponytail: reflow live; throttle if janky
+      fitConsole();
     };
     const up = (ev) => {
       gutter.classList.remove('dragging');
@@ -863,7 +1095,41 @@ resizer(document.getElementById('gutter-sess'), 'y', +1,
   (v) => sidebarEl.style.setProperty('--sess-h', v),
   80, () => sidebarEl.getBoundingClientRect().height - 140);
 
+// Console sits on the far (bottom) side of its gutter, so dragging down shrinks it.
+resizer(document.getElementById('gutter-console'), 'y', -1,
+  () => document.getElementById('git-console').getBoundingClientRect().height,
+  (v) => gitEl.style.setProperty('--console-h', v),
+  80, () => gitEl.getBoundingClientRect().height - 160);
+
+// --- git-pane console: one shared interactive shell terminal ---
+let consoleTerm = null, consoleFit = null;
+function fitConsole() {
+  if (!consoleTerm) return;
+  try {
+    consoleFit.fit();
+    window.api.termResize(consoleTerm.cols, consoleTerm.rows);
+  } catch { /* host hidden / zero-size */ }
+}
+async function startShell() {
+  consoleFit.fit();
+  await window.api.startTerm({ cols: consoleTerm.cols, rows: consoleTerm.rows });
+  fitConsole();
+}
+function initConsole() {
+  consoleTerm = new Terminal({ fontSize: 13, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
+  consoleFit = new FitAddon();
+  consoleTerm.loadAddon(consoleFit);
+  consoleTerm.open(document.getElementById('console-host'));
+  consoleTerm.onData((d) => window.api.termInput(d));
+  window.api.onTermData((d) => consoleTerm.write(d));
+  window.api.onTermExit(() => startShell()); // respawn a fresh shell if the user exits it
+  document.getElementById('term-clear').onclick = () => { consoleTerm.clear(); consoleTerm.focus(); };
+  startShell();
+}
+initConsole();
+
 refreshGit();
 refreshTree();
+loadToolbar();
 // ponytail: poll while focused; a file watcher would be more code for no real gain
 setInterval(() => { if (document.hasFocus()) refreshGit(); }, 3000);

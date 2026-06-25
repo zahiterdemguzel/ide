@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('api', {
   gitPush: () => ipcRenderer.invoke('git-push'),
   listDir: (rel) => ipcRenderer.invoke('list-dir', rel),
   readText: (file) => ipcRenderer.invoke('read-text', file),
+  resolveLinkPath: (raw) => ipcRenderer.invoke('resolve-link-path', raw),
+  openExternal: (target) => ipcRenderer.invoke('open-external', target),
   readAsset: (file) => ipcRenderer.invoke('read-asset', file),
   writeAsset: (file, base64) => ipcRenderer.invoke('write-asset', { file, base64 }),
   commitSession: (id) => ipcRenderer.invoke('commit-session', id),

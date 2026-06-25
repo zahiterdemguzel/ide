@@ -65,9 +65,15 @@ Three drag-gutters (`.gutter` divs in `index.html`) let the user resize, **not r
 
 `renderer.js`'s `resizer(gutter, axis, sign, read, write, min, max)` is one generic pointer-drag handler wired three times — left column, right column, sidebar split. It pointer-captures the gutter, then on move clamps `base + sign*delta` to `[min, max()]` and writes the var. Clamps keep every pane within bounds: columns can't shrink the center below `CENTER_MIN` (200px) or themselves below their mins; the sessions pane stays ≥80px and leaves ≥140px for the explorer. `sign` is `-1` for the right gutter (its pane is on the far side, so dragging right shrinks it). Each move calls `fit()` so the active terminal reflows live. Sizes are session-only — not persisted across restarts.
 
+## Terminal links & inline browser
+
+Ctrl+click (Cmd on mac) in a terminal opens what's under the cursor — a web URL in an inline browser, a file path in the explorer's viewer (VS Code's gesture). `registerTerminalLinks(term)` wires each session's xterm via `registerLinkProvider`. The provider is **gated on the modifier key**: a window-level `keydown`/`keyup` pair tracks `linkModDown`, and `provideLinks` returns nothing unless it's held — so links only underline/cursor while Ctrl is down, and normal hover and drag-to-select are untouched. `findTerminalLinks(lineText)` scans a row for `http(s)://` URLs first, then path-ish tokens (`PATH_RE`), claiming character ranges so the two never overlap. A path token only counts if it has a separator or a known extension (`looksLikePath` against `PATH_EXT`, built from `EXT_LANG`/`IMG_EXT`/`AUDIO_EXT`); a trailing `:line[:col]` is split off on activation and passed to the viewer's jump.
+
+`openTerminalLink` routes by kind: a URL → `showWeb()`; a path → `resolve-link-path` (main resolves an absolute path as-is, else against `repoPath` = the session cwd, and reports `isFile`/`inRepo`/`rel`), then in-repo files open via `openFromTree(rel, {line})` and anything else goes to the OS through `open-external`. `showWeb()` is a center overlay (`#web-view`, peer of the diff/asset overlays, hidden by the shared `closeOverlay()` and on session select) holding a back/forward/reload/address/open-externally bar and an Electron **`<webview>`** — a separate guest process, so the host-page CSP doesn't restrict the loaded site. It requires `webviewTag: true` in the window's `webPreferences`. `did-navigate`/`did-navigate-in-page` keep the address bar in sync; the ↗ button hands the current URL to `open-external` (→ `shell.openExternal`).
+
 ## preload.js
 
-The entire IPC surface (`contextBridge.exposeInMainWorld('api', …)`). Add a channel here when wiring any new main↔renderer call.
+The entire IPC surface (`contextBridge.exposeInMainWorld('api', …)`). Add a channel here when wiring any new main↔renderer call. `resolve-link-path` and `open-external` back the terminal link feature above.
 
 ## Files
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -324,6 +324,32 @@ ipcMain.handle('read-text', (_e, file) => {
   catch (e) { return { ok: false, error: e.message }; }
 });
 
+// Resolve a path the user Ctrl+clicked in the terminal. Absolute paths are used
+// as-is; bare ones resolve against the session cwd (= repoPath). Reports whether
+// it exists, is a file, and sits inside the repo — the renderer routes in-repo
+// files to the explorer's viewer and anything else to the OS via open-external.
+ipcMain.handle('resolve-link-path', (_e, raw) => {
+  try {
+    const p = String(raw || '').trim();
+    if (!p) return { ok: false };
+    const abs = path.isAbsolute(p) ? path.normalize(p) : path.resolve(repoPath, p);
+    const st = fs.statSync(abs); // throws if it doesn't exist
+    const rel = path.relative(repoPath, abs).split(path.sep).join('/');
+    const inRepo = !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+    return { ok: true, isFile: st.isFile(), isDir: st.isDirectory(), inRepo, rel, abs };
+  } catch { return { ok: false }; }
+});
+
+// Open a web URL in the default browser, or a filesystem path in its OS handler
+// (used for the inline browser's "open externally" button and out-of-repo files).
+ipcMain.handle('open-external', async (_e, target) => {
+  try {
+    if (/^https?:\/\//i.test(target)) { await shell.openExternal(target); return { ok: true }; }
+    const err = await shell.openPath(target);
+    return { ok: !err, error: err };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 // Read/write a repo-relative binary asset as base64 for the viewer/editor.
 // Paths come from git porcelain (inside the repo), so no traversal guard.
 ipcMain.handle('read-asset', (_e, file) => {
@@ -472,6 +498,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // preload requires native node-pty
+      webviewTag: true, // inline web browser for Ctrl+clicked links
     },
   });
   win.loadFile('index.html');
