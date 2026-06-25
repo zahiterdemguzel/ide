@@ -10,12 +10,12 @@
   background: var(--bg-2); color: var(--fg); border: 1px solid var(--border);
   border-radius: 4px; padding: 4px 9px; cursor: pointer; font-size: 12px; white-space: nowrap;
 }
-.tool-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tool-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tool-btn.busy { opacity: .55; pointer-events: none; }
 .tool-ico { font-size: 11px; line-height: 1; }
 .tool-btn.launch .tool-ico { color: var(--green); }
 .tool-btn.task .tool-ico { color: var(--fg-dim); }
-.tool-btn:hover .tool-ico { color: #fff; }
+.tool-btn:hover .tool-ico { color: var(--on-accent); }
 .tool-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex: none; }
 .toolbar-hint { color: var(--fg-dim); font-size: 12px; padding: 0 4px; }
 
@@ -30,7 +30,7 @@
 #run-error-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--red); }
 #run-error-msg { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; margin-bottom: 16px; }
 #run-error-ok {
-  float: right; background: var(--accent); color: #fff; border: none;
+  float: right; background: var(--accent); color: var(--on-accent); border: none;
   border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px;
 }
 #run-error-ok:hover { background: var(--accent-hi); }

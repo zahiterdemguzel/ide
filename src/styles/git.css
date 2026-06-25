@@ -15,7 +15,7 @@
   color: var(--fg-dim); font-size: 11px; line-height: 1.4;
 }
 .git-tab:hover { color: var(--fg); }
-.git-tab.active { color: var(--fg); border-color: var(--accent); background: var(--accent-hi); }
+.git-tab.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent-hi); }
 
 /* Each tab's body fills the pane; the commit box pins to the bottom of Changes. */
 #git-changes-view, #git-history-view {
@@ -79,7 +79,7 @@
 #commit-msg-grip:hover { background: linear-gradient(45deg, transparent 50%, var(--fg) 50%, var(--fg) 70%, transparent 70%); }
 .git-commit-actions { display: flex; gap: 8px; margin-top: 8px; }
 .git-commit-actions button {
-  flex: 1; background: var(--accent); color: #fff; border: none;
+  flex: 1; background: var(--accent); color: var(--on-accent); border: none;
   border-radius: 3px; padding: 6px; cursor: pointer; font-size: 12px;
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
 }
@@ -112,7 +112,7 @@
 #git-error-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--red); }
 #git-error-msg { font-size: 12px; font-family: Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; margin-bottom: 16px; }
 #git-error-ok {
-  float: right; background: var(--accent); color: #fff; border: none;
+  float: right; background: var(--accent); color: var(--on-accent); border: none;
   border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px;
 }
 #git-error-ok:hover { background: var(--accent-hi); }
@@ -131,7 +131,7 @@
 .confirm-actions button {
   border: none; border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px;
 }
-.confirm-btn-primary { background: var(--accent); color: #fff; }
+.confirm-btn-primary { background: var(--accent); color: var(--on-accent); }
 .confirm-btn-primary:hover { background: var(--accent-hi); }
 .confirm-btn-secondary { background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); }
 .confirm-btn-secondary:hover { background: var(--border); }

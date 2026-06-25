@@ -14,6 +14,11 @@
   --yellow: #d29922;
   --list-sel: #094771;
 
+  /* Text drawn on top of an --accent/--accent-hi fill (active buttons & tabs).
+   * White reads well on the dark/blue accents; themes with a bright accent
+   * (e.g. high-contrast) override this so the label stays legible. */
+  --on-accent: #ffffff;
+
   /* Terminal (xterm) palette — bridged into the canvas by shared/terminal.js. */
   --term-bg: #1e1e1e;
   --term-fg: #d4d4d4;
@@ -73,5 +78,5 @@ body {
   border: 1px solid var(--border); background: var(--bg-3); color: var(--fg);
 }
 .modal-cancel:hover { background: var(--border); }
-.modal-ok { background: var(--accent); border-color: var(--accent); }
+.modal-ok { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .modal-ok:hover { background: var(--accent-hi); border-color: var(--accent-hi); }

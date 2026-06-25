@@ -32,6 +32,12 @@ properties, scoped to `html[data-theme="<id>"]`. `settings.js` sets
 
 `dark` is the base `:root` palette and needs no `themes.css` block.
 
+**`--on-accent`** is the text/icon color drawn on top of an `--accent`/`--accent-hi`
+fill (active tabs, primary buttons, toolbar/settings hover). It defaults to white
+in `:root`, which reads well on the dark and blue accents. A theme with a *bright*
+accent must override it — e.g. `high-contrast` uses a near-cyan accent, so it sets
+`--on-accent: #000000` to keep the label legible instead of white-on-cyan.
+
 ### Terminals (xterm)
 
 The session and console terminals render to a `<canvas>`, so they can't read CSS

@@ -6,7 +6,7 @@
   color: var(--fg-dim); font-size: 11px; line-height: 1.4;
 }
 .sess-tab:hover { color: var(--fg); }
-.sess-tab.active { color: var(--fg); border-color: var(--accent); background: var(--accent-hi); }
+.sess-tab.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent-hi); }
 
 /* session list */
 #session-list { list-style: none; margin: 0; padding: 0; flex: 1; overflow-y: auto; }
@@ -53,7 +53,7 @@
 .bar-right { display: flex; align-items: center; gap: 10px; flex: none; }
 #session-commit-msg { margin: 0; white-space: nowrap; }
 #session-commit {
-  background: var(--accent); color: #fff; border: none; border-radius: 4px;
+  background: var(--accent); color: var(--on-accent); border: none; border-radius: 4px;
   padding: 6px 12px; cursor: pointer; font-size: 12px;
 }
 #session-commit:hover:not(:disabled) { background: var(--accent-hi); }

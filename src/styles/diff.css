@@ -12,7 +12,7 @@
   border: 1px solid var(--border); border-radius: 3px;
 }
 #diff-save:disabled { opacity: .5; cursor: default; }
-#diff-save.dirty:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+#diff-save.dirty:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 #diff-save.dirty:not(:disabled):hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 #diff-close {
   background: none; border: none; color: var(--fg-dim);

@@ -12,7 +12,7 @@
   font-size: 12.5px; text-transform: none; letter-spacing: 0; background: none;
 }
 .term-tab:hover { color: var(--fg); }
-.term-tab.active { color: var(--fg); border-color: var(--accent); background: var(--accent-hi, #2a2d2e); }
+.term-tab.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent-hi, #2a2d2e); }
 .term-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-tab-close {
   display: inline-flex; align-items: center; justify-content: center;

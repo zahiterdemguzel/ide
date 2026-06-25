@@ -35,7 +35,7 @@
 
 .sidebar-actions { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
 .sidebar-actions button {
-  background: var(--accent); color: #fff; border: none; border-radius: 4px;
+  background: var(--accent); color: var(--on-accent); border: none; border-radius: 4px;
   padding: 7px; cursor: pointer; font-size: 12px;
   display: flex; align-items: center; justify-content: center; gap: 6px;
 }
