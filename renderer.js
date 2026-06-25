@@ -75,7 +75,16 @@ function updateSessionBar() {
   sessionTitle.textContent = name;
   sessionTitle.title = name;
   const n = s.files.length;
-  sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Commit changes';
+  // Nothing left to commit reads as a disabled "No changes" button, instead of a
+  // separate status label that would otherwise stick around for every session.
+  sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'No changes';
+  sessionCommitBtn.disabled = n === 0;
+}
+
+function setSessionCommitMsg(id, text, ok) {
+  if (id !== activeId) return;
+  sessionCommitMsg.textContent = text;
+  sessionCommitMsg.className = 'git-msg ' + (ok ? 'ok' : 'err');
 }
 
 function fit(s) {
@@ -1024,11 +1033,13 @@ function showGitMsg(text, ok) {
 
 sessionCommitBtn.onclick = async () => {
   if (!activeId) return;
-  sessionCommitMsg.textContent = '';
-  const r = await window.api.commitSession(activeId);
-  sessionCommitMsg.textContent = r.ok ? 'Committed' : (r.stderr || 'Commit failed');
-  sessionCommitMsg.className = 'git-msg ' + (r.ok ? 'ok' : 'err');
-  if (r.ok) setState(activeId, 'pushed');
+  const id = activeId;
+  setSessionCommitMsg(id, '', true);
+  const r = await window.api.commitSession(id);
+  // On success the button flips to "Committed" via the session-meta update; only
+  // surface a message when the commit failed.
+  if (!r.ok) setSessionCommitMsg(id, r.stderr || 'Commit failed', false);
+  else setState(id, 'pushed');
   refreshGit();};
 
 // Two-click revert: first click arms, second de-applies just this session's edits.
@@ -1041,13 +1052,14 @@ sessionRevertBtn.onclick = async () => {
   }
   sessionRevertBtn.classList.remove('armed');
   sessionRevertBtn.textContent = 'Revert';
-  sessionCommitMsg.textContent = '';
-  const r = await window.api.revertSession(activeId);
+  const id = activeId;
+  setSessionCommitMsg(id, '', true);
+  const r = await window.api.revertSession(id);
   const skipped = r.skipped && r.skipped.length;
-  sessionCommitMsg.textContent = !r.ok ? (r.stderr || 'Revert failed')
+  const text = !r.ok ? (r.stderr || 'Revert failed')
     : skipped ? `Reverted; ${skipped} file${skipped > 1 ? 's' : ''} skipped (also edited by another session)`
     : 'Reverted';
-  sessionCommitMsg.className = 'git-msg ' + (r.ok && !skipped ? 'ok' : 'err');
+  setSessionCommitMsg(id, text, r.ok && !skipped);
   refreshGit();};
 
 document.getElementById('new-session').onclick = newSession;
@@ -1285,4 +1297,4 @@ refreshGit();
 refreshTree();
 loadToolbar();
 // ponytail: poll while focused; a file watcher would be more code for no real gain
-setInterval(() => { if (document.hasFocus()) refreshGit(); }, 3000);
+setInterval(() => { if (document.hasFocus()) { refreshGit(); updateSessionBar(); } }, 3000);

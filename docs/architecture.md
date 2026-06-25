@@ -30,6 +30,8 @@ Each session is tracked independently so its work can be committed on its own, *
 
 Because step 3 commits a synthesized blob rather than the shared working file, the other session's edits to the same file are never swept in — they stay in the working tree for that session to commit later (replaying onto the now-updated `HEAD`).
 
+On success `commit-session` **forgets the committed paths** from that session's `edits` map and re-pushes `session-meta` with the shrunk file list. The renderer's per-session commit button is driven entirely by this list: `Commit N files` while files remain, and a disabled **`No changes`** when the list is empty (re-evaluated on every `session-meta` and on the 3 s focused poll, alongside `refreshGit()`). There is no separate persistent "Committed" status label — `#session-commit-msg` now only carries transient commit/revert *errors* for the active session.
+
 **Known ceilings.** Two sessions editing the *exact same lines* → the second replays unclean and falls back to a whole-file commit. `NotebookEdit` is always whole-file. A version of a session's file the user manually staged is overwritten in the index by the synthesized blob. This relies on Claude Code's `PostToolUse` payload exposing `tool_input.old_string`/`new_string`/`content`.
 
 ## Per-session revert
