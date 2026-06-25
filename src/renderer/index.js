@@ -18,6 +18,11 @@ onClose(showActiveSession);
 // Open folder: re-point the repo, then reload everything that depends on it.
 document.getElementById('open-folder').onclick = async () => {
   try {
+    const current = await window.api.getRepoPath();
+    if (current) {
+      const ok = window.confirm(`Change folder?\n\nCurrent: ${current}\n\nThis will reload the file tree, git pane, and toolbar.`);
+      if (!ok) return;
+    }
     const r = await window.api.openFolder();
     if (r.error) console.error('open-folder:', r.error);
     if (!r.canceled) { window.api.setWindowTitle(r.repo); refreshGit(); refreshTree(); loadToolbar(); }

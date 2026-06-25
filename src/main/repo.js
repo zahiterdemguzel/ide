@@ -30,6 +30,8 @@ function repoRoot(dir) {
   } catch { return dir; }
 }
 
+ipcMain.handle('get-repo-path', () => repoPath);
+
 ipcMain.handle('open-folder', async () => {
   try {
     const r = await dialog.showOpenDialog(getWin(), { properties: ['openDirectory'] });

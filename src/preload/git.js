@@ -2,6 +2,7 @@ const { ipcRenderer } = require('electron');
 
 // The shared repo: folder picker + git porcelain for the git pane.
 module.exports = {
+  getRepoPath: () => ipcRenderer.invoke('get-repo-path'),
   openFolder: () => ipcRenderer.invoke('open-folder'),
   setWindowTitle: (repoPath) => ipcRenderer.invoke('set-window-title', repoPath),
   gitStatus: () => ipcRenderer.invoke('git-status'),
