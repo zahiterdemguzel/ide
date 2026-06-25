@@ -9,7 +9,7 @@ Each session shows a colored dot driven automatically by Claude Code hooks — n
 | Working | gray | `SessionStart`, `UserPromptSubmit`, `PreToolUse` |
 | Needs input | red | `Notification`, `PermissionRequest` |
 | Completed | green | `Stop`, or the PTY exits |
-| Pushed | purple | `PostToolUse` whose Bash command matches `git push` |
+| Committed / pushed | purple | a successful per-session **Commit changes**, or a `PostToolUse` whose Bash command matches `git push` |
 
 ## How it works
 

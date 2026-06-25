@@ -24,7 +24,7 @@ const STATE_LABEL = {
   working: 'Working',
   'needs-input': 'Needs input',
   completed: 'Completed',
-  pushed: 'Pushed',
+  pushed: 'Committed / pushed',
 };
 
 function termTheme() {
@@ -1017,6 +1017,7 @@ sessionCommitBtn.onclick = async () => {
   const r = await window.api.commitSession(activeId);
   sessionCommitMsg.textContent = r.ok ? 'Committed' : (r.stderr || 'Commit failed');
   sessionCommitMsg.className = 'git-msg ' + (r.ok ? 'ok' : 'err');
+  if (r.ok) setState(activeId, 'pushed');
   refreshGit();};
 
 // Two-click revert: first click arms, second de-applies just this session's edits.
