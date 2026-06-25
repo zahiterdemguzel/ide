@@ -301,3 +301,16 @@ body {
 .git-msg { margin-top: 6px; font-size: 12px; min-height: 14px; }
 .git-msg.ok { color: var(--green); }
 .git-msg.err { color: var(--red); }
+
+/* git pane split: git content (top, fills) + console (bottom, drag-resizable, ~1/3) */
+#git-main { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#git-console {
+  flex: 0 0 var(--console-h, 33%); min-height: 0;
+  display: flex; flex-direction: column; border-top: 1px solid var(--border);
+}
+#console-host { flex: 1; min-height: 0; padding: 2px 0 2px 6px; background: #1e1e1e; }
+#term-clear {
+  background: none; border: 1px solid var(--border); color: var(--fg-dim);
+  border-radius: 3px; cursor: pointer; font-size: 11px; padding: 1px 8px; line-height: 1.4;
+}
+#term-clear:hover { color: var(--fg); border-color: var(--accent); }

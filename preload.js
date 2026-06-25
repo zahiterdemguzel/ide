@@ -25,4 +25,9 @@ contextBridge.exposeInMainWorld('api', {
   commitSession: (id) => ipcRenderer.invoke('commit-session', id),
   onSessionMeta: (cb) => ipcRenderer.on('session-meta', (_e, msg) => cb(msg)),
   onSessionName: (cb) => ipcRenderer.on('session-name', (_e, msg) => cb(msg)),
+  startTerm: (size) => ipcRenderer.invoke('term-start', size),
+  termInput: (data) => ipcRenderer.send('term-input', data),
+  termResize: (cols, rows) => ipcRenderer.send('term-resize', { cols, rows }),
+  onTermData: (cb) => ipcRenderer.on('term-data', (_e, data) => cb(data)),
+  onTermExit: (cb) => ipcRenderer.on('term-exit', () => cb()),
 });

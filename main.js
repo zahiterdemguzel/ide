@@ -488,6 +488,33 @@ ipcMain.on('kill-session', (_e, { id }) => {
   if (s) { s.pty.kill(); sessions.delete(id); }
 });
 
+// --- git-pane console: one shared interactive shell PTY in the repo dir ---
+let consolePty = null;
+function spawnConsole(cols, rows) {
+  const shell = process.platform === 'win32'
+    ? (process.env.COMSPEC || 'powershell.exe')
+    : (process.env.SHELL || '/bin/bash');
+  const p = pty.spawn(shell, [], {
+    name: 'xterm-color',
+    cols: cols || 80,
+    rows: rows || 24,
+    cwd: repoPath,
+    env: process.env,
+  });
+  p.onData((data) => win && win.webContents.send('term-data', data));
+  // On exit (e.g. the user typed `exit`) drop it; the renderer respawns a fresh shell.
+  p.onExit(() => { consolePty = null; if (win) win.webContents.send('term-exit'); });
+  consolePty = p;
+}
+ipcMain.handle('term-start', (_e, { cols, rows } = {}) => {
+  if (!consolePty) spawnConsole(cols, rows);
+  return { ok: true };
+});
+ipcMain.on('term-input', (_e, data) => { if (consolePty) consolePty.write(data); });
+ipcMain.on('term-resize', (_e, { cols, rows }) => {
+  if (consolePty) try { consolePty.resize(cols, rows); } catch { /* race on close */ }
+});
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1400,
