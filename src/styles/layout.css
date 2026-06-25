@@ -1,0 +1,60 @@
+#app {
+  display: grid;
+  grid-template-columns: var(--left, 240px) 5px minmax(0, 1fr) 5px var(--right, 300px);
+  flex: 1;
+  min-height: 0;
+}
+
+/* drag handles between panes (col = between columns, row = sidebar split) */
+.gutter { z-index: 5; }
+.gutter-col { cursor: col-resize; }
+.gutter-row { flex: none; height: 5px; cursor: row-resize; }
+.gutter:hover, .gutter.dragging { background: var(--accent-hi); }
+
+#sidebar, #git {
+  background: var(--bg-2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+#sidebar { border-right: 1px solid var(--border); }
+#git { border-left: 1px solid var(--border); }
+
+.pane-head {
+  padding: 10px 12px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.pane-head-left { display: inline-flex; align-items: center; gap: 6px; }
+
+.sidebar-actions { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.sidebar-actions button {
+  background: var(--accent); color: #fff; border: none; border-radius: 4px;
+  padding: 7px; cursor: pointer; font-size: 12px;
+}
+.sidebar-actions button:hover { background: var(--accent-hi); }
+.repo-label {
+  padding: 6px 12px; font-size: 11px; color: var(--fg-dim);
+  border-top: 1px solid var(--border); word-break: break-all;
+}
+
+/* sidebar split: sessions (top, drag-resizable) + explorer (bottom fills rest) */
+#sessions-pane { flex: 0 0 var(--sess-h, 50%); min-height: 0; display: flex; flex-direction: column; }
+#files-pane { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+#files-pane { border-top: 1px solid var(--border); }
+
+/* center / terminal */
+#center { display: flex; flex-direction: column; background: var(--bg); min-width: 0; }
+#center-body { position: relative; flex: 1; min-height: 0; }
+
+#terminal-host { position: absolute; inset: 0; padding: 6px; }
+.term-container { width: 100%; height: 100%; display: none; }
+#empty-hint {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--fg-dim);
+}

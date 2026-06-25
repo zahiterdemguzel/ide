@@ -1,0 +1,30 @@
+/* file explorer search */
+#file-search {
+  margin: 0 8px 6px; padding: 5px 8px; font-size: 12px;
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; outline: none;
+}
+#file-search:focus { border-color: var(--accent); }
+
+/* search results */
+#search-results { flex: 1; overflow: auto; padding-bottom: 6px; user-select: none; }
+.search-heading {
+  padding: 6px 8px 2px; font-size: 10px; letter-spacing: .06em;
+  color: var(--fg-dim); text-transform: uppercase;
+}
+.search-row { padding-left: 8px; }
+.search-snippet {
+  flex: 1; overflow: hidden; text-overflow: ellipsis;
+  color: var(--fg-dim); font-size: 11px; padding-left: 8px;
+}
+
+/* file explorer tree */
+#file-tree { flex: 1; overflow: auto; padding-bottom: 6px; user-select: none; }
+.tree-row {
+  display: flex; align-items: center; gap: 4px;
+  height: 22px; padding-right: 8px; cursor: pointer; white-space: nowrap;
+}
+.tree-row:hover { background: var(--bg-3); }
+.tree-row.sel { background: var(--list-sel); }
+.tree-twist { flex: none; width: 16px; text-align: center; font-size: 14px; color: var(--fg-dim); }
+.tree-name { overflow: hidden; text-overflow: ellipsis; }

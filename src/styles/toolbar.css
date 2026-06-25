@@ -1,0 +1,20 @@
+/* top run toolbar: one button per launch config, a separator, then one per task */
+#toolbar {
+  flex: none; display: flex; align-items: center;
+  height: 36px; padding: 0 8px; background: var(--bg-3);
+  border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden;
+}
+#toolbar-runs { display: flex; align-items: center; gap: 6px; }
+.tool-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--bg-2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 9px; cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.tool-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tool-btn.busy { opacity: .55; pointer-events: none; }
+.tool-ico { font-size: 11px; line-height: 1; }
+.tool-btn.launch .tool-ico { color: var(--green); }
+.tool-btn.task .tool-ico { color: var(--fg-dim); }
+.tool-btn:hover .tool-ico { color: #fff; }
+.tool-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex: none; }
+.toolbar-hint { color: var(--fg-dim); font-size: 12px; padding: 0 4px; }

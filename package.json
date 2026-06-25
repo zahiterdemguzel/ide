@@ -2,7 +2,7 @@
   "name": "claude-session-editor",
   "version": "0.1.0",
   "description": "Manage multiple interactive Claude CLI sessions with auto status + git staging",
-  "main": "main.js",
+  "main": "src/main/index.js",
   "scripts": {
     "start": "electron ."
   },

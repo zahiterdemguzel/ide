@@ -1,0 +1,35 @@
+/* asset view (image zoom / pixel editor / audio) */
+#asset-view { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); }
+#asset-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+}
+#asset-file { font-family: Consolas, monospace; font-size: 12px; color: var(--fg); }
+#asset-tools { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+#asset-close { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1; }
+#asset-close:hover { color: var(--fg); }
+#asset-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+
+.asset-btn {
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 3px; padding: 4px 8px; cursor: pointer; font-size: 12px;
+}
+.asset-btn:hover { background: var(--accent); border-color: var(--accent); }
+.asset-btn.on { background: var(--accent); border-color: var(--accent); }
+.asset-pct { font-family: Consolas, monospace; font-size: 12px; color: var(--fg-dim); min-width: 44px; text-align: center; }
+
+/* image zoom */
+.zoom-wrap { display: inline-block; }
+.zoom-img { display: block; image-rendering: pixelated; }
+
+/* pixel editor */
+.pixel-stage { display: inline-block; }
+.pixel-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--bg-2); border: 1px solid var(--border); touch-action: none; }
+.palette { display: flex; gap: 4px; }
+.swatch { width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; padding: 0; }
+.swatch.sel { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
+.asset-picker { width: 28px; height: 24px; padding: 0; background: none; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; }
+
+/* audio + waveform */
+.asset-audio { display: block; width: 100%; margin-bottom: 12px; }
+.waveform { display: block; width: 100%; background: var(--bg-2); border: 1px solid var(--border); border-radius: 3px; }

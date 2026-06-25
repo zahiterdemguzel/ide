@@ -1,0 +1,58 @@
+/* git pane */
+.git-section-title {
+  padding: 6px 12px; font-size: 11px; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.git-head-row { display: flex; align-items: center; justify-content: space-between; }
+.git-head-actions { display: flex; gap: 8px; }
+.git-head-actions .git-btn { visibility: visible; }
+
+.git-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 40vh; }
+.git-list li {
+  display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer;
+}
+.git-list li:hover { background: var(--bg-3); }
+.git-list li.warn { background: rgba(248, 81, 73, .12); }
+.git-status { width: 14px; text-align: center; font-family: Consolas, monospace; font-weight: 700; }
+.g-M { color: #e2c08d; }
+.g-A { color: var(--green); }
+.g-D { color: var(--red); }
+.g-u { color: var(--green); }
+.git-file { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; }
+.git-btn {
+  background: none; border: 1px solid var(--border); color: var(--fg);
+  border-radius: 3px; cursor: pointer; width: 22px; height: 20px; line-height: 1; visibility: hidden;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.git-list li:hover .git-btn { visibility: visible; }
+.git-btn:hover { background: var(--accent); border-color: var(--accent); }
+/* armed discard stays visible and red until the second click confirms */
+.git-revert.armed { visibility: visible; color: var(--red); border-color: var(--red); }
+.git-revert.armed:hover { background: var(--red); border-color: var(--red); color: #fff; }
+
+#git-refresh, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
+#git-refresh:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
+
+.git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
+#commit-msg {
+  width: 100%; resize: vertical; background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 3px; padding: 6px;
+  font-family: inherit; font-size: 13px;
+}
+.git-commit-actions { display: flex; gap: 8px; margin-top: 8px; }
+.git-commit-actions button {
+  flex: 1; background: var(--accent); color: #fff; border: none;
+  border-radius: 3px; padding: 6px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+}
+.git-commit-actions button:hover { background: var(--accent-hi); }
+.git-msg { margin-top: 6px; font-size: 12px; min-height: 14px; }
+.git-msg.ok { color: var(--green); }
+.git-msg.err { color: var(--red); }
+
+/* git pane split: git content (top, fills) + console (bottom, drag-resizable, ~1/3) */
+#git-main { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#git-console {
+  flex: 0 0 var(--console-h, 33%); min-height: 0;
+  display: flex; flex-direction: column; border-top: 1px solid var(--border);
+}

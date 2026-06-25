@@ -1,0 +1,66 @@
+const http = require('http');
+const { getWin } = require('./window');
+// Runtime-only seam: the request handler calls into sessions, and sessions calls
+// hooksSettings()/getHookPort() here — both happen well after module load, so the
+// circular require is safe. Access via the module object, never destructure at top.
+const sessions = require('./sessions');
+
+let hookPort = 0;
+const getHookPort = () => hookPort;
+
+// --- hooks injected per session via `claude --settings <json>` ---
+// Every event posts its raw stdin payload to our local server, which derives
+// state from hook_event_name. Same command for all events keeps this trivial.
+function hooksSettings() {
+  const cmd = `curl -s -X POST http://127.0.0.1:${hookPort}/hook -d @-`;
+  const entry = [{ matcher: '*', hooks: [{ type: 'command', command: cmd }] }];
+  const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
+    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop'];
+  const hooks = {};
+  for (const e of events) hooks[e] = entry; // unknown events simply never fire
+  return JSON.stringify({ hooks });
+}
+
+function eventToState(payload) {
+  switch (payload.hook_event_name) {
+    case 'Stop': return 'completed';
+    case 'Notification':
+    case 'PermissionRequest': return 'needs-input';
+    case 'PostToolUse': {
+      const c = payload.tool_input && payload.tool_input.command;
+      if (c && /git\s+push/.test(c)) return 'pushed';
+      return 'working';
+    }
+    case 'SessionStart':
+    case 'UserPromptSubmit':
+    case 'PreToolUse': return 'working';
+    default: return null;
+  }
+}
+
+function startHookServer() {
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d));
+    req.on('end', () => {
+      res.end('ok');
+      try {
+        const payload = JSON.parse(body);
+        const win = getWin();
+        const state = eventToState(payload);
+        if (state && payload.session_id && win) {
+          win.webContents.send('status', { id: payload.session_id, state });
+        }
+        const meta = sessions.recordSessionActivity(payload);
+        if (meta && win) win.webContents.send('session-meta', meta);
+      } catch { /* ignore malformed */ }
+    });
+  });
+  server.listen(0, '127.0.0.1', () => { hookPort = server.address().port; });
+}
+
+// Attach to the existing exports object instead of replacing it: hook-server is
+// required before sessions (see main/index.js), so sessions captures this object
+// mid-load. Reassigning module.exports here would swap in a new object sessions
+// never sees, leaving hookServer.hooksSettings undefined at spawn time.
+Object.assign(module.exports, { startHookServer, getHookPort, hooksSettings });

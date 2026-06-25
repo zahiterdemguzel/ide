@@ -1,0 +1,45 @@
+/* session list */
+#session-list { list-style: none; margin: 0; padding: 0; flex: 1; overflow-y: auto; }
+#session-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+#session-list li:hover { background: var(--bg-3); }
+#session-list li.active { background: var(--bg-3); border-left-color: var(--accent-hi); }
+.sess-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-close {
+  background: none; border: none; color: var(--fg-dim);
+  cursor: pointer; font-size: 21px; line-height: 1; padding: 0 2px; visibility: hidden;
+}
+#session-list li:hover .sess-close { visibility: visible; }
+.sess-close:hover { color: var(--fg); }
+
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gray); }
+.dot.working { background: var(--gray); }
+.dot.needs-input { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.dot.completed { background: var(--green); }
+.dot.pushed { background: var(--purple); }
+
+/* session bar (top of center pane): name + scoped commit / revert */
+#session-bar {
+  display: none; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+}
+#session-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-right { display: flex; align-items: center; gap: 10px; flex: none; }
+#session-commit-msg { margin: 0; white-space: nowrap; }
+#session-commit {
+  background: var(--accent); color: #fff; border: none; border-radius: 4px;
+  padding: 6px 12px; cursor: pointer; font-size: 12px;
+}
+#session-commit:hover { background: var(--accent-hi); }
+#session-revert {
+  background: transparent; color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+}
+#session-revert:hover { border-color: var(--red); color: var(--red); }
+#session-revert.armed { background: var(--red); border-color: var(--red); color: #fff; }

@@ -1,0 +1,40 @@
+:root {
+  --bg: #1e1e1e;
+  --bg-2: #252526;
+  --bg-3: #2d2d30;
+  --border: #333;
+  --fg: #cccccc;
+  --fg-dim: #858585;
+  --accent: #0e639c;
+  --accent-hi: #1177bb;
+  --green: #3fb950;
+  --red: #f85149;
+  --purple: #a371f7;
+  --gray: #6e7681;
+  --list-sel: #094771;
+}
+
+* { box-sizing: border-box; }
+
+/* UI chrome is not selectable; terminal output and form fields still are. */
+body { user-select: none; }
+.xterm, input, textarea { user-select: text; }
+
+/* Thin scrollbars that match the dark palette; overlay so they only show on hover/scroll. */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: transparent; border-radius: 4px; }
+::-webkit-scrollbar-corner { background: transparent; }
+:hover::-webkit-scrollbar-thumb { background: var(--border); }
+::-webkit-scrollbar-thumb:hover { background: var(--gray); }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
