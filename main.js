@@ -1,14 +1,44 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 const { execFile, execFileSync } = require('child_process');
 const crypto = require('crypto');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 
 let win;
-let repoPath = process.cwd();
-const sessions = new Map(); // id -> { pty }
+// Restore the last opened folder; fall back to cwd on first run / bad path.
+const lastFolderFile = path.join(app.getPath('userData'), 'last-folder.txt');
+function loadLastFolder() {
+  try {
+    const p = fs.readFileSync(lastFolderFile, 'utf8').trim();
+    if (p && fs.existsSync(p)) return p;
+  } catch {}
+  return process.cwd();
+}
+let repoPath = loadLastFolder();
+const sessions = new Map(); // id -> { pty, files: Set<absPath>, firstPrompt }
 let hookPort = 0;
+
+// Tools whose tool_input.file_path counts as a code change by the session.
+const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
+// Attribute the user's first prompt and any edited files to their session, so
+// we can later commit just that session's work. Returns updated meta, or null.
+function recordSessionActivity(payload) {
+  const s = sessions.get(payload.session_id);
+  if (!s) return null;
+  let changed = false;
+  if (payload.hook_event_name === 'UserPromptSubmit' && !s.firstPrompt && payload.prompt) {
+    s.firstPrompt = String(payload.prompt).trim();
+    changed = true;
+  }
+  if (payload.hook_event_name === 'PostToolUse' && FILE_TOOLS.has(payload.tool_name)) {
+    const f = payload.tool_input && payload.tool_input.file_path;
+    if (f && !s.files.has(f)) { s.files.add(f); changed = true; }
+  }
+  return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: [...s.files] } : null;
+}
 
 // node-pty on Windows doesn't search PATH — resolve the full claude.exe path once.
 let claudeCmd = null;
@@ -64,6 +94,8 @@ function startHookServer() {
         if (state && payload.session_id && win) {
           win.webContents.send('status', { id: payload.session_id, state });
         }
+        const meta = recordSessionActivity(payload);
+        if (meta && win) win.webContents.send('session-meta', meta);
       } catch { /* ignore malformed */ }
     });
   });
@@ -108,6 +140,7 @@ ipcMain.handle('open-folder', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
   if (r.canceled || !r.filePaths[0]) return { canceled: true };
   repoPath = repoRoot(r.filePaths[0]);
+  try { fs.writeFileSync(lastFolderFile, repoPath); } catch {}
   return { canceled: false, repo: repoPath };
 });
 
@@ -120,8 +153,30 @@ ipcMain.handle('git-unstage', async (_e, file) => {
   return r;
 });
 
+// Untracked files have nothing to diff against, so compare to /dev/null
+// (git-for-windows accepts it); exit code 1 just means "they differ".
+ipcMain.handle('git-diff', (_e, { file, staged, untracked }) => {
+  if (untracked) return git(['diff', '--no-index', '--', '/dev/null', file]);
+  return git(['diff', ...(staged ? ['--cached'] : []), '--', file]);
+});
+
 ipcMain.handle('git-commit', (_e, msg) => git(['commit', '-m', msg]));
 ipcMain.handle('git-push', () => git(['push']));
+
+// Commit ONLY the files this session edited, using its first prompt as the
+// message. add+commit are both path-scoped, so other sessions' work is untouched.
+ipcMain.handle('commit-session', async (_e, id) => {
+  const s = sessions.get(id);
+  if (!s) return { ok: false, stderr: 'Session is gone' };
+  const files = [...s.files]
+    .map((f) => path.relative(repoPath, f).split(path.sep).join('/'))
+    .filter((f) => f && !f.startsWith('..')); // drop anything outside the repo
+  if (!files.length) return { ok: false, stderr: 'This session changed no files yet' };
+  const msg = (s.firstPrompt || `session ${id.slice(0, 8)}`).slice(0, 500);
+  const add = await git(['add', '--', ...files]);
+  if (!add.ok) return add;
+  return git(['commit', '-m', msg, '--', ...files]);
+});
 
 ipcMain.handle('new-session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();
@@ -137,7 +192,7 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
     sessions.delete(id);
     if (win) win.webContents.send('status', { id, state: 'completed' });
   });
-  sessions.set(id, { pty: p });
+  sessions.set(id, { pty: p, files: new Set(), firstPrompt: '' });
   return { id, repo: repoPath };
 });
 
