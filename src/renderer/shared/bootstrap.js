@@ -4,6 +4,4 @@
 // Prefer the Error's stack (points at the real throw site); fall back to the
 // event's own location/message when no Error object is attached.
 window.addEventListener('error', (e) => console.error('Renderer error:', (e.error && e.error.stack) || `${e.message} (${e.filename || ''}:${e.lineno}:${e.colno})`));
-setTimeout(() => { throw new Error('CHAIN-TEST renderer throw'); }, 1500);
-Promise.reject(new Error('CHAIN-TEST promise reject'));
 window.addEventListener('unhandledrejection', (e) => console.error('Unhandled promise:', (e.reason && e.reason.stack) || (e.reason && e.reason.message) || e.reason));
