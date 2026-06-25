@@ -4,7 +4,22 @@
   "description": "Manage multiple interactive Claude CLI sessions with auto status + git staging",
   "main": "src/main/index.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.claude.session-editor",
+    "productName": "Claude Session Editor",
+    "files": [
+      "src/**/*",
+      ".vscode/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "portable"
+    }
   },
   "dependencies": {
     "@highlightjs/cdn-assets": "11.11.1",
@@ -13,6 +28,7 @@
     "@xterm/xterm": "^5.5.0"
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
   }
 }
