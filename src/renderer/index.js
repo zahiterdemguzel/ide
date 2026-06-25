@@ -10,37 +10,21 @@ import './explorer/search.js';
 import './terminal-links.js';
 import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
+import { confirmDialog } from './shared/confirm.js';
 import './panes.js';
 
 // Closing a center overlay returns to the active session (sessions owns it).
 onClose(showActiveSession);
 
-// Styled confirm dialog, matching the git error dialog's chrome.
-function confirmChangeFolder(current) {
-  const dlg = document.getElementById('confirm-dialog');
-  document.getElementById('confirm-title').textContent = 'Change folder?';
-  document.getElementById('confirm-msg').textContent =
-    `Current: ${current}\n\nThis will reload the file tree, git pane, and toolbar.`;
-  return new Promise((resolve) => {
-    const done = (ok) => {
-      document.getElementById('confirm-ok').onclick = null;
-      document.getElementById('confirm-cancel').onclick = null;
-      dlg.onclose = null;
-      dlg.close();
-      resolve(ok);
-    };
-    document.getElementById('confirm-ok').onclick = () => done(true);
-    document.getElementById('confirm-cancel').onclick = () => done(false);
-    dlg.onclose = () => resolve(false); // Esc / backdrop
-    dlg.showModal();
-  });
-}
-
 // Open folder: re-point the repo, then reload everything that depends on it.
 document.getElementById('open-folder').onclick = async () => {
   try {
     const current = await window.api.getRepoPath();
-    if (current && !(await confirmChangeFolder(current))) return;
+    if (current && !(await confirmDialog({
+      title: 'Change folder?',
+      message: `Current: ${current}\n\nThis will reload the file tree, git pane, and toolbar.`,
+      ok: 'Open',
+    }))) return;
     const r = await window.api.openFolder();
     if (r.error) console.error('open-folder:', r.error);
     if (!r.canceled) { window.api.setWindowTitle(r.repo); refreshGit(); refreshTree(); loadToolbar(); }

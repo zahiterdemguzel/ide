@@ -98,6 +98,8 @@
 .confirm-btn-primary:hover { background: var(--accent-hi); }
 .confirm-btn-secondary { background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); }
 .confirm-btn-secondary:hover { background: var(--border); }
+.confirm-btn-danger { background: var(--red); color: #fff; }
+.confirm-btn-danger:hover { filter: brightness(1.1); }
 .git-ahead-badge {
   position: absolute; top: -6px; right: -6px;
   min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;

@@ -28,3 +28,25 @@
 .tree-row.sel { background: var(--list-sel); }
 .tree-twist { flex: none; width: 16px; text-align: center; font-size: 14px; color: var(--fg-dim); }
 .tree-name { overflow: hidden; text-overflow: ellipsis; }
+
+/* right-click context menu */
+#tree-ctx-menu {
+  display: none; z-index: 9999;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px; min-width: 200px; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+}
+#tree-ctx-menu button {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 9px 12px; text-align: left; border-radius: 5px;
+  background: none; border: none; color: var(--fg); font-size: 13px;
+  cursor: pointer; white-space: nowrap;
+}
+#tree-ctx-menu button:hover { background: var(--bg-3); }
+#tree-ctx-menu .ctx-icon {
+  flex: none; width: 18px; text-align: center; font-size: 14px; color: var(--fg-dim);
+}
+#tree-ctx-menu .ctx-danger { color: var(--red); }
+#tree-ctx-menu .ctx-danger .ctx-icon { color: var(--red); }
+#tree-ctx-menu .ctx-danger:hover { background: var(--red); color: #fff; }
+#tree-ctx-menu .ctx-danger:hover .ctx-icon { color: #fff; }
+#tree-ctx-menu .ctx-sep { height: 1px; background: var(--border); margin: 6px 4px; }

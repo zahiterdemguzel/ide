@@ -1,10 +1,19 @@
-/* diff view (also hosts the read-only file viewer) */
+/* diff view (also hosts the file editor) */
 #diff-view { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); }
 #diff-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--border);
 }
 #diff-file { font-family: Consolas, monospace; font-size: 12px; color: var(--fg); }
+#diff-actions { display: flex; align-items: center; gap: 10px; }
+#diff-save {
+  padding: 2px 12px; font-size: 12px; cursor: pointer;
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 3px;
+}
+#diff-save:disabled { opacity: .5; cursor: default; }
+#diff-save.dirty:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+#diff-save.dirty:not(:disabled):hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 #diff-close {
   background: none; border: none; color: var(--fg-dim);
   cursor: pointer; font-size: 18px; line-height: 1;
@@ -13,6 +22,30 @@
 #diff-body {
   flex: 1; overflow: auto; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5;
 }
+
+/* file editor: a transparent textarea overlays a highlighted <pre> so native
+   editing (caret, selection, undo) shows the syntax colours behind it. */
+.editor { display: inline-flex; min-width: 100%; min-height: 100%; }
+.editor-gutter {
+  position: sticky; left: 0; z-index: 1; flex: none;
+  padding: 8px 8px 8px 12px; text-align: right; white-space: pre;
+  color: var(--fg-dim); background: var(--bg-2); user-select: none;
+}
+.editor-main { position: relative; flex: 1 0 auto; }
+.editor-pre, .editor-ta {
+  margin: 0; padding: 8px 12px; border: 0;
+  font: inherit; line-height: inherit; tab-size: 2;
+  white-space: pre; overflow-wrap: normal;
+}
+.editor-pre { min-height: 100%; pointer-events: none; }
+.editor-pre code { font: inherit; background: none; padding: 0; }
+.editor-ta {
+  position: absolute; inset: 0; resize: none; overflow: hidden;
+  background: transparent; color: transparent; caret-color: var(--fg);
+}
+.editor-ta:focus { outline: none; }
+.editor-ta::selection { background: rgba(56, 117, 215, .4); }
+.editor-notice { padding: 12px; color: var(--fg-dim); }
 .diff-row { display: flex; white-space: pre; }
 .diff-ln {
   flex: none; width: 44px; padding: 0 8px; text-align: right;
@@ -26,5 +59,3 @@
 .diff-row.ctx .diff-code::before { content: ' '; margin-left: -8px; padding-right: 4px; }
 .diff-row.hunk { color: var(--accent-hi); background: var(--bg-3); }
 .diff-row.hunk .diff-ln { background: var(--bg-3); }
-.diff-row.diff-hit { background: rgba(210, 153, 34, .18); }
-.diff-code mark { background: #d29922; color: #1e1e1e; border-radius: 2px; }

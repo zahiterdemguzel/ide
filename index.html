@@ -26,6 +26,11 @@
     <aside id="sidebar">
       <div id="sessions-pane">
         <div class="pane-head">SESSIONS</div>
+        <div id="session-tabs" class="sess-tabs">
+          <button class="sess-tab active" data-tab="active">Active</button>
+          <button class="sess-tab" data-tab="archived">Archived</button>
+          <button class="sess-tab" data-tab="all">All</button>
+        </div>
         <ul id="session-list"></ul>
         <div class="sidebar-actions">
           <button id="new-session"><img class="btn-icon" src="assets/plus.svg" alt="" />New session</button>
@@ -67,7 +72,10 @@
         <div id="diff-view">
           <div id="diff-head">
             <span id="diff-file"></span>
-            <button id="diff-close" title="Close diff">×</button>
+            <div id="diff-actions">
+              <button id="diff-save" title="Save (Ctrl+S)" hidden>Save</button>
+              <button id="diff-close" title="Close">×</button>
+            </div>
           </div>
           <div id="diff-body"></div>
         </div>

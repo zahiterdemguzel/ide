@@ -5,11 +5,16 @@ import { refreshGit } from './git-pane.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
 // switching sessions toggles which container is visible, preserving scrollback.
-const sessions = new Map(); // id -> { id, term, fit, container, li, dot, label, state, firstPrompt, name, files }
+const sessions = new Map(); // id -> { id, term, fit, container, li, dot, label, state, firstPrompt, name, files, archived }
 let activeId = null;
 export const getActiveId = () => activeId;
 
+// Which sessions the list shows: 'active' (default) hides archived, 'archived'
+// shows only archived, 'all' shows everything.
+let currentTab = 'active';
+
 const listEl = document.getElementById('session-list');
+const sessionTabs = document.getElementById('session-tabs');
 const hostEl = document.getElementById('terminal-host');
 const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
@@ -53,6 +58,51 @@ export function selectSession(id) {
   s.term.focus();
 }
 
+function sessionInTab(s) {
+  if (currentTab === 'all') return true;
+  if (currentTab === 'archived') return s.archived;
+  return !s.archived; // 'active'
+}
+
+// Show/hide rows for the current tab and keep each row's archived styling/title
+// in sync with its state.
+function applyTabFilter() {
+  for (const [, s] of sessions) {
+    s.li.style.display = sessionInTab(s) ? '' : 'none';
+    s.li.classList.toggle('archived', s.archived);
+    s.closeBtn.title = s.archived ? 'Close session permanently' : 'Archive session';
+  }
+}
+
+// When the selected session leaves the current tab (archived/restored/closed),
+// fall back to the first still-visible row, or the empty hint if none remain.
+function selectFirstVisible() {
+  for (const o of listEl.children) {
+    if (o.style.display !== 'none') { selectSession(o.dataset.id); return; }
+  }
+  activeId = null;
+  for (const [, o] of sessions) o.container.style.display = 'none';
+  emptyHint.style.display = 'block';
+  updateSessionBar();
+}
+
+function setTab(tab) {
+  currentTab = tab;
+  for (const btn of sessionTabs.children) btn.classList.toggle('active', btn.dataset.tab === tab);
+  applyTabFilter();
+  // The selected session may not belong to the new tab anymore.
+  const s = sessions.get(activeId);
+  if (!s || !sessionInTab(s)) selectFirstVisible();
+}
+
+function setArchived(id, archived) {
+  const s = sessions.get(id);
+  if (!s) return;
+  s.archived = archived;
+  applyTabFilter();
+  if (activeId === id && !sessionInTab(s)) selectFirstVisible();
+}
+
 // Closing an overlay returns here: show the active session if there is one.
 export function showActiveSession() {
   if (!activeId) return false;
@@ -94,6 +144,15 @@ export function fit(s) {
 // Reflow the active session's terminal (used by the window-resize + pane drags).
 export function fitActive() { if (activeId) fit(sessions.get(activeId)); }
 
+// Send raw input to the active session (used by explorer drag-drop and "add to chat").
+export function sendToActiveSession(text) {
+  if (!activeId) return;
+  const s = sessions.get(activeId);
+  if (!s) return;
+  window.api.sendInput(activeId, text);
+  s.term.focus();
+}
+
 async function newSession() {
   // probe a size from a temporary fit after open
   const res = await window.api.newSession({ cols: 80, rows: 24 });
@@ -118,15 +177,28 @@ async function newSession() {
   const label = document.createElement('span');
   label.className = 'sess-label';
   label.textContent = 'session ' + id.slice(0, 8);
+  const restore = document.createElement('button');
+  restore.className = 'sess-restore';
+  restore.title = 'Restore session';
+  restore.textContent = '↩';
+  restore.onclick = (e) => { e.stopPropagation(); setArchived(id, false); };
   const close = document.createElement('button');
   close.className = 'sess-close';
+  close.title = 'Archive session';
   close.textContent = '×';
-  close.onclick = (e) => { e.stopPropagation(); closeSession(id); };
-  li.append(dot, label, close);
+  // First × archives a live session; a second × on the archived row closes it for good.
+  close.onclick = (e) => {
+    e.stopPropagation();
+    const s = sessions.get(id);
+    if (s && s.archived) closeSession(id);
+    else setArchived(id, true);
+  };
+  li.append(dot, label, restore, close);
   li.onclick = () => selectSession(id);
   listEl.appendChild(li);
 
-  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, state: 'working', firstPrompt: '', name: '', files: [] });
+  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn: close, state: 'working', firstPrompt: '', name: '', files: [], archived: false });
+  setTab('active');
   selectSession(id);
 }
 
@@ -140,9 +212,7 @@ function closeSession(id) {
   sessions.delete(id);
   if (activeId === id) {
     activeId = null;
-    const next = sessions.keys().next();
-    if (!next.done) selectSession(next.value);
-    else { emptyHint.style.display = 'block'; updateSessionBar(); }
+    selectFirstVisible();
   }
 }
 
@@ -181,6 +251,16 @@ sessionRevertBtn.onclick = async () => {
   refreshGit();};
 
 document.getElementById('new-session').onclick = newSession;
+
+for (const btn of sessionTabs.children) btn.onclick = () => setTab(btn.dataset.tab);
+
+// Accept file drops from the explorer tree — inserts "@filepath" into the active session.
+hostEl.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+hostEl.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const text = e.dataTransfer.getData('text/plain');
+  if (text) sendToActiveSession(text);
+});
 
 // --- IPC streams from the per-session PTYs / hook server ---
 window.api.onPtyData(({ id, data }) => {

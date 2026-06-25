@@ -1,6 +1,8 @@
 import { fileColor } from '../shared/ext.js';
 import { openFromTree } from '../viewer/center.js';
 import { promptText } from '../shared/prompt.js';
+import { confirmDialog } from '../shared/confirm.js';
+import { sendToActiveSession } from '../sessions.js';
 
 // --- file explorer (left, below sessions) ---
 // Lazy tree: each folder fetches its children the first time it's expanded.
@@ -15,7 +17,82 @@ function select(row, rel, dir) {
   selected = { rel, dir };
 }
 
-async function loadDir(rel, container, depth) {
+// --- context menu ---
+const ctxMenu = document.createElement('div');
+ctxMenu.id = 'tree-ctx-menu';
+ctxMenu.innerHTML =
+  '<button data-action="rename"><span class="ctx-icon">✎</span>Rename</button>' +
+  '<button data-action="add-to-chat"><span class="ctx-icon">＠</span>Add to chat</button>' +
+  '<button data-action="copy-path"><span class="ctx-icon">⧉</span>Copy path</button>' +
+  '<div class="ctx-sep"></div>' +
+  '<button data-action="delete" class="ctx-danger"><span class="ctx-icon">🗑</span>Delete</button>';
+document.body.appendChild(ctxMenu);
+
+let ctxTarget = null; // { rel, dir }
+
+function hideCtxMenu() { ctxMenu.style.display = 'none'; ctxTarget = null; }
+
+function showCtxMenu(x, y, rel, dir) {
+  ctxTarget = { rel, dir };
+  ctxMenu.style.cssText = `display:block; position:fixed; left:${x}px; top:${y}px;`;
+  requestAnimationFrame(() => {
+    const r = ctxMenu.getBoundingClientRect();
+    if (r.right > window.innerWidth) ctxMenu.style.left = (window.innerWidth - r.width - 4) + 'px';
+    if (r.bottom > window.innerHeight) ctxMenu.style.top = (window.innerHeight - r.height - 4) + 'px';
+  });
+}
+
+document.addEventListener('click', hideCtxMenu);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideCtxMenu(); });
+
+ctxMenu.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  const btn = e.target.closest('[data-action]');
+  if (!btn || !ctxTarget) return;
+  const { rel, dir } = ctxTarget;
+  hideCtxMenu();
+
+  if (btn.dataset.action === 'rename') {
+    const parts = rel.split('/');
+    const oldName = parts[parts.length - 1];
+    const newName = await promptText({ title: 'Rename', label: 'New name', placeholder: oldName, value: oldName, ok: 'Rename' });
+    if (!newName || newName === oldName) return;
+    const newRel = parts.slice(0, -1).concat(newName).join('/');
+    const r = await window.api.renameFile(rel, newRel);
+    if (!r.ok) {
+      await confirmDialog({ title: 'Rename failed', message: r.error || 'Could not rename.', ok: 'OK' });
+      return;
+    }
+    if (selected && selected.rel === rel) selected = { rel: newRel, dir };
+    await refreshTree();
+
+  } else if (btn.dataset.action === 'delete') {
+    const okToDelete = await confirmDialog({
+      title: dir ? 'Delete folder?' : 'Delete file?',
+      message: dir
+        ? `Move "${rel}" and everything inside it to the Recycle Bin?`
+        : `Move "${rel}" to the Recycle Bin?`,
+      ok: 'Delete',
+      danger: true,
+    });
+    if (!okToDelete) return;
+    const r = await window.api.deleteFile(rel);
+    if (!r.ok) {
+      await confirmDialog({ title: 'Delete failed', message: r.error || 'Could not delete.', ok: 'OK' });
+      return;
+    }
+    if (selected && selected.rel === rel) selected = null;
+    await refreshTree();
+
+  } else if (btn.dataset.action === 'add-to-chat') {
+    sendToActiveSession('@' + rel);
+
+  } else if (btn.dataset.action === 'copy-path') {
+    await navigator.clipboard.writeText(rel);
+  }
+});
+
+async function loadDir(rel, container, depth, expandedSet = null) {
   const r = await window.api.listDir(rel);
   container.innerHTML = '';
   if (!r.ok) return;
@@ -23,6 +100,7 @@ async function loadDir(rel, container, depth) {
     const childRel = rel ? rel + '/' + e.name : e.name;
     const row = document.createElement('div');
     row.className = 'tree-row';
+    row.dataset.rel = childRel;
     row.style.paddingLeft = (depth * 12 + 8) + 'px';
     const twist = document.createElement('span');
     twist.className = 'tree-twist';
@@ -34,6 +112,13 @@ async function loadDir(rel, container, depth) {
     if (!e.dir) name.style.color = fileColor(e.name);
     row.append(twist, name);
     container.appendChild(row);
+
+    row.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      select(row, childRel, e.dir);
+      showCtxMenu(ev.clientX, ev.clientY, childRel, e.dir);
+    });
 
     if (e.dir) {
       const kids = document.createElement('div');
@@ -47,7 +132,19 @@ async function loadDir(rel, container, depth) {
         twist.textContent = open ? '▾' : '▸';
         if (open && !loaded) { loaded = true; await loadDir(childRel, kids, depth + 1); }
       };
+      // Restore previously-expanded state after a tree rebuild.
+      if (expandedSet && expandedSet.has(childRel)) {
+        kids.style.display = 'block';
+        twist.textContent = '▾';
+        loaded = true;
+        await loadDir(childRel, kids, depth + 1, expandedSet);
+      }
     } else {
+      row.draggable = true;
+      row.addEventListener('dragstart', (ev) => {
+        ev.dataTransfer.setData('text/plain', '@' + childRel);
+        ev.dataTransfer.effectAllowed = 'copy';
+      });
       row.onclick = () => {
         select(row, childRel, false);
         openFromTree(childRel);
@@ -56,7 +153,22 @@ async function loadDir(rel, container, depth) {
   }
 }
 
-export function refreshTree() { loadDir('', fileTree, 0); }
+export async function refreshTree() {
+  // Capture which folders are currently open so we can restore them after the rebuild.
+  const expanded = new Set(
+    [...fileTree.querySelectorAll('.tree-row')]
+      .filter(row => row.querySelector('.tree-twist')?.textContent === '▾')
+      .map(row => row.dataset.rel)
+      .filter(Boolean)
+  );
+  await loadDir('', fileTree, 0, expanded.size ? expanded : null);
+  // Re-apply the selection highlight (select() cleared it when the DOM was wiped).
+  if (selected) {
+    for (const row of fileTree.querySelectorAll('.tree-row')) {
+      if (row.dataset.rel === selected.rel) { row.classList.add('sel'); break; }
+    }
+  }
+}
 document.getElementById('files-refresh').onclick = refreshTree;
 
 // Where a new file lands: inside the selected folder, alongside the selected

@@ -1,7 +1,7 @@
 // A minimal modal text prompt. Resolves to the trimmed input, or null if the
 // user cancels (Cancel button, backdrop click, or Escape). Only one is open at a
 // time. Enter confirms, Escape cancels.
-export function promptText({ title, label, placeholder = '', value = '', error = '' } = {}) {
+export function promptText({ title, label, placeholder = '', value = '', error = '', ok = 'Create' } = {}) {
   return new Promise((resolve) => {
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
@@ -15,11 +15,12 @@ export function promptText({ title, label, placeholder = '', value = '', error =
       `<div class="modal-error"></div>` +
       `<div class="modal-actions">` +
         `<button class="modal-cancel">Cancel</button>` +
-        `<button class="modal-ok">Create</button>` +
+        `<button class="modal-ok"></button>` +
       `</div>`;
     box.querySelector('.modal-title').textContent = title || '';
     if (label) box.querySelector('.modal-label').textContent = label;
     if (error) box.querySelector('.modal-error').textContent = error;
+    box.querySelector('.modal-ok').textContent = ok;
 
     const input = box.querySelector('.modal-input');
     input.placeholder = placeholder;

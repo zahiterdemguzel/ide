@@ -89,10 +89,23 @@ ipcMain.handle('search-refs', async (_e, q) => {
   return { ok: true, matches };
 });
 
-// Read a repo-relative text file for the explorer's read-only viewer.
+// Read a repo-relative text file for the explorer's file editor.
 ipcMain.handle('read-text', (_e, file) => {
   try { return { ok: true, text: fs.readFileSync(path.join(getRepoPath(), file), 'utf8') }; }
   catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Write a repo-relative text file back to disk (the editor's Save). Guards
+// against paths escaping the repo, same as create/rename/delete.
+ipcMain.handle('write-text', (_e, { file, text }) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, file);
+    const inside = path.relative(repoPath, abs);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
+    fs.writeFileSync(abs, text);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 // Resolve a path the user Ctrl+clicked in the terminal. Absolute paths are used
@@ -119,6 +132,35 @@ ipcMain.handle('open-external', async (_e, target) => {
     if (/^https?:\/\//i.test(target)) { await shell.openExternal(target); return { ok: true }; }
     const err = await shell.openPath(target);
     return { ok: !err, error: err };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Rename a file or folder within the repo.
+ipcMain.handle('rename-file', (_e, oldRel, newRel) => {
+  try {
+    const repoPath = getRepoPath();
+    const oldAbs = path.join(repoPath, oldRel);
+    const newAbs = path.join(repoPath, newRel);
+    const oldInside = path.relative(repoPath, oldAbs);
+    const newInside = path.relative(repoPath, newAbs);
+    if (!oldInside || oldInside.startsWith('..') || path.isAbsolute(oldInside)) return { ok: false, error: 'Invalid path' };
+    if (!newInside || newInside.startsWith('..') || path.isAbsolute(newInside)) return { ok: false, error: 'Invalid path' };
+    if (fs.existsSync(newAbs)) return { ok: false, error: 'A file with that name already exists' };
+    fs.renameSync(oldAbs, newAbs);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Delete a file or folder within the repo. Uses the OS trash (Recycle Bin) so
+// the action stays recoverable rather than a permanent unlink.
+ipcMain.handle('delete-file', async (_e, rel) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, rel);
+    const inside = path.relative(repoPath, abs);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
+    await shell.trashItem(abs);
+    return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 

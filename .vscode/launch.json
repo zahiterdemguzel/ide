@@ -9,7 +9,12 @@
       "request": "launch",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
-      "cwd": "${workspaceFolder}"
+      "cwd": "${workspaceFolder}",
+      // Electron spawns Chromium renderer/GPU child processes. If VS Code
+      // auto-attaches its debugger to them (the default), it injects an inspector
+      // into the renderer and the window stops responding to clicks/keys. Attach
+      // to the main process only so the app stays interactive.
+      "autoAttachChildProcesses": false
     }
   ]
 }
