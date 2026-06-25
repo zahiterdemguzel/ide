@@ -130,6 +130,28 @@ function closeSession(id) {
 }
 
 // --- git pane ---
+// Collapse long paths to …trailing/segments that fit within MAX_PATH, keeping whole
+// folder/filename segments rather than cutting mid-name. The basename is always kept
+// in full unless it alone overflows, in which case its middle is elided (keeping the
+// extension). Full path stays in the row's tooltip.
+const MAX_PATH = 40;
+function shortenPath(file) {
+  if (file.length <= MAX_PATH) return file;
+  const parts = file.split('/');
+  let tail = parts.pop();
+  // Basename alone is too long: keep head + extension, elide the middle.
+  if (tail.length + 1 > MAX_PATH) {
+    const dot = tail.lastIndexOf('.');
+    const ext = dot > 0 ? tail.slice(dot) : '';
+    const head = tail.slice(0, MAX_PATH - ext.length - 1);
+    return head + '…' + ext;
+  }
+  while (parts.length && ('…' + parts[parts.length - 1] + '/' + tail).length <= MAX_PATH) {
+    tail = parts.pop() + '/' + tail;
+  }
+  return '…' + tail;
+}
+
 function gitItem(file, status, staged, action, label) {
   const li = document.createElement('li');
   li.onclick = () => openFile(file, status, staged);
@@ -138,7 +160,7 @@ function gitItem(file, status, staged, action, label) {
   st.textContent = status;
   const name = document.createElement('span');
   name.className = 'git-file';
-  name.textContent = file;
+  name.textContent = shortenPath(file);
   name.title = file;
 
   // Two-click discard: first click arms (red), second click reverts.
