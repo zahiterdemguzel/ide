@@ -95,7 +95,7 @@ The native Electron application menu is removed (`Menu.setApplicationMenu(null)`
 
 `substVars()` resolves the editor-free VS Code variables (`${workspaceFolder}`, `${workspaceFolderBasename}`, `${workspaceRoot}`, `${cwd}`, `${pathSeparator}`, `${env:NAME}`); other `${…}` placeholders are left as-is (best effort). `cwd`/`env` come from the launch config or the task's `options`.
 
-The renderer's `runSpecInConsole(spec)` opens (or **reuses** — matched by config name) a terminal tab for each spec, spawning its shell in the spec's `cwd`/`env` and running its `command`; relaunching a config restarts its existing tab with a fresh shell rather than piling up duplicates. The renderer rebuilds the toolbar (`loadToolbar()`) on startup and after **Open folder**.
+The renderer's `runSpecInConsole(spec)` opens (or **reuses** — matched by config name) a terminal tab for each spec, spawning its shell in the spec's `cwd`/`env` and running its `command`; relaunching a config restarts its existing tab with a fresh shell rather than piling up duplicates. The renderer rebuilds the toolbar (`loadToolbar()`) on startup, after **Open folder**, and whenever the `.vscode` files change underneath it: `run-configs.js` keeps an `fs.watchFile` (2s poll) on `.vscode/launch.json` and `.vscode/tasks.json` — robust even before the files exist, firing on create/edit/delete — and pushes a `run-configs-changed` event that the renderer answers with `loadToolbar()`. The watch re-points to the new folder on **Open folder** via `repo.js`'s `onRepoChange` listener registry (fired from `setRepoPath`).
 
 ## Resizable panes
 

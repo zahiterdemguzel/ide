@@ -27,6 +27,10 @@ function runButton(kind, name, compound) {
   return b;
 }
 
+// Main watches .vscode/launch.json + tasks.json and pushes this when either
+// changes (created/edited/deleted), so the buttons track the files live.
+window.api.onRunConfigsChanged(() => loadToolbar());
+
 export async function loadToolbar() {
   const r = await window.api.getRunConfigs();
   toolbarRuns.innerHTML = '';

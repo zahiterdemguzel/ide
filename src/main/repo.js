@@ -16,9 +16,16 @@ function loadLastFolder() {
 
 let repoPath = loadLastFolder();
 const getRepoPath = () => repoPath;
+
+// Subsystems that derive state from the open folder (e.g. the run-config watcher)
+// register here so they re-point when the user opens a different repo.
+const repoChangeListeners = [];
+const onRepoChange = (fn) => repoChangeListeners.push(fn);
+
 function setRepoPath(p) {
   repoPath = p;
   try { fs.writeFileSync(lastFolderFile, repoPath); } catch {}
+  for (const fn of repoChangeListeners) { try { fn(repoPath); } catch (err) { console.error('[repo-change listener]', err); } }
 }
 
 // Resolve the git repo root for a chosen dir so porcelain paths and add/reset
@@ -48,4 +55,4 @@ ipcMain.handle('open-folder', async () => {
 // since it already has the repo path in hand.
 ipcMain.handle('set-window-title', (_e, folderPath) => setWindowTitle(folderPath || repoPath));
 
-module.exports = { getRepoPath, setRepoPath, repoRoot };
+module.exports = { getRepoPath, setRepoPath, repoRoot, onRepoChange };

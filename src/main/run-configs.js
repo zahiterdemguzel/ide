@@ -1,7 +1,8 @@
 const { ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { getRepoPath } = require('./repo');
+const { getRepoPath, onRepoChange } = require('./repo');
+const { getWin } = require('./window');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
 // We don't run a real debugger; each launch config / task is translated into a
@@ -134,5 +135,30 @@ ipcMain.handle('run-config', (_e, { kind, name }) => {
   const s = launchSpec(cfg);
   return s ? { ok: true, runs: [s] } : { ok: false, error: 'Could not derive a run command for this config' };
 });
+
+// Keep the toolbar in sync with the .vscode files without the user reopening the
+// folder. fs.watchFile polls the two paths (works even before they exist, and
+// fires on create/edit/delete), so a `tasks.json`/`launch.json` change pushes a
+// `run-configs-changed` event and the renderer rebuilds the toolbar.
+let watched = [];
+function unwatchVscode() {
+  for (const p of watched) fs.unwatchFile(p);
+  watched = [];
+}
+function watchVscode() {
+  unwatchVscode();
+  const onChange = () => { const win = getWin(); if (win) win.webContents.send('run-configs-changed'); };
+  for (const name of ['launch.json', 'tasks.json']) {
+    const p = path.join(getRepoPath(), '.vscode', name);
+    fs.watchFile(p, { interval: 2000 }, (cur, prev) => {
+      // mtimeMs is 0 when the file is absent; only react when presence/content changed.
+      if (cur.mtimeMs !== prev.mtimeMs) onChange();
+    });
+    watched.push(p);
+  }
+}
+
+watchVscode();
+onRepoChange(watchVscode);
 
 module.exports = {};
