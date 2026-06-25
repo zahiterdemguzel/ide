@@ -53,19 +53,48 @@ function envMap(env) {
   return out;
 }
 
+// Debug `type`s whose interpreter is the type's own runtime, so a config with a
+// `program` but no explicit `runtimeExecutable` still resolves (e.g. a `go` config
+// → `go run <program>`). node/python are handled inline above this map.
+const TYPE_RUNTIME = {
+  go: ['go', 'run'],
+  php: ['php'],
+  ruby: ['ruby'],
+  rdebug: ['ruby'],
+  perl: ['perl'],
+  lua: ['lua'],
+  bashdb: ['bash'],
+  shell: ['bash'],
+};
+
 // Turn a launch config into a runnable command line. Covers the common node /
-// python cases plus a generic runtimeExecutable/program fallback; returns null
-// when there's nothing executable to derive.
+// python cases, known interpreter types (TYPE_RUNTIME), plus a generic
+// runtimeExecutable/program fallback; returns null when there's nothing
+// executable to derive (e.g. a browser/attach config with no program).
 function buildLaunchCommand(cfg) {
   const program = cfg.program ? substVars(cfg.program) : '';
   const args = (cfg.args || []).map(substVars);
   const runExe = cfg.runtimeExecutable ? substVars(cfg.runtimeExecutable) : '';
   const runArgs = (cfg.runtimeArgs || []).map(substVars);
   const type = (cfg.type || '').toLowerCase();
+  // Godot configs carry `project` + `scene` (not a `program`) and run the engine
+  // binary. The Godot Tools extension keeps the binary path in a VS Code setting,
+  // not in launch.json, so we can't know it — default to `godot` on PATH, letting
+  // `runtimeExecutable`/`editor_path` override. A `scene` of "main"/"current"
+  // (or absent) runs the project's main scene; an explicit res:// path runs that scene.
+  if (type === 'godot') {
+    const exe = runExe || (cfg.editor_path ? substVars(cfg.editor_path) : '') || 'godot';
+    const project = cfg.project ? substVars(cfg.project) : getRepoPath();
+    const scene = cfg.scene ? substVars(cfg.scene) : '';
+    const sceneArgs = scene && scene !== 'main' && scene !== 'current' ? [scene] : [];
+    const parts = [exe, '--path', project, ...sceneArgs, ...runArgs, ...args];
+    return parts.filter((p) => p !== '' && p != null).map(quoteArg).join(' ');
+  }
   let parts;
   if (type.includes('node')) parts = [runExe || 'node', ...runArgs, program, ...args];
   else if (type.includes('python') || type === 'debugpy') parts = [runExe || 'python', ...runArgs, program, ...args];
   else if (runExe) parts = [runExe, ...runArgs, program, ...args];
+  else if (TYPE_RUNTIME[type] && program) parts = [...TYPE_RUNTIME[type], ...runArgs, program, ...args];
   else if (program) parts = [program, ...args];
   else return null;
   return parts.filter((p) => p !== '' && p != null).map(quoteArg).join(' ');
@@ -133,7 +162,9 @@ ipcMain.handle('run-config', (_e, { kind, name }) => {
   const cfg = (launch.configurations || []).find((c) => c.name === name);
   if (!cfg) return { ok: false, error: 'Config not found' };
   const s = launchSpec(cfg);
-  return s ? { ok: true, runs: [s] } : { ok: false, error: 'Could not derive a run command for this config' };
+  if (s) return { ok: true, runs: [s] };
+  const ofType = cfg.type ? ` of type "${cfg.type}"` : '';
+  return { ok: false, error: `Couldn't derive a run command for "${name}"${ofType}. This config has no runnable "program" or "runtimeExecutable" — it's likely a browser or attach config, which this app can't launch as a terminal command.` };
 });
 
 // Keep the toolbar in sync with the .vscode files without the user reopening the
