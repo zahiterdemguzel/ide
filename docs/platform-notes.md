@@ -31,9 +31,9 @@ Keep both, and keep `require('./instance')` as the **first** require in `index.j
 
 ## Network service crash loop
 
-On Windows, Chromium runs its network service in a separate sandboxed child process, and **all** resource loads (including local `file://` pages) go through it — so it runs even though this app does no networking. Third-party software that injects DLLs into Chromium processes (antivirus, VPN clients, firewall shims, overlay utilities) frequently crashes that sandboxed process, and Chromium restarts it while logging `Network service crashed, restarting service` on a loop. It's non-fatal but noisy.
+On Windows, Chromium runs its network service in a separate child process, and **all** resource loads (including local `file://` pages) go through it — so it runs even though this app does no networking. Third-party software that injects DLLs into Chromium processes (antivirus, VPN clients, firewall shims, overlay utilities) frequently crashes that process, and Chromium restarts it while logging `Network service crashed, restarting service` on a loop. It's non-fatal but noisy.
 
-`disable-features=NetworkServiceSandbox` in `src/main/index.js` stops the crash loop by running the network service unsandboxed, so the injected DLLs no longer kill it. No security trade-off here since the app makes no network requests. Keep it.
+Merely unsandboxing the service (`disable-features=NetworkServiceSandbox`) is **not** enough — the separate process is still present and still a target for DLL injection, so it keeps dying. The fix in `src/main/index.js` is `enable-features=NetworkServiceInProcess`, which runs the network service inside the main process: there is no separate child to crash, so the loop disappears. We keep `disable-features=NetworkServiceSandbox` alongside it as a harmless fallback. No security trade-off here since the app makes no network requests. Keep both.
 
 ## curl dependency
 
