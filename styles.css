@@ -183,6 +183,12 @@ body {
   padding: 6px 12px; cursor: pointer; font-size: 12px;
 }
 #session-commit:hover { background: var(--accent-hi); }
+#session-revert {
+  background: transparent; color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+}
+#session-revert:hover { border-color: var(--red); color: var(--red); }
+#session-revert.armed { background: var(--red); border-color: var(--red); color: #fff; }
 
 #terminal-host { position: absolute; inset: 0; padding: 6px; }
 .term-container { width: 100%; height: 100%; display: none; }
@@ -219,6 +225,8 @@ body {
 .diff-row.ctx .diff-code::before { content: ' '; margin-left: -8px; padding-right: 4px; }
 .diff-row.hunk { color: var(--accent-hi); background: var(--bg-3); }
 .diff-row.hunk .diff-ln { background: var(--bg-3); }
+.diff-row.diff-hit { background: rgba(210, 153, 34, .18); }
+.diff-code mark { background: #d29922; color: #1e1e1e; border-radius: 2px; }
 
 /* asset view (image zoom / pixel editor / audio) */
 #asset-view { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); }
@@ -307,8 +315,8 @@ body {
 .git-revert.armed { visibility: visible; color: var(--red); border-color: var(--red); }
 .git-revert.armed:hover { background: var(--red); border-color: var(--red); color: #fff; }
 
-#git-refresh, #files-refresh { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
-#git-refresh:hover, #files-refresh:hover { color: var(--fg); }
+#git-refresh, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
+#git-refresh:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
 
 .git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
 #commit-msg {

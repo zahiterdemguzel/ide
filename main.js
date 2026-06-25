@@ -432,11 +432,15 @@ ipcMain.handle('list-dir', (_e, rel) => {
 });
 
 // Recursive filename search for the explorer. Walks the tree async, skipping
-// .git/node_modules; case-insensitive substring match, capped at 500 hits.
+// .git/node_modules; case-insensitive, capped at 500 hits. A query of "*.png" or
+// ".png" matches by extension; any other query is a substring of the filename
+// (which includes the extension, so a bare "png" / "js" gathers that type too).
 const SEARCH_SKIP = new Set(['.git', 'node_modules']);
 ipcMain.handle('search-names', async (_e, q) => {
-  const needle = (q || '').toLowerCase();
+  const needle = (q || '').trim().toLowerCase();
   if (!needle) return { ok: true, files: [] };
+  const ext = /^\*?\.([a-z0-9]+)$/.exec(needle);
+  const suffix = ext ? '.' + ext[1] : null;
   const files = [];
   async function walk(rel) {
     if (files.length >= 500) return;
@@ -446,8 +450,10 @@ ipcMain.handle('search-names', async (_e, q) => {
     for (const d of ents) {
       if (SEARCH_SKIP.has(d.name)) continue;
       const childRel = rel ? rel + '/' + d.name : d.name;
-      if (d.isDirectory()) await walk(childRel);
-      else if (d.name.toLowerCase().includes(needle) && files.length < 500) files.push(childRel);
+      if (d.isDirectory()) { await walk(childRel); continue; }
+      const name = d.name.toLowerCase();
+      const hit = suffix ? name.endsWith(suffix) : name.includes(needle);
+      if (hit && files.length < 500) files.push(childRel);
     }
   }
   await walk('');
