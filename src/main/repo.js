@@ -1,11 +1,14 @@
-const { app, ipcMain, dialog } = require('electron');
+const { ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const { getWin, setWindowTitle } = require('./window');
+const { sharedDataDir } = require('./instance');
 
 // Restore the last opened folder; fall back to cwd on first run / bad path.
-const lastFolderFile = path.join(app.getPath('userData'), 'last-folder.txt');
+// Kept in the shared data dir (not the per-instance profile) so it persists
+// across runs and is common to every instance.
+const lastFolderFile = path.join(sharedDataDir, 'last-folder.txt');
 function loadLastFolder() {
   try {
     const p = fs.readFileSync(lastFolderFile, 'utf8').trim();

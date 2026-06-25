@@ -1,4 +1,7 @@
 const { app, BrowserWindow, Menu } = require('electron');
+// Redirect userData to a per-instance profile dir before any subsystem reads a
+// path from it (repo.js derives its config path on load). Must come first.
+require('./instance');
 const { createWindow } = require('./window');
 const { startHookServer } = require('./hook-server');
 const { killAllSessions } = require('./sessions');
@@ -20,27 +23,20 @@ process.on('unhandledRejection', (err) => console.error('[main unhandledRejectio
 // when the userData cache dir is locked. We don't need it — skip it entirely.
 app.commandLine.appendSwitch('disable-gpu-disk-cache');
 
-// Windows: the sandboxed network-service process repeatedly crashes
-// ("Network service crashed, restarting service") when third-party software
-// (antivirus, VPN, firewall shims) injects DLLs into it. Disabling the network
-// service sandbox stops the crash loop. The app does no networking, so there is
-// no security trade-off.
+// Windows: Chromium runs its network service in a separate child process that
+// repeatedly crashes ("Network service crashed, restarting service") when
+// third-party software (antivirus, VPN, firewall shims) injects DLLs into it.
+// Merely unsandboxing it (disable-features=NetworkServiceSandbox) is not enough
+// — the separate process is still a target for injection and keeps dying.
+// Running the network service IN the main process removes the separate child
+// entirely, so there is nothing to crash and restart. The app does no
+// networking, so there is no security trade-off.
+app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess');
 app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
 
-// A second instance pointed at the same userData dir fights over the disk cache
-// (the "Unable to move the cache: Access is denied" warning). Keep one instance;
-// relaunches just focus the existing window.
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      if (win.isMinimized()) win.restore();
-      win.focus();
-    }
-  });
-}
+// No single-instance lock: each instance runs on its own per-instance profile
+// dir (see ./instance), so multiple windows can run side by side without
+// fighting over the disk cache.
 
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null); // no native File/Edit/View menu — the in-app run toolbar replaces it

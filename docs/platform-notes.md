@@ -18,9 +18,16 @@ node-pty on Windows does **not** search `PATH`. Spawning bare `'claude'` throws 
 
 When the app is started via `.vscode/launch.json` (VS Code's Node debugger) instead of `npm start`, VS Code injects debugger/inspector variables into our `process.env`: `ELECTRON_RUN_AS_NODE`, `VSCODE_INSPECTOR_OPTIONS`, and a `NODE_OPTIONS=--require <js-debug bootloader>`. Spawning the `claude` CLI (a Node process) with that env makes it boot as a debug-attached target, so **new sessions never open**. `sessionEnv()` in `src/main/sessions.js` strips these before `pty.spawn` — keep that scrub. The launch config also sets `"console": "integratedTerminal"` so the main process actually has a visible console.
 
-## GPU disk-cache errors + single instance
+## GPU disk-cache errors + multiple instances
 
-On Windows, Chromium spams `Gpu Cache Creation failed: -2` and `Unable to move the cache: Access is denied (0x5)` at startup when the userData cache dir is locked — typically by a second app instance fighting over the same dir, or by antivirus. These are non-fatal (the window still opens), but noisy. `src/main/index.js` handles both: `disable-gpu-disk-cache` removes the GPU shader cache (we don't need it), and `requestSingleInstanceLock()` makes a second launch focus the existing window instead of spawning a rival process that contends for the cache. Keep both.
+On Windows, Chromium spams `Gpu Cache Creation failed: -2` and `Unable to move the cache: Access is denied (0x5)` at startup when the userData cache dir is locked — typically by another app instance fighting over the same dir, or by antivirus. These are non-fatal (the window still opens), but noisy.
+
+The app is meant to run **many instances side by side**, so a single-instance lock is the wrong fix — it was removed. Instead, two mechanisms keep concurrent instances from contending for the cache:
+
+- `disable-gpu-disk-cache` in `src/main/index.js` removes the GPU shader cache (we don't need it).
+- `src/main/instance.js` redirects `userData` to a **per-instance profile dir** (`<userData>/instances/<pid>`) before any subsystem reads a path from it, so each instance has its own disposable Chromium cache and singleton lock. The profile is deleted on `quit`. Persistent config (e.g. `last-folder.txt`) stays in the captured `sharedDataDir` so it survives restarts and is common to all instances.
+
+Keep both, and keep `require('./instance')` as the **first** require in `index.js` — it must run before `repo.js` derives its config path from `userData`.
 
 ## Network service crash loop
 
