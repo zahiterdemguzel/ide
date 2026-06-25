@@ -16,41 +16,44 @@
   <link rel="stylesheet" href="src/styles/web.css" />
   <link rel="stylesheet" href="src/styles/git.css" />
   <link rel="stylesheet" href="src/styles/console.css" />
+  <link rel="stylesheet" href="src/styles/themes.css" />
+  <link rel="stylesheet" href="src/styles/settings.css" />
   <title>IDE</title>
 </head>
 <body>
   <div id="toolbar" title="Launch configs and tasks from .vscode — click to open an external terminal">
     <div id="toolbar-runs"></div>
+    <button id="settings-btn" data-i18n-title="settings.open" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </div>
   <div id="app">
     <aside id="sidebar">
       <div id="sessions-pane">
-        <div class="pane-head">SESSIONS</div>
+        <div class="pane-head" data-i18n="nav.sessions">SESSIONS</div>
         <div id="session-tabs" class="sess-tabs">
-          <button class="sess-tab active" data-tab="active">Active</button>
-          <button class="sess-tab" data-tab="archived">Archived</button>
-          <button class="sess-tab" data-tab="all">All</button>
+          <button class="sess-tab active" data-tab="active" data-i18n="sessions.tab.active">Active</button>
+          <button class="sess-tab" data-tab="archived" data-i18n="sessions.tab.archived">Archived</button>
+          <button class="sess-tab" data-tab="all" data-i18n="sessions.tab.all">All</button>
         </div>
         <ul id="session-list"></ul>
         <div class="sidebar-actions">
-          <button id="new-session"><img class="btn-icon" src="assets/plus.svg" alt="" />New session</button>
+          <button id="new-session"><img class="btn-icon" src="assets/plus.svg" alt="" /><span data-i18n="sessions.new">New session</span></button>
         </div>
       </div>
       <div id="gutter-sess" class="gutter gutter-row" title="Drag to resize"></div>
       <div id="files-pane">
         <div class="pane-head">
-          <span class="pane-head-left">EXPLORER</span>
+          <span class="pane-head-left" data-i18n="nav.explorer">EXPLORER</span>
           <span class="pane-head-actions">
-            <button id="files-new" title="New file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
-            <button id="files-collapse" title="Collapse all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg></button>
-            <button id="files-refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg></button>
+            <button id="files-new" data-i18n-title="explorer.newFile" title="New file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+            <button id="files-collapse" data-i18n-title="explorer.collapseAll" title="Collapse all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg></button>
+            <button id="files-refresh" data-i18n-title="explorer.refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg></button>
           </span>
         </div>
-        <input id="file-search" type="search" placeholder="Search files…" />
+        <input id="file-search" type="search" data-i18n-placeholder="explorer.search" placeholder="Search files…" />
         <div id="file-tree"></div>
         <div id="search-results" hidden></div>
         <div class="sidebar-actions">
-          <button id="open-folder"><img class="btn-icon" src="assets/folder.svg" alt="" />Open folder</button>
+          <button id="open-folder"><img class="btn-icon" src="assets/folder.svg" alt="" /><span data-i18n="explorer.openFolder">Open folder</span></button>
         </div>
       </div>
     </aside>
@@ -62,13 +65,13 @@
         <span id="session-title"></span>
         <div class="bar-right">
           <span id="session-commit-msg" class="git-msg"></span>
-          <button id="session-revert" title="Revert only this session's changes">Revert</button>
+          <button id="session-revert" data-i18n-title="session.revertTitle" data-i18n="session.revert" title="Revert only this session's changes">Revert</button>
           <button id="session-commit" disabled>Nothing to commit</button>
         </div>
       </div>
       <div id="center-body">
         <div id="terminal-host"></div>
-        <div id="empty-hint">No session selected. Click <b>+ New session</b>.</div>
+        <div id="empty-hint" data-i18n-html="session.emptyHint">No session selected. Click <b>+ New session</b>.</div>
         <div id="diff-view">
           <div id="diff-head">
             <span id="diff-file"></span>
@@ -106,38 +109,38 @@
     <aside id="git">
       <div id="git-main">
       <div class="pane-head">
-        <span class="pane-head-left">GIT <button id="git-refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg></button></span>
+        <span class="pane-head-left"><span data-i18n="nav.git">GIT</span> <button id="git-refresh" data-i18n-title="git.refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg></button></span>
         <span class="pane-head-right">
-          <button id="git-fetch" title="Fetch"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m8 17 4 4 4-4"/></svg></button>
-          <button id="git-pull" title="Pull"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg></button>
+          <button id="git-fetch" data-i18n-title="git.fetch" title="Fetch"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m8 17 4 4 4-4"/></svg></button>
+          <button id="git-pull" data-i18n-title="git.pull" title="Pull"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg></button>
         </span>
       </div>
       <div id="git-tabs" class="git-tabs">
-        <button class="git-tab active" data-tab="changes">Changes</button>
-        <button class="git-tab" data-tab="history">History</button>
+        <button class="git-tab active" data-tab="changes" data-i18n="git.tab.changes">Changes</button>
+        <button class="git-tab" data-tab="history" data-i18n="git.tab.history">History</button>
       </div>
       <div id="git-changes-view">
       <div id="conflicts-section" hidden>
-        <div class="git-section-title git-conflicts-title">Conflicts</div>
+        <div class="git-section-title git-conflicts-title" data-i18n="git.conflicts">Conflicts</div>
         <ul id="conflicts-list" class="git-list"></ul>
       </div>
-      <div class="git-section-title">Staged</div>
+      <div class="git-section-title" data-i18n="git.staged">Staged</div>
       <ul id="staged-list" class="git-list"></ul>
       <div class="git-section-title git-head-row">
-        <span>Changes</span>
+        <span data-i18n="git.changes">Changes</span>
         <span class="git-head-actions">
-          <button id="revert-all" class="git-btn git-revert" title="Discard all changes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
-          <button id="stage-all" class="git-btn" title="Stage all changes">+</button>
+          <button id="revert-all" class="git-btn git-revert" data-i18n-title="git.discardAll" title="Discard all changes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
+          <button id="stage-all" class="git-btn" data-i18n-title="git.stageAll" title="Stage all changes">+</button>
         </span>
       </div>
       <ul id="unstaged-list" class="git-list"></ul>
       <div class="git-commit">
         <div id="git-msg" class="git-msg"></div>
-        <div class="commit-msg-wrap"><textarea id="commit-msg" rows="2" placeholder="Commit message"></textarea><div id="commit-msg-grip" title="Drag to resize"></div></div>
+        <div class="commit-msg-wrap"><textarea id="commit-msg" rows="2" data-i18n-placeholder="git.commitPlaceholder" placeholder="Commit message"></textarea><div id="commit-msg-grip" title="Drag to resize"></div></div>
         <div class="git-commit-actions">
-          <button id="git-commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg> Commit</button>
-          <button id="git-undo" title="Undo last commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg> Undo</button>
-          <button id="git-push"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg> Push<span id="git-ahead" class="git-ahead-badge" hidden></span></button>
+          <button id="git-commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg> <span data-i18n="git.commit">Commit</span></button>
+          <button id="git-undo" data-i18n-title="git.undoTitle" title="Undo last commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg> <span data-i18n="git.undo">Undo</span></button>
+          <button id="git-push"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg> <span data-i18n="git.push">Push</span><span id="git-ahead" class="git-ahead-badge" hidden></span></button>
         </div>
       </div>
       </div>
@@ -149,12 +152,12 @@
       <div id="gutter-console" class="gutter gutter-row" title="Drag to resize"></div>
 
       <div id="git-console">
-        <div class="pane-head" id="console-title">TERMINAL</div>
+        <div class="pane-head" id="console-title" data-i18n="nav.terminal">TERMINAL</div>
         <div id="console-head">
           <div id="term-tabs"></div>
           <div id="term-tools">
-            <button id="term-clear" title="Clear terminal">Clear</button>
-            <button id="term-add" title="New terminal">+</button>
+            <button id="term-clear" data-i18n-title="terminal.clearTitle" data-i18n="terminal.clear" title="Clear terminal">Clear</button>
+            <button id="term-add" data-i18n-title="terminal.new" title="New terminal">+</button>
           </div>
         </div>
         <div id="console-hosts"></div>
@@ -178,6 +181,25 @@
     <h3>Can't run this config</h3>
     <div id="run-error-msg"></div>
     <button id="run-error-ok">OK</button>
+  </dialog>
+  <dialog id="settings-dialog">
+    <div class="settings-head">
+      <h3 data-i18n="settings.title">Settings</h3>
+      <button id="settings-close" data-i18n-title="settings.close" title="Close">×</button>
+    </div>
+    <div class="settings-body">
+      <label class="settings-row">
+        <span data-i18n="settings.language">Language</span>
+        <select id="settings-language"></select>
+      </label>
+      <label class="settings-row">
+        <span data-i18n="settings.theme">Theme</span>
+        <select id="settings-theme"></select>
+      </label>
+    </div>
+    <div class="settings-actions">
+      <button id="settings-done" class="settings-primary" data-i18n="settings.done">Done</button>
+    </div>
   </dialog>
   <dialog id="confirm-dialog">
     <h3 id="confirm-title"></h3>

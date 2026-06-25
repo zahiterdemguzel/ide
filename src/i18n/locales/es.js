@@ -1,0 +1,53 @@
+// Español (Spanish).
+export default {
+  meta: { code: 'es', name: 'Español', dir: 'ltr' },
+  strings: {
+    'nav.sessions': 'SESIONES',
+    'nav.explorer': 'EXPLORADOR',
+    'nav.git': 'GIT',
+    'nav.terminal': 'TERMINAL',
+
+    'sessions.tab.active': 'Activas',
+    'sessions.tab.archived': 'Archivadas',
+    'sessions.tab.all': 'Todas',
+    'sessions.new': 'Nueva sesión',
+
+    'explorer.search': 'Buscar archivos…',
+    'explorer.openFolder': 'Abrir carpeta',
+    'explorer.newFile': 'Nuevo archivo',
+    'explorer.collapseAll': 'Contraer todo',
+    'explorer.refresh': 'Actualizar',
+
+    'git.tab.changes': 'Cambios',
+    'git.tab.history': 'Historial',
+    'git.staged': 'Preparados',
+    'git.changes': 'Cambios',
+    'git.conflicts': 'Conflictos',
+    'git.commitPlaceholder': 'Mensaje de confirmación',
+    'git.commit': 'Confirmar',
+    'git.undo': 'Deshacer',
+    'git.undoTitle': 'Deshacer última confirmación',
+    'git.push': 'Subir',
+    'git.refresh': 'Actualizar',
+    'git.fetch': 'Obtener',
+    'git.pull': 'Bajar',
+    'git.discardAll': 'Descartar todos los cambios',
+    'git.stageAll': 'Preparar todos los cambios',
+
+    'session.revert': 'Revertir',
+    'session.revertTitle': 'Revertir solo los cambios de esta sesión',
+    'session.nothingToCommit': 'Nada que confirmar',
+    'session.emptyHint': 'Ninguna sesión seleccionada. Haz clic en <b>+ Nueva sesión</b>.',
+
+    'terminal.clear': 'Limpiar',
+    'terminal.clearTitle': 'Limpiar terminal',
+    'terminal.new': 'Nuevo terminal',
+
+    'settings.open': 'Configuración',
+    'settings.title': 'Configuración',
+    'settings.language': 'Idioma',
+    'settings.theme': 'Tema',
+    'settings.close': 'Cerrar',
+    'settings.done': 'Listo',
+  },
+};

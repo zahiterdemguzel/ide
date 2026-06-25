@@ -20,6 +20,7 @@ Project knowledge lives in `docs/` (not in any external memory). Read the releva
 - [docs/architecture.md](docs/architecture.md) — main/preload/renderer split, the three main-process subsystems, IPC surface.
 - [docs/status-detection.md](docs/status-detection.md) — how the colored status dots are driven by Claude Code hooks.
 - [docs/platform-notes.md](docs/platform-notes.md) — Windows gotchas (node-pty fork, PTY path resolution, sandbox flag). **Do not revert these.**
+- [docs/settings.md](docs/settings.md) — the theme + language settings system (gear button), CSS-variable theming, and the i18n engine. How to add a theme, a language, or a translatable string.
 
 ## Working rules for agents
 

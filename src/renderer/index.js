@@ -11,6 +11,7 @@ import './terminal-links.js';
 import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
 import { confirmDialog } from './shared/confirm.js';
+import { initSettings } from './settings.js';
 import './panes.js';
 
 // Closing a center overlay returns to the active session (sessions owns it).
@@ -33,6 +34,7 @@ document.getElementById('open-folder').onclick = async () => {
   }
 };
 
+initSettings();
 initConsoles();
 refreshGit();
 refreshTree();

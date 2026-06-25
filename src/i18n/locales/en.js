@@ -1,0 +1,54 @@
+// English — the base locale. Every key used in the UI must exist here; other
+// locales fall back to these strings for any key they omit.
+export default {
+  meta: { code: 'en', name: 'English', dir: 'ltr' },
+  strings: {
+    'nav.sessions': 'SESSIONS',
+    'nav.explorer': 'EXPLORER',
+    'nav.git': 'GIT',
+    'nav.terminal': 'TERMINAL',
+
+    'sessions.tab.active': 'Active',
+    'sessions.tab.archived': 'Archived',
+    'sessions.tab.all': 'All',
+    'sessions.new': 'New session',
+
+    'explorer.search': 'Search files…',
+    'explorer.openFolder': 'Open folder',
+    'explorer.newFile': 'New file',
+    'explorer.collapseAll': 'Collapse all',
+    'explorer.refresh': 'Refresh',
+
+    'git.tab.changes': 'Changes',
+    'git.tab.history': 'History',
+    'git.staged': 'Staged',
+    'git.changes': 'Changes',
+    'git.conflicts': 'Conflicts',
+    'git.commitPlaceholder': 'Commit message',
+    'git.commit': 'Commit',
+    'git.undo': 'Undo',
+    'git.undoTitle': 'Undo last commit',
+    'git.push': 'Push',
+    'git.refresh': 'Refresh',
+    'git.fetch': 'Fetch',
+    'git.pull': 'Pull',
+    'git.discardAll': 'Discard all changes',
+    'git.stageAll': 'Stage all changes',
+
+    'session.revert': 'Revert',
+    'session.revertTitle': "Revert only this session's changes",
+    'session.nothingToCommit': 'Nothing to commit',
+    'session.emptyHint': 'No session selected. Click <b>+ New session</b>.',
+
+    'terminal.clear': 'Clear',
+    'terminal.clearTitle': 'Clear terminal',
+    'terminal.new': 'New terminal',
+
+    'settings.open': 'Settings',
+    'settings.title': 'Settings',
+    'settings.language': 'Language',
+    'settings.theme': 'Theme',
+    'settings.close': 'Close',
+    'settings.done': 'Done',
+  },
+};

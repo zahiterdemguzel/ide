@@ -1,0 +1,53 @@
+// Français (French).
+export default {
+  meta: { code: 'fr', name: 'Français', dir: 'ltr' },
+  strings: {
+    'nav.sessions': 'SESSIONS',
+    'nav.explorer': 'EXPLORATEUR',
+    'nav.git': 'GIT',
+    'nav.terminal': 'TERMINAL',
+
+    'sessions.tab.active': 'Actives',
+    'sessions.tab.archived': 'Archivées',
+    'sessions.tab.all': 'Toutes',
+    'sessions.new': 'Nouvelle session',
+
+    'explorer.search': 'Rechercher des fichiers…',
+    'explorer.openFolder': 'Ouvrir un dossier',
+    'explorer.newFile': 'Nouveau fichier',
+    'explorer.collapseAll': 'Tout réduire',
+    'explorer.refresh': 'Actualiser',
+
+    'git.tab.changes': 'Modifications',
+    'git.tab.history': 'Historique',
+    'git.staged': 'Indexés',
+    'git.changes': 'Modifications',
+    'git.conflicts': 'Conflits',
+    'git.commitPlaceholder': 'Message de validation',
+    'git.commit': 'Valider',
+    'git.undo': 'Annuler',
+    'git.undoTitle': 'Annuler la dernière validation',
+    'git.push': 'Pousser',
+    'git.refresh': 'Actualiser',
+    'git.fetch': 'Récupérer',
+    'git.pull': 'Tirer',
+    'git.discardAll': 'Abandonner toutes les modifications',
+    'git.stageAll': 'Indexer toutes les modifications',
+
+    'session.revert': 'Rétablir',
+    'session.revertTitle': 'Rétablir uniquement les modifications de cette session',
+    'session.nothingToCommit': 'Rien à valider',
+    'session.emptyHint': 'Aucune session sélectionnée. Cliquez sur <b>+ Nouvelle session</b>.',
+
+    'terminal.clear': 'Effacer',
+    'terminal.clearTitle': 'Effacer le terminal',
+    'terminal.new': 'Nouveau terminal',
+
+    'settings.open': 'Paramètres',
+    'settings.title': 'Paramètres',
+    'settings.language': 'Langue',
+    'settings.theme': 'Thème',
+    'settings.close': 'Fermer',
+    'settings.done': 'Terminé',
+  },
+};

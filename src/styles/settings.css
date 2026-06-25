@@ -1,0 +1,53 @@
+/* Square gear button at the right end of the top toolbar. margin-left:auto
+ * pushes it past the run buttons so it always sits in the top-right corner.
+ * Sized and colored to match the run toolbar's .tool-btn. */
+#settings-btn {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+}
+#settings-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+#settings-btn svg { display: block; }
+
+/* Settings dialog */
+#settings-dialog {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-2); color: var(--fg);
+  padding: 0; width: 360px; max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+#settings-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+
+.settings-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.settings-head h3 { margin: 0; font-size: 14px; }
+#settings-close {
+  background: none; border: none; color: var(--fg-dim);
+  font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px;
+}
+#settings-close:hover { color: var(--fg); }
+
+.settings-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.settings-row { display: flex; flex-direction: column; gap: 6px; }
+.settings-row > span { font-size: 11px; color: var(--fg-dim); }
+.settings-row select {
+  width: 100%; padding: 6px 8px;
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 3px; font-size: 13px; cursor: pointer;
+}
+.settings-row select:focus { outline: none; border-color: var(--accent-hi); }
+
+.settings-actions {
+  display: flex; justify-content: flex-end;
+  padding: 12px 16px; border-top: 1px solid var(--border);
+}
+.settings-primary {
+  background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  border-radius: 3px; padding: 6px 18px; cursor: pointer; font-size: 13px;
+}
+.settings-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }

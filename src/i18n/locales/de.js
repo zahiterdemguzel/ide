@@ -1,0 +1,53 @@
+// Deutsch (German).
+export default {
+  meta: { code: 'de', name: 'Deutsch', dir: 'ltr' },
+  strings: {
+    'nav.sessions': 'SITZUNGEN',
+    'nav.explorer': 'EXPLORER',
+    'nav.git': 'GIT',
+    'nav.terminal': 'TERMINAL',
+
+    'sessions.tab.active': 'Aktiv',
+    'sessions.tab.archived': 'Archiviert',
+    'sessions.tab.all': 'Alle',
+    'sessions.new': 'Neue Sitzung',
+
+    'explorer.search': 'Dateien suchen…',
+    'explorer.openFolder': 'Ordner öffnen',
+    'explorer.newFile': 'Neue Datei',
+    'explorer.collapseAll': 'Alle einklappen',
+    'explorer.refresh': 'Aktualisieren',
+
+    'git.tab.changes': 'Änderungen',
+    'git.tab.history': 'Verlauf',
+    'git.staged': 'Bereitgestellt',
+    'git.changes': 'Änderungen',
+    'git.conflicts': 'Konflikte',
+    'git.commitPlaceholder': 'Commit-Nachricht',
+    'git.commit': 'Commit',
+    'git.undo': 'Rückgängig',
+    'git.undoTitle': 'Letzten Commit rückgängig machen',
+    'git.push': 'Push',
+    'git.refresh': 'Aktualisieren',
+    'git.fetch': 'Fetch',
+    'git.pull': 'Pull',
+    'git.discardAll': 'Alle Änderungen verwerfen',
+    'git.stageAll': 'Alle Änderungen bereitstellen',
+
+    'session.revert': 'Zurücksetzen',
+    'session.revertTitle': 'Nur die Änderungen dieser Sitzung zurücksetzen',
+    'session.nothingToCommit': 'Nichts zu committen',
+    'session.emptyHint': 'Keine Sitzung ausgewählt. Klicke auf <b>+ Neue Sitzung</b>.',
+
+    'terminal.clear': 'Leeren',
+    'terminal.clearTitle': 'Terminal leeren',
+    'terminal.new': 'Neues Terminal',
+
+    'settings.open': 'Einstellungen',
+    'settings.title': 'Einstellungen',
+    'settings.language': 'Sprache',
+    'settings.theme': 'Design',
+    'settings.close': 'Schließen',
+    'settings.done': 'Fertig',
+  },
+};

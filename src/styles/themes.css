@@ -1,0 +1,77 @@
+/* Theme palettes.
+ *
+ * Every color the UI uses is a CSS custom property (see base.css :root for the
+ * default "dark" set). A theme is just a block that overrides those properties,
+ * scoped to <html data-theme="<id>">. settings.js sets data-theme.
+ *
+ * To add a theme: add a [data-theme="<id>"] block here, then register the same
+ * id in the THEMES list in src/renderer/settings.js (that list drives the
+ * dropdown). Keep the full variable set so no color falls back unexpectedly. */
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-2: #f3f3f3;
+  --bg-3: #e8e8e8;
+  --border: #d4d4d4;
+  --fg: #1f1f1f;
+  --fg-dim: #6a6a6a;
+  --accent: #0066b8;
+  --accent-hi: #005a9e;
+  --green: #1a7f37;
+  --red: #cf222e;
+  --purple: #8250df;
+  --gray: #6e7781;
+  --yellow: #9a6700;
+  --list-sel: #cce5ff;
+}
+
+[data-theme="midnight"] {
+  --bg: #0d1117;
+  --bg-2: #11161f;
+  --bg-3: #161b26;
+  --border: #222c3a;
+  --fg: #c9d1d9;
+  --fg-dim: #7d8590;
+  --accent: #1f6feb;
+  --accent-hi: #388bfd;
+  --green: #3fb950;
+  --red: #f85149;
+  --purple: #a371f7;
+  --gray: #6e7681;
+  --yellow: #d29922;
+  --list-sel: #1f3a5f;
+}
+
+[data-theme="solarized"] {
+  --bg: #002b36;
+  --bg-2: #073642;
+  --bg-3: #0a3d49;
+  --border: #0f4d5c;
+  --fg: #93a1a1;
+  --fg-dim: #586e75;
+  --accent: #268bd2;
+  --accent-hi: #2aa198;
+  --green: #859900;
+  --red: #dc322f;
+  --purple: #6c71c4;
+  --gray: #657b83;
+  --yellow: #b58900;
+  --list-sel: #0f4d5c;
+}
+
+[data-theme="high-contrast"] {
+  --bg: #000000;
+  --bg-2: #0a0a0a;
+  --bg-3: #141414;
+  --border: #6fc3df;
+  --fg: #ffffff;
+  --fg-dim: #c0c0c0;
+  --accent: #1aebff;
+  --accent-hi: #4ff0ff;
+  --green: #33ff66;
+  --red: #ff5555;
+  --purple: #c586ff;
+  --gray: #8a8a8a;
+  --yellow: #ffd700;
+  --list-sel: #0e4f6b;
+}

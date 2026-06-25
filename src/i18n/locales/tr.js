@@ -1,0 +1,53 @@
+// Türkçe (Turkish).
+export default {
+  meta: { code: 'tr', name: 'Türkçe', dir: 'ltr' },
+  strings: {
+    'nav.sessions': 'OTURUMLAR',
+    'nav.explorer': 'DOSYALAR',
+    'nav.git': 'GIT',
+    'nav.terminal': 'TERMİNAL',
+
+    'sessions.tab.active': 'Etkin',
+    'sessions.tab.archived': 'Arşiv',
+    'sessions.tab.all': 'Tümü',
+    'sessions.new': 'Yeni oturum',
+
+    'explorer.search': 'Dosyalarda ara…',
+    'explorer.openFolder': 'Klasör aç',
+    'explorer.newFile': 'Yeni dosya',
+    'explorer.collapseAll': 'Tümünü daralt',
+    'explorer.refresh': 'Yenile',
+
+    'git.tab.changes': 'Değişiklikler',
+    'git.tab.history': 'Geçmiş',
+    'git.staged': 'Hazırlanan',
+    'git.changes': 'Değişiklikler',
+    'git.conflicts': 'Çakışmalar',
+    'git.commitPlaceholder': 'İşleme mesajı',
+    'git.commit': 'İşle',
+    'git.undo': 'Geri al',
+    'git.undoTitle': 'Son işlemeyi geri al',
+    'git.push': 'Gönder',
+    'git.refresh': 'Yenile',
+    'git.fetch': 'Getir',
+    'git.pull': 'Çek',
+    'git.discardAll': 'Tüm değişiklikleri at',
+    'git.stageAll': 'Tüm değişiklikleri hazırla',
+
+    'session.revert': 'Geri al',
+    'session.revertTitle': 'Yalnızca bu oturumun değişikliklerini geri al',
+    'session.nothingToCommit': 'İşlenecek değişiklik yok',
+    'session.emptyHint': 'Seçili oturum yok. <b>+ Yeni oturum</b> öğesine tıklayın.',
+
+    'terminal.clear': 'Temizle',
+    'terminal.clearTitle': 'Terminali temizle',
+    'terminal.new': 'Yeni terminal',
+
+    'settings.open': 'Ayarlar',
+    'settings.title': 'Ayarlar',
+    'settings.language': 'Dil',
+    'settings.theme': 'Tema',
+    'settings.close': 'Kapat',
+    'settings.done': 'Tamam',
+  },
+};
