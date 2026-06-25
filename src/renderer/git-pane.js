@@ -79,6 +79,7 @@ export async function refreshGit() {
   const aheadEl = document.getElementById('git-ahead');
   aheadEl.textContent = r.ahead;
   aheadEl.hidden = !r.ahead;
+  setBranchName(r.branch);
   unstagedFiles = r.unstaged;
   revertAllBtn.classList.remove('armed');
   // Conflicted files can't be staged/discarded by the +/− actions; show them in
@@ -204,6 +205,73 @@ export async function refreshHistory() {
   for (const c of r.commits) historyEl.appendChild(commitItem(c));
 }
 
+// --- branch selector ---
+// The header shows the current branch; clicking it opens a searchable popover of
+// local branches (there may be many — the list scrolls, the search narrows). The
+// list is fetched fresh each time it opens so newly created branches show up.
+const branchBtn = document.getElementById('git-branch');
+const branchNameEl = document.getElementById('git-branch-name');
+const branchMenu = document.getElementById('branch-menu');
+const branchSearch = document.getElementById('branch-search');
+const branchListEl = document.getElementById('branch-list');
+const branchEmptyEl = document.getElementById('branch-empty');
+let allBranches = [];
+let currentBranch = '';
+
+function setBranchName(branch) {
+  currentBranch = branch || '';
+  branchNameEl.textContent = currentBranch || '—';
+  branchBtn.title = currentBranch ? `On ${currentBranch} — click to switch` : 'Switch branch';
+}
+
+function renderBranchList() {
+  const q = branchSearch.value.trim().toLowerCase();
+  const matches = allBranches.filter((b) => b.toLowerCase().includes(q));
+  branchListEl.innerHTML = '';
+  branchEmptyEl.hidden = matches.length > 0;
+  for (const b of matches) {
+    const li = document.createElement('li');
+    li.className = 'branch-item' + (b === currentBranch ? ' current' : '');
+    li.textContent = b;
+    li.title = b;
+    li.onclick = () => switchBranch(b);
+    branchListEl.appendChild(li);
+  }
+}
+
+async function switchBranch(branch) {
+  if (branch === currentBranch) { closeBranchMenu(); return; }
+  closeBranchMenu();
+  const r = await window.api.gitCheckout(branch);
+  if (!r.ok) { showGitErrorDialog(r.stderr || 'Checkout failed', 'Checkout failed'); return; }
+  refreshGit();
+  refreshHistory();
+}
+
+async function openBranchMenu() {
+  branchMenu.hidden = false;
+  branchSearch.value = '';
+  branchListEl.innerHTML = '';
+  branchEmptyEl.hidden = true;
+  branchSearch.focus();
+  const r = await window.api.gitBranches();
+  if (!r.ok) { allBranches = []; } else { allBranches = r.branches; currentBranch = r.current; }
+  renderBranchList();
+}
+
+function closeBranchMenu() { branchMenu.hidden = true; }
+
+branchBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (branchMenu.hidden) openBranchMenu(); else closeBranchMenu();
+};
+branchSearch.oninput = renderBranchList;
+branchSearch.onkeydown = (e) => { if (e.key === 'Escape') { closeBranchMenu(); branchBtn.focus(); } };
+// Dismiss on any click outside the popover (but not the toggle button itself).
+document.addEventListener('click', (e) => {
+  if (!branchMenu.hidden && !branchMenu.contains(e.target) && e.target !== branchBtn) closeBranchMenu();
+});
+
 // --- commit / undo / push ---
 const gitMsgEl = document.getElementById('git-msg');
 function showGitMsg(text, ok) {
@@ -220,7 +288,6 @@ document.getElementById('git-error-ok').onclick = () => {
   document.getElementById('git-error-dialog').close();
 };
 
-document.getElementById('git-refresh').onclick = refreshGit;
 document.getElementById('git-fetch').onclick = async () => {
   const r = await window.api.gitFetch();
   showGitMsg(r.ok ? 'Fetched' : (r.stderr || 'Fetch failed'), r.ok);

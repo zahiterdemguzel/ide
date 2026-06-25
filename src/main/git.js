@@ -46,7 +46,14 @@ async function gitStatus() {
     if (x !== ' ' && x !== '?') staged.push({ status: x, file });
     if (y !== ' ') unstaged.push({ status: y === '?' ? '?' : y, file });
   }
-  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead: await aheadCount() };
+  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead: await aheadCount(), branch: await currentBranch() };
+}
+
+// The checked-out branch's short name, or 'HEAD' when detached (no branch).
+// Empty string when not in a repo / no commits yet.
+async function currentBranch() {
+  const r = await git(['rev-parse', '--abbrev-ref', 'HEAD']);
+  return r.ok ? r.stdout.trim() : '';
 }
 
 // Commits on HEAD not yet on its upstream. Returns 0 when there is no upstream
@@ -58,6 +65,21 @@ async function aheadCount() {
 }
 
 ipcMain.handle('git-status', () => gitStatus());
+
+// Local branches for the branch selector, most-recently-committed first (so the
+// branches the user is likely switching to sit at the top of a long list). The
+// current branch is flagged so the renderer can mark/skip it.
+ipcMain.handle('git-branches', async () => {
+  const r = await git(['for-each-ref', '--sort=-committerdate',
+    '--format=%(refname:short)', 'refs/heads']);
+  if (!r.ok) return { ok: false, error: r.stderr, branches: [], current: '' };
+  const branches = r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+  return { ok: true, branches, current: await currentBranch() };
+});
+
+// Switch branches. Fails cleanly (reported to the renderer) when the worktree
+// has changes that would be overwritten — git refuses rather than clobbering them.
+ipcMain.handle('git-checkout', (_e, branch) => git(['checkout', branch]));
 ipcMain.handle('git-stage', (_e, file) => git(['add', '--', file]));
 ipcMain.handle('git-unstage', async (_e, file) => {
   const r = await git(['reset', '-q', 'HEAD', '--', file]);
