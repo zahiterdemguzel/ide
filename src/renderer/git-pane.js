@@ -126,6 +126,8 @@ document.getElementById('git-undo').onclick = async () => {
   refreshGit();};
 const pushBtn = document.getElementById('git-push');
 pushBtn.onclick = async () => {
+  const aheadEl = document.getElementById('git-ahead');
+  aheadEl.hidden = true;
   pushBtn.classList.add('loading');
   pushBtn.disabled = true;
   const r = await window.api.gitPush();
