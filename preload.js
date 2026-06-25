@@ -11,6 +11,12 @@ contextBridge.exposeInMainWorld('api', {
   gitStatus: () => ipcRenderer.invoke('git-status'),
   gitStage: (file) => ipcRenderer.invoke('git-stage', file),
   gitUnstage: (file) => ipcRenderer.invoke('git-unstage', file),
+  gitDiff: (args) => ipcRenderer.invoke('git-diff', args),
+  gitRevert: (args) => ipcRenderer.invoke('git-revert', args),
   gitCommit: (msg) => ipcRenderer.invoke('git-commit', msg),
   gitPush: () => ipcRenderer.invoke('git-push'),
+  readAsset: (file) => ipcRenderer.invoke('read-asset', file),
+  writeAsset: (file, base64) => ipcRenderer.invoke('write-asset', { file, base64 }),
+  commitSession: (id) => ipcRenderer.invoke('commit-session', id),
+  onSessionMeta: (cb) => ipcRenderer.on('session-meta', (_e, msg) => cb(msg)),
 });

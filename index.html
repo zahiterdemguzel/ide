@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' data:" />
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
   <link rel="stylesheet" href="styles.css" />
   <title>Claude Sessions</title>
@@ -21,8 +21,32 @@
     </aside>
 
     <main id="center">
-      <div id="terminal-host"></div>
-      <div id="empty-hint">No session selected. Click <b>+ New session</b>.</div>
+      <div id="session-bar">
+        <span id="session-title"></span>
+        <div class="bar-right">
+          <span id="session-commit-msg" class="git-msg"></span>
+          <button id="session-commit">Commit changes</button>
+        </div>
+      </div>
+      <div id="center-body">
+        <div id="terminal-host"></div>
+        <div id="empty-hint">No session selected. Click <b>+ New session</b>.</div>
+        <div id="diff-view">
+          <div id="diff-head">
+            <span id="diff-file"></span>
+            <button id="diff-close" title="Close diff">×</button>
+          </div>
+          <div id="diff-body"></div>
+        </div>
+        <div id="asset-view">
+          <div id="asset-head">
+            <span id="asset-file"></span>
+            <div id="asset-tools"></div>
+            <button id="asset-close" title="Close">×</button>
+          </div>
+          <div id="asset-body"></div>
+        </div>
+      </div>
     </main>
 
     <aside id="git">
@@ -31,7 +55,13 @@
       </div>
       <div class="git-section-title">Staged</div>
       <ul id="staged-list" class="git-list"></ul>
-      <div class="git-section-title">Changes</div>
+      <div class="git-section-title git-head-row">
+        <span>Changes</span>
+        <span class="git-head-actions">
+          <button id="revert-all" class="git-btn git-revert" title="Discard all changes">⟲</button>
+          <button id="stage-all" class="git-btn" title="Stage all changes">+</button>
+        </span>
+      </div>
       <ul id="unstaged-list" class="git-list"></ul>
       <div class="git-commit">
         <textarea id="commit-msg" rows="2" placeholder="Commit message"></textarea>

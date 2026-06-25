@@ -23,6 +23,13 @@ let hookPort = 0;
 // Tools whose tool_input.file_path counts as a code change by the session.
 const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 
+// Extension → MIME for the asset viewer (image preview / pixel editor / audio).
+const ASSET_MIME = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  bmp: 'image/bmp', webp: 'image/webp',
+  wav: 'audio/wav', ogg: 'audio/ogg', mp3: 'audio/mpeg',
+};
+
 // Attribute the user's first prompt and any edited files to their session, so
 // we can later commit just that session's work. Returns updated meta, or null.
 function recordSessionActivity(payload) {
@@ -160,8 +167,29 @@ ipcMain.handle('git-diff', (_e, { file, staged, untracked }) => {
   return git(['diff', ...(staged ? ['--cached'] : []), '--', file]);
 });
 
+// Discard a file's changes: delete it if untracked, else restore index+worktree to HEAD.
+ipcMain.handle('git-revert', (_e, { file, untracked }) => {
+  if (untracked) return git(['clean', '-fq', '--', file]);
+  return git(['restore', '--staged', '--worktree', '--', file]);
+});
+
 ipcMain.handle('git-commit', (_e, msg) => git(['commit', '-m', msg]));
 ipcMain.handle('git-push', () => git(['push']));
+
+// Read/write a repo-relative binary asset as base64 for the viewer/editor.
+// Paths come from git porcelain (inside the repo), so no traversal guard.
+ipcMain.handle('read-asset', (_e, file) => {
+  try {
+    const abs = path.join(repoPath, file);
+    const ext = path.extname(abs).slice(1).toLowerCase();
+    return { ok: true, base64: fs.readFileSync(abs).toString('base64'),
+      mime: ASSET_MIME[ext] || 'application/octet-stream' };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+ipcMain.handle('write-asset', (_e, { file, base64 }) => {
+  try { fs.writeFileSync(path.join(repoPath, file), Buffer.from(base64, 'base64')); return { ok: true }; }
+  catch (e) { return { ok: false, error: e.message }; }
+});
 
 // Commit ONLY the files this session edited, using its first prompt as the
 // message. add+commit are both path-scoped, so other sessions' work is untouched.
