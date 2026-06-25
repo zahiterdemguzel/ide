@@ -1,5 +1,5 @@
 /* console head: a scrollable tab strip on the left, Clear/+ tools on the right */
-#console-head { padding: 4px 6px; gap: 6px; }
+#console-head { display: flex; align-items: center; padding: 4px 6px; gap: 6px; }
 .pane-head-label { flex: none; }
 #term-tabs { display: flex; gap: 4px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; }
 #term-tabs::-webkit-scrollbar { display: none; }
