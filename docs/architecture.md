@@ -3,11 +3,11 @@
 Standard Electron main/preload/renderer split. The renderer is pure UI with **no** Node or OS access — everything that touches the OS lives in the main process and is reached over IPC declared in `preload.js`.
 
 ```
-renderer.js  ──IPC(preload.js)──►  main.js  ──►  node-pty / git / http hook server
-   (UI)                              (OS)
+renderer/  ──IPC(preload/)──►  main/  ──►  node-pty / git / http hook server
+  (UI)                          (OS)
 ```
 
-## main.js — three subsystems
+## The main process — three subsystems
 
 1. **PTY manager.** One `pty.spawn(claude, ...)` per session, keyed by a generated UUID. The UUID is passed as `--session-id` so it round-trips inside hook payloads — that is how a hook event is matched back to its sidebar row. Sessions live in the `sessions` Map; `pty-input` / `pty-resize` / `kill-session` operate on it by id. Each session record also accumulates **what the agent did**: `firstPrompt` (its first `UserPromptSubmit`) and `edits` — a `Map<absPath, op[]>` recording every `PostToolUse` of a file tool (`Write`/`Edit`/`MultiEdit`/`NotebookEdit`) as a replayable op (`editOp()`). `recordSessionActivity()` fills these from the hook stream and pushes a `session-meta` event to the renderer (the file list is `[...edits.keys()]`); `commit-session` replays the ops to commit just that session's hunks (see [Per-session commit](#per-session-commit)). On the first prompt it also fires `generateSessionName()` — a Haiku call via the shared `runHaiku()` helper (prompt capped at 2000 chars) asking for a 2-4 word title, pushed to the renderer as `session-name`. See [Haiku generation](#haiku-generation) for how `runHaiku()` reaches the model.
 2. **Hook → status server.** A Node `http` server on a random `127.0.0.1` port. See [status-detection.md](status-detection.md).
@@ -87,7 +87,7 @@ Both the diff (`renderDiff`) and the file editor (`paint`) colour code with **hi
 
 ## Asset viewer
 
-Binary assets have no meaningful text diff, so clicking one in the git pane opens `#asset-view` instead. The renderer fetches the file's bytes as base64 over `read-asset` (`main.js` reads it from `repoPath`, returns `{ base64, mime }`) and builds a `data:` URL, then picks one of three views by type:
+Binary assets have no meaningful text diff, so clicking one in the git pane opens `#asset-view` instead. The renderer fetches the file's bytes as base64 over `read-asset` (`explorer.js` reads it from `repoPath`, returns `{ base64, mime }`) and builds a `data:` URL, then picks one of three views by type:
 
 - **Pixel editor** — PNGs under 200×200. Drawn onto a `<canvas>`, blown up by an integer scale; left-drag paints/erases single pixels with the current palette/`<input type="color">` colour (the colour wheel). The −/+ toolbar buttons darken/lighten the selected colour by lerping toward black/white. Mouse wheel changes the integer zoom; middle-button drag pans (via `assetBody` scroll), while a middle click without dragging eyedrops the pixel underneath. Undo/redo (↶/↷ buttons or Ctrl+Z / Ctrl+Y, capped at 50 `ImageData` snapshots) is pushed once per stroke. **Save** sends `canvas.toDataURL()` bytes back over `write-asset` and refreshes git.
 - **Image zoom** — any other image. An `<img>` with −/+/reset buttons scaling its width.
@@ -97,9 +97,9 @@ Binary assets have no meaningful text diff, so clicking one in the git pane open
 
 ## Run toolbar
 
-The native Electron application menu is removed (`Menu.setApplicationMenu(null)` in `main.js`); a full-width **run toolbar** (`#toolbar`) sits at the very top of the window instead (`body` is a flex column: toolbar then the `#app` grid). It surfaces VS Code run configs as buttons: **one per launch config** (`.vscode/launch.json`), a separator, then **one per task** (`.vscode/tasks.json`). Clicking a button runs that config/task in a **git-pane terminal tab** (see [Git-pane consoles](#git-pane-consoles)) and focuses it — there is no in-process debugger.
+The native Electron application menu is removed (`Menu.setApplicationMenu(null)` in `index.js`); a full-width **run toolbar** (`#toolbar`) sits at the very top of the window instead (`body` is a flex column: toolbar then the `#app` grid). It surfaces VS Code run configs as buttons: **one per launch config** (`.vscode/launch.json`), a separator, then **one per task** (`.vscode/tasks.json`). Clicking a button runs that config/task in a **git-pane terminal tab** (see [Git-pane consoles](#git-pane-consoles)) and focuses it — there is no in-process debugger.
 
-`main.js` parses both files as **JSONC** (`parseJsonc()` strips `//` and `/* */` comments outside strings, then trailing commas, then `JSON.parse`). `get-run-configs` returns the launch names (configs + compounds) and task labels for the toolbar; `run-config({kind, name})` **re-reads** the file each time (so edits are picked up), finds the entry by name, and returns one or more **run specs** `{command, cwd, env, name}` (a compound yields one per referenced configuration). It builds each command line via:
+`run-configs.js` parses both files as **JSONC** (`parseJsonc()` strips `//` and `/* */` comments outside strings, then trailing commas, then `JSON.parse`). `get-run-configs` returns the launch names (configs + compounds) and task labels for the toolbar; `run-config({kind, name})` **re-reads** the file each time (so edits are picked up), finds the entry by name, and returns one or more **run specs** `{command, cwd, env, name}` (a compound yields one per referenced configuration). It builds each command line via:
 
 - **Launch** (`buildLaunchCommand`): `node`/`python` types map to `node`/`python <program> <args>` (honouring `runtimeExecutable`/`runtimeArgs`); a `godot` type (which carries `project`/`scene` instead of a `program`) maps to `godot --path <project> [<scene>]` — the engine binary defaults to `godot` on PATH (overridable via `runtimeExecutable`/`editor_path`, since the Godot Tools extension keeps it in a VS Code setting, not launch.json), and a `scene` of `main`/`current`/absent runs the project's main scene while an explicit `res://` path runs that scene; other interpreter types in `TYPE_RUNTIME` (`go`→`go run`, `php`, `ruby`, `perl`, `lua`, …) map to their runtime when a `program` is present; anything with a `runtimeExecutable` or bare `program` falls back to running that. A config with none of these (e.g. a browser or attach config) can't be translated, so `run-config` returns `{ok:false, error}` naming the config and its type, and the renderer shows it in the `#run-error-dialog` modal rather than failing silently in the dev console.
 - **Task** (`buildTaskCommand`): the `command` (verbatim for `shell` tasks, which may be a whole command line) followed by its quoted `args`.
@@ -134,4 +134,21 @@ The entire IPC surface (`contextBridge.exposeInMainWorld('api', …)`). Add a ch
 
 ## Files
 
-`main.js` (main process), `preload.js` (IPC bridge), `index.html` + `renderer.js` + `styles.css` (UI). Vanilla JS, no bundler, no test framework.
+Vanilla JS, no bundler, no test framework. The code is split into per-subsystem modules, not three monolithic files; `index.html` + `styles.css` are the only non-JS UI assets. Within `src/`:
+
+- **`main/`** — the main process, one module per concern, each registering its own `ipcMain` handlers as a load side-effect (`index.js` just requires them in order):
+  - `index.js` — app bootstrap: command-line switches, require order, `app` lifecycle.
+  - `instance.js` — per-instance `userData` profile redirect (see [platform-notes.md](platform-notes.md)); must load first.
+  - `window.js` — the `BrowserWindow` + window title.
+  - `sessions.js` — the PTY manager (Claude sessions), hook activity recording, session naming.
+  - `hook-server.js` — the localhost hook → status HTTP server (see [status-detection.md](status-detection.md)).
+  - `repo.js` — the open repo path, folder picker, last-folder persistence.
+  - `git.js` — all `git` porcelain handlers and the shared `git()` helper.
+  - `session-commit.js` + `edit-ops.js` — per-session commit/revert (replay/inverse of recorded ops; see [Per-session commit](#per-session-commit)).
+  - `explorer.js` — file-tree, file-search, and file CRUD handlers.
+  - `run-configs.js` — `.vscode/launch.json` + `tasks.json` parsing and the run toolbar.
+  - `consoles.js` — the git-pane terminal PTYs.
+  - `claude.js` — the shared `runHaiku()` helper (see [Haiku generation](#haiku-generation)).
+- **`preload/`** — the `contextBridge` IPC surface, split to mirror the main modules (`index.js` composes them). Add a channel here when wiring any new main↔renderer call.
+- **`renderer/`** — pure UI, no Node/OS access. `index.js` is the entry; the rest is grouped by area: `sessions.js`, `git-pane.js`, `toolbar.js`, `consoles.js`, `panes.js`, `settings.js`, `terminal-links.js`, plus `explorer/` (tree + search), `viewer/` (diff, file editor, asset views, web overlay), and `shared/` (highlight, prompt/confirm modals, terminal, ext maps, bootstrap).
+- **`i18n/`** — the translation engine (`index.js`) and per-language `locales/` (see [settings.md](settings.md)).
