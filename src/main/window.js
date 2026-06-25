@@ -33,7 +33,7 @@ function createWindow() {
   // broken button (e.g. a thrown click handler) leaves no trace otherwise.
   const levels = ['log', 'info', 'warning', 'error']; // chromium console levels
   win.webContents.on('console-message', (_e, level, message, line, source) => {
-    console.log(`[renderer:${levels[level] || level}] ${message} (${source}:${line})`);
+    process.stderr.write(`[renderer:${levels[level] || level}] ${message} (${source}:${line})\n`);
   });
   win.webContents.on('render-process-gone', (_e, details) => {
     console.error('[renderer gone]', details.reason, details.exitCode);

@@ -85,6 +85,7 @@ async function createConsole(opts = {}) {
   close.onclick = (e) => { e.stopPropagation(); closeConsole(id); };
   tab.append(label, close);
   tab.onclick = () => selectConsole(id);
+  tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); closeConsole(id); } };
   termTabs.appendChild(tab);
 
   consoles.set(id, { term, fit, host, tab, label, name, kind: opts.kind || 'shell' });
