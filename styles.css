@@ -109,7 +109,7 @@ body {
 .sess-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sess-close {
   background: none; border: none; color: var(--fg-dim);
-  cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; visibility: hidden;
+  cursor: pointer; font-size: 21px; line-height: 1; padding: 0 2px; visibility: hidden;
 }
 #session-list li:hover .sess-close { visibility: visible; }
 .sess-close:hover { color: var(--fg); }
@@ -343,6 +343,7 @@ body {
 }
 /* console head: a scrollable tab strip on the left, Clear/+ tools on the right */
 #console-head { padding: 4px 6px; gap: 6px; }
+.pane-head-label { flex: none; }
 #term-tabs { display: flex; gap: 4px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; }
 #term-tabs::-webkit-scrollbar { display: none; }
 #term-tools { display: inline-flex; align-items: center; gap: 4px; flex: none; }
