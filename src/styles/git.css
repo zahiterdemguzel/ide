@@ -42,7 +42,7 @@
 .git-commit-actions { display: flex; gap: 8px; margin-top: 8px; }
 .git-commit-actions button {
   flex: 1; background: var(--accent); color: #fff; border: none;
-  border-radius: 3px; padding: 6px; cursor: pointer;
+  border-radius: 3px; padding: 6px; cursor: pointer; font-size: 12px;
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
 }
 .git-commit-actions button:hover { background: var(--accent-hi); }

@@ -36,7 +36,9 @@
 .sidebar-actions button {
   background: var(--accent); color: #fff; border: none; border-radius: 4px;
   padding: 7px; cursor: pointer; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
 }
+.sidebar-actions button .btn-icon { width: 16px; height: 16px; display: block; }
 .sidebar-actions button:hover { background: var(--accent-hi); }
 .repo-label {
   padding: 6px 12px; font-size: 11px; color: var(--fg-dim);
