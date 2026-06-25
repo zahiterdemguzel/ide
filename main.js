@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const http = require('http');
 const { execFile, execFileSync } = require('child_process');
 const crypto = require('crypto');
@@ -17,11 +18,41 @@ function loadLastFolder() {
   return process.cwd();
 }
 let repoPath = loadLastFolder();
-const sessions = new Map(); // id -> { pty, files: Set<absPath>, firstPrompt }
+const sessions = new Map(); // id -> { pty, edits: Map<absPath, op[]>, firstPrompt }
 let hookPort = 0;
 
-// Tools whose tool_input.file_path counts as a code change by the session.
-const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+// Turn one file-editing tool call into a replayable op, so we can later rebuild
+// "HEAD + only this session's edits" for the file. An op is one of:
+//   { t: 'write', content }                  full-content write (Write tool)
+//   { t: 'edit',  old, new, all }            single string replacement (Edit)
+//   { t: 'multi', edits: [{old,new,all}] }   ordered replacements (MultiEdit)
+//   { t: 'opaque' }                          un-replayable (NotebookEdit) -> fall back
+function editOp(toolName, ti) {
+  if (toolName === 'Write') return { t: 'write', content: ti.content || '' };
+  if (toolName === 'Edit') return { t: 'edit', old: ti.old_string ?? '', new: ti.new_string ?? '', all: !!ti.replace_all };
+  if (toolName === 'MultiEdit') {
+    return { t: 'multi', edits: (ti.edits || []).map((e) => ({ old: e.old_string ?? '', new: e.new_string ?? '', all: !!e.replace_all })) };
+  }
+  return { t: 'opaque' };
+}
+
+// Replay a session's ops onto a base string. Returns { content, clean } where
+// clean=false means an edit's old_string wasn't found (the other session moved
+// it, or an opaque op) — caller then falls back to the whole working file.
+function replayEdits(base, ops) {
+  let s = base, clean = true;
+  for (const op of ops) {
+    if (op.t === 'opaque') { clean = false; continue; }
+    if (op.t === 'write') { s = op.content; continue; }
+    for (const e of (op.t === 'multi' ? op.edits : [op])) {
+      if (!e.old) { s += e.new; continue; } // insertion with empty old_string
+      if (!s.includes(e.old)) { clean = false; continue; }
+      s = e.all ? s.split(e.old).join(e.new)
+        : s.slice(0, s.indexOf(e.old)) + e.new + s.slice(s.indexOf(e.old) + e.old.length);
+    }
+  }
+  return { content: s, clean };
+}
 
 // Extension → MIME for the asset viewer (image preview / pixel editor / audio).
 const ASSET_MIME = {
@@ -38,13 +69,19 @@ function recordSessionActivity(payload) {
   let changed = false;
   if (payload.hook_event_name === 'UserPromptSubmit' && !s.firstPrompt && payload.prompt) {
     s.firstPrompt = String(payload.prompt).trim();
+    generateSessionName(payload.session_id, s.firstPrompt);
     changed = true;
   }
-  if (payload.hook_event_name === 'PostToolUse' && FILE_TOOLS.has(payload.tool_name)) {
-    const f = payload.tool_input && payload.tool_input.file_path;
-    if (f && !s.files.has(f)) { s.files.add(f); changed = true; }
+  if (payload.hook_event_name === 'PostToolUse') {
+    const ti = payload.tool_input || {};
+    const f = ti.file_path;
+    if (f && ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(payload.tool_name)) {
+      if (!s.edits.has(f)) s.edits.set(f, []);
+      s.edits.get(f).push(editOp(payload.tool_name, ti));
+      changed = true;
+    }
   }
-  return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: [...s.files] } : null;
+  return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: [...s.edits.keys()] } : null;
 }
 
 // node-pty on Windows doesn't search PATH — resolve the full claude.exe path once.
@@ -57,6 +94,26 @@ function resolveClaude() {
     claudeCmd = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean) || 'claude';
   } catch { claudeCmd = 'claude'; }
   return claudeCmd;
+}
+
+// Name a session from its first prompt via a one-shot Haiku call (`claude -p`),
+// then push `session-name` to the renderer. Reuses the resolved claude CLI, so
+// no API key or new dependency. Prompt goes over stdin to avoid arg-escaping.
+function generateSessionName(id, prompt) {
+  // ponytail: 2000-char cap is plenty for a title; bump if titles read truncated
+  const text = 'Reply with ONLY a 2-4 word title (no quotes, no trailing punctuation) '
+    + 'for this coding session:\n\n' + prompt.slice(0, 2000);
+  const exe = resolveClaude();
+  const win32 = process.platform === 'win32';
+  const child = execFile(win32 ? `"${exe}"` : exe, ['-p', '--model', 'haiku'],
+    { cwd: repoPath, maxBuffer: 1024 * 1024, shell: win32 },
+    (err, stdout) => {
+      if (err) return;
+      const name = stdout.trim().split('\n').pop().trim().slice(0, 60);
+      const s = sessions.get(id);
+      if (name && s) { s.name = name; if (win) win.webContents.send('session-name', { id, name }); }
+    });
+  child.stdin.end(text);
 }
 
 // --- hooks injected per session via `claude --settings <json>` ---
@@ -110,11 +167,13 @@ function startHookServer() {
 }
 
 // --- git (plain porcelain, no dep) ---
-function git(args) {
+// opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
+// is written to stdin (e.g. blob content for hash-object). 64M buffer for files.
+function git(args, opts = {}) {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd: repoPath }, (err, stdout, stderr) => {
-      resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && err.message) || '' });
-    });
+    const child = execFile('git', args, { cwd: repoPath, env: opts.env || process.env, maxBuffer: 64 * 1024 * 1024 },
+      (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && err.message) || '' }));
+    if (opts.input != null) child.stdin.end(opts.input);
   });
 }
 
@@ -191,19 +250,65 @@ ipcMain.handle('write-asset', (_e, { file, base64 }) => {
   catch (e) { return { ok: false, error: e.message }; }
 });
 
-// Commit ONLY the files this session edited, using its first prompt as the
-// message. add+commit are both path-scoped, so other sessions' work is untouched.
+// Build one commit whose tree is HEAD with only `entries` ({path, content})
+// overwritten — via a throwaway index + commit-tree, so the real index and the
+// working tree are never touched. That's what lets two sessions that edited the
+// SAME file each commit only their own hunks: we commit a synthesized blob, not
+// whatever the shared working file currently holds.
+async function commitBlobs(entries, msg) {
+  const head = await git(['rev-parse', '-q', '--verify', 'HEAD']);
+  const headSha = head.stdout.trim();
+  const idxFile = path.join(os.tmpdir(), `ide-sess-idx-${crypto.randomUUID()}`);
+  const env = { ...process.env, GIT_INDEX_FILE: idxFile };
+  const staged = []; // {path, sha} to also sync into the real index after the commit
+  try {
+    const seed = headSha ? await git(['read-tree', headSha], { env }) : await git(['read-tree', '--empty'], { env });
+    if (!seed.ok) return seed;
+    for (const e of entries) {
+      const hash = await git(['hash-object', '-w', '--stdin', '--path', e.path], { input: e.content });
+      if (!hash.ok) return hash;
+      const sha = hash.stdout.trim();
+      const upd = await git(['update-index', '--add', '--cacheinfo', `100644,${sha},${e.path}`], { env });
+      if (!upd.ok) return upd;
+      staged.push({ path: e.path, sha });
+    }
+    const tree = await git(['write-tree'], { env });
+    if (!tree.ok) return tree;
+    const ct = await git(['commit-tree', tree.stdout.trim(), '-m', msg, ...(headSha ? ['-p', headSha] : [])]);
+    if (!ct.ok) return ct;
+    const ref = await git(['update-ref', 'HEAD', ct.stdout.trim()]);
+    if (!ref.ok) return ref;
+    // Point the REAL index at the committed blobs for just these paths, so they
+    // read as clean against the new HEAD and only the OTHER session's edits
+    // remain as unstaged changes. Other paths in the index are left alone.
+    for (const e of staged) await git(['update-index', '--cacheinfo', `100644,${e.sha},${e.path}`]);
+    return ct;
+  } finally {
+    try { fs.unlinkSync(idxFile); } catch {}
+  }
+}
+
+// Commit ONLY the hunks this session edited, using its first prompt as the
+// message. For each touched file we replay the session's own edits onto the
+// committed (HEAD) version and commit that — so another session's edits to the
+// same file are left uncommitted in the working tree. If an edit can't be
+// replayed cleanly (the other session moved that text, or an opaque op), we fall
+// back to the whole current file for that path.
 ipcMain.handle('commit-session', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
-  const files = [...s.files]
-    .map((f) => path.relative(repoPath, f).split(path.sep).join('/'))
-    .filter((f) => f && !f.startsWith('..')); // drop anything outside the repo
-  if (!files.length) return { ok: false, stderr: 'This session changed no files yet' };
+  const entries = [];
+  for (const [abs, ops] of s.edits) {
+    const rel = path.relative(repoPath, abs).split(path.sep).join('/');
+    if (!rel || rel.startsWith('..')) continue; // outside the repo
+    const headFile = await git(['show', `HEAD:${rel}`]);
+    const { content, clean } = replayEdits(headFile.ok ? headFile.stdout : '', ops);
+    if (clean) { entries.push({ path: rel, content }); continue; }
+    try { entries.push({ path: rel, content: fs.readFileSync(abs, 'utf8') }); } catch { /* gone */ }
+  }
+  if (!entries.length) return { ok: false, stderr: 'This session changed no files yet' };
   const msg = (s.firstPrompt || `session ${id.slice(0, 8)}`).slice(0, 500);
-  const add = await git(['add', '--', ...files]);
-  if (!add.ok) return add;
-  return git(['commit', '-m', msg, '--', ...files]);
+  return commitBlobs(entries, msg);
 });
 
 ipcMain.handle('new-session', (_e, { cols, rows }) => {
@@ -220,7 +325,7 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
     sessions.delete(id);
     if (win) win.webContents.send('status', { id, state: 'completed' });
   });
-  sessions.set(id, { pty: p, files: new Set(), firstPrompt: '' });
+  sessions.set(id, { pty: p, edits: new Map(), firstPrompt: '', name: '' });
   return { id, repo: repoPath };
 });
 

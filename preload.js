@@ -19,4 +19,5 @@ contextBridge.exposeInMainWorld('api', {
   writeAsset: (file, base64) => ipcRenderer.invoke('write-asset', { file, base64 }),
   commitSession: (id) => ipcRenderer.invoke('commit-session', id),
   onSessionMeta: (cb) => ipcRenderer.on('session-meta', (_e, msg) => cb(msg)),
+  onSessionName: (cb) => ipcRenderer.on('session-name', (_e, msg) => cb(msg)),
 });

@@ -54,7 +54,7 @@ function updateSessionBar() {
   const s = sessions.get(activeId);
   if (!s) { sessionBar.style.display = 'none'; return; }
   sessionBar.style.display = 'flex';
-  const name = (s.firstPrompt && s.firstPrompt.split('\n')[0]) || ('session ' + s.id.slice(0, 8));
+  const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || ('session ' + s.id.slice(0, 8));
   sessionTitle.textContent = name;
   sessionTitle.title = name;
   const n = s.files.length;
@@ -98,7 +98,7 @@ async function newSession() {
   li.onclick = () => selectSession(id);
   listEl.appendChild(li);
 
-  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, state: 'working', firstPrompt: '', files: [] });
+  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, state: 'working', firstPrompt: '', name: '', files: [] });
   selectSession(id);
 }
 
@@ -184,6 +184,7 @@ stageAllBtn.onclick = async () => {
 revertAllBtn.onclick = async () => {
   if (!revertAllBtn.classList.contains('armed')) {
     revertAllBtn.classList.add('armed');
+    document.querySelectorAll('#unstaged-list li').forEach(li => li.classList.add('warn'));
     revertAllBtn.title = 'Click again to discard all changes — this cannot be undone';
     return;
   }
@@ -449,6 +450,13 @@ window.api.onSessionMeta(({ id, firstPrompt, files }) => {
   if (!s) return;
   s.firstPrompt = firstPrompt;
   s.files = files;
+  if (id === activeId) updateSessionBar();
+});
+window.api.onSessionName(({ id, name }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  s.name = name;
+  s.label.textContent = name;
   if (id === activeId) updateSessionBar();
 });
 
