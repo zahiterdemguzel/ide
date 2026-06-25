@@ -1,8 +1,11 @@
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, webUtils } = require('electron');
 
 // File explorer (tree/search/read), asset viewer bytes, and the terminal-link
 // resolver + external opener.
 module.exports = {
+  // Resolve the absolute filesystem path of a File from an OS drag-drop.
+  // Electron 31 removed File.path; webUtils.getPathForFile is the replacement.
+  pathForFile: (file) => webUtils.getPathForFile(file),
   listDir: (rel) => ipcRenderer.invoke('list-dir', rel),
   createFile: (rel) => ipcRenderer.invoke('create-file', rel),
   searchNames: (q) => ipcRenderer.invoke('search-names', q),

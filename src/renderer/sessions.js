@@ -256,12 +256,18 @@ document.getElementById('new-session').onclick = newSession;
 
 for (const btn of sessionTabs.children) btn.onclick = () => setTab(btn.dataset.tab);
 
-// Accept file drops from the explorer tree — inserts "@filepath" into the active session.
+// Accept file drops into the active session. Two sources:
+//   - the explorer tree, which puts an "@<rel>" mention on text/plain;
+//   - the OS (Explorer/Finder), which puts File objects on dataTransfer.files
+//     with no text/plain — resolve each to an absolute path and send it as an
+//     "@<abs>" mention so Claude can read it.
 hostEl.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
 hostEl.addEventListener('drop', (e) => {
   e.preventDefault();
   const text = e.dataTransfer.getData('text/plain');
-  if (text) sendToActiveSession(text);
+  if (text) { sendToActiveSession(text); return; }
+  const paths = [...e.dataTransfer.files].map(f => window.api.pathForFile(f)).filter(Boolean);
+  if (paths.length) sendToActiveSession(paths.map(p => `@${p} `).join(''));
 });
 
 // --- IPC streams from the per-session PTYs / hook server ---

@@ -30,19 +30,41 @@ export function refreshTermThemes() {
   for (const term of themedTerminals) term.options.theme = theme;
 }
 
+// Copy text to the clipboard, falling back to execCommand if the async
+// Clipboard API rejects (it requires document focus, which Electron can
+// transiently lack right after a selection in the terminal canvas).
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  });
+}
+
 // Wire up clipboard shortcuts for an xterm Terminal instance.
 // Must be called after term.open(). Ctrl+C copies when text is selected
 // (and lets SIGINT through when nothing is selected). Ctrl+V pastes.
 // Right-click copies selection if present, otherwise pastes.
+//
+// Note: while an app (e.g. the Claude CLI) has mouse reporting on, a plain
+// drag is sent to the app instead of selecting text. Hold Shift while
+// dragging to force a local selection — xterm honors Shift as the override.
 export function attachClipboard(term) {
   term.attachCustomKeyEventHandler((e) => {
-    if (e.type !== 'keydown') return true;
-    if (e.ctrlKey && e.key === 'c') {
+    if (e.type !== 'keydown' || !e.ctrlKey) return true;
+    // Normalize case: with Shift held, e.key is uppercase ('C'/'V').
+    const key = e.key.toLowerCase();
+    if (key === 'c') {
       const sel = term.getSelection();
-      if (sel) { navigator.clipboard.writeText(sel); return false; }
+      if (sel) { copyToClipboard(sel); return false; }
       return true; // no selection → pass SIGINT through to PTY
     }
-    if (e.ctrlKey && e.key === 'v') {
+    if (key === 'v') {
       navigator.clipboard.readText().then(text => { if (text) term.paste(text); });
       return false;
     }
@@ -54,7 +76,7 @@ export function attachClipboard(term) {
     e.preventDefault();
     const sel = term.getSelection();
     if (sel) {
-      navigator.clipboard.writeText(sel);
+      copyToClipboard(sel);
     } else {
       navigator.clipboard.readText().then(text => { if (text) term.paste(text); });
     }
