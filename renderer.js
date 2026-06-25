@@ -54,6 +54,10 @@ function selectSession(id) {
   for (const o of listEl.children) o.classList.toggle('active', o.dataset.id === id);
   updateSessionBar();
   fit(s);
+  // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
+  // position until new output forces a refresh. Snap to the bottom so the latest
+  // output is visible immediately rather than only after the first keystroke.
+  s.term.scrollToBottom();
   s.term.focus();
 }
 
