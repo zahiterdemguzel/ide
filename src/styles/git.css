@@ -186,6 +186,8 @@
 .branch-item:hover { background: var(--bg-3); }
 .branch-item.current { color: var(--accent); font-weight: 700; }
 .branch-item.current::before { content: '● '; font-size: 9px; }
+.branch-item.branch-create { color: var(--accent); }
+.branch-item.branch-create::before { content: '+ '; font-weight: 700; }
 .branch-empty { padding: 8px; font-size: 12px; color: var(--fg-dim); text-align: center; }
 .branch-empty[hidden] { display: none; }
 #git-console {

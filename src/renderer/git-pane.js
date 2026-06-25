@@ -1,4 +1,5 @@
 import { openGitFile, openCommit } from './viewer/center.js';
+import { t } from '../i18n/index.js';
 
 // --- git pane ---
 const stagedEl = document.getElementById('staged-list');
@@ -209,6 +210,8 @@ export async function refreshHistory() {
 // The header shows the current branch; clicking it opens a searchable popover of
 // local branches (there may be many — the list scrolls, the search narrows). The
 // list is fetched fresh each time it opens so newly created branches show up.
+// The search box doubles as a create field: typing a name that matches no existing
+// branch reveals a "Create branch" row that branches off the current HEAD.
 const branchBtn = document.getElementById('git-branch');
 const branchNameEl = document.getElementById('git-branch-name');
 const branchMenu = document.getElementById('branch-menu');
@@ -225,10 +228,21 @@ function setBranchName(branch) {
 }
 
 function renderBranchList() {
-  const q = branchSearch.value.trim().toLowerCase();
+  const raw = branchSearch.value.trim();
+  const q = raw.toLowerCase();
   const matches = allBranches.filter((b) => b.toLowerCase().includes(q));
   branchListEl.innerHTML = '';
-  branchEmptyEl.hidden = matches.length > 0;
+  // Offer creation whenever the typed name isn't already an exact branch.
+  const canCreate = raw && !allBranches.some((b) => b === raw);
+  branchEmptyEl.hidden = matches.length > 0 || canCreate;
+  if (canCreate) {
+    const li = document.createElement('li');
+    li.className = 'branch-item branch-create';
+    li.textContent = `${t('git.createBranch')} “${raw}”`;
+    li.title = li.textContent;
+    li.onclick = () => createBranch(raw);
+    branchListEl.appendChild(li);
+  }
   for (const b of matches) {
     const li = document.createElement('li');
     li.className = 'branch-item' + (b === currentBranch ? ' current' : '');
@@ -237,6 +251,14 @@ function renderBranchList() {
     li.onclick = () => switchBranch(b);
     branchListEl.appendChild(li);
   }
+}
+
+async function createBranch(branch) {
+  closeBranchMenu();
+  const r = await window.api.gitCreateBranch(branch);
+  if (!r.ok) { showGitErrorDialog(r.stderr || 'Create branch failed', 'Create branch failed'); return; }
+  refreshGit();
+  refreshHistory();
 }
 
 async function switchBranch(branch) {
@@ -266,7 +288,14 @@ branchBtn.onclick = (e) => {
   if (branchMenu.hidden) openBranchMenu(); else closeBranchMenu();
 };
 branchSearch.oninput = renderBranchList;
-branchSearch.onkeydown = (e) => { if (e.key === 'Escape') { closeBranchMenu(); branchBtn.focus(); } };
+branchSearch.onkeydown = (e) => {
+  if (e.key === 'Escape') { closeBranchMenu(); branchBtn.focus(); return; }
+  if (e.key === 'Enter') {
+    const raw = branchSearch.value.trim();
+    if (!raw) return;
+    if (allBranches.includes(raw)) switchBranch(raw); else createBranch(raw);
+  }
+};
 // Dismiss on any click outside the popover (but not the toggle button itself).
 document.addEventListener('click', (e) => {
   if (!branchMenu.hidden && !branchMenu.contains(e.target) && e.target !== branchBtn) closeBranchMenu();

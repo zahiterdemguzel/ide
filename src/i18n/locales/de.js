@@ -33,8 +33,9 @@ export default {
     'git.discardAll': 'Alle Änderungen verwerfen',
     'git.stageAll': 'Alle Änderungen bereitstellen',
     'git.switchBranch': 'Branch wechseln',
-    'git.searchBranches': 'Branches suchen…',
+    'git.searchBranches': 'Branch suchen oder erstellen…',
     'git.noBranches': 'Keine Branches',
+    'git.createBranch': 'Branch erstellen',
 
     'session.revert': 'Zurücksetzen',
     'session.revertTitle': 'Nur die Änderungen dieser Sitzung zurücksetzen',

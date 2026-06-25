@@ -33,8 +33,9 @@ export default {
     'git.discardAll': 'Tüm değişiklikleri at',
     'git.stageAll': 'Tüm değişiklikleri hazırla',
     'git.switchBranch': 'Dal değiştir',
-    'git.searchBranches': 'Dal ara…',
+    'git.searchBranches': 'Dal ara veya oluştur…',
     'git.noBranches': 'Dal yok',
+    'git.createBranch': 'Dal oluştur',
 
     'session.revert': 'Geri al',
     'session.revertTitle': 'Yalnızca bu oturumun değişikliklerini geri al',

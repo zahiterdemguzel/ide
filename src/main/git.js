@@ -80,6 +80,10 @@ ipcMain.handle('git-branches', async () => {
 // Switch branches. Fails cleanly (reported to the renderer) when the worktree
 // has changes that would be overwritten — git refuses rather than clobbering them.
 ipcMain.handle('git-checkout', (_e, branch) => git(['checkout', branch]));
+
+// Create a new branch off the current HEAD and switch to it. Git rejects names
+// that break ref rules (spaces, '..', leading '-', etc.), reported to the renderer.
+ipcMain.handle('git-create-branch', (_e, branch) => git(['checkout', '-b', branch]));
 ipcMain.handle('git-stage', (_e, file) => git(['add', '--', file]));
 ipcMain.handle('git-unstage', async (_e, file) => {
   const r = await git(['reset', '-q', 'HEAD', '--', file]);

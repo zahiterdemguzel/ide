@@ -33,8 +33,9 @@ export default {
     'git.discardAll': 'Descartar todos los cambios',
     'git.stageAll': 'Preparar todos los cambios',
     'git.switchBranch': 'Cambiar de rama',
-    'git.searchBranches': 'Buscar ramas…',
+    'git.searchBranches': 'Buscar o crear rama…',
     'git.noBranches': 'Sin ramas',
+    'git.createBranch': 'Crear rama',
 
     'session.revert': 'Revertir',
     'session.revertTitle': 'Revertir solo los cambios de esta sesión',
