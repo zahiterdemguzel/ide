@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy"
     content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' data:" />
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="node_modules/@highlightjs/cdn-assets/styles/vs2015.min.css" />
   <link rel="stylesheet" href="styles.css" />
   <title>Claude Sessions</title>
 </head>
@@ -19,6 +20,7 @@
           <button id="open-folder">Open folder</button>
         </div>
       </div>
+      <div id="gutter-sess" class="gutter gutter-row" title="Drag to resize"></div>
       <div id="files-pane">
         <div class="pane-head">
           EXPLORER <button id="files-refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg></button>
@@ -27,6 +29,8 @@
       </div>
       <div id="repo-label" class="repo-label"></div>
     </aside>
+
+    <div id="gutter-left" class="gutter gutter-col" title="Drag to resize"></div>
 
     <main id="center">
       <div id="session-bar">
@@ -57,6 +61,8 @@
       </div>
     </main>
 
+    <div id="gutter-right" class="gutter gutter-col" title="Drag to resize"></div>
+
     <aside id="git">
       <div class="pane-head">
         GIT <button id="git-refresh" title="Refresh"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg></button>
@@ -85,6 +91,10 @@
 
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
+  <!-- dos (cmd/bat) and powershell aren't in the common bundle; self-register onto hljs -->
+  <script src="node_modules/@highlightjs/cdn-assets/languages/dos.min.js"></script>
+  <script src="node_modules/@highlightjs/cdn-assets/languages/powershell.min.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

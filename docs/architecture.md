@@ -38,17 +38,32 @@ Keeps a `Map` of sessions, each owning its own xterm.js `Terminal` in a hidden c
 
 ## File explorer
 
-The left sidebar is split 50/50: the sessions list on top, a file tree (`#file-tree`) below. The tree is **lazy** — `loadDir(rel, container, depth)` fetches one directory level over `list-dir` (main reads `repoPath/<rel>` and returns `{name, dir}` entries, folders first then alphabetical, `.git` hidden) and only loads a folder's children the first time it's expanded (▸/▾ twisty). Clicking a file calls `openFromTree()`, which reuses the git pane's viewers: images/audio → `showAsset()`, everything else → `showFile()` — a read-only view that fetches the file's text over `read-text` and renders it into the `#diff-view` container with a single line-number gutter (binary files, sniffed by a NUL byte, show `(binary file)`; render is capped at 5000 lines). The tree refreshes on startup, on **Open folder**, and via its header ⟳ button — no auto-poll, since that would collapse expanded folders.
+The left sidebar is split 50/50 by default: the sessions list on top, a file tree (`#file-tree`) below; a drag-gutter between them resizes the split (see [Resizable panes](#resizable-panes)). The tree is **lazy** — `loadDir(rel, container, depth)` fetches one directory level over `list-dir` (main reads `repoPath/<rel>` and returns `{name, dir}` entries, folders first then alphabetical, `.git` hidden) and only loads a folder's children the first time it's expanded (▸/▾ twisty). Clicking a file calls `openFromTree()`, which reuses the git pane's viewers: images/audio → `showAsset()`, everything else → `showFile()` — a read-only view that fetches the file's text over `read-text` and renders it into the `#diff-view` container with a single line-number gutter (binary files, sniffed by a NUL byte, show `(binary file)`; render is capped at 5000 lines). The tree refreshes on startup, on **Open folder**, and via its header ⟳ button — no auto-poll, since that would collapse expanded folders.
+
+## Syntax highlighting
+
+Both the diff (`renderDiff`) and the read-only file viewer (`renderText`) colour code with **highlight.js** — loaded as the prebuilt browser bundle `@highlightjs/cdn-assets` via plain `<script>`/`<link>` in `index.html` (no bundler), exposing `window.hljs`. The `vs2015` theme stylesheet supplies the `.hljs-*` token colours; rows keep their existing `.diff-code` background, so add/del/hunk colouring still shows through.
+
+`langFor(file)` maps a file extension to an hljs language via `EXT_LANG` (covers python, js/ts, c#, c/c++, rust, go, swift, java, kotlin, ruby, php, bash, sql, json, yaml, xml, css, markdown, objc, …). Two grammars aren't in the common bundle and are loaded as extra self-registering scripts: **dos** (`.cmd`/`.bat`) and **powershell** (`.ps1`). Godot is handled without a dedicated grammar: `.gd` → python (GDScript is python-shaped) and `.import`/`.tscn`/`.tres`/`.cfg`/`.godot` → ini. Unknown extensions return `null` → the file viewer auto-detects (`hljs.highlightAuto`); the diff viewer leaves them plain.
+
+- **File viewer** highlights the whole text once, then `hlLines()` splits the HTML into per-line fragments, re-opening any span left open across a newline so each gutter row stays balanced (correct for multi-line strings/comments).
+- **Diff viewer** highlights each line in isolation via `hlLine()` — a hunk is a fragment with no whole-file context, so multi-line constructs may colour imperfectly; hunk headers (`@@`) stay plain.
 
 ## Asset viewer
 
 Binary assets have no meaningful text diff, so clicking one in the git pane opens `#asset-view` instead. The renderer fetches the file's bytes as base64 over `read-asset` (`main.js` reads it from `repoPath`, returns `{ base64, mime }`) and builds a `data:` URL, then picks one of three views by type:
 
-- **Pixel editor** — PNGs under 200×200. Drawn onto a `<canvas>`, blown up by an integer scale; pointer drag paints/erases single pixels with the current palette/`<input type="color">` colour. **Save** sends `canvas.toDataURL()` bytes back over `write-asset` and refreshes git.
+- **Pixel editor** — PNGs under 200×200. Drawn onto a `<canvas>`, blown up by an integer scale; left-drag paints/erases single pixels with the current palette/`<input type="color">` colour (the colour wheel). The −/+ toolbar buttons darken/lighten the selected colour by lerping toward black/white. Mouse wheel changes the integer zoom; middle-button drag pans (via `assetBody` scroll), while a middle click without dragging eyedrops the pixel underneath. Undo/redo (↶/↷ buttons or Ctrl+Z / Ctrl+Y, capped at 50 `ImageData` snapshots) is pushed once per stroke. **Save** sends `canvas.toDataURL()` bytes back over `write-asset` and refreshes git.
 - **Image zoom** — any other image. An `<img>` with −/+/reset buttons scaling its width.
 - **Audio + waveform** — `wav`/`ogg`/`mp3`. An `<audio controls>` for playback plus a peak-per-column waveform drawn from `AudioContext.decodeAudioData` (base64 → `ArrayBuffer`, no network).
 
 `data:` URLs for `<img>`/`<audio>` require the CSP in `index.html` to allow `img-src`/`media-src 'self' data:`.
+
+## Resizable panes
+
+Three drag-gutters (`.gutter` divs in `index.html`) let the user resize, **not reorder**, the panes. The column layout is a CSS grid whose left/right tracks are the vars `--left`/`--right` on `#app` (`grid-template-columns: var(--left) 5px minmax(0,1fr) 5px var(--right)`); the center is the remaining `1fr`. The sidebar split is the var `--sess-h` on `#sidebar` (`#sessions-pane`'s flex-basis; `#files-pane` takes the rest).
+
+`renderer.js`'s `resizer(gutter, axis, sign, read, write, min, max)` is one generic pointer-drag handler wired three times — left column, right column, sidebar split. It pointer-captures the gutter, then on move clamps `base + sign*delta` to `[min, max()]` and writes the var. Clamps keep every pane within bounds: columns can't shrink the center below `CENTER_MIN` (200px) or themselves below their mins; the sessions pane stays ≥80px and leaves ≥140px for the explorer. `sign` is `-1` for the right gutter (its pane is on the far side, so dragging right shrinks it). Each move calls `fit()` so the active terminal reflows live. Sizes are session-only — not persisted across restarts.
 
 ## preload.js
 

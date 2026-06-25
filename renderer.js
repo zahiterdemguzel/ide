@@ -262,6 +262,61 @@ function openFile(file, status, staged) {
   else showDiff(file, status, staged);
 }
 
+// --- syntax highlighting (highlight.js) ---
+const hljs = window.hljs;
+// Map file extension -> highlight.js language. Unmapped extensions return null,
+// which falls back to whole-file auto-detection in the file viewer.
+// ponytail: gd -> python (GDScript is python-shaped); no real gdscript grammar
+// ships with the common build. Swap in highlightjs-gdscript if it matters.
+const EXT_LANG = {
+  py: 'python', pyw: 'python', gd: 'python',
+  js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
+  ts: 'typescript', tsx: 'typescript',
+  cs: 'csharp', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp',
+  h: 'cpp', c: 'c', rs: 'rust', go: 'go', swift: 'swift',
+  java: 'java', kt: 'kotlin', rb: 'ruby', php: 'php', lua: 'lua', pl: 'perl',
+  sh: 'bash', bash: 'bash', zsh: 'bash', ps1: 'powershell', cmd: 'dos', bat: 'dos',
+  sql: 'sql', json: 'json', yml: 'yaml', yaml: 'yaml', toml: 'ini', ini: 'ini',
+  // Godot config/scene/resource files are all INI-shaped
+  import: 'ini', cfg: 'ini', tres: 'ini', tscn: 'ini', godot: 'ini',
+  xml: 'xml', html: 'xml', svg: 'xml', css: 'css', scss: 'scss', less: 'less',
+  md: 'markdown', r: 'r', m: 'objectivec', mm: 'objectivec',
+};
+function langFor(file) {
+  const name = EXT_LANG[extOf(file)];
+  return name && hljs.getLanguage(name) ? name : null;
+}
+
+// Highlight one line in isolation. Used for diff rows, which are fragments with
+// no whole-file context (multi-line strings/comments may colour imperfectly).
+function hlLine(text, lang) {
+  if (!lang) return null;
+  try { return hljs.highlight(text, { language: lang }).value; } catch { return null; }
+}
+
+// Highlight a whole block, then split into per-line HTML, re-opening any spans
+// left open across a newline so each line stays balanced for its own gutter row.
+function hlLines(code, lang) {
+  let html;
+  try {
+    html = lang ? hljs.highlight(code, { language: lang }).value : hljs.highlightAuto(code).value;
+  } catch { return null; }
+  const open = [], out = [];
+  let line = '';
+  // hljs escapes <,>,& so a raw '<' only ever starts a <span ...> or </span>.
+  const re = /<span [^>]*>|<\/span>|\n|[^<\n]+/g;
+  let m;
+  while ((m = re.exec(html))) {
+    const tok = m[0];
+    if (tok === '\n') { out.push(line + '</span>'.repeat(open.length)); line = open.join(''); }
+    else if (tok[1] === '/') { open.pop(); line += tok; }
+    else if (tok[0] === '<') { open.push(tok); line += tok; }
+    else line += tok;
+  }
+  out.push(line + '</span>'.repeat(open.length));
+  return out;
+}
+
 // --- diff view ---
 const diffView = document.getElementById('diff-view');
 const diffBody = document.getElementById('diff-body');
@@ -271,13 +326,13 @@ function hideDiff() { diffView.style.display = 'none'; }
 async function showDiff(file, status, staged) {
   const r = await window.api.gitDiff({ file, staged, untracked: status === '?' });
   document.getElementById('diff-file').textContent = file;
-  renderDiff(r.stdout || r.stderr || '(no changes)');
+  renderDiff(r.stdout || r.stderr || '(no changes)', langFor(file));
   hideAsset();
   hideSessionViews();
   diffView.style.display = 'flex';
 }
 
-function diffRow(oldNo, newNo, cls, text) {
+function diffRow(oldNo, newNo, cls, text, lang) {
   const row = document.createElement('div');
   row.className = 'diff-row ' + cls;
   row.innerHTML =
@@ -285,14 +340,15 @@ function diffRow(oldNo, newNo, cls, text) {
     `<span class="diff-ln">${newNo || ''}</span>`;
   const code = document.createElement('span');
   code.className = 'diff-code';
-  code.textContent = text;
+  const hl = cls === 'hunk' ? null : hlLine(text, lang); // hunk headers are git metadata
+  if (hl != null) code.innerHTML = hl; else code.textContent = text;
   row.appendChild(code);
   return row;
 }
 
 // Render git's unified diff: track old/new line numbers from @@ hunk headers,
 // colour +/- lines, skip the file-header noise (diff/index/--- /+++).
-function renderDiff(text) {
+function renderDiff(text, lang) {
   diffBody.innerHTML = '';
   let oldNo = 0, newNo = 0;
   for (const line of text.split('\n')) {
@@ -301,12 +357,12 @@ function renderDiff(text) {
     if (line.startsWith('@@')) {
       const m = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
       if (m) { oldNo = +m[1]; newNo = +m[2]; }
-      diffBody.appendChild(diffRow('', '', 'hunk', line));
+      diffBody.appendChild(diffRow('', '', 'hunk', line, lang));
       continue;
     }
-    if (line.startsWith('+')) diffBody.appendChild(diffRow('', newNo++, 'add', line.slice(1)));
-    else if (line.startsWith('-')) diffBody.appendChild(diffRow(oldNo++, '', 'del', line.slice(1)));
-    else diffBody.appendChild(diffRow(oldNo++, newNo++, 'ctx', line.slice(1)));
+    if (line.startsWith('+')) diffBody.appendChild(diffRow('', newNo++, 'add', line.slice(1), lang));
+    else if (line.startsWith('-')) diffBody.appendChild(diffRow(oldNo++, '', 'del', line.slice(1), lang));
+    else diffBody.appendChild(diffRow(oldNo++, newNo++, 'ctx', line.slice(1), lang));
   }
 }
 
@@ -316,19 +372,25 @@ async function showFile(file) {
   const r = await window.api.readText(file);
   document.getElementById('diff-file').textContent = file;
   let text = r.ok ? r.text : (r.error || '(could not read)');
-  if (r.ok && text.includes('\\u0000')) text = '(binary file)'; // ponytail: null-byte sniff is enough
-  renderText(text);
+  let lang = langFor(file);
+  if (!r.ok || text.includes('\\u0000')) {   // can't highlight an error or binary
+    if (r.ok) text = '(binary file)';         // ponytail: null-byte sniff is enough
+    lang = null;
+  }
+  renderText(text, lang);
   hideAsset();
   hideSessionViews();
   diffView.style.display = 'flex';
 }
 
-function renderText(text) {
+function renderText(text, lang) {
   diffBody.innerHTML = '';
   // ponytail: cap render at 5000 lines; virtualize only if huge files matter
   const lines = text.split('\n').slice(0, 5000);
+  // Known extension -> that grammar; null lang -> hlLines auto-detects.
+  const hl = hlLines(lines.join('\n'), lang);
   let n = 1;
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
     const row = document.createElement('div');
     row.className = 'diff-row';
     const ln = document.createElement('span');
@@ -336,7 +398,7 @@ function renderText(text) {
     ln.textContent = n++;
     const code = document.createElement('span');
     code.className = 'diff-code';
-    code.textContent = line;
+    if (hl && hl[i] != null) code.innerHTML = hl[i]; else code.textContent = lines[i];
     row.append(ln, code);
     diffBody.appendChild(row);
   }
@@ -355,9 +417,10 @@ const assetBody = document.getElementById('asset-body');
 const assetTools = document.getElementById('asset-tools');
 
 // Clearing the body removes any <audio>, stopping playback and freeing memory.
-function hideAsset() { assetView.style.display = 'none'; assetBody.innerHTML = ''; assetTools.innerHTML = ''; }
+function hideAsset() { removePixelKeys(); assetView.style.display = 'none'; assetBody.innerHTML = ''; assetTools.innerHTML = ''; }
 
 async function showAsset(file, ext) {
+  removePixelKeys();
   hideDiff();
   hideSessionViews();
   document.getElementById('asset-file').textContent = file;
@@ -414,38 +477,97 @@ function renderZoom(img) {
 
 const PALETTE = ['#000000', '#ffffff', '#f85149', '#3fb950', '#0e639c', '#e2c08d', '#a371f7', '#6e7681'];
 
+const hexToRgb = (hex) => { const n = parseInt(hex.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const rgbToHex = (r, g, b) => '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+// amt>0 lightens toward white, <0 darkens toward black — works at the #000/#fff extremes a plain multiply can't escape.
+const shade = (hex, amt) => { const [r, g, b] = hexToRgb(hex), t = amt > 0 ? 255 : 0, f = Math.abs(amt); return rgbToHex(r + (t - r) * f, g + (t - g) * f, b + (t - b) * f); };
+
+let pixelKeyHandler = null;
+function removePixelKeys() { if (pixelKeyHandler) { document.removeEventListener('keydown', pixelKeyHandler); pixelKeyHandler = null; } }
+
 function renderPixelEditor(file, img) {
   const w = img.naturalWidth, h = img.naturalHeight;
-  const scale = Math.max(1, Math.floor(384 / Math.max(w, h))); // blow tiny art up to ~screen size
+  let scale = Math.max(1, Math.floor(384 / Math.max(w, h))); // blow tiny art up to ~screen size
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   canvas.className = 'pixel-canvas';
-  canvas.style.width = (w * scale) + 'px';
-  canvas.style.height = (h * scale) + 'px';
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0);
+  const applyScale = () => { canvas.style.width = (w * scale) + 'px'; canvas.style.height = (h * scale) + 'px'; };
+  applyScale();
 
   let color = PALETTE[0];
   let erasing = false;
 
-  const paintAt = (e) => {
+  // ponytail: 50-state ImageData ring — full-frame snapshots, fine for sub-200px art; switch to per-stroke diffs if memory bites.
+  const undoStack = [], redoStack = [];
+  const pushUndo = () => { undoStack.push(ctx.getImageData(0, 0, w, h)); if (undoStack.length > 50) undoStack.shift(); redoStack.length = 0; };
+  const undo = () => { if (undoStack.length) { redoStack.push(ctx.getImageData(0, 0, w, h)); ctx.putImageData(undoStack.pop(), 0, 0); } };
+  const redo = () => { if (redoStack.length) { undoStack.push(ctx.getImageData(0, 0, w, h)); ctx.putImageData(redoStack.pop(), 0, 0); } };
+
+  const coords = (e) => {
     const rect = canvas.getBoundingClientRect();
-    const px = Math.floor((e.clientX - rect.left) / scale);
-    const py = Math.floor((e.clientY - rect.top) / scale);
-    if (px < 0 || py < 0 || px >= w || py >= h) return;
+    return [Math.floor((e.clientX - rect.left) / scale), Math.floor((e.clientY - rect.top) / scale)];
+  };
+  const inBounds = (px, py) => px >= 0 && py >= 0 && px < w && py < h;
+  const paintAt = (e) => {
+    const [px, py] = coords(e);
+    if (!inBounds(px, py)) return;
     if (erasing) ctx.clearRect(px, py, 1, 1);
     else { ctx.fillStyle = color; ctx.fillRect(px, py, 1, 1); }
   };
-  let down = false;
-  canvas.onpointerdown = (e) => { down = true; canvas.setPointerCapture(e.pointerId); paintAt(e); };
-  canvas.onpointermove = (e) => { if (down) paintAt(e); };
-  canvas.onpointerup = canvas.onpointercancel = () => { down = false; };
+  const pickAt = (e) => {
+    const [px, py] = coords(e);
+    if (!inBounds(px, py)) return;
+    const d = ctx.getImageData(px, py, 1, 1).data;
+    if (d[3]) selectColor(rgbToHex(d[0], d[1], d[2])); // skip transparent pixels — no color to pick
+  };
+
+  let down = false, panning = false, panX = 0, panY = 0, scrollX = 0, scrollY = 0, panMoved = false;
+  canvas.onpointerdown = (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    if (e.button === 1) { // middle: drag to pan, click (no drag) to eyedrop
+      e.preventDefault();
+      panning = true; panMoved = false;
+      panX = e.clientX; panY = e.clientY; scrollX = assetBody.scrollLeft; scrollY = assetBody.scrollTop;
+    } else { down = true; pushUndo(); paintAt(e); }
+  };
+  canvas.onpointermove = (e) => {
+    if (panning) {
+      const dx = e.clientX - panX, dy = e.clientY - panY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panMoved = true;
+      assetBody.scrollLeft = scrollX - dx; assetBody.scrollTop = scrollY - dy;
+    } else if (down) paintAt(e);
+  };
+  canvas.onpointerup = (e) => {
+    if (panning && !panMoved) pickAt(e); // middle click without dragging = eyedropper
+    down = false; panning = false;
+  };
+  canvas.onpointercancel = () => { down = false; panning = false; };
+  canvas.onmousedown = (e) => { if (e.button === 1) e.preventDefault(); }; // block middle-click autoscroll
+  canvas.onauxclick = (e) => { if (e.button === 1) e.preventDefault(); };
+
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    scale = Math.max(1, Math.min(48, e.deltaY < 0 ? scale + 1 : scale - 1));
+    applyScale();
+  }, { passive: false });
+
+  removePixelKeys();
+  pixelKeyHandler = (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+    else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); redo(); }
+  };
+  document.addEventListener('keydown', pixelKeyHandler);
 
   const swatches = document.createElement('div');
   swatches.className = 'palette';
   const eraseBtn = assetBtn('Erase', () => { erasing = !erasing; eraseBtn.classList.toggle('on', erasing); });
   const selectColor = (c) => {
     color = c; erasing = false; eraseBtn.classList.remove('on');
+    picker.value = c;
     for (const sw of swatches.children) sw.classList.toggle('sel', sw.dataset.c === c);
   };
   for (const c of PALETTE) {
@@ -462,6 +584,9 @@ function renderPixelEditor(file, img) {
   picker.value = color;
   picker.oninput = () => selectColor(picker.value);
 
+  const darkBtn = assetBtn('−', () => selectColor(shade(color, -0.12)));
+  const lightBtn = assetBtn('+', () => selectColor(shade(color, 0.12)));
+
   const saved = document.createElement('span');
   saved.className = 'asset-pct';
   const saveBtn = assetBtn('Save', async () => {
@@ -470,7 +595,7 @@ function renderPixelEditor(file, img) {
     saved.textContent = r.ok ? 'Saved' : (r.error || 'Save failed');
     if (r.ok) refreshGit();  });
 
-  assetTools.append(swatches, picker, eraseBtn, saveBtn, saved);
+  assetTools.append(swatches, picker, darkBtn, lightBtn, eraseBtn, assetBtn('↶', undo), assetBtn('↷', redo), saveBtn, saved);
   const stage = document.createElement('div');
   stage.className = 'pixel-stage';
   stage.appendChild(canvas);
@@ -585,6 +710,53 @@ document.getElementById('open-folder').onclick = async () => {
 };
 
 window.addEventListener('resize', () => { if (activeId) fit(sessions.get(activeId)); });
+
+// --- resizable panes ---
+// Drag a gutter to resize the pane on its near side; clamp to [min, max()].
+// read() = current size px, write(px) sets a CSS var; sign flips for gutters
+// whose pane is on the far side (the right column shrinks as you drag right).
+const appEl = document.getElementById('app');
+const sidebarEl = document.getElementById('sidebar');
+const gitEl = document.getElementById('git');
+const CENTER_MIN = 200;
+
+function resizer(gutter, axis, sign, read, write, min, max) {
+  gutter.onpointerdown = (e) => {
+    e.preventDefault();
+    gutter.setPointerCapture(e.pointerId);
+    gutter.classList.add('dragging');
+    const start = axis === 'x' ? e.clientX : e.clientY;
+    const base = read();
+    const move = (ev) => {
+      const d = (axis === 'x' ? ev.clientX : ev.clientY) - start;
+      write(Math.max(min, Math.min(max(), base + sign * d)) + 'px');
+      if (activeId) fit(sessions.get(activeId)); // ponytail: reflow live; throttle if janky
+    };
+    const up = (ev) => {
+      gutter.classList.remove('dragging');
+      gutter.releasePointerCapture(ev.pointerId);
+      gutter.removeEventListener('pointermove', move);
+      gutter.removeEventListener('pointerup', up);
+    };
+    gutter.addEventListener('pointermove', move);
+    gutter.addEventListener('pointerup', up);
+  };
+}
+
+resizer(document.getElementById('gutter-left'), 'x', +1,
+  () => sidebarEl.getBoundingClientRect().width,
+  (v) => appEl.style.setProperty('--left', v),
+  150, () => window.innerWidth - gitEl.getBoundingClientRect().width - CENTER_MIN);
+
+resizer(document.getElementById('gutter-right'), 'x', -1,
+  () => gitEl.getBoundingClientRect().width,
+  (v) => appEl.style.setProperty('--right', v),
+  180, () => window.innerWidth - sidebarEl.getBoundingClientRect().width - CENTER_MIN);
+
+resizer(document.getElementById('gutter-sess'), 'y', +1,
+  () => document.getElementById('sessions-pane').getBoundingClientRect().height,
+  (v) => sidebarEl.style.setProperty('--sess-h', v),
+  80, () => sidebarEl.getBoundingClientRect().height - 140);
 
 refreshGit();
 refreshTree();
