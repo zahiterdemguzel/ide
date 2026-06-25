@@ -118,31 +118,6 @@ ipcMain.handle('git-commit-diff', (_e, hash) => git(['show', '--format=', hash])
 // Revert a commit: create a new commit that undoes it. Non-destructive — it does
 // not rewrite history, so it's safe even on pushed commits.
 ipcMain.handle('git-revert-commit', (_e, hash) => git(['revert', '--no-edit', hash]));
-
-// --- history (History tab) ---
-// Recent commits for the History tab. Fields are unit-separator (\x1f) delimited,
-// one commit per line — subjects never contain newlines, so splitting on \n is safe.
-async function gitLog() {
-  const fmt = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f');
-  const r = await git(['log', '-n', '100', '--pretty=format:' + fmt]);
-  if (!r.ok) return { ok: false, error: r.stderr, commits: [] };
-  const commits = [];
-  for (const line of r.stdout.split('\n')) {
-    if (!line) continue;
-    const [hash, short, subject, author, relDate] = line.split('\x1f');
-    commits.push({ hash, short, subject, author, relDate });
-  }
-  return { ok: true, commits };
-}
-ipcMain.handle('git-log', () => gitLog());
-
-// Full patch of one commit, for the center diff viewer (--format= drops the
-// commit metadata so only the unified diff comes back).
-ipcMain.handle('git-commit-diff', (_e, hash) => git(['show', '--format=', hash]));
-
-// Revert a commit: create a new commit that undoes it. Non-destructive — it does
-// not rewrite history, so it's safe even on pushed commits.
-ipcMain.handle('git-revert-commit', (_e, hash) => git(['revert', '--no-edit', hash]));
 ipcMain.handle('git-fetch', () => git(['fetch']));
 ipcMain.handle('git-pull', () => git(['pull']));
 
