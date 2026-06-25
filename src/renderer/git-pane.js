@@ -69,6 +69,9 @@ export async function refreshGit() {
   stagedEl.innerHTML = '';
   unstagedEl.innerHTML = '';
   if (!r.ok) return;
+  const aheadEl = document.getElementById('git-ahead');
+  aheadEl.textContent = r.ahead;
+  aheadEl.hidden = !r.ahead;
   unstagedFiles = r.unstaged;
   revertAllBtn.classList.remove('armed');
   for (const it of r.staged) stagedEl.appendChild(gitItem(it.file, it.status, true, window.api.gitUnstage, '−'));
@@ -117,4 +120,5 @@ document.getElementById('git-push').onclick = async () => {
   showGitMsg('Pushing…', true);
   const r = await window.api.gitPush();
   showGitMsg(r.ok ? 'Pushed' : (r.stderr || 'Push failed'), r.ok);
+  refreshGit();
 };

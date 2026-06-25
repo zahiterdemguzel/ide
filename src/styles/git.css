@@ -46,6 +46,14 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 4px;
 }
 .git-commit-actions button:hover { background: var(--accent-hi); }
+/* #git-push needs positioning context for the corner badge */
+#git-push { position: relative; overflow: visible; }
+.git-ahead-badge {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
+  border-radius: 8px; background: var(--green); color: #fff;
+  font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+}
 .git-msg { margin-top: 6px; font-size: 12px; min-height: 14px; }
 .git-msg.ok { color: var(--green); }
 .git-msg.err { color: var(--red); }

@@ -30,7 +30,15 @@ async function gitStatus() {
     if (x !== ' ' && x !== '?') staged.push({ status: x, file });
     if (y !== ' ') unstaged.push({ status: y === '?' ? '?' : y, file });
   }
-  return { ok: true, staged, unstaged, repo: getRepoPath() };
+  return { ok: true, staged, unstaged, repo: getRepoPath(), ahead: await aheadCount() };
+}
+
+// Commits on HEAD not yet on its upstream. Returns 0 when there is no upstream
+// (no remote-tracking branch) or HEAD has no commits yet, so the badge stays hidden.
+async function aheadCount() {
+  const r = await git(['rev-list', '--count', '@{u}..HEAD']);
+  if (!r.ok) return 0;
+  return parseInt(r.stdout.trim(), 10) || 0;
 }
 
 ipcMain.handle('git-status', () => gitStatus());
