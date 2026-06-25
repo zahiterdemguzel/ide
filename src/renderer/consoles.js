@@ -1,4 +1,4 @@
-import { Terminal, FitAddon, termTheme } from './shared/terminal.js';
+import { Terminal, FitAddon, termTheme, attachClipboard } from './shared/terminal.js';
 
 // --- git-pane consoles: multiple interactive shell terminals as tabs ---
 // Each tab owns one xterm + PTY. Manual tabs are named after their shell (cmd/ps);
@@ -59,6 +59,7 @@ async function createConsole(opts = {}) {
   host.className = 'console-host';
   consoleHosts.appendChild(host);
   term.open(host);
+  attachClipboard(term);
   try { fit.fit(); } catch { /* pane hidden */ }
 
   const { id } = await window.api.termCreate({

@@ -1,4 +1,4 @@
-import { Terminal, FitAddon, termTheme } from './shared/terminal.js';
+import { Terminal, FitAddon, termTheme, attachClipboard } from './shared/terminal.js';
 import { hideAllOverlays } from './viewer/center.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
@@ -107,6 +107,7 @@ async function newSession() {
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.open(container);
+  attachClipboard(term);
   term.onData((data) => window.api.sendInput(id, data));
   registerTerminalLinks(term);
 
