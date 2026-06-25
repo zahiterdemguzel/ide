@@ -2,6 +2,7 @@
   "name": "claude-session-editor",
   "version": "0.1.0",
   "description": "Manage multiple interactive Claude CLI sessions with auto status + git staging",
+  "author": "zahiterdemguzel",
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
@@ -10,6 +11,7 @@
   "build": {
     "appId": "com.claude.session-editor",
     "productName": "Claude Session Editor",
+    "npmRebuild": false,
     "files": [
       "src/**/*",
       ".vscode/**/*"
