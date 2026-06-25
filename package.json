@@ -13,8 +13,11 @@
     "productName": "Claude Session Editor",
     "npmRebuild": false,
     "files": [
+      "index.html",
       "src/**/*",
-      ".vscode/**/*"
+      "assets/**/*",
+      ".vscode/**/*",
+      "node_modules/**/*"
     ],
     "directories": {
       "output": "dist"
