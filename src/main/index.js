@@ -20,6 +20,13 @@ process.on('unhandledRejection', (err) => console.error('[main unhandledRejectio
 // when the userData cache dir is locked. We don't need it — skip it entirely.
 app.commandLine.appendSwitch('disable-gpu-disk-cache');
 
+// Windows: the sandboxed network-service process repeatedly crashes
+// ("Network service crashed, restarting service") when third-party software
+// (antivirus, VPN, firewall shims) injects DLLs into it. Disabling the network
+// service sandbox stops the crash loop. The app does no networking, so there is
+// no security trade-off.
+app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
+
 // A second instance pointed at the same userData dir fights over the disk cache
 // (the "Unable to move the cache: Access is denied" warning). Keep one instance;
 // relaunches just focus the existing window.
