@@ -15,6 +15,26 @@ require('./consoles');
 process.on('uncaughtException', (err) => console.error('[main uncaught]', err));
 process.on('unhandledRejection', (err) => console.error('[main unhandledRejection]', err));
 
+// Windows: Chromium's GPU shader disk cache repeatedly fails to initialize
+// ("Gpu Cache Creation failed", "Unable to move the cache: Access is denied")
+// when the userData cache dir is locked. We don't need it — skip it entirely.
+app.commandLine.appendSwitch('disable-gpu-disk-cache');
+
+// A second instance pointed at the same userData dir fights over the disk cache
+// (the "Unable to move the cache: Access is denied" warning). Keep one instance;
+// relaunches just focus the existing window.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+}
+
 app.whenReady().then(() => {
   Menu.setApplicationMenu(null); // no native File/Edit/View menu — the in-app run toolbar replaces it
   startHookServer();
