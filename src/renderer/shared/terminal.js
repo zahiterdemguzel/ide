@@ -46,15 +46,33 @@ function copyToClipboard(text) {
   });
 }
 
+// Default formatter for a pasted image's temp-file path: quote it if it has
+// spaces, so it survives as a single argument in a shell. Sessions override this
+// to emit an "@<path>" mention (see attachClipboard's opts.formatImagePath).
+const quoteIfSpaced = (p) => (/\s/.test(p) ? `"${p}"` : p);
+
 // Wire up clipboard shortcuts for an xterm Terminal instance.
 // Must be called after term.open(). Ctrl+C copies when text is selected
-// (and lets SIGINT through when nothing is selected). Ctrl+V pastes.
-// Right-click copies selection if present, otherwise pastes.
+// (and lets SIGINT through when nothing is selected). Ctrl+V / right-click
+// paste; right-click copies first if there is a selection.
+//
+// Paste checks the clipboard for an image before falling back to text: a bitmap
+// is spilled to a temp PNG (main's `paste-image`) and its path is pasted,
+// formatted by opts.formatImagePath (default: quote-if-spaced).
 //
 // Note: while an app (e.g. the Claude CLI) has mouse reporting on, a plain
 // drag is sent to the app instead of selecting text. Hold Shift while
 // dragging to force a local selection — xterm honors Shift as the override.
-export function attachClipboard(term) {
+export function attachClipboard(term, opts = {}) {
+  const formatImagePath = opts.formatImagePath || quoteIfSpaced;
+
+  async function paste() {
+    const img = await window.api.pasteImage();
+    if (img && img.ok && img.path) { term.paste(formatImagePath(img.path)); return; }
+    const text = await navigator.clipboard.readText();
+    if (text) term.paste(text);
+  }
+
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown' || !e.ctrlKey) return true;
     // Normalize case: with Shift held, e.key is uppercase ('C'/'V').
@@ -64,10 +82,7 @@ export function attachClipboard(term) {
       if (sel) { copyToClipboard(sel); return false; }
       return true; // no selection → pass SIGINT through to PTY
     }
-    if (key === 'v') {
-      navigator.clipboard.readText().then(text => { if (text) term.paste(text); });
-      return false;
-    }
+    if (key === 'v') { paste(); return false; }
     return true;
   });
 
@@ -75,10 +90,7 @@ export function attachClipboard(term) {
   term.element.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const sel = term.getSelection();
-    if (sel) {
-      copyToClipboard(sel);
-    } else {
-      navigator.clipboard.readText().then(text => { if (text) term.paste(text); });
-    }
+    if (sel) copyToClipboard(sel);
+    else paste();
   });
 }

@@ -167,7 +167,7 @@ async function newSession() {
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.open(container);
-  attachClipboard(term);
+  attachClipboard(term, { formatImagePath: (p) => `@${p} ` });
   term.onData((data) => window.api.sendInput(id, data));
   registerTerminalLinks(term);
 

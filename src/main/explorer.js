@@ -1,6 +1,7 @@
-const { ipcMain, shell } = require('electron');
+const { ipcMain, shell, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
 
@@ -182,6 +183,23 @@ ipcMain.handle('read-asset', (_e, file) => {
 ipcMain.handle('write-asset', (_e, { file, base64 }) => {
   try { fs.writeFileSync(path.join(getRepoPath(), file), Buffer.from(base64, 'base64')); return { ok: true }; }
   catch (e) { return { ok: false, error: e.message }; }
+});
+
+// A terminal PTY can't carry pasted image bytes, so when the clipboard holds a
+// bitmap we spill it to a temp PNG and hand back the path; the renderer pastes
+// that path into the session (as an "@<path>" mention Claude can read). Returns
+// { ok: false } when the clipboard has no image, so the caller falls back to a
+// normal text paste.
+ipcMain.handle('paste-image', () => {
+  try {
+    const img = clipboard.readImage();
+    if (img.isEmpty()) return { ok: false };
+    const dir = path.join(os.tmpdir(), 'claude-ide-pastes');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `paste-${Date.now()}.png`);
+    fs.writeFileSync(file, img.toPNG());
+    return { ok: true, path: file };
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 module.exports = {};

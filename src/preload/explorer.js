@@ -6,6 +6,8 @@ module.exports = {
   // Resolve the absolute filesystem path of a File from an OS drag-drop.
   // Electron 31 removed File.path; webUtils.getPathForFile is the replacement.
   pathForFile: (file) => webUtils.getPathForFile(file),
+  // Spill a clipboard image to a temp PNG; returns { ok, path } or { ok: false }.
+  pasteImage: () => ipcRenderer.invoke('paste-image'),
   listDir: (rel) => ipcRenderer.invoke('list-dir', rel),
   createFile: (rel) => ipcRenderer.invoke('create-file', rel),
   searchNames: (q) => ipcRenderer.invoke('search-names', q),
