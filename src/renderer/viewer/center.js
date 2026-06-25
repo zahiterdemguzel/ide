@@ -14,13 +14,17 @@ import { showWeb as showWebView, hideWeb } from './web.js';
 // a callback registered via onClose()).
 
 const emptyHint = document.getElementById('empty-hint');
+const sessionBar = document.getElementById('session-bar');
 
 export function hideAllOverlays() { hideDiff(); hideAsset(); hideWeb(); }
 
 // Hide the per-session terminal containers via the DOM (no import of sessions).
+// The session bar (commit/revert) belongs to the terminal view, so hide it too —
+// it's restored by sessions' updateSessionBar() when a session is shown again.
 function hideSessionViews() {
   for (const el of document.querySelectorAll('#terminal-host .term-container')) el.style.display = 'none';
   emptyHint.style.display = 'none';
+  sessionBar.style.display = 'none';
 }
 
 function clearCenter() { hideAllOverlays(); hideSessionViews(); }
