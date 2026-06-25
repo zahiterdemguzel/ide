@@ -1,4 +1,4 @@
-import { Terminal, FitAddon, termTheme, attachClipboard } from './shared/terminal.js';
+import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme } from './shared/terminal.js';
 import { hideAllOverlays } from './viewer/center.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
@@ -163,6 +163,7 @@ async function newSession() {
   hostEl.appendChild(container);
 
   const term = new Terminal({ fontSize: 13, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
+  trackTermTheme(term);
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   term.open(container);
@@ -206,6 +207,7 @@ function closeSession(id) {
   const s = sessions.get(id);
   if (!s) return;
   window.api.killSession(id);
+  untrackTermTheme(s.term);
   s.term.dispose();
   s.container.remove();
   s.li.remove();

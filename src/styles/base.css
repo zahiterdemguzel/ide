@@ -13,6 +13,12 @@
   --gray: #6e7681;
   --yellow: #d29922;
   --list-sel: #094771;
+
+  /* Terminal (xterm) palette — bridged into the canvas by shared/terminal.js. */
+  --term-bg: #1e1e1e;
+  --term-fg: #d4d4d4;
+  --term-cursor: #d4d4d4;
+  --term-sel: #264f78;
 }
 
 * { box-sizing: border-box; }

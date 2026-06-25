@@ -4,11 +4,30 @@
 export const Terminal = window.Terminal;
 export const FitAddon = window.FitAddon.FitAddon;
 
+// xterm renders to a canvas, so it can't read CSS variables itself. We bridge
+// the active theme into an xterm theme object by reading the --term-* custom
+// properties off <html> (defined per theme in styles/themes.css). New terminals
+// pick these up at construction; live ones are refreshed via refreshTermThemes.
 export function termTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
   return {
-    background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#d4d4d4',
-    selectionBackground: '#264f78',
+    background: v('--term-bg', '#1e1e1e'),
+    foreground: v('--term-fg', '#d4d4d4'),
+    cursor: v('--term-cursor', '#d4d4d4'),
+    selectionBackground: v('--term-sel', '#264f78'),
   };
+}
+
+// Live terminals that should track theme changes. Modules register on create
+// and unregister on dispose; settings.js calls refreshTermThemes() after the
+// user switches theme so every open console/session recolors immediately.
+const themedTerminals = new Set();
+export function trackTermTheme(term) { themedTerminals.add(term); }
+export function untrackTermTheme(term) { themedTerminals.delete(term); }
+export function refreshTermThemes() {
+  const theme = termTheme();
+  for (const term of themedTerminals) term.options.theme = theme;
 }
 
 // Wire up clipboard shortcuts for an xterm Terminal instance.

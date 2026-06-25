@@ -23,6 +23,10 @@
   --gray: #6e7781;
   --yellow: #9a6700;
   --list-sel: #cce5ff;
+  --term-bg: #ffffff;
+  --term-fg: #1f1f1f;
+  --term-cursor: #1f1f1f;
+  --term-sel: #add6ff;
 }
 
 [data-theme="midnight"] {
@@ -40,6 +44,10 @@
   --gray: #6e7681;
   --yellow: #d29922;
   --list-sel: #1f3a5f;
+  --term-bg: #0d1117;
+  --term-fg: #c9d1d9;
+  --term-cursor: #c9d1d9;
+  --term-sel: #1f3a5f;
 }
 
 [data-theme="solarized"] {
@@ -57,6 +65,10 @@
   --gray: #657b83;
   --yellow: #b58900;
   --list-sel: #0f4d5c;
+  --term-bg: #002b36;
+  --term-fg: #93a1a1;
+  --term-cursor: #93a1a1;
+  --term-sel: #073642;
 }
 
 [data-theme="high-contrast"] {
@@ -74,4 +86,8 @@
   --gray: #8a8a8a;
   --yellow: #ffd700;
   --list-sel: #0e4f6b;
+  --term-bg: #000000;
+  --term-fg: #ffffff;
+  --term-cursor: #ffffff;
+  --term-sel: #0e4f6b;
 }

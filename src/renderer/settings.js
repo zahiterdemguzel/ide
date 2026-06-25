@@ -5,6 +5,7 @@
 import {
   availableLocales, currentLocale, setLocale, applyTranslations, BASE_LOCALE,
 } from '../i18n/index.js';
+import { refreshTermThemes } from './shared/terminal.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -24,6 +25,9 @@ const DEFAULT_THEME = 'dark';
 function applyTheme(id) {
   const known = THEMES.some((t) => t.id === id) ? id : DEFAULT_THEME;
   document.documentElement.dataset.theme = known;
+  // Terminals render to a canvas and can't pick up the new CSS variables on
+  // their own, so push the refreshed palette into every open terminal.
+  refreshTermThemes();
 }
 
 function fillSelect(select, items, value) {

@@ -32,6 +32,25 @@ properties, scoped to `html[data-theme="<id>"]`. `settings.js` sets
 
 `dark` is the base `:root` palette and needs no `themes.css` block.
 
+### Terminals (xterm)
+
+The session and console terminals render to a `<canvas>`, so they can't read CSS
+variables on their own. Each palette therefore also defines four terminal colors
+— `--term-bg`, `--term-fg`, `--term-cursor`, `--term-sel` — and
+`src/renderer/shared/terminal.js` bridges them in:
+
+- `termTheme()` reads those variables off `<html>` and returns an xterm theme
+  object; every terminal is constructed with it, so new terminals match the
+  active theme.
+- Live terminals register with `trackTermTheme()` (and drop out with
+  `untrackTermTheme()` on dispose). When the user switches theme, `settings.js`
+  calls `refreshTermThemes()`, which pushes the new palette into every open
+  terminal so they recolor in realtime.
+
+When you add a theme, include the four `--term-*` variables in its block (the
+console-host background uses `--term-bg` too, so the pane behind the canvas
+matches).
+
 ## Internationalization (i18n)
 
 `src/i18n/index.js` is a tiny dependency-free engine:

@@ -29,7 +29,7 @@
 #term-add { padding: 1px 7px; font-size: 14px; }
 #term-clear:hover, #term-add:hover { color: var(--fg); border-color: var(--accent); }
 
-#console-hosts { flex: 1; min-height: 0; position: relative; background: #1e1e1e; }
+#console-hosts { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
 .console-host { height: 100%; padding: 2px 0 2px 6px; }
 
 #shell-menu {
