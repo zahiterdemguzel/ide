@@ -57,7 +57,10 @@ function selectSession(id) {
   // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
   // position until new output forces a refresh. Snap to the bottom so the latest
   // output is visible immediately rather than only after the first keystroke.
+  // The reveal + fit only take effect on the next frame, so snap there too —
+  // a synchronous scrollToBottom here runs against the still-stale viewport.
   s.term.scrollToBottom();
+  requestAnimationFrame(() => s.term.scrollToBottom());
   s.term.focus();
 }
 
