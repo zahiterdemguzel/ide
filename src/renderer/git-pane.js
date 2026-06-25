@@ -103,6 +103,14 @@ function showGitMsg(text, ok) {
   gitMsgEl.className = 'git-msg ' + (ok ? 'ok' : 'err');
 }
 
+function showGitErrorDialog(message) {
+  document.getElementById('git-error-msg').textContent = message;
+  document.getElementById('git-error-dialog').showModal();
+}
+document.getElementById('git-error-ok').onclick = () => {
+  document.getElementById('git-error-dialog').close();
+};
+
 document.getElementById('git-refresh').onclick = refreshGit;
 document.getElementById('git-commit').onclick = async () => {
   const box = document.getElementById('commit-msg');
@@ -116,9 +124,13 @@ document.getElementById('git-undo').onclick = async () => {
   const r = await window.api.gitUndo();
   showGitMsg(r.ok ? 'Last commit undone' : (r.stderr || 'Undo failed'), r.ok);
   refreshGit();};
-document.getElementById('git-push').onclick = async () => {
-  showGitMsg('Pushing…', true);
+const pushBtn = document.getElementById('git-push');
+pushBtn.onclick = async () => {
+  pushBtn.classList.add('loading');
+  pushBtn.disabled = true;
   const r = await window.api.gitPush();
-  showGitMsg(r.ok ? 'Pushed' : (r.stderr || 'Push failed'), r.ok);
+  pushBtn.classList.remove('loading');
+  pushBtn.disabled = false;
+  if (!r.ok) showGitErrorDialog(r.stderr || 'Push failed');
   refreshGit();
 };
