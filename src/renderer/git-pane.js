@@ -112,6 +112,16 @@ document.getElementById('git-error-ok').onclick = () => {
 };
 
 document.getElementById('git-refresh').onclick = refreshGit;
+document.getElementById('git-fetch').onclick = async () => {
+  const r = await window.api.gitFetch();
+  showGitMsg(r.ok ? 'Fetched' : (r.stderr || 'Fetch failed'), r.ok);
+  refreshGit();
+};
+document.getElementById('git-pull').onclick = async () => {
+  const r = await window.api.gitPull();
+  showGitMsg(r.ok ? 'Pulled' : (r.stderr || 'Pull failed'), r.ok);
+  refreshGit();
+};
 document.getElementById('git-commit').onclick = async () => {
   const box = document.getElementById('commit-msg');
   const msg = box.value.trim();

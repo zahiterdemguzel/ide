@@ -13,4 +13,6 @@ module.exports = {
   gitCommit: (msg) => ipcRenderer.invoke('git-commit', msg),
   gitUndo: () => ipcRenderer.invoke('git-undo'),
   gitPush: () => ipcRenderer.invoke('git-push'),
+  gitFetch: () => ipcRenderer.invoke('git-fetch'),
+  gitPull: () => ipcRenderer.invoke('git-pull'),
 };

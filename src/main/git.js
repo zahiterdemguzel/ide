@@ -73,5 +73,7 @@ ipcMain.handle('git-commit', async (_e, msg) => {
 // Undo last commit, keep its changes staged. ponytail: soft reset, no HEAD~1 history rewrite beyond one.
 ipcMain.handle('git-undo', () => git(['reset', '--soft', 'HEAD~1']));
 ipcMain.handle('git-push', () => git(['push']));
+ipcMain.handle('git-fetch', () => git(['fetch']));
+ipcMain.handle('git-pull', () => git(['pull']));
 
 module.exports = { git, gitStatus };
