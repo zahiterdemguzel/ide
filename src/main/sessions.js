@@ -1,10 +1,9 @@
 const { ipcMain } = require('electron');
-const { execFile } = require('child_process');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const crypto = require('crypto');
 const { getWin } = require('./window');
 const { getRepoPath } = require('./repo');
-const { resolveClaude } = require('./claude');
+const { resolveClaude, runHaiku } = require('./claude');
 const { editOp } = require('./edit-ops');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
@@ -35,25 +34,18 @@ function recordSessionActivity(payload) {
   return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: [...s.edits.keys()] } : null;
 }
 
-// Name a session from its first prompt via a one-shot Haiku call (`claude -p`),
-// then push `session-name` to the renderer. Reuses the resolved claude CLI, so
-// no API key or new dependency. Prompt goes over stdin to avoid arg-escaping.
-function generateSessionName(id, prompt) {
+// Name a session from its first prompt via a one-shot Haiku call, then push
+// `session-name` to the renderer.
+async function generateSessionName(id, prompt) {
   // ponytail: 2000-char cap is plenty for a title; bump if titles read truncated
   const text = 'Reply with ONLY a 2-4 word title (no quotes, no trailing punctuation) '
     + 'for this coding session:\n\n' + prompt.slice(0, 2000);
-  const exe = resolveClaude();
-  const win32 = process.platform === 'win32';
-  const child = execFile(win32 ? `"${exe}"` : exe, ['-p', '--model', 'haiku'],
-    { cwd: getRepoPath(), maxBuffer: 1024 * 1024, shell: win32 },
-    (err, stdout) => {
-      if (err) return;
-      const name = stdout.trim().split('\n').pop().trim().slice(0, 60);
-      const s = sessions.get(id);
-      const win = getWin();
-      if (name && s) { s.name = name; if (win) win.webContents.send('session-name', { id, name }); }
-    });
-  child.stdin.end(text);
+  const out = await runHaiku(text, { cwd: getRepoPath() });
+  if (!out) return;
+  const name = out.split('\n').pop().trim().slice(0, 60);
+  const s = sessions.get(id);
+  const win = getWin();
+  if (name && s) { s.name = name; if (win) win.webContents.send('session-name', { id, name }); }
 }
 
 ipcMain.handle('new-session', (_e, { cols, rows }) => {

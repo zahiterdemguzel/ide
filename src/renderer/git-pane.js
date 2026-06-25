@@ -122,13 +122,22 @@ document.getElementById('git-pull').onclick = async () => {
   showGitMsg(r.ok ? 'Pulled' : (r.stderr || 'Pull failed'), r.ok);
   refreshGit();
 };
-document.getElementById('git-commit').onclick = async () => {
+const commitBtn = document.getElementById('git-commit');
+commitBtn.onclick = async () => {
   const box = document.getElementById('commit-msg');
   const msg = box.value.trim();
-  if (!msg) { showGitMsg('Enter a commit message', false); return; }
+  // Empty message: main authors one from the staged diff via Haiku, which adds
+  // latency — disable the button and show progress until it resolves.
+  commitBtn.disabled = true;
+  if (!msg) showGitMsg('Writing commit message…', true);
   const r = await window.api.gitCommit(msg);
-  showGitMsg(r.ok ? 'Committed' : (r.stderr || 'Commit failed'), r.ok);
-  if (r.ok) box.value = '';
+  commitBtn.disabled = false;
+  if (r.ok) {
+    box.value = '';
+    showGitMsg(msg ? 'Committed' : 'Committed: ' + (r.message || '').split('\n')[0], true);
+  } else {
+    showGitMsg(r.stderr || 'Commit failed', false);
+  }
   refreshGit();};
 document.getElementById('git-undo').onclick = async () => {
   const r = await window.api.gitUndo();

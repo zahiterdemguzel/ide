@@ -1,6 +1,7 @@
 const { ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
+const { runHaiku } = require('./claude');
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
@@ -63,12 +64,31 @@ ipcMain.handle('git-revert', (_e, { file, untracked }) => {
   return git(['restore', '--staged', '--worktree', '--', file]);
 });
 
+// Ask Haiku for a commit message describing the staged diff. Returns '' on an
+// empty diff and falls back to the message text on failure (handled by caller).
+async function generateCommitMessage() {
+  const diff = (await git(['diff', '--cached'])).stdout;
+  if (!diff.trim()) return '';
+  // ponytail: 12000-char cap keeps the prompt cheap; huge diffs are truncated.
+  const prompt = 'Write a git commit message for the diff below: a concise '
+    + 'imperative subject line, then an optional body. Reply with ONLY the '
+    + 'message — no quotes, no code fences, no preamble.\n\n' + diff.slice(0, 12000);
+  const out = await runHaiku(prompt, { cwd: getRepoPath() });
+  return (out || '').slice(0, 1000);
+}
+
 // Commit staged changes. If nothing is staged, stage everything first so a bare
 // Commit click behaves like "commit all" rather than failing with "nothing to commit".
+// An empty message triggers a one-shot Haiku call to author one from the staged diff.
 ipcMain.handle('git-commit', async (_e, msg) => {
   const nothingStaged = (await git(['diff', '--cached', '--quiet'])).ok;
   if (nothingStaged) await git(['add', '-A']);
-  return git(['commit', '-m', msg]);
+  if (!msg || !msg.trim()) {
+    msg = await generateCommitMessage();
+    if (!msg) return { ok: false, stderr: 'Could not generate a commit message' };
+  }
+  const r = await git(['commit', '-m', msg]);
+  return { ...r, message: msg };
 });
 // Undo last commit, keep its changes staged. ponytail: soft reset, no HEAD~1 history rewrite beyond one.
 ipcMain.handle('git-undo', () => git(['reset', '--soft', 'HEAD~1']));
