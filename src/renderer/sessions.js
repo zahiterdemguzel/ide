@@ -49,6 +49,7 @@ export function selectSession(id) {
   for (const [, o] of sessions) o.container.style.display = o === s ? 'block' : 'none';
   for (const o of listEl.children) o.classList.toggle('active', o.dataset.id === id);
   updateSessionBar();
+  if (!s.term) return; // archived/suspended: only the placeholder is shown
   fit(s);
   // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
   // position until new output forces a refresh. Snap to the bottom so the latest
@@ -56,7 +57,7 @@ export function selectSession(id) {
   // The reveal + fit only take effect on the next frame, so snap there too —
   // a synchronous scrollToBottom here runs against the still-stale viewport.
   s.term.scrollToBottom();
-  requestAnimationFrame(() => s.term.scrollToBottom());
+  requestAnimationFrame(() => s.term && s.term.scrollToBottom());
   s.term.focus();
 }
 
@@ -97,12 +98,15 @@ function setTab(tab) {
   if (!s || !sessionInTab(s)) selectFirstVisible();
 }
 
-function setArchived(id, archived) {
+async function setArchived(id, archived) {
   const s = sessions.get(id);
   if (!s) return;
+  if (archived) suspendSessionUI(s);
+  else await resumeSessionUI(s);
   s.archived = archived;
   applyTabFilter();
   if (activeId === id && !sessionInTab(s)) selectFirstVisible();
+  else if (!archived && activeId === id) selectSession(id); // re-fit the rebuilt terminal
 }
 
 // Closing an overlay returns here: show the active session if there is one.
@@ -137,6 +141,7 @@ function updateSessionBar() {
 }
 
 export function fit(s) {
+  if (!s || !s.fit || !s.term) return; // suspended sessions have no terminal
   try {
     s.fit.fit();
     window.api.resize(s.id, s.term.cols, s.term.rows);
@@ -150,19 +155,15 @@ export function fitActive() { if (activeId) fit(sessions.get(activeId)); }
 export function sendToActiveSession(text) {
   if (!activeId) return;
   const s = sessions.get(activeId);
-  if (!s) return;
+  if (!s || !s.term) return; // archived session: nothing to send input to
   window.api.sendInput(activeId, text);
   s.term.focus();
 }
 
-// Build the xterm.js terminal (in its own hidden container) for a session id and
-// wire its input/links. Used both for a fresh session and when resuming a
-// suspended one — the row, dot, and tracked-file state outlive the terminal.
-function buildTerminal(id) {
-  const container = document.createElement('div');
-  container.className = 'term-container';
-  hostEl.appendChild(container);
-
+// Create an xterm.js terminal inside an existing container and wire its
+// input/links. Split out from buildTerminal so a suspended session can rebuild
+// its terminal into the same container on restore.
+function attachTerminal(id, container) {
   const term = new Terminal({ fontSize: 11, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
   trackTermTheme(term);
   const fitAddon = new FitAddon();
@@ -171,7 +172,54 @@ function buildTerminal(id) {
   attachClipboard(term, { formatImagePath: (p) => `@${p} ` });
   term.onData((data) => window.api.sendInput(id, data));
   registerTerminalLinks(term);
-  return { container, term, fit: fitAddon };
+  return { term, fit: fitAddon };
+}
+
+// Build the xterm.js terminal (in its own hidden container) for a session id.
+// Used for a fresh session; resuming a suspended one reuses the container via
+// attachTerminal — the row, dot, and tracked-file state outlive the terminal.
+function buildTerminal(id) {
+  const container = document.createElement('div');
+  container.className = 'term-container';
+  hostEl.appendChild(container);
+  const { term, fit } = attachTerminal(id, container);
+  return { container, term, fit };
+}
+
+// Archive a live session: tell main to kill the Claude process (it keeps the
+// session entry and all its uncommitted tracked-file state for a later resume)
+// and dispose the renderer terminal to free its memory. s.files is untouched, so
+// the work stays committable and the tracking history survives the archive.
+function suspendSessionUI(s) {
+  if (s.suspended) return;
+  s.suspended = true;
+  window.api.suspendSession(s.id);
+  if (s.term) {
+    untrackTermTheme(s.term);
+    s.term.dispose();
+    s.term = null;
+    s.fit = null;
+  }
+  s.container.classList.add('suspended');
+  const hint = document.createElement('div');
+  hint.className = 'term-suspended-hint';
+  hint.textContent = 'Session archived to free resources — restore it to continue.';
+  s.container.replaceChildren(hint);
+}
+
+// Restore an archived session: respawn its Claude conversation under the same id
+// (`--resume`, so main keeps accumulating tracked edits against the same entry)
+// and rebuild the terminal in place. The terminal must exist before resume so the
+// first pty-data the resumed process emits has somewhere to render.
+async function resumeSessionUI(s) {
+  if (!s.suspended) return;
+  s.suspended = false;
+  s.container.classList.remove('suspended');
+  s.container.replaceChildren();
+  const { term, fit } = attachTerminal(s.id, s.container);
+  s.term = term;
+  s.fit = fit;
+  await window.api.resumeSession(s.id, { cols: term.cols || 80, rows: term.rows || 24 });
 }
 
 async function newSession() {
@@ -219,8 +267,7 @@ function closeSession(id) {
   const s = sessions.get(id);
   if (!s) return;
   window.api.killSession(id);
-  untrackTermTheme(s.term);
-  s.term.dispose();
+  if (s.term) { untrackTermTheme(s.term); s.term.dispose(); }
   s.container.remove();
   s.li.remove();
   sessions.delete(id);
@@ -292,7 +339,7 @@ hostEl.addEventListener('drop', (e) => {
 // --- IPC streams from the per-session PTYs / hook server ---
 window.api.onPtyData(({ id, data }) => {
   const s = sessions.get(id);
-  if (s) s.term.write(data);
+  if (s && s.term) s.term.write(data);
 });
 window.api.onStatus(({ id, state }) => setState(id, state));
 window.api.onSessionMeta(({ id, firstPrompt, files }) => {
