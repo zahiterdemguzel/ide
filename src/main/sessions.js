@@ -35,6 +35,16 @@ function trackedFiles(s) {
   return [...new Set([...s.edits.keys(), ...s.fileOps.keys()])];
 }
 
+// True when `absPath` is excluded by .gitignore. `git check-ignore` reports
+// nothing (exit 1) for a tracked file even if it matches an ignore rule, so this
+// is exactly "untracked AND ignored" — the files we must never track or commit.
+// The filesystem-diff path already excludes these (they don't appear in `git
+// status`); this guards the text-edit path, which records by file path directly.
+async function isIgnored(absPath) {
+  const r = await git(['check-ignore', '-q', '--', absPath]);
+  return r.ok; // exit 0 = ignored
+}
+
 // Snapshot the working tree as Map<relPath, "XY"> (porcelain status code).
 // --no-renames so a rename surfaces as a delete + an add (two paths we can each
 // attribute), and --untracked-files=all so a new binary file lists individually.
@@ -107,7 +117,9 @@ async function recordSessionActivity(payload) {
   if (payload.hook_event_name === 'PostToolUse') {
     const ti = payload.tool_input || {};
     const f = ti.file_path;
-    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name)) {
+    // Skip .gitignore'd files: tracking them here would let commit-session add
+    // them to the repo (and, once tracked, surface them in the changes panel).
+    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && !(await isIgnored(f))) {
       if (!s.edits.has(f)) s.edits.set(f, []);
       s.edits.get(f).push(editOp(payload.tool_name, ti));
       changed = true;
