@@ -10,6 +10,8 @@
   border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
 }
 #browser-btn { margin-left: auto; margin-right: 6px; }
+/* When the browser button is toggled off, the gear inherits the right-alignment. */
+#browser-btn.is-hidden + #settings-btn { margin-left: auto; }
 #browser-btn:hover, #settings-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 #browser-btn svg, #settings-btn svg { display: block; }
 /* Lit accent while a page is loaded in the background browser — the button
@@ -45,6 +47,49 @@
   border: 1px solid var(--border); border-radius: 3px; font-size: 13px; cursor: pointer;
 }
 .settings-row select:focus { outline: none; border-color: var(--accent-hi); }
+
+/* Panel-visibility toggles: a titled group of switch cards in a 2-up grid. */
+.settings-group { display: flex; flex-direction: column; gap: 8px; }
+.settings-group-title {
+  font-size: 11px; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.panel-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+
+.panel-toggle {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 5px 2px; cursor: pointer; user-select: none;
+}
+.panel-toggle-label {
+  font-size: 12.5px; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: color 120ms ease;
+}
+.panel-toggle:hover .panel-toggle-label { color: var(--accent-hi); }
+
+/* The native checkbox is hidden; the .switch-ui span draws the track + knob. */
+.switch-input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+.switch-ui {
+  flex: none; position: relative; width: 34px; height: 18px; border-radius: 999px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.switch-ui::after {
+  content: ""; position: absolute; top: 50%; left: 2px; transform: translateY(-50%);
+  width: 13px; height: 13px; border-radius: 50%; background: var(--fg-dim);
+  transition: transform 140ms ease, background 140ms ease;
+}
+.switch-input:checked + .switch-ui {
+  background: var(--accent); border-color: var(--accent);
+}
+.switch-input:checked + .switch-ui::after {
+  transform: translate(15px, -50%); background: var(--on-accent);
+}
+.switch-input:focus-visible + .switch-ui {
+  outline: 2px solid var(--accent-hi); outline-offset: 1px;
+}
 
 .settings-actions {
   display: flex; justify-content: flex-end;

@@ -1,4 +1,5 @@
 import { runSpecInConsole } from './consoles.js';
+import { isPanelEnabled, onPanelsChanged } from './panels.js';
 
 // --- top run toolbar (.vscode/launch.json + tasks.json) ---
 // One button per launch config, a separator, then one per task. Clicking a button
@@ -40,17 +41,23 @@ document.getElementById('run-error-ok').onclick = () =>
 // changes (created/edited/deleted), so the buttons track the files live.
 window.api.onRunConfigsChanged(() => loadToolbar());
 
+// Re-render when the Launch/Tasks visibility toggles change.
+onPanelsChanged(() => loadToolbar());
+
 export async function loadToolbar() {
   const r = await window.api.getRunConfigs();
   toolbarRuns.innerHTML = '';
-  const launch = r.launch || [], tasks = r.tasks || [];
-  if (!launch.length && !tasks.length) {
+  const rawLaunch = r.launch || [], rawTasks = r.tasks || [];
+  if (!rawLaunch.length && !rawTasks.length) {
     const hint = document.createElement('span');
     hint.className = 'toolbar-hint';
     hint.textContent = 'No .vscode/launch.json or tasks.json in this folder';
     toolbarRuns.appendChild(hint);
     return;
   }
+  // The folder has configs, but the user may have hidden one or both groups.
+  const launch = isPanelEnabled('launch') ? rawLaunch : [];
+  const tasks = isPanelEnabled('tasks') ? rawTasks : [];
   for (const c of launch) toolbarRuns.appendChild(runButton('launch', c.name, c.compound));
   if (launch.length && tasks.length) {
     const sep = document.createElement('span');

@@ -54,6 +54,13 @@ export default {
     'settings.theme': 'Tema',
     'settings.close': 'Cerrar',
     'settings.done': 'Listo',
+    'settings.panels': 'Paneles',
+    'settings.panel.explorer': 'Explorador',
+    'settings.panel.git': 'Git',
+    'settings.panel.terminal': 'Terminal',
+    'settings.panel.launch': 'Configuraciones de inicio',
+    'settings.panel.tasks': 'Tareas',
+    'settings.panel.browser': 'Navegador',
 
     'browser.open': 'Navegador',
     'browser.terminate': 'Terminar navegador',

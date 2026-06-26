@@ -12,6 +12,7 @@ import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
 import { confirmDialog } from './shared/confirm.js';
 import { initSettings } from './settings.js';
+import { initPanels } from './panels.js';
 import { t } from '../i18n/index.js';
 import './panes.js';
 
@@ -107,6 +108,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecentMenu(); });
 
 initSettings();
+initPanels();
 initConsoles();
 refreshGit();
 refreshTree();

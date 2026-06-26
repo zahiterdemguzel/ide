@@ -5,6 +5,13 @@
   min-height: 0;
 }
 
+/* Panels the user toggled off (settings dialog). !important beats the ID
+   selectors that set display:flex on #git / #files-pane / etc. */
+.is-hidden { display: none !important; }
+/* When a panel is hidden, its surviving sibling grows to fill the freed space. */
+#sidebar.no-explorer #sessions-pane { flex: 1 1 0; }
+#git.solo-console #git-console { flex: 1 1 0; }
+
 /* drag handles between panes (col = between columns, row = sidebar split) */
 .gutter { z-index: 5; }
 .gutter-col { cursor: col-resize; }

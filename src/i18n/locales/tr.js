@@ -54,6 +54,13 @@ export default {
     'settings.theme': 'Tema',
     'settings.close': 'Kapat',
     'settings.done': 'Tamam',
+    'settings.panels': 'Paneller',
+    'settings.panel.explorer': 'Gezgin',
+    'settings.panel.git': 'Git',
+    'settings.panel.terminal': 'Terminal',
+    'settings.panel.launch': 'Başlatma yapılandırmaları',
+    'settings.panel.tasks': 'Görevler',
+    'settings.panel.browser': 'Tarayıcı',
 
     'browser.open': 'Tarayıcı',
     'browser.terminate': 'Tarayıcıyı sonlandır',

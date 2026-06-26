@@ -1,18 +1,57 @@
-# Settings: theme & language
+# Settings: theme, language & panels
 
 The gear button at the right end of the top toolbar (`#settings-btn`) opens the
-settings dialog (`#settings-dialog`), where the user picks a **theme** and a
-**language**. Both choices apply instantly and persist across restarts.
+settings dialog (`#settings-dialog`), where the user picks a **theme**, a
+**language**, and which **panels** are visible. Every choice applies instantly
+and persists across restarts.
 
 ## Where it lives
 
-- `src/renderer/settings.js` — the only wiring. Reads/writes `localStorage`
-  (`ide.theme`, `ide.locale`), applies the theme, sets the locale, builds the
-  two dropdowns, and opens/closes the dialog. `initSettings()` is called once
-  from `src/renderer/index.js` before the rest of the UI loads.
+- `src/renderer/settings.js` — theme + language wiring. Reads/writes
+  `localStorage` (`ide.theme`, `ide.locale`), applies the theme, sets the
+  locale, builds the two dropdowns, and opens/closes the dialog. `initSettings()`
+  is called once from `src/renderer/index.js` before the rest of the UI loads.
+- `src/renderer/panels.js` — the panel-visibility toggles (see [Panel
+  visibility](#panel-visibility)).
 - `src/styles/themes.css` — theme palettes.
 - `src/styles/settings.css` — the gear button + dialog styling.
 - `src/i18n/` — the translation engine and locale files.
+
+## Panel visibility
+
+The dialog's **Panels** group is a 2-up grid of frameless switch rows, one per
+toggleable area: **Explorer**, **Git**, **Terminal**, **Launch configs**,
+**Tasks**, and **Browser**.
+Each row is a hidden `<input type="checkbox">` styled as a sliding toggle (the
+`.switch-ui` span draws the track + knob; see `settings.css`). The sessions list
+is deliberately *not* toggleable — it's the app's primary surface.
+
+`src/renderer/panels.js` is the only wiring. It persists one JSON object to
+`localStorage` (`ide.panels`, all panels default-on), exposes `isPanelEnabled(id)`
+and an `onPanelsChanged(fn)` listener registry, and `applyPanels()` enforces the
+current state. `initPanels()` runs once from `index.js` (after `initSettings()`),
+syncing the checkboxes and applying the saved state on load.
+
+- **Explorer / Git / Terminal** flip a panel's `.is-hidden` class
+  (`display:none !important`, defined in `layout.css`, to beat the ID selectors
+  that set `display:flex`). Hiding a panel also hides its drag-gutter and lets
+  the surviving sibling grow: `#sidebar.no-explorer` expands the sessions list,
+  `#git.solo-console` expands the terminal. The whole right aside
+  (`#git`) + its column gutter hide only when **both** Git and Terminal are off;
+  the console gutter shows only when **both** are on.
+- **Browser** flips the top-toolbar browser button's `.is-hidden` class; a CSS
+  fallback (`#browser-btn.is-hidden + #settings-btn`) hands the right-edge
+  alignment to the gear so it stays pinned to the corner.
+- **Launch configs / Tasks** don't hide a DOM node — they filter what the run
+  toolbar renders. `toolbar.js` reads `isPanelEnabled('launch'|'tasks')` in
+  `loadToolbar()` and registers `onPanelsChanged(loadToolbar)`, so toggling
+  either rebuilds the toolbar (the "No .vscode/…" hint still shows only for a
+  folder that genuinely has no configs).
+
+Adding a panel toggle: append an entry to the `PANELS` array in `panels.js`, add
+its checkbox (`#settings-panel-<id>`) to the dialog in `index.html`, handle its
+effect in `applyPanels()`, and add the `settings.panel.<id>` string to every
+locale.
 
 Nothing else in the app reads settings directly: **theme** flows entirely
 through CSS custom properties, and **language** through `data-i18n*` attributes.
