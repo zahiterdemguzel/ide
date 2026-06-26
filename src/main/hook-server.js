@@ -31,7 +31,10 @@ function eventToState(payload) {
       if (c && /git\s+push/.test(c)) return 'pushed';
       return 'working';
     }
-    case 'SessionStart':
+    // A session that has only just started has no work in flight yet — it sits
+    // idle (gray) until the user submits the first prompt. Yellow ("working") is
+    // reserved for an agent actively responding.
+    case 'SessionStart': return 'idle';
     case 'UserPromptSubmit':
     case 'PreToolUse': return 'working';
     default: return null;

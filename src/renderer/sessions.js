@@ -24,6 +24,7 @@ const sessionRevertBtn = document.getElementById('session-revert');
 const sessionCommitMsg = document.getElementById('session-commit-msg');
 
 const STATE_LABEL = {
+  idle: 'Idle',
   working: 'Working',
   'needs-input': 'Needs input',
   completed: 'Completed',
@@ -174,7 +175,7 @@ async function newSession() {
   const li = document.createElement('li');
   li.dataset.id = id;
   const dot = document.createElement('span');
-  dot.className = 'dot working';
+  dot.className = 'dot idle';
   const label = document.createElement('span');
   label.className = 'sess-label';
   label.textContent = 'session ' + id.slice(0, 8);
@@ -200,7 +201,7 @@ async function newSession() {
   li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrClose(); } };
   listEl.appendChild(li);
 
-  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn: close, state: 'working', firstPrompt: '', name: '', files: [], archived: false });
+  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn: close, state: 'idle', firstPrompt: '', name: '', files: [], archived: false });
   setTab('active');
   selectSession(id);
 }

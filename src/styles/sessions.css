@@ -39,6 +39,8 @@
 #session-list li.archived .sess-label { color: var(--fg-dim); font-style: italic; }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gray); }
+/* A just-started session sits idle (gray) — no work in flight yet. */
+.dot.idle { background: var(--gray); }
 .dot.working { background: var(--yellow); }
 /* Needs-input and completed share one green signal — both mean "this session
    wants your attention". The glow keeps an input request a touch more eye-catching. */
