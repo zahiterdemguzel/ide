@@ -44,7 +44,10 @@
 
 /* Open-folder reverse-combobox: the recent-projects menu pops up *above* the
    button (bottom: 100%) and grows downward into place from a collapsed top. */
+/* The wrap is the positioning context for the popup; it must not change the
+   button's layout — the button stays full-width like the other sidebar actions. */
 .open-folder-wrap { position: relative; }
+.open-folder-wrap > #open-folder { width: 100%; }
 .recent-menu {
   position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; z-index: 30;
   background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
