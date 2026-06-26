@@ -15,6 +15,7 @@ const MAX_PERSIST_BYTES = 100 * 1024 * 1024; // 100 MB
 function serializeSession(id, s) {
   return {
     id,
+    repo: s.repo || '',                // the project folder this session belongs to
     firstPrompt: s.firstPrompt || '',
     name: s.name || '',
     archived: !!s.archived,
@@ -30,6 +31,7 @@ function serializeSession(id, s) {
 function deserializeSession(obj) {
   return {
     pty: null,
+    repo: obj.repo || '',
     edits: new Map(Array.isArray(obj.edits) ? obj.edits : []),
     fileOps: new Map(Array.isArray(obj.fileOps) ? obj.fileOps : []),
     preStatus: null,

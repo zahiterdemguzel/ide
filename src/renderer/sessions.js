@@ -14,6 +14,11 @@ export const getActiveId = () => activeId;
 // shows only archived, 'all' shows everything.
 let currentTab = 'active';
 
+// Sessions are scoped to the project folder they were created in: only the open
+// folder's sessions are shown. Switching folders (setSessionsRepo) re-filters the
+// list without tearing down the other projects' live terminals.
+let currentRepo = null;
+
 const listEl = document.getElementById('session-list');
 const sessionTabs = document.getElementById('session-tabs');
 const hostEl = document.getElementById('terminal-host');
@@ -80,11 +85,19 @@ function sessionInTab(s) {
   return !s.archived; // 'active'
 }
 
-// Show/hide rows for the current tab and keep each row's archived styling/title
-// in sync with its state.
+// A row is shown only when it both belongs to the open project and matches the
+// active tab. currentRepo is null until restoreSessions resolves the open folder;
+// treat that startup window as "no filter yet" so nothing is hidden prematurely.
+function sessionVisible(s) {
+  if (currentRepo !== null && s.repo !== currentRepo) return false;
+  return sessionInTab(s);
+}
+
+// Show/hide rows for the current tab + project and keep each row's archived
+// styling/title in sync with its state.
 function applyTabFilter() {
   for (const [, s] of sessions) {
-    s.li.style.display = sessionInTab(s) ? '' : 'none';
+    s.li.style.display = sessionVisible(s) ? '' : 'none';
     s.li.classList.toggle('archived', s.archived);
     s.closeBtn.title = s.archived ? 'Close session permanently' : 'Archive session';
   }
@@ -108,7 +121,16 @@ function setTab(tab) {
   applyTabFilter();
   // The selected session may not belong to the new tab anymore.
   const s = sessions.get(activeId);
-  if (!s || !sessionInTab(s)) selectFirstVisible();
+  if (!s || !sessionVisible(s)) selectFirstVisible();
+}
+
+// Re-point the list at a different project folder: re-filter and fall back to the
+// new folder's first session (or the empty hint) when the selection moved away.
+export function setSessionsRepo(repo) {
+  currentRepo = repo;
+  applyTabFilter();
+  const s = sessions.get(activeId);
+  if (!s || !sessionVisible(s)) selectFirstVisible();
 }
 
 async function setArchived(id, archived) {
@@ -118,7 +140,7 @@ async function setArchived(id, archived) {
   else await resumeSessionUI(s);
   s.archived = archived;
   applyTabFilter();
-  if (activeId === id && !sessionInTab(s)) selectFirstVisible();
+  if (activeId === id && !sessionVisible(s)) selectFirstVisible();
   else if (!archived && activeId === id) selectSession(id); // re-fit the rebuilt terminal
 }
 
@@ -280,11 +302,12 @@ async function newSession() {
   // probe a size from a temporary fit after open
   const res = await window.api.newSession({ cols: 80, rows: 24 });
   const id = res.id;
+  if (res.repo) currentRepo = res.repo;
 
   const { container, term, fit: fitAddon } = buildTerminal(id);
   const { li, dot, label, closeBtn } = makeRow(id);
 
-  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
+  sessions.set(id, { id, repo: res.repo || currentRepo, term, fit: fitAddon, container, li, dot, label, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
   setTab('active');
   selectSession(id);
 }
@@ -294,7 +317,7 @@ async function newSession() {
 // the user to resume it, which selectSession does on demand. Its tracked-file list
 // is intact, so the commit button works against it before it's even resumed.
 function restoreSessionRow(meta) {
-  const { id, firstPrompt, name, archived, files } = meta;
+  const { id, repo, firstPrompt, name, archived, files } = meta;
   const container = document.createElement('div');
   container.className = 'term-container';
   hostEl.appendChild(container);
@@ -304,12 +327,15 @@ function restoreSessionRow(meta) {
   const { li, dot, label, closeBtn } = makeRow(id);
   const shown = name || (firstPrompt && firstPrompt.split('\n')[0]);
   if (shown) label.textContent = shown;
-  sessions.set(id, { id, term: null, fit: null, container, li, dot, label, closeBtn, state: 'idle', firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true });
+  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, closeBtn, state: 'idle', firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true });
 }
 
 // On startup, pull the persisted sessions from main and rebuild the list, then
 // surface the first active one (selecting it resumes its Claude process).
 export async function restoreSessions() {
+  // Resolve the open folder first so the restored list is filtered to it from the
+  // start (a session belongs to the project it was created in).
+  try { currentRepo = await window.api.getRepoPath(); } catch {}
   let list = [];
   try { list = await window.api.getSessions(); } catch { return; }
   if (!Array.isArray(list) || !list.length) return;

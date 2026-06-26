@@ -3,7 +3,7 @@
 // cross-module hand-offs and kicks off the initial loads.
 import './shared/bootstrap.js';
 import { onClose } from './viewer/center.js';
-import { showActiveSession, restoreSessions } from './sessions.js';
+import { showActiveSession, restoreSessions, setSessionsRepo } from './sessions.js';
 import { refreshGit } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
@@ -26,7 +26,7 @@ const recentMenu = document.getElementById('recent-folders-menu');
 
 function applyRepoChange(r) {
   if (r.error) { console.error('open-folder:', r.error); return; }
-  if (!r.canceled) { window.api.setWindowTitle(r.repo); refreshGit(); refreshTree(); loadToolbar(); }
+  if (!r.canceled) { window.api.setWindowTitle(r.repo); setSessionsRepo(r.repo); refreshGit(); refreshTree(); loadToolbar(); }
 }
 
 async function browseForFolder() {

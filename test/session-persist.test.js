@@ -3,19 +3,20 @@ const assert = require('node:assert/strict');
 const { MAX_PERSIST_BYTES, serializeSession, deserializeSession, sessionBytes, enforceLimit } = require('../src/main/session-persist');
 
 // A live in-memory session entry the way sessions.js holds it.
-function liveSession({ firstPrompt = '', name = '', archived = false, edits = [], fileOps = [] } = {}) {
-  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, firstPrompt, name, edits: new Map(edits), fileOps: new Map(fileOps) };
+function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, edits = [], fileOps = [] } = {}) {
+  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, edits: new Map(edits), fileOps: new Map(fileOps) };
 }
 
 test('serializeSession: drops runtime-only fields and flattens the Maps', () => {
   const s = liveSession({
-    firstPrompt: 'fix the bug', name: 'Bug fix', archived: true,
+    repo: '/projects/app', firstPrompt: 'fix the bug', name: 'Bug fix', archived: true,
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });
   const out = serializeSession('id-1', s);
   assert.deepEqual(out, {
     id: 'id-1',
+    repo: '/projects/app',
     firstPrompt: 'fix the bug',
     name: 'Bug fix',
     archived: true,
@@ -28,7 +29,7 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
 
 test('serialize -> deserialize round-trips the tracked-file state, minus the PTY', () => {
   const s = liveSession({
-    firstPrompt: 'p', name: 'n', archived: false,
+    repo: '/projects/app', firstPrompt: 'p', name: 'n', archived: false,
     edits: [['/r/a.js', [{ t: 'edit', old: 'a', new: 'b' }]]],
     fileOps: [['/r/x', 'delete']],
   });
@@ -36,6 +37,7 @@ test('serialize -> deserialize round-trips the tracked-file state, minus the PTY
   assert.equal(restored.pty, null);
   assert.equal(restored.suspended, true);            // no live process after a restart
   assert.equal(restored.archived, false);
+  assert.equal(restored.repo, '/projects/app');      // session stays bound to its project
   assert.equal(restored.firstPrompt, 'p');
   assert.equal(restored.name, 'n');
   assert.deepEqual([...restored.edits.entries()], [['/r/a.js', [{ t: 'edit', old: 'a', new: 'b' }]]]);

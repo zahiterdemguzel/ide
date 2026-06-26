@@ -213,11 +213,14 @@ async function generateSessionName(id, prompt) {
 // so hooks keep firing with the same session_id) instead of creating a new one.
 function spawnPty(id, cols, rows, resume) {
   const startArg = resume ? ['--resume', id] : ['--session-id', id];
+  // Spawn in the session's own project folder, not whatever folder is currently
+  // open — a session always belongs to the repo it was created in.
+  const s = sessions.get(id);
   const p = pty.spawn(resolveClaude(), [...startArg, '--settings', hookServer.hooksSettings()], {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
-    cwd: getRepoPath(),
+    cwd: (s && s.repo) || getRepoPath(),
     env: sessionEnv(),
   });
   p.onData((data) => { sendToRenderer('pty-data', { id, data }); });
@@ -237,17 +240,20 @@ function spawnPty(id, cols, rows, resume) {
 // commit button immediately, before the session is even resumed.
 ipcMain.handle('get-sessions', () => {
   return [...sessions].map(([id, s]) => ({
-    id, firstPrompt: s.firstPrompt || '', name: s.name || '',
+    id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, files: trackedFiles(s),
   }));
 });
 
 ipcMain.handle('new-session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();
-  const p = spawnPty(id, cols, rows, false);
-  sessions.set(id, { pty: p, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '', archived: false, suspended: false });
+  const repo = getRepoPath();
+  // Create the entry before spawning so spawnPty resolves the session's cwd to its
+  // own repo.
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '', archived: false, suspended: false });
+  sessions.get(id).pty = spawnPty(id, cols, rows, false);
   schedulePersist();
-  return { id, repo: getRepoPath() };
+  return { id, repo };
 });
 
 // Archive: kill the Claude process to free resources but keep the session entry
