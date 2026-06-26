@@ -10,7 +10,6 @@ import './explorer/search.js';
 import './terminal-links.js';
 import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
-import { confirmDialog } from './shared/confirm.js';
 import { initSettings } from './settings.js';
 import { initPanels } from './panels.js';
 import { t } from '../i18n/index.js';
@@ -30,24 +29,12 @@ function applyRepoChange(r) {
   if (!r.canceled) { window.api.setWindowTitle(r.repo); refreshGit(); refreshTree(); loadToolbar(); }
 }
 
-async function changeFolderGuard() {
-  const current = await window.api.getRepoPath();
-  if (!current) return true;
-  return confirmDialog({
-    title: 'Change folder?',
-    message: `Current: ${current}\n\nThis will reload the file tree, git pane, and toolbar.`,
-    ok: 'Open',
-  });
-}
-
 async function browseForFolder() {
-  if (!(await changeFolderGuard())) return;
   try { applyRepoChange(await window.api.openFolder()); }
   catch (err) { console.error('open-folder click failed:', err); }
 }
 
 async function openRecentFolder(dir) {
-  if (!(await changeFolderGuard())) return;
   try { applyRepoChange(await window.api.openFolderPath(dir)); }
   catch (err) { console.error('open-folder-path failed:', err); }
 }
