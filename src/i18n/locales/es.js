@@ -42,6 +42,7 @@ export default {
 
     'session.revert': 'Revertir',
     'session.revertTitle': 'Revertir solo los cambios de esta sesión',
+    'session.archiveTitle': 'Archivar esta sesión',
     'session.nothingToCommit': 'Nada que confirmar',
     'session.emptyHint': 'Ninguna sesión seleccionada. Haz clic en <b>+ Nueva sesión</b>.',
 

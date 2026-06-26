@@ -43,6 +43,7 @@ export default {
     'session.revert': 'Zurücksetzen',
     'session.revertTitle': 'Nur die Änderungen dieser Sitzung zurücksetzen',
     'session.archiveTitle': 'Diese Sitzung archivieren',
+    'session.archiveTitle': 'Diese Sitzung archivieren',
     'session.nothingToCommit': 'Nichts zu committen',
     'session.emptyHint': 'Keine Sitzung ausgewählt. Klicke auf <b>+ Neue Sitzung</b>.',
 

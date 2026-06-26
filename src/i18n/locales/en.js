@@ -43,6 +43,7 @@ export default {
 
     'session.revert': 'Revert',
     'session.revertTitle': "Revert only this session's changes",
+    'session.archiveTitle': 'Archive this session',
     'session.nothingToCommit': 'Nothing to commit',
     'session.emptyHint': 'No session selected. Click <b>+ New session</b>.',
 

@@ -42,6 +42,7 @@ export default {
 
     'session.revert': 'Geri al',
     'session.revertTitle': 'Yalnızca bu oturumun değişikliklerini geri al',
+    'session.archiveTitle': 'Bu oturumu arşivle',
     'session.nothingToCommit': 'İşlenecek değişiklik yok',
     'session.emptyHint': 'Seçili oturum yok. <b>+ Yeni oturum</b>’a tıklayın.',
 

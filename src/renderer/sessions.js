@@ -22,7 +22,13 @@ const sessionBar = document.getElementById('session-bar');
 const sessionTitle = document.getElementById('session-title');
 const sessionCommitBtn = document.getElementById('session-commit');
 const sessionRevertBtn = document.getElementById('session-revert');
+const sessionArchiveBtn = document.getElementById('session-archive');
 const sessionCommitMsg = document.getElementById('session-commit-msg');
+
+// Lucide "archive" icon — used both on the session-bar archive button and on
+// each sidebar row's archive/close button.
+const ARCHIVE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>';
+sessionArchiveBtn.innerHTML = ARCHIVE_ICON;
 
 const STATE_LABEL = {
   idle: 'Idle',
@@ -130,6 +136,7 @@ function updateSessionBar() {
   sessionBar.style.display = 'flex';
   sessionRevertBtn.classList.remove('armed');
   sessionRevertBtn.textContent = 'Revert';
+  sessionArchiveBtn.style.display = s.archived ? 'none' : '';
   const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || ('session ' + s.id.slice(0, 8));
   sessionTitle.textContent = name;
   sessionTitle.title = name;
@@ -243,7 +250,7 @@ function makeRow(id) {
   const close = document.createElement('button');
   close.className = 'sess-close';
   close.title = 'Archive session';
-  close.textContent = '×';
+  close.innerHTML = ARCHIVE_ICON;
   // First × archives a live session; a second × on the archived row closes it for good.
   // Middle-clicking the row does the same (matching the git-pane terminal tabs).
   const archiveOrClose = () => {
@@ -372,6 +379,8 @@ sessionRevertBtn.onclick = async () => {
   s.commitMsgClass = r.ok && !skipped ? 'ok' : 'err';
   if (activeId === s.id) updateSessionBar();
   refreshGit();};
+
+sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); };
 
 document.getElementById('new-session').onclick = newSession;
 
