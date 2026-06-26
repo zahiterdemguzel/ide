@@ -1,6 +1,6 @@
 #app {
   display: grid;
-  grid-template-columns: var(--left, 264px) 5px minmax(0, 1fr) 5px var(--right, 330px);
+  grid-template-columns: var(--left, 330px) 5px minmax(0, 1fr) 5px var(--right, 330px);
   flex: 1;
   min-height: 0;
 }
