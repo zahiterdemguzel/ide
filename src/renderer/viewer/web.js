@@ -82,7 +82,10 @@ export function openWeb() {
 }
 
 // Whether the overlay is currently visible (toolbar button toggles on this).
-export function isWebOpen() { return webView.style.display !== 'none'; }
+// Use the computed style, not the inline one: the overlay starts hidden via a CSS
+// rule (display:none in web.css), so before the first show/hide the inline
+// style.display is '' — reading it directly would misreport the overlay as open.
+export function isWebOpen() { return getComputedStyle(webView).display !== 'none'; }
 
 // Unload the page — the only thing that resets the browser. Called by the
 // two-click Terminate button (wired in the center coordinator).
