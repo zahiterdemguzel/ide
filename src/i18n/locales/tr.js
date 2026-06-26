@@ -8,7 +8,7 @@ export default {
     'nav.terminal': 'TERMİNAL',
 
     'sessions.tab.active': 'Etkin',
-    'sessions.tab.archived': 'Arşiv',
+    'sessions.tab.archived': 'Arşivlenmiş',
     'sessions.tab.all': 'Tümü',
     'sessions.new': 'Yeni oturum',
 
@@ -40,7 +40,7 @@ export default {
     'session.revert': 'Geri al',
     'session.revertTitle': 'Yalnızca bu oturumun değişikliklerini geri al',
     'session.nothingToCommit': 'İşlenecek değişiklik yok',
-    'session.emptyHint': 'Seçili oturum yok. <b>+ Yeni oturum</b> öğesine tıklayın.',
+    'session.emptyHint': 'Seçili oturum yok. <b>+ Yeni oturum</b>’a tıklayın.',
 
     'terminal.clear': 'Temizle',
     'terminal.clearTitle': 'Terminali temizle',
