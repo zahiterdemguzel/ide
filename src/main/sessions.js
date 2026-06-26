@@ -1,15 +1,74 @@
 const { ipcMain } = require('electron');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 const { getWin } = require('./window');
 const { getRepoPath } = require('./repo');
 const { resolveClaude, runHaiku } = require('./claude');
 const { editOp } = require('./edit-ops');
+const { git } = require('./git');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
 
-const sessions = new Map(); // id -> { pty, edits: Map<absPath, op[]>, firstPrompt, name }
+// id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
+//         preStatus, firstPrompt, name }
+const sessions = new Map();
+
+// Tools whose effect we replay as text ops (handled via `edits`, not the
+// filesystem diff below).
+const TEXT_EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+// Tools that never change the working tree — skip the (two `git status`) snapshot
+// for these so only filesystem-touching tools pay for it. Anything NOT in either
+// set (Bash, MCP tools, unknown tools) is assumed able to create/move/delete files.
+const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch',
+  'WebSearch', 'TodoWrite', 'Task', 'BashOutput', 'KillShell', 'NotebookRead', 'ExitPlanMode']);
+const tracksFs = (name) => !!name && !TEXT_EDIT_TOOLS.has(name) && !READONLY_TOOLS.has(name);
+
+// The session's full tracked-file list for the renderer's commit button: text
+// edits plus path-level changes (binary creates, renames/moves, deletes).
+function trackedFiles(s) {
+  return [...new Set([...s.edits.keys(), ...s.fileOps.keys()])];
+}
+
+// Snapshot the working tree as Map<relPath, "XY"> (porcelain status code).
+// --no-renames so a rename surfaces as a delete + an add (two paths we can each
+// attribute), and --untracked-files=all so a new binary file lists individually.
+async function statusMap() {
+  const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames']);
+  const m = new Map();
+  if (!r.ok) return m;
+  for (const line of r.stdout.split('\n')) {
+    if (line) m.set(line.slice(3), line.slice(0, 2));
+  }
+  return m;
+}
+
+// Diff a before/after status snapshot taken across one tool call and attribute
+// each changed path to the session as an 'add' (file now present — a created
+// binary, a moved-in file, or a Bash-modified file) or a 'delete' (file gone — a
+// moved-out or removed file). Returns whether anything was recorded.
+function applyFsDiff(s, before, after) {
+  const repoPath = getRepoPath();
+  let changed = false;
+  for (const rel of new Set([...before.keys(), ...after.keys()])) {
+    if (before.get(rel) === after.get(rel)) continue; // untouched by this tool
+    const abs = path.resolve(repoPath, rel);
+    if (fs.existsSync(abs)) {
+      if (s.edits.has(abs)) continue; // a text-edit tool already covers this file
+      s.fileOps.set(abs, 'add');
+      changed = true;
+    } else {
+      s.edits.delete(abs); // the tool moved/removed it, so any recorded text ops are void
+      // A file that was only ever untracked and is now gone never reached HEAD —
+      // there is nothing to commit as a deletion, so just forget it.
+      if ((before.get(rel) || '').startsWith('?')) { if (s.fileOps.delete(abs)) changed = true; }
+      else { s.fileOps.set(abs, 'delete'); changed = true; }
+    }
+  }
+  return changed;
+}
 
 // When the app is launched from VS Code's debugger (.vscode/launch.json), VS Code
 // injects debugger/inspector variables into our env. node-pty would pass these to
@@ -33,7 +92,7 @@ function sessionEnv() {
 
 // Attribute the user's first prompt and any edited files to their session, so
 // we can later commit just that session's work. Returns updated meta, or null.
-function recordSessionActivity(payload) {
+async function recordSessionActivity(payload) {
   const s = sessions.get(payload.session_id);
   if (!s) return null;
   let changed = false;
@@ -45,13 +104,24 @@ function recordSessionActivity(payload) {
   if (payload.hook_event_name === 'PostToolUse') {
     const ti = payload.tool_input || {};
     const f = ti.file_path;
-    if (f && ['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(payload.tool_name)) {
+    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name)) {
       if (!s.edits.has(f)) s.edits.set(f, []);
       s.edits.get(f).push(editOp(payload.tool_name, ti));
       changed = true;
     }
   }
-  return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: [...s.edits.keys()] } : null;
+  // Filesystem changes a text-edit tool can't express — a binary file a Bash/MCP
+  // tool created, or a file it renamed/moved/deleted — are caught by diffing the
+  // git working tree across the tool call: snapshot on PreToolUse, compare on
+  // PostToolUse. Tools run sequentially within a session, so one `preStatus` slot
+  // is enough; a missing snapshot (e.g. a Post with no Pre) just skips the diff.
+  if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload.tool_name)) {
+    s.preStatus = await statusMap();
+  } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload.tool_name) && s.preStatus) {
+    if (applyFsDiff(s, s.preStatus, await statusMap())) changed = true;
+    s.preStatus = null;
+  }
+  return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) } : null;
 }
 
 // Name a session from its first prompt via a one-shot Haiku call, then push
@@ -83,7 +153,7 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
     const win = getWin();
     if (win) win.webContents.send('status', { id, state: 'completed' });
   });
-  sessions.set(id, { pty: p, edits: new Map(), firstPrompt: '', name: '' });
+  sessions.set(id, { pty: p, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '' });
   return { id, repo: getRepoPath() };
 });
 
@@ -104,4 +174,4 @@ function killAllSessions() {
   for (const s of sessions.values()) try { s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, killAllSessions };
+module.exports = { sessions, recordSessionActivity, trackedFiles, killAllSessions };

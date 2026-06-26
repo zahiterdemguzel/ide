@@ -6,24 +6,34 @@ const crypto = require('crypto');
 const { getWin } = require('./window');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
-const { sessions } = require('./sessions');
+const { sessions, trackedFiles } = require('./sessions');
 const { replayEdits, inverseEdits } = require('./edit-ops');
 
-// Build one commit whose tree is HEAD with only `entries` ({path, content})
-// overwritten — via a throwaway index + commit-tree, so the real index and the
-// working tree are never touched. That's what lets two sessions that edited the
-// SAME file each commit only their own hunks: we commit a synthesized blob, not
-// whatever the shared working file currently holds.
+// Build one commit whose tree is HEAD with only `entries` applied — via a
+// throwaway index + commit-tree, so the real index and the working tree are
+// never touched. That's what lets two sessions that edited the SAME file each
+// commit only their own hunks: we commit a synthesized blob, not whatever the
+// shared working file currently holds. Each entry is either
+//   { path, content }   — write/replace this blob (content is a string or Buffer,
+//                          so a binary file a Bash tool produced commits intact)
+//   { path, delete: true } — remove this path (a file the session moved out or rm'd)
 async function commitBlobs(entries, msg) {
   const head = await git(['rev-parse', '-q', '--verify', 'HEAD']);
   const headSha = head.stdout.trim();
   const idxFile = path.join(os.tmpdir(), `ide-sess-idx-${crypto.randomUUID()}`);
   const env = { ...process.env, GIT_INDEX_FILE: idxFile };
-  const staged = []; // {path, sha} to also sync into the real index after the commit
+  const staged = [];  // {path, sha} to sync into the real index after the commit
+  const removed = []; // paths to drop from the real index after the commit
   try {
     const seed = headSha ? await git(['read-tree', headSha], { env }) : await git(['read-tree', '--empty'], { env });
     if (!seed.ok) return seed;
     for (const e of entries) {
+      if (e.delete) {
+        const upd = await git(['update-index', '--force-remove', e.path], { env });
+        if (!upd.ok) return upd;
+        removed.push(e.path);
+        continue;
+      }
       const hash = await git(['hash-object', '-w', '--stdin', '--path', e.path], { input: e.content });
       if (!hash.ok) return hash;
       const sha = hash.stdout.trim();
@@ -37,10 +47,11 @@ async function commitBlobs(entries, msg) {
     if (!ct.ok) return ct;
     const ref = await git(['update-ref', 'HEAD', ct.stdout.trim()]);
     if (!ref.ok) return ref;
-    // Point the REAL index at the committed blobs for just these paths, so they
-    // read as clean against the new HEAD and only the OTHER session's edits
-    // remain as unstaged changes. Other paths in the index are left alone.
+    // Sync the REAL index for just these paths, so they read as clean against the
+    // new HEAD and only the OTHER session's edits remain as unstaged changes.
+    // Other paths in the index are left alone.
     for (const e of staged) await git(['update-index', '--cacheinfo', `100644,${e.sha},${e.path}`]);
+    for (const p of removed) await git(['update-index', '--force-remove', p]);
     return ct;
   } finally {
     try { fs.unlinkSync(idxFile); } catch {}
@@ -58,7 +69,8 @@ ipcMain.handle('commit-session', async (_e, id) => {
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
   const entries = [];
-  const committedAbs = []; // paths actually folded into this commit, to forget after
+  const committedAbs = [];     // edited (text-op) paths folded into this commit, to forget after
+  const committedFileOps = []; // path-level (binary/rename/delete) paths folded in, to forget after
   for (const [abs, ops] of s.edits) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     if (!rel || rel.startsWith('..')) continue; // outside the repo
@@ -66,6 +78,16 @@ ipcMain.handle('commit-session', async (_e, id) => {
     const { content, clean } = replayEdits(headFile.ok ? headFile.stdout : '', ops);
     if (clean) { entries.push({ path: rel, content }); committedAbs.push(abs); continue; }
     try { entries.push({ path: rel, content: fs.readFileSync(abs, 'utf8') }); committedAbs.push(abs); } catch { /* gone */ }
+  }
+  // Path-level changes a text op can't represent: a binary file the session
+  // created (committed from its current bytes — read as a Buffer so it stays
+  // intact), or a file it moved/removed (committed as a deletion).
+  const seen = new Set(entries.map((e) => e.path));
+  for (const [abs, kind] of s.fileOps) {
+    const rel = path.relative(repoPath, abs).split(path.sep).join('/');
+    if (!rel || rel.startsWith('..') || seen.has(rel)) continue; // outside the repo / already an edit
+    if (kind === 'delete') { entries.push({ path: rel, delete: true }); committedFileOps.push(abs); continue; }
+    try { entries.push({ path: rel, content: fs.readFileSync(abs) }); committedFileOps.push(abs); } catch { /* vanished */ }
   }
   if (!entries.length) return { ok: false, stderr: 'This session changed no files yet' };
   const msg = (s.firstPrompt || `session ${id.slice(0, 8)}`).slice(0, 500);
@@ -75,8 +97,9 @@ ipcMain.handle('commit-session', async (_e, id) => {
   // re-commit of blobs already at HEAD. Re-push the shrunk file list to the bar.
   if (ct.ok) {
     for (const abs of committedAbs) s.edits.delete(abs);
+    for (const abs of committedFileOps) s.fileOps.delete(abs);
     const win = getWin();
-    if (win) win.webContents.send('session-meta', { id, firstPrompt: s.firstPrompt || '', files: [...s.edits.keys()] });
+    if (win) win.webContents.send('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   }
   return ct;
 });
@@ -92,7 +115,7 @@ ipcMain.handle('revert-session', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
-  const sharedWithOther = (abs) => [...sessions].some(([sid, o]) => sid !== id && o.edits.has(abs));
+  const sharedWithOther = (abs) => [...sessions].some(([sid, o]) => sid !== id && (o.edits.has(abs) || o.fileOps.has(abs)));
   const reverted = [], skipped = [];
   for (const [abs, ops] of s.edits) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
@@ -108,10 +131,29 @@ ipcMain.handle('revert-session', async (_e, id) => {
     reverted.push(abs);
   }
   for (const abs of reverted) s.edits.delete(abs); // forget only what we backed out; skips stay tracked
+  // Undo path-level changes (binary creates, renames/moves, deletes). `git
+  // checkout HEAD -- <rel>` restores the committed bytes (binary-safe), and an
+  // 'add' with no HEAD version was new this session, so it's unlinked. A path
+  // another session also touched is skipped — clobbering its work is worse.
+  const revertedOps = [];
+  for (const [abs, kind] of s.fileOps) {
+    const rel = path.relative(repoPath, abs).split(path.sep).join('/');
+    if (!rel || rel.startsWith('..')) continue; // outside the repo
+    if (sharedWithOther(abs)) { skipped.push(rel); continue; }
+    const inHead = (await git(['cat-file', '-e', `HEAD:${rel}`])).ok;
+    if (inHead) {
+      const r = await git(['checkout', 'HEAD', '--', rel]); // restore the committed file (add modified it, or delete removed it)
+      if (!r.ok) { skipped.push(rel); continue; }
+    } else if (kind === 'add') {
+      try { fs.unlinkSync(abs); } catch {} // file was new this session
+    }
+    revertedOps.push(abs);
+  }
+  for (const abs of revertedOps) s.fileOps.delete(abs);
   const win = getWin();
-  if (win) win.webContents.send('session-meta', { id, firstPrompt: s.firstPrompt || '', files: [...s.edits.keys()] });
-  if (!reverted.length && !skipped.length) return { ok: false, stderr: 'This session changed no files' };
-  return { ok: true, reverted: reverted.length, skipped };
+  if (win) win.webContents.send('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+  if (!reverted.length && !revertedOps.length && !skipped.length) return { ok: false, stderr: 'This session changed no files' };
+  return { ok: true, reverted: reverted.length + revertedOps.length, skipped };
 });
 
 module.exports = {};

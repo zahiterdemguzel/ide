@@ -42,8 +42,7 @@ function startHookServer() {
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (d) => (body += d));
-    req.on('end', () => {
-      res.end('ok');
+    req.on('end', async () => {
       try {
         const payload = JSON.parse(body);
         const win = getWin();
@@ -51,9 +50,17 @@ function startHookServer() {
         if (state && payload.session_id && win) {
           win.webContents.send('status', { id: payload.session_id, state });
         }
-        const meta = sessions.recordSessionActivity(payload);
-        if (meta && win) win.webContents.send('session-meta', meta);
+        // Await before answering the hook: on PreToolUse this snapshots the
+        // working tree, and the command hook blocks the tool from running until
+        // we respond — so the "before" snapshot is guaranteed to predate the
+        // tool's filesystem changes (see recordSessionActivity). Fast for every
+        // other event (no git call), so the added latency is bounded to file-
+        // touching tools.
+        const meta = await sessions.recordSessionActivity(payload);
+        const w = getWin();
+        if (meta && w) w.webContents.send('session-meta', meta);
       } catch { /* ignore malformed */ }
+      res.end('ok');
     });
   });
   server.listen(0, '127.0.0.1', () => { hookPort = server.address().port; });
