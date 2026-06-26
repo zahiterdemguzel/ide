@@ -8,16 +8,71 @@ const { getRepoPath } = require('./repo');
 const { resolveClaude, runHaiku } = require('./claude');
 const { editOp } = require('./edit-ops');
 const { git } = require('./git');
+const { sharedDataDir } = require('./instance');
+const { serializeSession, deserializeSession, sessionBytes, enforceLimit } = require('./session-persist');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
-//         preStatus, firstPrompt, name, suspended }
-// `pty` is null while a session is suspended (archived in the UI): the Claude
-// process is killed to free resources, but the entry — and all its tracked-file
-// state — is kept so resuming under the same id continues tracking seamlessly.
+//         preStatus, firstPrompt, name, archived, suspended }
+// `pty` is null while a session is suspended (archived in the UI, or freshly
+// restored from disk after a restart): the Claude process is killed/absent to free
+// resources, but the entry — and all its tracked-file state — is kept so resuming
+// under the same id continues tracking seamlessly. `archived` is the UI tab the
+// session lives in; `suspended` is whether the PTY is currently down (always true
+// for a restored session until the user resumes it).
 const sessions = new Map();
+
+// Persisted across restarts in the shared data dir (not the disposable per-instance
+// profile), so sessions survive closing the app — both active and archived ones.
+const sessionsFile = path.join(sharedDataDir, 'sessions.json');
+
+// Repopulate `sessions` from disk on load (oldest-first order preserved), so the
+// renderer can rebuild its list on startup. Restored entries have no PTY; they
+// resume under the same id on demand.
+function loadPersistedSessions() {
+  let list;
+  try { list = JSON.parse(fs.readFileSync(sessionsFile, 'utf8')); } catch { return; }
+  if (!Array.isArray(list)) return;
+  for (const obj of list) {
+    if (obj && typeof obj.id === 'string') sessions.set(obj.id, deserializeSession(obj));
+  }
+}
+loadPersistedSessions();
+
+// Write the current session set to disk, evicting the oldest evictable sessions
+// when the snapshot would exceed the 100 MB budget. Synchronous so it can run on
+// quit before the process exits. Evicted sessions are also dropped from memory and
+// the UI so "old sessions get deleted" holds at runtime, not just on disk.
+function persistSessions() {
+  const snapshots = [...sessions].map(([id, s]) => serializeSession(id, s));
+  const measured = snapshots.map((o) => ({
+    id: o.id,
+    bytes: sessionBytes(o),
+    evictable: !sessions.get(o.id)?.pty, // never evict a session the user is actively running
+  }));
+  const { evictedIds } = enforceLimit(measured);
+  if (evictedIds.length) {
+    for (const id of evictedIds) {
+      const s = sessions.get(id);
+      if (s && s.pty) try { s.pty.kill(); } catch { /* already gone */ }
+      sessions.delete(id);
+    }
+    sendToRenderer('session-evicted', { ids: evictedIds });
+  }
+  const evicted = new Set(evictedIds);
+  const kept = snapshots.filter((o) => !evicted.has(o.id));
+  try { fs.writeFileSync(sessionsFile, JSON.stringify(kept)); } catch (err) { console.error('[persist sessions]', err); }
+}
+
+// Coalesce the frequent mutations (every recorded edit, name, archive toggle) into
+// one write shortly after activity settles, instead of writing on each one.
+let persistTimer = null;
+function schedulePersist() {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => { persistTimer = null; persistSessions(); }, 1000);
+}
 
 // Tools whose effect we replay as text ops (handled via `edits`, not the
 // filesystem diff below).
@@ -136,6 +191,7 @@ async function recordSessionActivity(payload) {
     if (applyFsDiff(s, s.preStatus, await statusMap())) changed = true;
     s.preStatus = null;
   }
+  if (changed) schedulePersist();
   return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) } : null;
 }
 
@@ -149,7 +205,7 @@ async function generateSessionName(id, prompt) {
   if (!out) return;
   const name = out.split('\n').pop().trim().slice(0, 60);
   const s = sessions.get(id);
-  if (name && s) { s.name = name; sendToRenderer('session-name', { id, name }); }
+  if (name && s) { s.name = name; sendToRenderer('session-name', { id, name }); schedulePersist(); }
 }
 
 // Spawn the Claude PTY for `id` and wire its data/exit streams. `resume` starts
@@ -176,10 +232,21 @@ function spawnPty(id, cols, rows, resume) {
   return p;
 }
 
+// Return the restored sessions so the renderer can rebuild its list on startup.
+// Only the UI-facing fields are sent; the tracked-file list drives the per-session
+// commit button immediately, before the session is even resumed.
+ipcMain.handle('get-sessions', () => {
+  return [...sessions].map(([id, s]) => ({
+    id, firstPrompt: s.firstPrompt || '', name: s.name || '',
+    archived: !!s.archived, files: trackedFiles(s),
+  }));
+});
+
 ipcMain.handle('new-session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();
   const p = spawnPty(id, cols, rows, false);
-  sessions.set(id, { pty: p, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '', suspended: false });
+  sessions.set(id, { pty: p, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '', archived: false, suspended: false });
+  schedulePersist();
   return { id, repo: getRepoPath() };
 });
 
@@ -187,10 +254,11 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
 // (and all its tracked-file state) so it can resume under the same id.
 ipcMain.on('suspend-session', (_e, { id }) => {
   const s = sessions.get(id);
-  if (!s || !s.pty) return;
+  if (!s) return;
   s.suspended = true;
-  try { s.pty.kill(); } catch { /* already gone */ }
-  s.pty = null;
+  s.archived = true;
+  if (s.pty) { try { s.pty.kill(); } catch { /* already gone */ } s.pty = null; }
+  schedulePersist();
 });
 
 // Restore: respawn the PTY (resuming the same Claude conversation) for an entry
@@ -199,7 +267,9 @@ ipcMain.handle('resume-session', (_e, { id, cols, rows }) => {
   const s = sessions.get(id);
   if (!s) return { ok: false };
   s.suspended = false;
+  s.archived = false;
   s.pty = spawnPty(id, cols, rows, true);
+  schedulePersist();
   return { ok: true, repo: getRepoPath() };
 });
 
@@ -216,10 +286,11 @@ ipcMain.on('kill-session', (_e, { id }) => {
   if (!s) return;
   if (s.pty) try { s.pty.kill(); } catch { /* already gone */ }
   sessions.delete(id);
+  schedulePersist();
 });
 
 function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, trackedFiles, killAllSessions };
+module.exports = { sessions, recordSessionActivity, trackedFiles, killAllSessions, persistSessions };

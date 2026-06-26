@@ -3,7 +3,7 @@
 // cross-module hand-offs and kicks off the initial loads.
 import './shared/bootstrap.js';
 import { onClose } from './viewer/center.js';
-import { showActiveSession } from './sessions.js';
+import { showActiveSession, restoreSessions } from './sessions.js';
 import { refreshGit } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
@@ -97,6 +97,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecen
 initSettings();
 initPanels();
 initConsoles();
+restoreSessions();
 refreshGit();
 refreshTree();
 loadToolbar();

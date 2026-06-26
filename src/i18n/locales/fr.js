@@ -42,6 +42,7 @@ export default {
 
     'session.revert': 'Rétablir',
     'session.revertTitle': 'Rétablir uniquement les modifications de cette session',
+    'session.archiveTitle': 'Archiver cette session',
     'session.nothingToCommit': 'Rien à valider',
     'session.emptyHint': 'Aucune session sélectionnée. Cliquez sur <b>+ Nouvelle session</b>.',
 

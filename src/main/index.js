@@ -4,7 +4,7 @@ const { app, BrowserWindow, Menu } = require('electron');
 require('./instance');
 const { createWindow } = require('./window');
 const { startHookServer } = require('./hook-server');
-const { killAllSessions } = require('./sessions');
+const { killAllSessions, persistSessions } = require('./sessions');
 
 // Requiring each subsystem registers its ipcMain handlers as a load side-effect.
 require('./repo');
@@ -45,7 +45,14 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
+// Snapshot sessions before tearing down the PTYs (killing a live PTY fires its
+// onExit, which deletes the entry from the map — so persist must run first).
 app.on('window-all-closed', () => {
+  persistSessions();
   killAllSessions();
   if (process.platform !== 'darwin') app.quit();
 });
+
+// macOS keeps the app alive after the window closes; persist on the real quit too
+// so an active session that was never archived still survives the next launch.
+app.on('before-quit', () => persistSessions());

@@ -49,7 +49,14 @@ export function selectSession(id) {
   for (const [, o] of sessions) o.container.style.display = o === s ? 'block' : 'none';
   for (const o of listEl.children) o.classList.toggle('active', o.dataset.id === id);
   updateSessionBar();
-  if (!s.term) return; // archived/suspended: only the placeholder is shown
+  if (!s.term) {
+    // A non-archived session with no terminal was restored from disk on startup:
+    // bring its Claude process back the moment the user looks at it, then re-select
+    // to fit and focus the rebuilt terminal. Archived sessions wait for an explicit
+    // restore (their placeholder stays put).
+    if (s.suspended && !s.archived) resumeSessionUI(s).then(() => { if (activeId === id) selectSession(id); });
+    return;
+  }
   fit(s);
   // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
   // position until new output forces a refresh. Snap to the bottom so the latest
@@ -200,11 +207,7 @@ function suspendSessionUI(s) {
     s.term = null;
     s.fit = null;
   }
-  s.container.classList.add('suspended');
-  const hint = document.createElement('div');
-  hint.className = 'term-suspended-hint';
-  hint.textContent = 'Session archived to free resources — restore it to continue.';
-  s.container.replaceChildren(hint);
+  showSuspendedHint(s.container, 'Session archived to free resources — restore it to continue.');
 }
 
 // Restore an archived session: respawn its Claude conversation under the same id
@@ -222,13 +225,9 @@ async function resumeSessionUI(s) {
   await window.api.resumeSession(s.id, { cols: term.cols || 80, rows: term.rows || 24 });
 }
 
-async function newSession() {
-  // probe a size from a temporary fit after open
-  const res = await window.api.newSession({ cols: 80, rows: 24 });
-  const id = res.id;
-
-  const { container, term, fit: fitAddon } = buildTerminal(id);
-
+// Build the sidebar row (dot + label + restore/close buttons) and wire its
+// handlers. Shared by a fresh session and a session restored from disk on startup.
+function makeRow(id) {
   const li = document.createElement('li');
   li.dataset.id = id;
   const dot = document.createElement('span');
@@ -257,16 +256,66 @@ async function newSession() {
   li.onclick = () => selectSession(id);
   li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrClose(); } };
   listEl.appendChild(li);
+  return { li, dot, label, closeBtn: close };
+}
 
-  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn: close, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
+// Replace a container's contents with the "archived, restore to continue" hint
+// shown when a session has no live terminal. Shared by archive and startup-restore.
+function showSuspendedHint(container, text) {
+  container.classList.add('suspended');
+  const hint = document.createElement('div');
+  hint.className = 'term-suspended-hint';
+  hint.textContent = text;
+  container.replaceChildren(hint);
+}
+
+async function newSession() {
+  // probe a size from a temporary fit after open
+  const res = await window.api.newSession({ cols: 80, rows: 24 });
+  const id = res.id;
+
+  const { container, term, fit: fitAddon } = buildTerminal(id);
+  const { li, dot, label, closeBtn } = makeRow(id);
+
+  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
   setTab('active');
   selectSession(id);
 }
 
-function closeSession(id) {
+// Rebuild a row for a session restored from disk on startup. It has no live
+// terminal yet (the Claude process can't outlive the app); the placeholder invites
+// the user to resume it, which selectSession does on demand. Its tracked-file list
+// is intact, so the commit button works against it before it's even resumed.
+function restoreSessionRow(meta) {
+  const { id, firstPrompt, name, archived, files } = meta;
+  const container = document.createElement('div');
+  container.className = 'term-container';
+  hostEl.appendChild(container);
+  showSuspendedHint(container, archived
+    ? 'Session archived — restore it to continue.'
+    : 'Session restored — select to resume.');
+  const { li, dot, label, closeBtn } = makeRow(id);
+  const shown = name || (firstPrompt && firstPrompt.split('\n')[0]);
+  if (shown) label.textContent = shown;
+  sessions.set(id, { id, term: null, fit: null, container, li, dot, label, closeBtn, state: 'idle', firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true });
+}
+
+// On startup, pull the persisted sessions from main and rebuild the list, then
+// surface the first active one (selecting it resumes its Claude process).
+export async function restoreSessions() {
+  let list = [];
+  try { list = await window.api.getSessions(); } catch { return; }
+  if (!Array.isArray(list) || !list.length) return;
+  for (const meta of list) restoreSessionRow(meta);
+  setTab('active');
+  selectFirstVisible();
+}
+
+// Tear down a session's UI without telling main to kill it (used both for an
+// explicit close and when main evicts an old session past the storage budget).
+function removeSessionUI(id) {
   const s = sessions.get(id);
   if (!s) return;
-  window.api.killSession(id);
   if (s.term) { untrackTermTheme(s.term); s.term.dispose(); }
   s.container.remove();
   s.li.remove();
@@ -275,6 +324,12 @@ function closeSession(id) {
     activeId = null;
     selectFirstVisible();
   }
+}
+
+function closeSession(id) {
+  if (!sessions.has(id)) return;
+  window.api.killSession(id);
+  removeSessionUI(id);
 }
 
 // --- session-bar buttons: commit / revert just this session's work ---
@@ -356,3 +411,6 @@ window.api.onSessionName(({ id, name }) => {
   s.label.textContent = name;
   if (id === activeId) updateSessionBar();
 });
+// Main evicted the oldest sessions to stay under the persisted-storage budget;
+// drop their rows so the UI matches what survives on disk.
+window.api.onSessionEvicted(({ ids }) => { for (const id of ids) removeSessionUI(id); });

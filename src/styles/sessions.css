@@ -23,7 +23,8 @@
 .sess-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sess-close {
   background: none; border: none; color: var(--fg-dim);
-  cursor: pointer; font-size: 21px; line-height: 1; padding: 0 2px; visibility: hidden;
+  cursor: pointer; line-height: 0; padding: 0 2px; visibility: hidden;
+  display: inline-flex; align-items: center;
 }
 #session-list li:hover .sess-close { visibility: visible; }
 .sess-close:hover { color: var(--fg); }
@@ -68,3 +69,9 @@
 }
 #session-revert:hover { border-color: var(--red); color: var(--red); }
 #session-revert.armed { background: var(--red); border-color: var(--red); color: #fff; }
+#session-archive {
+  background: transparent; color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 8px; cursor: pointer;
+  display: inline-flex; align-items: center; line-height: 0;
+}
+#session-archive:hover { border-color: var(--accent); color: var(--accent); }
