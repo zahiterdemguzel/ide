@@ -155,11 +155,10 @@ export function sendToActiveSession(text) {
   s.term.focus();
 }
 
-async function newSession() {
-  // probe a size from a temporary fit after open
-  const res = await window.api.newSession({ cols: 80, rows: 24 });
-  const id = res.id;
-
+// Build the xterm.js terminal (in its own hidden container) for a session id and
+// wire its input/links. Used both for a fresh session and when resuming a
+// suspended one — the row, dot, and tracked-file state outlive the terminal.
+function buildTerminal(id) {
   const container = document.createElement('div');
   container.className = 'term-container';
   hostEl.appendChild(container);
@@ -172,6 +171,15 @@ async function newSession() {
   attachClipboard(term, { formatImagePath: (p) => `@${p} ` });
   term.onData((data) => window.api.sendInput(id, data));
   registerTerminalLinks(term);
+  return { container, term, fit: fitAddon };
+}
+
+async function newSession() {
+  // probe a size from a temporary fit after open
+  const res = await window.api.newSession({ cols: 80, rows: 24 });
+  const id = res.id;
+
+  const { container, term, fit: fitAddon } = buildTerminal(id);
 
   const li = document.createElement('li');
   li.dataset.id = id;
@@ -202,7 +210,7 @@ async function newSession() {
   li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrClose(); } };
   listEl.appendChild(li);
 
-  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn: close, state: 'idle', firstPrompt: '', name: '', files: [], archived: false });
+  sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn: close, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
   setTab('active');
   selectSession(id);
 }

@@ -3,6 +3,8 @@ const { ipcRenderer } = require('electron');
 // Per-session Claude PTYs + the per-session commit/revert + name/meta streams.
 module.exports = {
   newSession: (size) => ipcRenderer.invoke('new-session', size),
+  suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),
+  resumeSession: (id, { cols, rows }) => ipcRenderer.invoke('resume-session', { id, cols, rows }),
   killSession: (id) => ipcRenderer.send('kill-session', { id }),
   sendInput: (id, data) => ipcRenderer.send('pty-input', { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send('pty-resize', { id, cols, rows }),

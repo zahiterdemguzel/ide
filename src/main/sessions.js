@@ -13,7 +13,10 @@ const { git } = require('./git');
 const hookServer = require('./hook-server');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
-//         preStatus, firstPrompt, name }
+//         preStatus, firstPrompt, name, suspended }
+// `pty` is null while a session is suspended (archived in the UI): the Claude
+// process is killed to free resources, but the entry — and all its tracked-file
+// state — is kept so resuming under the same id continues tracking seamlessly.
 const sessions = new Map();
 
 // Tools whose effect we replay as text ops (handled via `edits`, not the
@@ -137,9 +140,12 @@ async function generateSessionName(id, prompt) {
   if (name && s) { s.name = name; sendToRenderer('session-name', { id, name }); }
 }
 
-ipcMain.handle('new-session', (_e, { cols, rows }) => {
-  const id = crypto.randomUUID();
-  const p = pty.spawn(resolveClaude(), ['--session-id', id, '--settings', hookServer.hooksSettings()], {
+// Spawn the Claude PTY for `id` and wire its data/exit streams. `resume` starts
+// `claude --resume <id>` (continuing the existing conversation under the same id,
+// so hooks keep firing with the same session_id) instead of creating a new one.
+function spawnPty(id, cols, rows, resume) {
+  const startArg = resume ? ['--resume', id] : ['--session-id', id];
+  const p = pty.spawn(resolveClaude(), [...startArg, '--settings', hookServer.hooksSettings()], {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
@@ -148,28 +154,60 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
   });
   p.onData((data) => { sendToRenderer('pty-data', { id, data }); });
   p.onExit(() => {
+    const s = sessions.get(id);
+    // A suspend (archive) kills the PTY on purpose but keeps the entry and its
+    // tracked-file state alive for a later resume — don't tear it down here.
+    if (s && s.suspended) return;
     sessions.delete(id);
     sendToRenderer('status', { id, state: 'completed' });
   });
-  sessions.set(id, { pty: p, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '' });
+  return p;
+}
+
+ipcMain.handle('new-session', (_e, { cols, rows }) => {
+  const id = crypto.randomUUID();
+  const p = spawnPty(id, cols, rows, false);
+  sessions.set(id, { pty: p, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '', suspended: false });
   return { id, repo: getRepoPath() };
+});
+
+// Archive: kill the Claude process to free resources but keep the session entry
+// (and all its tracked-file state) so it can resume under the same id.
+ipcMain.on('suspend-session', (_e, { id }) => {
+  const s = sessions.get(id);
+  if (!s || !s.pty) return;
+  s.suspended = true;
+  try { s.pty.kill(); } catch { /* already gone */ }
+  s.pty = null;
+});
+
+// Restore: respawn the PTY (resuming the same Claude conversation) for an entry
+// that was suspended; its edits/fileOps continue accumulating against the same id.
+ipcMain.handle('resume-session', (_e, { id, cols, rows }) => {
+  const s = sessions.get(id);
+  if (!s) return { ok: false };
+  s.suspended = false;
+  s.pty = spawnPty(id, cols, rows, true);
+  return { ok: true, repo: getRepoPath() };
 });
 
 ipcMain.on('pty-input', (_e, { id, data }) => {
   const s = sessions.get(id);
-  if (s) s.pty.write(data);
+  if (s && s.pty) s.pty.write(data);
 });
 ipcMain.on('pty-resize', (_e, { id, cols, rows }) => {
   const s = sessions.get(id);
-  if (s) try { s.pty.resize(cols, rows); } catch { /* race on close */ }
+  if (s && s.pty) try { s.pty.resize(cols, rows); } catch { /* race on close */ }
 });
 ipcMain.on('kill-session', (_e, { id }) => {
   const s = sessions.get(id);
-  if (s) { s.pty.kill(); sessions.delete(id); }
+  if (!s) return;
+  if (s.pty) try { s.pty.kill(); } catch { /* already gone */ }
+  sessions.delete(id);
 });
 
 function killAllSessions() {
-  for (const s of sessions.values()) try { s.pty.kill(); } catch {}
+  for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
 module.exports = { sessions, recordSessionActivity, trackedFiles, killAllSessions };
