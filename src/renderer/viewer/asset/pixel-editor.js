@@ -2,8 +2,10 @@ import { assetBtn } from './ui.js';
 import { PALETTE, rgbToHex, shade } from './color.js';
 import { refreshGit } from '../../git-pane.js';
 
-// Pixel editor for small PNGs. `body`/`tools` are the asset view's containers;
-// `registerCleanup(fn)` lets the editor tear its keydown listener down when the
+// Pixel editor for small PNGs. `body` is the asset view's scroll container;
+// `tools` is the shared top toolbar — the editor leaves it empty and instead
+// builds its own bottom panel so its many controls don't crowd the header's
+// close button. `registerCleanup(fn)` tears the keydown listener down when the
 // view is hidden or another asset is opened (the asset coordinator runs it).
 export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   const w = img.naturalWidth, h = img.naturalHeight;
@@ -13,8 +15,10 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   canvas.className = 'pixel-canvas';
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0);
-  const applyScale = () => { canvas.style.width = (w * scale) + 'px'; canvas.style.height = (h * scale) + 'px'; };
-  applyScale();
+  const applyScale = () => {
+    canvas.style.width = (w * scale) + 'px'; canvas.style.height = (h * scale) + 'px';
+    zoomLabel.textContent = scale + '×';
+  };
 
   let color = PALETTE[0];
   let erasing = false;
@@ -43,20 +47,24 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
     if (d[3]) selectColor(rgbToHex(d[0], d[1], d[2])); // skip transparent pixels — no color to pick
   };
 
+  // The canvas scrolls inside a dedicated viewport (so the bottom panel stays put).
+  const viewport = document.createElement('div');
+  viewport.className = 'pixel-viewport';
+
   let down = false, panning = false, panX = 0, panY = 0, scrollX = 0, scrollY = 0, panMoved = false;
   canvas.onpointerdown = (e) => {
     canvas.setPointerCapture(e.pointerId);
     if (e.button === 1) { // middle: drag to pan, click (no drag) to eyedrop
       e.preventDefault();
       panning = true; panMoved = false;
-      panX = e.clientX; panY = e.clientY; scrollX = body.scrollLeft; scrollY = body.scrollTop;
+      panX = e.clientX; panY = e.clientY; scrollX = viewport.scrollLeft; scrollY = viewport.scrollTop;
     } else { down = true; pushUndo(); paintAt(e); }
   };
   canvas.onpointermove = (e) => {
     if (panning) {
       const dx = e.clientX - panX, dy = e.clientY - panY;
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panMoved = true;
-      body.scrollLeft = scrollX - dx; body.scrollTop = scrollY - dy;
+      viewport.scrollLeft = scrollX - dx; viewport.scrollTop = scrollY - dy;
     } else if (down) paintAt(e);
   };
   canvas.onpointerup = (e) => {
@@ -82,6 +90,7 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   document.addEventListener('keydown', keyHandler);
   registerCleanup(() => document.removeEventListener('keydown', keyHandler));
 
+  // --- controls (all live in the bottom panel, grouped into labeled sections) ---
   const swatches = document.createElement('div');
   swatches.className = 'palette';
   const eraseBtn = assetBtn('Erase', () => { erasing = !erasing; eraseBtn.classList.toggle('on', erasing); });
@@ -106,6 +115,20 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
 
   const darkBtn = assetBtn('−', () => selectColor(shade(color, -0.12)));
   const lightBtn = assetBtn('+', () => selectColor(shade(color, 0.12)));
+  darkBtn.title = 'Darken color';
+  lightBtn.title = 'Lighten color';
+
+  const zoomLabel = document.createElement('span');
+  zoomLabel.className = 'asset-pct';
+  const zoomOut = assetBtn('−', () => { scale = Math.max(1, scale - 1); applyScale(); });
+  const zoomIn = assetBtn('+', () => { scale = Math.min(48, scale + 1); applyScale(); });
+  zoomOut.title = 'Zoom out';
+  zoomIn.title = 'Zoom in';
+
+  const undoBtn = assetBtn('↶', undo);
+  const redoBtn = assetBtn('↷', redo);
+  undoBtn.title = 'Undo (Ctrl+Z)';
+  redoBtn.title = 'Redo (Ctrl+Y)';
 
   const saved = document.createElement('span');
   saved.className = 'asset-pct';
@@ -113,12 +136,45 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
     const base64 = canvas.toDataURL('image/png').split(',')[1];
     const r = await window.api.writeAsset(file, base64);
     saved.textContent = r.ok ? 'Saved' : (r.error || 'Save failed');
-    if (r.ok) refreshGit();  });
+    if (r.ok) refreshGit();
+  });
+  saveBtn.classList.add('pixel-save');
 
-  tools.append(swatches, picker, darkBtn, lightBtn, eraseBtn, assetBtn('↶', undo), assetBtn('↷', redo), saveBtn, saved);
+  const panel = document.createElement('div');
+  panel.className = 'pixel-panel';
+  panel.append(
+    group(swatches, picker, darkBtn, lightBtn),
+    group(eraseBtn),
+    group(zoomOut, zoomLabel, zoomIn),
+    group(undoBtn, redoBtn),
+    spacer(),
+    group(saveBtn, saved),
+  );
+
   const stage = document.createElement('div');
   stage.className = 'pixel-stage';
   stage.appendChild(canvas);
-  body.appendChild(stage);
+  viewport.appendChild(stage);
+
+  const editor = document.createElement('div');
+  editor.className = 'pixel-editor';
+  editor.append(viewport, panel);
+  body.appendChild(editor);
+
+  applyScale();
   selectColor(color);
+}
+
+// A panel section: a row of related controls bounded by the panel's separators.
+function group(...children) {
+  const g = document.createElement('div');
+  g.className = 'pixel-group';
+  g.append(...children);
+  return g;
+}
+
+function spacer() {
+  const s = document.createElement('div');
+  s.className = 'pixel-spacer';
+  return s;
 }
