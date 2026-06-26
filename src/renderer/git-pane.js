@@ -302,11 +302,21 @@ document.addEventListener('click', (e) => {
 });
 
 // --- commit / undo / push ---
-const gitMsgEl = document.getElementById('git-msg');
+// Git status feedback (Fetched / Committed / errors…) is surfaced as the commit
+// box's placeholder so it sits where the user is already looking, without taking
+// up its own row. It only shows while the box is empty; the default placeholder
+// returns as soon as the user focuses the box to type.
+const commitMsgEl = document.getElementById('commit-msg');
 function showGitMsg(text, ok) {
-  gitMsgEl.textContent = text;
-  gitMsgEl.className = 'git-msg ' + (ok ? 'ok' : 'err');
+  commitMsgEl.placeholder = text;
+  commitMsgEl.classList.remove('msg-ok', 'msg-err');
+  commitMsgEl.classList.add(ok ? 'msg-ok' : 'msg-err');
 }
+function clearGitMsg() {
+  commitMsgEl.placeholder = t('git.commitPlaceholder');
+  commitMsgEl.classList.remove('msg-ok', 'msg-err');
+}
+commitMsgEl.addEventListener('focus', clearGitMsg);
 
 function showGitErrorDialog(message, title = 'Push failed') {
   document.getElementById('git-error-title').textContent = title;
