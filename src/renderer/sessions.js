@@ -188,14 +188,16 @@ async function newSession() {
   close.title = 'Archive session';
   close.textContent = '×';
   // First × archives a live session; a second × on the archived row closes it for good.
-  close.onclick = (e) => {
-    e.stopPropagation();
+  // Middle-clicking the row does the same (matching the git-pane terminal tabs).
+  const archiveOrClose = () => {
     const s = sessions.get(id);
     if (s && s.archived) closeSession(id);
     else setArchived(id, true);
   };
+  close.onclick = (e) => { e.stopPropagation(); archiveOrClose(); };
   li.append(dot, label, restore, close);
   li.onclick = () => selectSession(id);
+  li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrClose(); } };
   listEl.appendChild(li);
 
   sessions.set(id, { id, term, fit: fitAddon, container, li, dot, label, closeBtn: close, state: 'working', firstPrompt: '', name: '', files: [], archived: false });
