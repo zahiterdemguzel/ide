@@ -39,4 +39,17 @@ function parseLog(stdout) {
   return commits;
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog };
+// Filter parsed commits by a free-text query, matching across subject, author,
+// and hash (full or short). Whitespace splits the query into terms that must ALL
+// match (in any field), so "fix ada" finds Ada's fix commits. Case-insensitive;
+// an empty/blank query returns the list unchanged.
+function filterCommits(commits, query) {
+  const terms = (query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return commits;
+  return commits.filter((c) => {
+    const hay = `${c.subject} ${c.author} ${c.hash} ${c.short}`.toLowerCase();
+    return terms.every((term) => hay.includes(term));
+  });
+}
+
+module.exports = { CONFLICT, parsePorcelain, parseLog, filterCommits };

@@ -37,6 +37,7 @@ export default {
     'git.unstageAll': 'Alle Änderungen aus dem Index nehmen',
     'git.switchBranch': 'Branch wechseln',
     'git.searchBranches': 'Branch suchen oder erstellen…',
+    'git.searchHistory': 'Commits durchsuchen…',
     'git.noBranches': 'Keine Branches',
     'git.createBranch': 'Branch erstellen',
 

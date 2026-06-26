@@ -37,6 +37,7 @@ export default {
     'git.unstageAll': 'Tüm değişiklikleri hazırlama alanından çıkar',
     'git.switchBranch': 'Dal değiştir',
     'git.searchBranches': 'Dal ara veya oluştur…',
+    'git.searchHistory': 'Commit ara…',
     'git.noBranches': 'Dal yok',
     'git.createBranch': 'Dal oluştur',
 

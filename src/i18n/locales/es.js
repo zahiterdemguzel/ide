@@ -37,6 +37,7 @@ export default {
     'git.unstageAll': 'Quitar todos los cambios de preparación',
     'git.switchBranch': 'Cambiar de rama',
     'git.searchBranches': 'Buscar o crear rama…',
+    'git.searchHistory': 'Buscar commits…',
     'git.noBranches': 'Sin ramas',
     'git.createBranch': 'Crear rama',
 

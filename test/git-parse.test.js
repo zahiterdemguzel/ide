@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, filterCommits, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -81,4 +81,33 @@ test('parseLog: a subject containing the field separator is not corrupted', () =
 
 test('parseLog: empty input yields no commits', () => {
   assert.deepEqual(parseLog(''), []);
+});
+
+const COMMITS = [
+  { hash: 'abc123def', short: 'abc123d', subject: 'Fix the login bug', author: 'Ada', relDate: '2 hours ago' },
+  { hash: '000111222', short: '0001112', subject: 'Add a dark theme', author: 'Bob', relDate: '3 days ago' },
+  { hash: '99ffee00aa', short: '99ffee0', subject: 'Refactor the parser', author: 'Ada', relDate: '1 week ago' },
+];
+
+test('filterCommits: blank query returns the list unchanged', () => {
+  assert.equal(filterCommits(COMMITS, ''), COMMITS);
+  assert.equal(filterCommits(COMMITS, '   '), COMMITS);
+});
+
+test('filterCommits: matches subject case-insensitively', () => {
+  assert.deepEqual(filterCommits(COMMITS, 'DARK').map((c) => c.short), ['0001112']);
+});
+
+test('filterCommits: matches author', () => {
+  assert.deepEqual(filterCommits(COMMITS, 'ada').map((c) => c.short), ['abc123d', '99ffee0']);
+});
+
+test('filterCommits: matches full or short hash', () => {
+  assert.deepEqual(filterCommits(COMMITS, '99ffee0').map((c) => c.subject), ['Refactor the parser']);
+  assert.deepEqual(filterCommits(COMMITS, 'abc123def').map((c) => c.subject), ['Fix the login bug']);
+});
+
+test('filterCommits: all whitespace-split terms must match (any field)', () => {
+  assert.deepEqual(filterCommits(COMMITS, 'ada parser').map((c) => c.short), ['99ffee0']);
+  assert.deepEqual(filterCommits(COMMITS, 'ada theme'), []);
 });

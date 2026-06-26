@@ -210,11 +210,28 @@ function commitItem(c) {
   return li;
 }
 
+// The History tab caches the last log so its search box can re-filter without a
+// fresh git call. Matching mirrors main's filterCommits (git-parse.js): every
+// whitespace-split term must appear in subject, author, or hash — kept in sync
+// with that unit-tested function.
+let allCommits = [];
+const historySearch = document.getElementById('history-search');
+
+function renderHistory() {
+  const terms = historySearch.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  historyEl.innerHTML = '';
+  for (const c of allCommits) {
+    const hay = `${c.subject} ${c.author} ${c.hash} ${c.short}`.toLowerCase();
+    if (terms.every((term) => hay.includes(term))) historyEl.appendChild(commitItem(c));
+  }
+}
+
+historySearch.oninput = renderHistory;
+
 export async function refreshHistory() {
   const r = await window.api.gitLog();
-  historyEl.innerHTML = '';
-  if (!r.ok) return;
-  for (const c of r.commits) historyEl.appendChild(commitItem(c));
+  allCommits = r.ok ? r.commits : [];
+  renderHistory();
 }
 
 // --- branch selector ---
