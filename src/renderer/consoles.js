@@ -64,7 +64,7 @@ function closeConsole(id) {
 
 // Build a tab + xterm + PTY. opts: { shell:{name,path}, command, cwd, env, name, kind }.
 async function createConsole(opts = {}) {
-  const term = new Terminal({ fontSize: 13, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
+  const term = new Terminal({ fontSize: 11, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
   trackTermTheme(term);
   const fit = new FitAddon();
   term.loadAddon(fit);

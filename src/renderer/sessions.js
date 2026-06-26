@@ -163,7 +163,7 @@ function buildTerminal(id) {
   container.className = 'term-container';
   hostEl.appendChild(container);
 
-  const term = new Terminal({ fontSize: 13, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
+  const term = new Terminal({ fontSize: 11, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
   trackTermTheme(term);
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
