@@ -9,8 +9,10 @@
 // does not unload the page. The only thing that unloads the page is the explicit
 // two-click Terminate button (terminateWeb()). The toolbar browser button lights
 // up (`.active`) whenever a real page is loaded, so the user can tell the browser
-// is alive in the background. Peer overlays / session terminals are hidden by the
-// center coordinator first; the close/terminate buttons are wired there too.
+// is alive in the background, and it toggles the overlay: clicking it while the
+// browser is showing closes (hides) it without terminating. Peer overlays /
+// session terminals are hidden by the center coordinator first; the close/
+// terminate buttons are wired there too.
 import { confirmDialog } from '../shared/confirm.js';
 
 const webView = document.getElementById('web-view');
@@ -78,6 +80,9 @@ export function openWeb() {
   webView.style.display = 'flex';
   if (!isLoaded()) setTimeout(() => webUrlEl.focus(), 0);
 }
+
+// Whether the overlay is currently visible (toolbar button toggles on this).
+export function isWebOpen() { return webView.style.display !== 'none'; }
 
 // Unload the page — the only thing that resets the browser. Called by the
 // two-click Terminate button (wired in the center coordinator).
