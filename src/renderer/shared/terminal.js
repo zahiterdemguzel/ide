@@ -82,7 +82,9 @@ export function attachClipboard(term, opts = {}) {
       if (sel) { copyToClipboard(sel); return false; }
       return true; // no selection → pass SIGINT through to PTY
     }
-    if (key === 'v') { paste(); return false; }
+    // preventDefault stops the browser's native paste event from also firing
+    // into xterm's textarea, which would paste a second time.
+    if (key === 'v') { e.preventDefault(); paste(); return false; }
     return true;
   });
 
