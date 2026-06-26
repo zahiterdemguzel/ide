@@ -54,5 +54,9 @@ export default {
     'settings.theme': 'Tema',
     'settings.close': 'Kapat',
     'settings.done': 'Tamam',
+
+    'browser.open': 'Tarayıcı',
+    'browser.terminate': 'Tarayıcıyı sonlandır',
+    'browser.close': 'Kapat',
   },
 };

@@ -3,7 +3,7 @@ import { hideDiff } from './code-render.js';
 import { showDiff, showCommit } from './diff.js';
 import { showFile } from './file.js';
 import { showAsset, hideAsset } from './asset/index.js';
-import { showWeb as showWebView, hideWeb } from './web.js';
+import { showWeb as showWebView, openWeb as openWebView, hideWeb, terminateWeb } from './web.js';
 
 // --- center coordinator ---
 // Single owner of the center pane's overlays (diff / file / asset / web). Every
@@ -51,6 +51,9 @@ export function openCommit(hash, subject) { clearCenter(); showCommit(hash, subj
 
 export function showWeb(url) { clearCenter(); showWebView(url); }
 
+// Toolbar browser button: reveal the (persistent) browser without navigating.
+export function openWeb() { clearCenter(); openWebView(); }
+
 // Closing any overlay returns to the active session, or the empty hint if none.
 // sessions registers showActiveSession() here so this module needn't import it.
 let onCloseCb = null;
@@ -65,3 +68,15 @@ export function closeOverlay() {
 document.getElementById('diff-close').onclick = closeOverlay;
 document.getElementById('asset-close').onclick = closeOverlay;
 document.getElementById('web-close').onclick = closeOverlay;
+document.getElementById('browser-btn').onclick = openWeb;
+
+// Terminate is destructive (it unloads the page), so it arms on the first click
+// and only kills the browser on the second — the same two-click pattern as the
+// git pane's discard/revert buttons. closeOverlay() then returns to the session.
+const webTerminate = document.getElementById('web-terminate');
+webTerminate.onclick = () => {
+  if (!webTerminate.classList.contains('armed')) { webTerminate.classList.add('armed'); return; }
+  webTerminate.classList.remove('armed');
+  terminateWeb();
+  closeOverlay();
+};

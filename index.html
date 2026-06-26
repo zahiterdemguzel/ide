@@ -24,6 +24,7 @@
 <body>
   <div id="toolbar" title="Launch configs and tasks from .vscode — click to open an external terminal">
     <div id="toolbar-runs"></div>
+    <button id="browser-btn" data-i18n-title="browser.open" title="Browser"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></button>
     <button id="settings-btn" data-i18n-title="settings.open" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </div>
   <div id="app">
@@ -111,7 +112,8 @@
                 <button id="web-reset-cookies">Reset cookies</button>
               </div>
             </div>
-            <button id="web-close" title="Close">×</button>
+            <button id="web-terminate" class="web-nav" data-i18n-title="browser.terminate" title="Terminate browser">⏻</button>
+            <button id="web-close" data-i18n-title="browser.close" title="Close">×</button>
           </div>
           <webview id="web-frame" src="about:blank" partition="persist:browser"></webview>
         </div>

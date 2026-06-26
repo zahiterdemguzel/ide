@@ -1,9 +1,16 @@
-// --- inline web browser (Ctrl+clicked http/https links) ---
+// --- inline web browser (toolbar button + Ctrl+clicked http/https links) ---
 // A <webview> runs the page out-of-process, so the host CSP doesn't restrict it.
 // It uses a `persist:browser` partition (set in index.html) so cookies and site
 // data live on disk and survive restarts; the ⋮ menu's "Reset cookies" clears them.
-// Peer overlays / session terminals are hidden by the center coordinator first;
-// the close button is wired there too (shared with the diff/asset overlays).
+//
+// There is exactly one webview, reused for every open — opening the browser never
+// spawns a second instance. The page stays **loaded in the background** when the
+// overlay is hidden (e.g. on session switch): hideWeb() only hides the view, it
+// does not unload the page. The only thing that unloads the page is the explicit
+// two-click Terminate button (terminateWeb()). The toolbar browser button lights
+// up (`.active`) whenever a real page is loaded, so the user can tell the browser
+// is alive in the background. Peer overlays / session terminals are hidden by the
+// center coordinator first; the close/terminate buttons are wired there too.
 import { confirmDialog } from '../shared/confirm.js';
 
 const webView = document.getElementById('web-view');
@@ -12,6 +19,16 @@ const webUrlEl = document.getElementById('web-url');
 const suggestEl = document.getElementById('web-suggest');
 const menuBtn = document.getElementById('web-menu');
 const menuEl = document.getElementById('web-menu-dropdown');
+const browserBtn = document.getElementById('browser-btn');
+const terminateBtn = document.getElementById('web-terminate');
+
+const isBlank = (url) => !url || url === 'about:blank';
+const isLoaded = () => !isBlank(webFrame.getAttribute('src'));
+
+// The toolbar browser button is "active" (accent-coloured) whenever a real page
+// is loaded in the background webview, so it doubles as a browser-alive indicator.
+function setActive(on) { browserBtn.classList.toggle('active', on); }
+const disarmTerminate = () => terminateBtn.classList.remove('armed');
 
 // Visited addresses, most-recent-first, persisted so the address bar can offer
 // them as suggestions across restarts (the page cookies persist; this is just
@@ -36,22 +53,39 @@ function normalizeUrl(input) {
   return 'https://' + s;
 }
 
+// Hide the overlay only — the page keeps running in the background webview so
+// the browser persists across session switches. Unloading is the Terminate
+// button's job alone (terminateWeb()).
 export function hideWeb() {
   webView.style.display = 'none';
   hideSuggest();
   hideMenu();
-  // Only unload a real page. Re-navigating an already-blank webview to
-  // about:blank makes Electron abort the duplicate navigation and log a noisy
-  // ERR_ABORTED — which fires on every session switch, since hideAllOverlays()
-  // calls this even when no page was ever opened.
-  if (webFrame.src && webFrame.src !== 'about:blank') webFrame.src = 'about:blank';
+  disarmTerminate();
 }
 
+// Navigate to a URL and reveal the overlay (terminal-link Ctrl+click).
 export function showWeb(url) {
   webUrlEl.value = url;
   webUrlEl.title = url;
   webFrame.src = url;
+  setActive(!isBlank(url));
   webView.style.display = 'flex';
+}
+
+// Reveal the overlay without navigating (toolbar browser button): the already
+// loaded page is shown as-is; an empty browser just focuses the address bar.
+export function openWeb() {
+  webView.style.display = 'flex';
+  if (!isLoaded()) setTimeout(() => webUrlEl.focus(), 0);
+}
+
+// Unload the page — the only thing that resets the browser. Called by the
+// two-click Terminate button (wired in the center coordinator).
+export function terminateWeb() {
+  try { webFrame.src = 'about:blank'; } catch {}
+  webUrlEl.value = '';
+  webUrlEl.title = '';
+  setActive(false);
 }
 
 // --- address bar ---
@@ -64,6 +98,7 @@ function navigateTo(input) {
   webUrlEl.title = url;
   webUrlEl.blur();
   webFrame.src = url;
+  setActive(!isBlank(url));
 }
 
 function renderSuggest() {
@@ -98,6 +133,7 @@ webUrlEl.addEventListener('keydown', (e) => {
 function onNav(e) {
   if (document.activeElement !== webUrlEl) { webUrlEl.value = e.url; }
   webUrlEl.title = e.url;
+  setActive(!isBlank(e.url));
   pushHistory(e.url);
 }
 webFrame.addEventListener('did-navigate', onNav);

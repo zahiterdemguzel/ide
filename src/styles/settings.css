@@ -1,16 +1,20 @@
-/* Square gear button at the right end of the top toolbar. margin-left:auto
- * pushes it past the run buttons so it always sits in the top-right corner.
+/* Square browser + gear buttons at the right end of the top toolbar. The
+ * margin-left:auto on the first of the pair pushes the group past the run
+ * buttons so they always sit in the top-right corner, adjacent to each other.
  * Sized and colored to match the run toolbar's .tool-btn. */
-#settings-btn {
+#browser-btn, #settings-btn {
   flex: none;
-  margin-left: auto;
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0;
   background: var(--bg-2); color: var(--fg);
   border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
 }
-#settings-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-#settings-btn svg { display: block; }
+#browser-btn { margin-left: auto; margin-right: 6px; }
+#browser-btn:hover, #settings-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#browser-btn svg, #settings-btn svg { display: block; }
+/* Lit accent while a page is loaded in the background browser — the button
+ * doubles as a browser-is-alive indicator. */
+#browser-btn.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* Settings dialog */
 #settings-dialog {

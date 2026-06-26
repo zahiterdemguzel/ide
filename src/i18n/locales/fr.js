@@ -54,5 +54,9 @@ export default {
     'settings.theme': 'Thème',
     'settings.close': 'Fermer',
     'settings.done': 'Terminé',
+
+    'browser.open': 'Navigateur',
+    'browser.terminate': 'Terminer le navigateur',
+    'browser.close': 'Fermer',
   },
 };

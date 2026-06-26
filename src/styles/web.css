@@ -40,6 +40,10 @@
   color: var(--fg); cursor: pointer; font-size: 12px; padding: 6px 10px; border-radius: 3px; white-space: nowrap;
 }
 #web-menu-dropdown button:hover { background: var(--bg-3); }
+/* Terminate (⏻) arms red on first click, kills the page on the second — same
+ * two-click confirm pattern as the git pane's discard/revert buttons. */
+#web-terminate.armed { color: var(--red); }
+#web-terminate.armed:hover { color: #fff; background: var(--red); }
 #web-close { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1; }
 #web-close:hover { color: var(--fg); }
 #web-frame { flex: 1; min-height: 0; border: none; }
