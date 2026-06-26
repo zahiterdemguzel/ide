@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseJsonc, makeRunConfigLib } = require('../src/main/run-configs-lib');
+const { parseJsonc, parseEnvFile, makeRunConfigLib } = require('../src/main/run-configs-lib');
 
 const REPO = '/repo';
 const lin = makeRunConfigLib(REPO, 'linux');
@@ -121,6 +121,40 @@ test('buildLaunchCommand: bare program with no known type just runs it', () => {
 test('buildLaunchCommand: returns null for an unrunnable config (browser/attach)', () => {
   assert.equal(lin.buildLaunchCommand({ type: 'chrome', url: 'http://localhost' }), null);
   assert.equal(lin.buildLaunchCommand({ type: 'go' }), null); // TYPE_RUNTIME but no program
+});
+
+test('buildLaunchCommand: win32 rewrites the mvnw wrapper to mvnw.cmd', () => {
+  // The Spring Boot launch.json case: type "node", runtimeExecutable points at the
+  // extensionless Unix wrapper. On Windows it must run mvnw.cmd, not the script.
+  const cfg = { type: 'node', runtimeExecutable: '${workspaceFolder}/mvnw', runtimeArgs: ['spring-boot:run', '-Pdev'] };
+  assert.equal(win.buildLaunchCommand(cfg), '/repo/mvnw.cmd spring-boot:run -Pdev');
+  // POSIX keeps the wrapper as-is.
+  assert.equal(lin.buildLaunchCommand(cfg), '/repo/mvnw spring-boot:run -Pdev');
+});
+
+test('buildLaunchCommand: win32 rewrites gradlew to gradlew.bat', () => {
+  assert.equal(win.buildLaunchCommand({ type: 'node', runtimeExecutable: 'gradlew', runtimeArgs: ['bootRun'] }),
+    'gradlew.bat bootRun');
+});
+
+test('buildLaunchCommand: win32 leaves an already-suffixed or unrelated exe alone', () => {
+  assert.equal(win.buildLaunchCommand({ type: 'node', runtimeExecutable: 'mvnw.cmd' }), 'mvnw.cmd');
+  assert.equal(win.buildLaunchCommand({ type: 'node', runtimeExecutable: 'tsx', program: 'a.ts' }), 'tsx a.ts');
+});
+
+// --- parseEnvFile ---
+
+test('parseEnvFile: parses KEY=VALUE lines, skips blanks and comments', () => {
+  assert.deepEqual(parseEnvFile('A=1\n\n# a comment\nB=two\n'), { A: '1', B: 'two' });
+});
+
+test('parseEnvFile: strips matching surrounding quotes and honours export', () => {
+  assert.deepEqual(parseEnvFile('export A="hi there"\nB=\'x\'\nC="unbalanced'),
+    { A: 'hi there', B: 'x', C: '"unbalanced' });
+});
+
+test('parseEnvFile: keeps = inside the value, skips lines without =', () => {
+  assert.deepEqual(parseEnvFile('URL=postgres://u:p@h/db?x=1\nnonsense'), { URL: 'postgres://u:p@h/db?x=1' });
 });
 
 // --- buildTaskCommand ---

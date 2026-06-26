@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
 const { getWin } = require('./window');
-const { parseJsonc, makeRunConfigLib } = require('./run-configs-lib');
+const { parseJsonc, parseEnvFile, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
 // We don't run a real debugger; each launch config / task is translated into a
@@ -33,8 +33,21 @@ ipcMain.handle('get-run-configs', () => {
 // Resolve one config/task by name into run specs (re-reads the files so edits are
 // always picked up). The renderer opens an in-app terminal per spec; a compound
 // yields one spec per referenced configuration.
+// Merge a launch config's `envFile` into the spec's env (file IO, so it lives here
+// rather than the pure lib). envFile is the base; an explicit `env` key wins. A
+// missing/unreadable file is ignored (VS Code warns but still launches).
+function withEnvFile(spec, cfg, lib) {
+  if (!spec || !cfg.envFile) return spec;
+  try {
+    const text = fs.readFileSync(lib.substVars(cfg.envFile), 'utf8');
+    spec.env = { ...parseEnvFile(text), ...spec.env };
+  } catch { /* envFile absent or unreadable: launch without it */ }
+  return spec;
+}
+
 ipcMain.handle('run-config', (_e, { kind, name }) => {
-  const { resolveTask, launchSpec } = makeRunConfigLib(getRepoPath());
+  const lib = makeRunConfigLib(getRepoPath());
+  const { resolveTask, launchSpec } = lib;
   if (kind === 'task') {
     const tasks = readVscodeJson('tasks.json');
     const all = (tasks && tasks.tasks) || [];
@@ -52,13 +65,13 @@ ipcMain.handle('run-config', (_e, { kind, name }) => {
     for (const ref of (compound.configurations || [])) {
       const refName = typeof ref === 'object' ? ref.name : ref;
       const cfg = (launch.configurations || []).find((c) => c.name === refName);
-      if (cfg) { const s = launchSpec(cfg); if (s) runs.push(s); }
+      if (cfg) { const s = withEnvFile(launchSpec(cfg), cfg, lib); if (s) runs.push(s); }
     }
     return runs.length ? { ok: true, runs } : { ok: false, error: 'Compound references no runnable configs' };
   }
   const cfg = (launch.configurations || []).find((c) => c.name === name);
   if (!cfg) return { ok: false, error: 'Config not found' };
-  const s = launchSpec(cfg);
+  const s = withEnvFile(launchSpec(cfg), cfg, lib);
   if (s) return { ok: true, runs: [s] };
   const ofType = cfg.type ? ` of type "${cfg.type}"` : '';
   return { ok: false, error: `Couldn't derive a run command for "${name}"${ofType}. This config has no runnable "program" or "runtimeExecutable" — it's likely a browser or attach config, which this app can't launch as a terminal command.` };

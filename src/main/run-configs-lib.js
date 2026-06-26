@@ -42,6 +42,35 @@ const TYPE_RUNTIME = {
 
 const quoteArg = (a) => { a = String(a); return /\s/.test(a) ? `"${a}"` : a; };
 
+// Build-tool wrappers ship an extensionless Unix script (used as a launch
+// `runtimeExecutable`) next to a Windows variant. PowerShell can't run the
+// extensionless file inline — Windows shell-executes it by file association,
+// spawning an external window — so on win32 we point at the proper variant.
+const WIN_WRAPPER_EXT = { mvnw: '.cmd', gradlew: '.bat' };
+
+// Parse a `.env`-style envFile (VS Code launch `envFile`): KEY=VALUE per line,
+// `#` comments and blanks skipped, optional `export ` prefix, optional matching
+// surrounding quotes stripped. Pure (no file IO) so it lives here and is tested;
+// run-configs.js reads the file and feeds the text in.
+function parseEnvFile(text) {
+  const env = {};
+  for (let line of String(text).split(/\r?\n/)) {
+    line = line.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (line.startsWith('export ')) line = line.slice(7).trim();
+    const eq = line.indexOf('=');
+    if (eq < 0) continue;
+    const key = line.slice(0, eq).trim();
+    if (!key) continue;
+    let val = line.slice(eq + 1).trim();
+    if (val.length >= 2 && (val[0] === '"' || val[0] === "'") && val[val.length - 1] === val[0]) {
+      val = val.slice(1, -1);
+    }
+    env[key] = val;
+  }
+  return env;
+}
+
 // Build the command/spec translators bound to one repo path + platform. Created
 // fresh per IPC call so it always sees the current open folder.
 function makeRunConfigLib(repoPath, platform = process.platform) {
@@ -57,6 +86,16 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
       .replace(/\$\{env:([^}]+)\}/g, (_, n) => process.env[n] || '');
   }
 
+  // On Windows, rewrite an extensionless build-tool wrapper (mvnw/gradlew) to its
+  // .cmd/.bat variant so the shell runs it directly instead of shell-executing the
+  // Unix script into an external window. No-op off win32 or when already suffixed.
+  function winExe(p) {
+    if (platform !== 'win32' || !p) return p;
+    const base = path.basename(p);
+    const ext = WIN_WRAPPER_EXT[base.toLowerCase()];
+    return ext && !path.extname(base) ? p + ext : p;
+  }
+
   function envMap(env) {
     const out = {};
     for (const [k, v] of Object.entries(env || {})) out[k] = substVars(String(v));
@@ -70,7 +109,7 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
   function buildLaunchCommand(cfg) {
     const program = cfg.program ? substVars(cfg.program) : '';
     const args = (cfg.args || []).map(substVars);
-    const runExe = cfg.runtimeExecutable ? substVars(cfg.runtimeExecutable) : '';
+    const runExe = cfg.runtimeExecutable ? winExe(substVars(cfg.runtimeExecutable)) : '';
     const runArgs = (cfg.runtimeArgs || []).map(substVars);
     const type = (cfg.type || '').toLowerCase();
     // Godot configs carry `project` + `scene` (not a `program`) and run the engine
@@ -182,7 +221,7 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
     return { command: cmd, cwd: cfg.cwd ? substVars(cfg.cwd) : repoPath, env: envMap(cfg.env), name: cfg.name };
   }
 
-  return { substVars, envMap, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec };
+  return { substVars, envMap, winExe, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec };
 }
 
-module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, makeRunConfigLib };
+module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, makeRunConfigLib };
