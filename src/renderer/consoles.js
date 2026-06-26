@@ -11,6 +11,16 @@ let shellList = [];
 const consoleHosts = document.getElementById('console-hosts');
 const termTabs = document.getElementById('term-tabs');
 
+// The tab strip scrolls horizontally when there are more tabs than fit, but its
+// scrollbar is hidden. Translate a plain vertical mouse wheel into horizontal
+// scroll so the bar is navigable without a trackpad or Shift+wheel.
+termTabs.addEventListener('wheel', (e) => {
+  if (e.deltaX !== 0) return; // trackpad/horizontal intent already handled natively
+  if (termTabs.scrollWidth <= termTabs.clientWidth) return; // nothing to scroll
+  e.preventDefault();
+  termTabs.scrollLeft += e.deltaY;
+}, { passive: false });
+
 function truncName(s, n = 16) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
 export function fitConsole() {
