@@ -80,6 +80,9 @@
 /* Git status feedback rides in the commit box placeholder (git-pane.js). */
 #commit-msg.msg-ok::placeholder { color: var(--green); opacity: 1; }
 #commit-msg.msg-err::placeholder { color: var(--red); opacity: 1; }
+/* Git status feedback rides in the commit box placeholder (git-pane.js). */
+#commit-msg.msg-ok::placeholder { color: var(--green); opacity: 1; }
+#commit-msg.msg-err::placeholder { color: var(--red); opacity: 1; }
 .git-commit-actions { display: flex; gap: 8px; margin-top: 8px; }
 .git-commit-actions button {
   flex: 1; background: var(--accent); color: var(--on-accent); border: none;
