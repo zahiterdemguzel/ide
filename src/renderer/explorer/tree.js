@@ -21,6 +21,8 @@ function select(row, rel, dir) {
 const ctxMenu = document.createElement('div');
 ctxMenu.id = 'tree-ctx-menu';
 ctxMenu.innerHTML =
+  '<button data-action="new-file"><span class="ctx-icon">＋</span>New file</button>' +
+  '<div class="ctx-sep"></div>' +
   '<button data-action="rename"><span class="ctx-icon">✎</span>Rename</button>' +
   '<button data-action="add-to-chat"><span class="ctx-icon">＠</span>Add to chat</button>' +
   '<button data-action="copy-path"><span class="ctx-icon">⧉</span>Copy path</button>' +
@@ -52,7 +54,11 @@ ctxMenu.addEventListener('click', async (e) => {
   const { rel, dir } = ctxTarget;
   hideCtxMenu();
 
-  if (btn.dataset.action === 'rename') {
+  if (btn.dataset.action === 'new-file') {
+    // Create alongside a file, or inside a folder.
+    await createFileIn(dirOf(rel, dir));
+
+  } else if (btn.dataset.action === 'rename') {
     const parts = rel.split('/');
     const oldName = parts[parts.length - 1];
     const newName = await promptText({ title: 'Rename', label: 'New name', placeholder: oldName, value: oldName, ok: 'Rename' });
@@ -171,17 +177,23 @@ export async function refreshTree() {
 }
 document.getElementById('files-refresh').onclick = refreshTree;
 
-// Where a new file lands: inside the selected folder, alongside the selected
-// file, or at the repo root when nothing is selected.
-function targetDir() {
-  if (!selected) return '';
-  if (selected.dir) return selected.rel;
-  const slash = selected.rel.lastIndexOf('/');
-  return slash === -1 ? '' : selected.rel.slice(0, slash);
+// Where a new file lands relative to a tree item: inside it when it's a folder,
+// alongside it (its parent dir) when it's a file.
+function dirOf(rel, dir) {
+  if (dir) return rel;
+  const slash = rel.lastIndexOf('/');
+  return slash === -1 ? '' : rel.slice(0, slash);
 }
 
-document.getElementById('files-new').onclick = async () => {
-  const dir = targetDir();
+// Where the toolbar's New file lands: inside the selected folder, alongside the
+// selected file, or at the repo root when nothing is selected.
+function targetDir() {
+  return selected ? dirOf(selected.rel, selected.dir) : '';
+}
+
+// Prompt for a filename and create it under `dir` (repo-relative, '' = root),
+// re-prompting on error. Opens the file on success.
+async function createFileIn(dir) {
   let error = '';
   for (;;) {
     const name = await promptText({
@@ -196,7 +208,9 @@ document.getElementById('files-new').onclick = async () => {
     if (r.ok) { await refreshTree(); openFromTree(r.rel); return; }
     error = r.error || 'Could not create file';
   }
-};
+}
+
+document.getElementById('files-new').onclick = () => createFileIn(targetDir());
 
 // Collapse every open folder, keeping already-loaded children in the DOM.
 function collapseAll() {
