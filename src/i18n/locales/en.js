@@ -16,6 +16,7 @@ export default {
     'explorer.search': 'Search files…',
     'explorer.openFolder': 'Open folder',
     'explorer.newFile': 'New file',
+    'explorer.newFolder': 'New folder',
     'explorer.collapseAll': 'Collapse all',
     'explorer.refresh': 'Refresh',
 

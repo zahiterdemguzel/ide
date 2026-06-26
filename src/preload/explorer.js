@@ -10,6 +10,7 @@ module.exports = {
   pasteImage: () => ipcRenderer.invoke('paste-image'),
   listDir: (rel) => ipcRenderer.invoke('list-dir', rel),
   createFile: (rel) => ipcRenderer.invoke('create-file', rel),
+  createFolder: (rel) => ipcRenderer.invoke('create-folder', rel),
   searchNames: (q) => ipcRenderer.invoke('search-names', q),
   searchRefs: (q) => ipcRenderer.invoke('search-refs', q),
   readText: (file) => ipcRenderer.invoke('read-text', file),

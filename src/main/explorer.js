@@ -44,6 +44,27 @@ ipcMain.handle('create-file', (_e, rel) => {
   }
 });
 
+// Create an empty folder at a repo-relative path for the explorer's "New folder"
+// action. Refuses to clobber an existing entry and guards against paths escaping
+// the repo.
+ipcMain.handle('create-folder', (_e, rel) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, rel || '');
+    const inside = path.relative(repoPath, abs);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) {
+      return { ok: false, error: 'Invalid path' };
+    }
+    if (fs.existsSync(abs)) {
+      return { ok: false, error: 'An item with that name already exists' };
+    }
+    fs.mkdirSync(abs, { recursive: true });
+    return { ok: true, rel: inside.split(path.sep).join('/') };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 // Recursive filename search for the explorer. Walks the tree async, skipping
 // .git/node_modules; case-insensitive, capped at 500 hits. The query is split on
 // whitespace into terms that ALL must match the file's full repo-relative path

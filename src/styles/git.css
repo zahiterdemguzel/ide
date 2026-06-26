@@ -58,8 +58,8 @@
 .git-revert.armed { visibility: visible; color: var(--red); border-color: var(--red); }
 .git-revert.armed:hover { background: var(--red); border-color: var(--red); color: #fff; }
 
-#git-fetch, #git-pull, #files-new, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
-#git-fetch:hover, #git-pull:hover, #files-new:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
+#git-fetch, #git-pull, #files-new, #files-new-folder, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
+#git-fetch:hover, #git-pull:hover, #files-new:hover, #files-new-folder:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
 
 .git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
 /* Native textarea grips only ever sit bottom-end; to put the resize point at

@@ -22,6 +22,7 @@ const ctxMenu = document.createElement('div');
 ctxMenu.id = 'tree-ctx-menu';
 ctxMenu.innerHTML =
   '<button data-action="new-file"><span class="ctx-icon">＋</span>New file</button>' +
+  '<button data-action="new-folder"><span class="ctx-icon">🗀</span>New folder</button>' +
   '<div class="ctx-sep"></div>' +
   '<button data-action="rename"><span class="ctx-icon">✎</span>Rename</button>' +
   '<button data-action="add-to-chat"><span class="ctx-icon">＠</span>Add to chat</button>' +
@@ -57,6 +58,9 @@ ctxMenu.addEventListener('click', async (e) => {
   if (btn.dataset.action === 'new-file') {
     // Create alongside a file, or inside a folder.
     await createFileIn(dirOf(rel, dir));
+
+  } else if (btn.dataset.action === 'new-folder') {
+    await createFolderIn(dirOf(rel, dir));
 
   } else if (btn.dataset.action === 'rename') {
     const parts = rel.split('/');
@@ -211,6 +215,27 @@ async function createFileIn(dir) {
 }
 
 document.getElementById('files-new').onclick = () => createFileIn(targetDir());
+
+// Prompt for a folder name and create it under `dir` (repo-relative, '' = root),
+// re-prompting on error. Refreshes the tree on success.
+async function createFolderIn(dir) {
+  let error = '';
+  for (;;) {
+    const name = await promptText({
+      title: 'New folder',
+      label: dir ? `Create in ${dir}/` : 'Create at repo root',
+      placeholder: 'assets',
+      error,
+    });
+    if (!name) return;
+    const rel = dir ? dir + '/' + name : name;
+    const r = await window.api.createFolder(rel);
+    if (r.ok) { await refreshTree(); return; }
+    error = r.error || 'Could not create folder';
+  }
+}
+
+document.getElementById('files-new-folder').onclick = () => createFolderIn(targetDir());
 
 // Collapse every open folder, keeping already-loaded children in the DOM.
 function collapseAll() {
