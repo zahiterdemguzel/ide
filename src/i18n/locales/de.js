@@ -34,6 +34,7 @@ export default {
     'git.pull': 'Pull',
     'git.discardAll': 'Alle Änderungen verwerfen',
     'git.stageAll': 'Alle Änderungen bereitstellen',
+    'git.unstageAll': 'Alle Änderungen aus dem Index nehmen',
     'git.switchBranch': 'Branch wechseln',
     'git.searchBranches': 'Branch suchen oder erstellen…',
     'git.noBranches': 'Keine Branches',

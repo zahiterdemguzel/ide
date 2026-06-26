@@ -145,7 +145,12 @@
         <div class="git-section-title git-conflicts-title" data-i18n="git.conflicts">Conflicts</div>
         <ul id="conflicts-list" class="git-list"></ul>
       </div>
-      <div class="git-section-title" data-i18n="git.staged">Staged</div>
+      <div class="git-section-title git-head-row">
+        <span data-i18n="git.staged">Staged</span>
+        <span class="git-head-actions">
+          <button id="unstage-all" class="git-btn" data-i18n-title="git.unstageAll" title="Unstage all changes">−</button>
+        </span>
+      </div>
       <ul id="staged-list" class="git-list"></ul>
       <div class="git-section-title git-head-row">
         <span data-i18n="git.changes">Changes</span>

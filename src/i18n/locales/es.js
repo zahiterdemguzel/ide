@@ -34,6 +34,7 @@ export default {
     'git.pull': 'Bajar',
     'git.discardAll': 'Descartar todos los cambios',
     'git.stageAll': 'Preparar todos los cambios',
+    'git.unstageAll': 'Quitar todos los cambios de preparación',
     'git.switchBranch': 'Cambiar de rama',
     'git.searchBranches': 'Buscar o crear rama…',
     'git.noBranches': 'Sin ramas',

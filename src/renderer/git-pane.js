@@ -82,6 +82,7 @@ export async function refreshGit() {
   aheadEl.hidden = !r.ahead;
   setBranchName(r.branch);
   unstagedFiles = r.unstaged;
+  stagedFiles = r.staged;
   revertAllBtn.classList.remove('armed');
   // Conflicted files can't be staged/discarded by the +/− actions; show them in
   // their own section. Staging a resolved file is done after the user (or a Claude
@@ -125,11 +126,16 @@ function conflictItem(file, status) {
 
 // "Changes" header buttons: stage / discard every unstaged file at once.
 let unstagedFiles = [];
+let stagedFiles = [];
 const stageAllBtn = document.getElementById('stage-all');
 const revertAllBtn = document.getElementById('revert-all');
+const unstageAllBtn = document.getElementById('unstage-all');
 
 stageAllBtn.onclick = async () => {
   for (const it of unstagedFiles) await window.api.gitStage(it.file);
+  refreshGit();};
+unstageAllBtn.onclick = async () => {
+  for (const it of stagedFiles) await window.api.gitUnstage(it.file);
   refreshGit();};
 revertAllBtn.onclick = async () => {
   if (!revertAllBtn.classList.contains('armed')) {

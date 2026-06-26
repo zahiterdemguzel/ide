@@ -35,6 +35,7 @@ export default {
     'git.pull': 'Pull',
     'git.discardAll': 'Discard all changes',
     'git.stageAll': 'Stage all changes',
+    'git.unstageAll': 'Unstage all changes',
     'git.switchBranch': 'Switch branch',
     'git.searchBranches': 'Search or create branch…',
     'git.noBranches': 'No branches',

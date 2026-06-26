@@ -34,6 +34,7 @@ export default {
     'git.pull': 'Çek',
     'git.discardAll': 'Tüm değişiklikleri at',
     'git.stageAll': 'Tüm değişiklikleri hazırla',
+    'git.unstageAll': 'Tüm değişiklikleri hazırlama alanından çıkar',
     'git.switchBranch': 'Dal değiştir',
     'git.searchBranches': 'Dal ara veya oluştur…',
     'git.noBranches': 'Dal yok',
