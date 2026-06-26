@@ -1,6 +1,12 @@
-# Platform notes (Windows)
+# Platform notes (Windows + macOS)
 
 Hard-won gotchas. Do not "fix" these back to the obvious-but-broken form.
+
+## macOS: Electron bundle re-signing (postinstall)
+
+On Apple Silicon (and any hardened-runtime macOS), if the `node_modules/electron/dist/Electron.app` bundle's code signature is invalid, macOS **SIGKILLs every helper process** the instant it spawns. The symptom at `npm start` is a crash cascade — `GPU process exited unexpectedly: exit_code=9`, `[renderer gone] killed 9`, `Network service crashed` — and the window never opens. It is not a bug in our code; the OS is refusing to run an improperly-signed binary. A partial `npm install`/rebuild, a file-sync/backup tool, or antivirus can invalidate the signature by touching the bundle (e.g. `code has no resources but signature indicates they must be present`).
+
+`scripts/fix-electron-signature.js` runs as the `postinstall` npm hook: on macOS only, it verifies the bundle signature and, if invalid, ad-hoc re-signs it (`codesign --force --deep --sign -`). It is a no-op off macOS and a no-op when the signature is already valid, so it's safe on every platform and every install. Keep it wired to `postinstall`. If the app ever dies with `killed 9` between installs, re-running `npm run postinstall` (or the `codesign` line the script prints) repairs it.
 
 ## node-pty: use the prebuilt fork
 
