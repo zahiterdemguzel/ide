@@ -112,6 +112,72 @@ function buildTaskCommand(task) {
   return [command, ...args.map(quoteArg)].join(' '); // shell task: command stays verbatim
 }
 
+// Prefix a sequence step with a directory change when it runs somewhere other than
+// the repo root, so chained steps honour their task's `options.cwd` even though
+// they share one terminal. PowerShell (the Windows default shell) has no `&&`, so
+// the chain operator differs by platform — see chainCommands.
+function stepCommand(spec) {
+  if (!spec.cwd || spec.cwd === getRepoPath()) return spec.command;
+  return process.platform === 'win32'
+    ? `Set-Location '${spec.cwd}'; ${spec.command}`
+    : `cd '${spec.cwd}' && ${spec.command}`;
+}
+
+// Join commands so each runs only if the previous succeeded (VS Code's
+// `dependsOrder: "sequence"`). bash/zsh use `&&`; Windows PowerShell 5.1 lacks it,
+// so we gate each later step on the automatic `$?` success variable instead.
+function chainCommands(cmds) {
+  if (cmds.length <= 1) return cmds[0] || '';
+  if (process.platform !== 'win32') return cmds.join(' && ');
+  let chain = cmds[cmds.length - 1];
+  for (let i = cmds.length - 2; i >= 0; i--) chain = `${cmds[i]}; if ($?) { ${chain} }`;
+  return chain;
+}
+
+// Resolve a task into terminal run specs. A plain task yields one spec. A compound
+// task (`dependsOn`, a label or array of labels) resolves each referenced task and
+// combines them per `dependsOrder`: "sequence" collapses them into ONE terminal
+// whose commands are chained so each waits for the previous to succeed; "parallel"
+// / "any" (the default) spreads them across one terminal each. A compound may also
+// carry its own `command`, which VS Code runs after its dependencies. `seen` breaks
+// reference cycles.
+function resolveTask(allTasks, task, seen = new Set()) {
+  const label = task.label || task.taskName;
+  if (label) {
+    if (seen.has(label)) return []; // cycle guard
+    seen.add(label);
+  }
+  const deps = task.dependsOn == null ? []
+    : Array.isArray(task.dependsOn) ? task.dependsOn : [task.dependsOn];
+
+  if (!deps.length) {
+    const cmd = buildTaskCommand(task);
+    if (!cmd) return [];
+    const opt = task.options || {};
+    return [{ command: cmd, cwd: opt.cwd ? substVars(opt.cwd) : getRepoPath(), env: envMap(opt.env), name: label }];
+  }
+
+  const depSpecs = deps.flatMap((d) => {
+    const dep = allTasks.find((x) => (x.label || x.taskName) === d);
+    return dep ? resolveTask(allTasks, dep, seen) : [];
+  });
+  // The compound's own command (if any) runs after its deps; resolve it as a leaf.
+  const ownSpecs = task.command ? resolveTask(allTasks, { ...task, dependsOn: undefined }, new Set()) : [];
+  const ordered = [...depSpecs, ...ownSpecs];
+  if (!ordered.length) return [];
+
+  if (task.dependsOrder === 'sequence') {
+    // One terminal, commands chained; merge the steps' envs onto it (last wins).
+    return [{
+      command: chainCommands(ordered.map(stepCommand)),
+      cwd: getRepoPath(),
+      env: Object.assign({}, ...ordered.map((s) => s.env)),
+      name: label,
+    }];
+  }
+  return ordered; // parallel / any: one terminal per resolved spec
+}
+
 // A run spec the renderer turns into an in-app terminal tab: the command line plus
 // the cwd/env to spawn its shell in, and the name used as the tab label.
 function launchSpec(cfg) {
@@ -140,12 +206,12 @@ ipcMain.handle('get-run-configs', () => {
 ipcMain.handle('run-config', (_e, { kind, name }) => {
   if (kind === 'task') {
     const tasks = readVscodeJson('tasks.json');
-    const t = (tasks && tasks.tasks || []).find((x) => (x.label || x.taskName) === name);
+    const all = (tasks && tasks.tasks) || [];
+    const t = all.find((x) => (x.label || x.taskName) === name);
     if (!t) return { ok: false, error: 'Task not found' };
-    const cmd = buildTaskCommand(t);
-    if (!cmd) return { ok: false, error: 'Task has no command' };
-    const opt = t.options || {};
-    return { ok: true, runs: [{ command: cmd, cwd: opt.cwd ? substVars(opt.cwd) : getRepoPath(), env: envMap(opt.env), name }] };
+    const runs = resolveTask(all, t);
+    if (!runs.length) return { ok: false, error: 'Task has no runnable command (a compound must reference tasks that do)' };
+    return { ok: true, runs };
   }
   const launch = readVscodeJson('launch.json');
   if (!launch) return { ok: false, error: 'No launch.json' };
