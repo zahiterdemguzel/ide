@@ -2,6 +2,7 @@ import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrack
 import { hideAllOverlays } from './viewer/center.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
+import { confirmDialog } from './shared/confirm.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
 // switching sessions toggles which container is visible, preserving scrollback.
@@ -225,6 +226,13 @@ function closeSession(id) {
 sessionCommitBtn.onclick = async () => {
   if (!activeId) return;
   const s = sessions.get(activeId);
+  // The session is still working (yellow); its file set may be mid-change, so
+  // confirm before committing a moving target.
+  if (s.state === 'working' && !(await confirmDialog({
+    title: 'Commit while running?',
+    message: 'This session is still running. Its files may still be changing. Commit now anyway?',
+    ok: 'Commit',
+  }))) return;
   s.commitMsg = '';
   updateSessionBar();
   const r = await window.api.commitSession(s.id);
