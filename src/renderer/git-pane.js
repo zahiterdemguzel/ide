@@ -1,4 +1,5 @@
 import { openGitFile, openCommit } from './viewer/center.js';
+import { statusLabel } from './shared/git-status.js';
 import { t } from '../i18n/index.js';
 
 // --- git pane ---
@@ -33,6 +34,7 @@ function gitItem(file, status, staged, action, label) {
   const st = document.createElement('span');
   st.className = 'git-status g-' + (status === '?' ? 'u' : status);
   st.textContent = status;
+  st.title = statusLabel(status, staged);
   const name = document.createElement('span');
   name.className = 'git-file';
   name.textContent = shortenPath(file);

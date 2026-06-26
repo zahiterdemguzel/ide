@@ -1,0 +1,4 @@
+{
+  "//": "Marks this folder's .js files as ES modules so Node tooling (the test runner) can load the pure helpers here the way the browser does. The browser ignores this file; the Electron main process never imports renderer code, so runtime is unaffected.",
+  "type": "module"
+}
