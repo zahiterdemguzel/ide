@@ -1,5 +1,6 @@
 import { fileColor } from '../shared/ext.js';
 import { openFromTree } from '../viewer/center.js';
+import { showTreeContextMenu } from './tree.js';
 
 // Search: filenames first (fast, recursive), then references (git grep, slower)
 // streamed in under a "References" heading once they arrive. A run token guards
@@ -29,6 +30,12 @@ function resultRow(file, lineNo, text, term) {
     row.classList.add('sel');
     openFromTree(file, lineNo ? { line: lineNo, term } : null);
   };
+  // Search hits are always files; reuse the file-tree's context menu.
+  row.addEventListener('contextmenu', (ev) => {
+    document.querySelectorAll('.tree-row.sel').forEach((x) => x.classList.remove('sel'));
+    row.classList.add('sel');
+    showTreeContextMenu(ev, file, false);
+  });
   return row;
 }
 

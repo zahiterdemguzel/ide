@@ -201,6 +201,19 @@ ipcMain.handle('delete-file', async (_e, rel) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
+// Reveal a repo-relative file or folder in the OS file browser (Explorer/Finder),
+// selecting it within its parent folder.
+ipcMain.handle('reveal-in-folder', (_e, rel) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, rel);
+    const inside = path.relative(repoPath, abs);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
+    shell.showItemInFolder(abs);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
 // Read/write a repo-relative binary asset as base64 for the viewer/editor.
 // Paths come from git porcelain (inside the repo), so no traversal guard.
 ipcMain.handle('read-asset', (_e, file) => {

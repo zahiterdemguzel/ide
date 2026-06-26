@@ -21,6 +21,7 @@ module.exports = {
   clearWebData: () => ipcRenderer.invoke('clear-web-data'),
   renameFile: (oldRel, newRel) => ipcRenderer.invoke('rename-file', oldRel, newRel),
   deleteFile: (rel) => ipcRenderer.invoke('delete-file', rel),
+  revealInFolder: (rel) => ipcRenderer.invoke('reveal-in-folder', rel),
   readAsset: (file) => ipcRenderer.invoke('read-asset', file),
   writeAsset: (file, base64) => ipcRenderer.invoke('write-asset', { file, base64 }),
 };

@@ -27,6 +27,7 @@ ctxMenu.innerHTML =
   '<button data-action="rename"><span class="ctx-icon">✎</span>Rename</button>' +
   '<button data-action="add-to-chat"><span class="ctx-icon">＠</span>Add to chat</button>' +
   '<button data-action="copy-path"><span class="ctx-icon">⧉</span>Copy path</button>' +
+  '<button data-action="reveal"><span class="ctx-icon">🗁</span>Show in file browser</button>' +
   '<div class="ctx-sep"></div>' +
   '<button data-action="delete" class="ctx-danger"><span class="ctx-icon">🗑</span>Delete</button>';
 document.body.appendChild(ctxMenu);
@@ -47,6 +48,13 @@ function showCtxMenu(x, y, rel, dir) {
 
 document.addEventListener('click', hideCtxMenu);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideCtxMenu(); });
+
+// Let other explorer views (e.g. search results) open the same context menu.
+export function showTreeContextMenu(ev, rel, dir) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  showCtxMenu(ev.clientX, ev.clientY, rel, dir);
+}
 
 ctxMenu.addEventListener('click', async (e) => {
   e.stopPropagation();
@@ -99,6 +107,9 @@ ctxMenu.addEventListener('click', async (e) => {
 
   } else if (btn.dataset.action === 'copy-path') {
     await navigator.clipboard.writeText(rel);
+
+  } else if (btn.dataset.action === 'reveal') {
+    await window.api.revealInFolder(rel);
   }
 });
 
