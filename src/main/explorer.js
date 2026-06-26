@@ -1,4 +1,4 @@
-const { ipcMain, shell, clipboard } = require('electron');
+const { ipcMain, shell, clipboard, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -159,6 +159,16 @@ ipcMain.handle('open-external', async (_e, target) => {
     if (/^https?:\/\//i.test(target)) { await shell.openExternal(target); return { ok: true }; }
     const err = await shell.openPath(target);
     return { ok: !err, error: err };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Clear the inline browser's cookies. The <webview> runs in the persistent
+// `persist:browser` partition (so cookies survive restarts); this wipes just
+// that partition's cookies, leaving the app's own session untouched.
+ipcMain.handle('clear-web-data', async () => {
+  try {
+    await session.fromPartition('persist:browser').clearStorageData({ storages: ['cookies'] });
+    return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 

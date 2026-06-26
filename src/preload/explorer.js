@@ -17,6 +17,8 @@ module.exports = {
   writeText: (file, text) => ipcRenderer.invoke('write-text', { file, text }),
   resolveLinkPath: (raw) => ipcRenderer.invoke('resolve-link-path', raw),
   openExternal: (target) => ipcRenderer.invoke('open-external', target),
+  // Clear the inline browser's persistent cookies (the persist:browser partition).
+  clearWebData: () => ipcRenderer.invoke('clear-web-data'),
   renameFile: (oldRel, newRel) => ipcRenderer.invoke('rename-file', oldRel, newRel),
   deleteFile: (rel) => ipcRenderer.invoke('delete-file', rel),
   readAsset: (file) => ipcRenderer.invoke('read-asset', file),

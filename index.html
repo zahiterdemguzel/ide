@@ -100,11 +100,20 @@
             <button id="web-back" class="web-nav" title="Back">‹</button>
             <button id="web-fwd" class="web-nav" title="Forward">›</button>
             <button id="web-reload" class="web-nav" title="Reload">⟳</button>
-            <span id="web-url"></span>
+            <div id="web-addr">
+              <input id="web-url" type="text" spellcheck="false" placeholder="Enter address" autocomplete="off" />
+              <ul id="web-suggest"></ul>
+            </div>
             <button id="web-external" class="web-nav" title="Open in system browser">↗</button>
+            <div id="web-menu-wrap">
+              <button id="web-menu" class="web-nav" title="More">⋮</button>
+              <div id="web-menu-dropdown">
+                <button id="web-reset-cookies">Reset cookies</button>
+              </div>
+            </div>
             <button id="web-close" title="Close">×</button>
           </div>
-          <webview id="web-frame" src="about:blank"></webview>
+          <webview id="web-frame" src="about:blank" partition="persist:browser"></webview>
         </div>
       </div>
     </main>
