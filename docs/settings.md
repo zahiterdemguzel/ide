@@ -81,10 +81,18 @@ matches).
 2. Add it to the `LOCALES` import list in `src/i18n/index.js`. The dropdown is
    built from that list, so no other wiring is needed.
 
-**Add a translatable string:** add the key to `en.js` (and ideally the other
-locales), then mark the element with the matching `data-i18n*` attribute.
-Dynamic strings built in JS (e.g. the commit-count button label) are not yet
-routed through `t()`; do that in the owning module when needed.
+**Add a translatable string:** add the key to `en.js` **and every other locale**,
+then mark the element with the matching `data-i18n*` attribute. A missing key
+falls back to English at runtime, but `npm test` enforces **full key parity** —
+every locale must carry exactly the `en` key set (see [testing.md](testing.md)),
+so adding a key to `en` alone fails CI. Dynamic strings built in JS (e.g. the
+commit-count button label) are not yet routed through `t()`; do that in the
+owning module when needed.
+
+> The i18n engine is loaded as an ES module by both the browser and Node's test
+> runner; `src/i18n/package.json` (`{"type":"module"}`) marks the folder ESM for
+> Node. The browser ignores it and the Electron main process never imports i18n,
+> so runtime is unaffected.
 
 The default language is English and the default theme is dark; both are used
 until the user changes them.

@@ -10,8 +10,10 @@ An Electron desktop app for running and monitoring multiple interactive `claude`
 
 - `npm install` — install deps (no native compile step; see docs/platform-notes.md).
 - `npm start` — launch the app (`electron .`).
+- `npm test` — run the unit tests (Node's built-in runner, zero test deps).
+- `npm run lint` — ESLint over the whole tree.
 
-No build, lint, or test setup — vanilla JS, no bundler, no test framework.
+No bundler and no build step for the app itself — vanilla JS loaded directly. The tests and lint cover the pure, Electron-free logic (config/JSONC translation, git porcelain parsing, per-session edit replay, i18n); CI runs `npm run lint` + `npm test` on every push/PR. See [docs/testing.md](docs/testing.md).
 
 ## Documentation
 
@@ -21,8 +23,10 @@ Project knowledge lives in `docs/` (not in any external memory). Read the releva
 - [docs/status-detection.md](docs/status-detection.md) — how the colored status dots are driven by Claude Code hooks.
 - [docs/platform-notes.md](docs/platform-notes.md) — Windows gotchas (node-pty fork, PTY path resolution, sandbox flag). **Do not revert these.**
 - [docs/settings.md](docs/settings.md) — the theme + language settings system (gear button), CSS-variable theming, and the i18n engine. How to add a theme, a language, or a translatable string.
+- [docs/testing.md](docs/testing.md) — the test + lint + CI setup: what's covered, the pure-logic split that makes it testable, and how to add a test or a lint rule.
 
 ## Working rules for agents
 
 - **Keep docs in sync with code.** When you change behavior, add/edit/remove the matching file under `docs/` in the same change, and update the links above if you add or remove a doc. Docs that lie are worse than none.
+- **Keep tests and lint green.** Run `npm test` and `npm run lint` before finishing a change. When you touch the pure logic (the modules listed in [docs/testing.md](docs/testing.md)), add or update a test in the same change; new behavior with no test is incomplete. Keep OS/IPC-touching code thin and push real logic into an Electron-free helper (`run-configs-lib.js`, `git-parse.js`, `edit-ops.js`) so it stays testable.
 - **Write self-explanatory code.** Clear names, small functions, obvious control flow. Reserve comments for the non-obvious *why* (e.g. a platform workaround), not for restating *what* the code does. If a behavior needs prose to be understood, prefer making the code clearer first, then document the genuinely surprising part in `docs/`.

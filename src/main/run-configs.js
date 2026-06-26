@@ -3,187 +3,17 @@ const path = require('path');
 const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
 const { getWin } = require('./window');
+const { parseJsonc, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
 // We don't run a real debugger; each launch config / task is translated into a
-// shell command and opened in an in-app terminal tab (see the renderer).
-
-// Parse JSONC (VS Code config files allow // and /* */ comments and trailing
-// commas). Strip comments outside of strings, drop trailing commas, JSON.parse.
-function parseJsonc(text) {
-  let out = '', inStr = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i], c2 = text[i + 1];
-    if (inStr) {
-      out += c;
-      if (c === '\\') { out += c2 ?? ''; i++; continue; }
-      if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') { inStr = true; out += c; continue; }
-    if (c === '/' && c2 === '/') { while (i < text.length && text[i] !== '\n') i++; out += '\n'; continue; }
-    if (c === '/' && c2 === '*') { i += 2; while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) i++; i++; continue; }
-    out += c;
-  }
-  return JSON.parse(out.replace(/,(\s*[}\]])/g, '$1'));
-}
+// shell command and opened in an in-app terminal tab (see the renderer). The
+// pure translation lives in run-configs-lib.js (Electron-free, unit-tested);
+// this module owns the file IO, IPC, and the .vscode watcher.
 
 function readVscodeJson(name) {
   try { return parseJsonc(fs.readFileSync(path.join(getRepoPath(), '.vscode', name), 'utf8')); }
   catch { return null; }
-}
-
-// Resolve the VS Code variables we can without a live editor context. Unknown
-// ${...} placeholders (e.g. ${file}) are left untouched — best effort.
-function substVars(str) {
-  if (typeof str !== 'string') return str;
-  const repoPath = getRepoPath();
-  return str
-    .replace(/\$\{workspaceFolder(?:Basename)?\}/g, (m) => m.includes('Basename') ? path.basename(repoPath) : repoPath)
-    .replace(/\$\{workspaceRoot\}/g, repoPath)
-    .replace(/\$\{cwd\}/g, repoPath)
-    .replace(/\$\{pathSeparator\}/g, path.sep)
-    .replace(/\$\{env:([^}]+)\}/g, (_, n) => process.env[n] || '');
-}
-
-const quoteArg = (a) => { a = String(a); return /\s/.test(a) ? `"${a}"` : a; };
-function envMap(env) {
-  const out = {};
-  for (const [k, v] of Object.entries(env || {})) out[k] = substVars(String(v));
-  return out;
-}
-
-// Debug `type`s whose interpreter is the type's own runtime, so a config with a
-// `program` but no explicit `runtimeExecutable` still resolves (e.g. a `go` config
-// → `go run <program>`). node/python are handled inline above this map.
-const TYPE_RUNTIME = {
-  go: ['go', 'run'],
-  php: ['php'],
-  ruby: ['ruby'],
-  rdebug: ['ruby'],
-  perl: ['perl'],
-  lua: ['lua'],
-  bashdb: ['bash'],
-  shell: ['bash'],
-};
-
-// Turn a launch config into a runnable command line. Covers the common node /
-// python cases, known interpreter types (TYPE_RUNTIME), plus a generic
-// runtimeExecutable/program fallback; returns null when there's nothing
-// executable to derive (e.g. a browser/attach config with no program).
-function buildLaunchCommand(cfg) {
-  const program = cfg.program ? substVars(cfg.program) : '';
-  const args = (cfg.args || []).map(substVars);
-  const runExe = cfg.runtimeExecutable ? substVars(cfg.runtimeExecutable) : '';
-  const runArgs = (cfg.runtimeArgs || []).map(substVars);
-  const type = (cfg.type || '').toLowerCase();
-  // Godot configs carry `project` + `scene` (not a `program`) and run the engine
-  // binary. The Godot Tools extension keeps the binary path in a VS Code setting,
-  // not in launch.json, so we can't know it — default to `godot` on PATH, letting
-  // `runtimeExecutable`/`editor_path` override. A `scene` of "main"/"current"
-  // (or absent) runs the project's main scene; an explicit res:// path runs that scene.
-  if (type === 'godot') {
-    const exe = runExe || (cfg.editor_path ? substVars(cfg.editor_path) : '') || 'godot';
-    const project = cfg.project ? substVars(cfg.project) : getRepoPath();
-    const scene = cfg.scene ? substVars(cfg.scene) : '';
-    const sceneArgs = scene && scene !== 'main' && scene !== 'current' ? [scene] : [];
-    const parts = [exe, '--path', project, ...sceneArgs, ...runArgs, ...args];
-    return parts.filter((p) => p !== '' && p != null).map(quoteArg).join(' ');
-  }
-  let parts;
-  if (type.includes('node')) parts = [runExe || 'node', ...runArgs, program, ...args];
-  else if (type.includes('python') || type === 'debugpy') parts = [runExe || 'python', ...runArgs, program, ...args];
-  else if (runExe) parts = [runExe, ...runArgs, program, ...args];
-  else if (TYPE_RUNTIME[type] && program) parts = [...TYPE_RUNTIME[type], ...runArgs, program, ...args];
-  else if (program) parts = [program, ...args];
-  else return null;
-  return parts.filter((p) => p !== '' && p != null).map(quoteArg).join(' ');
-}
-
-// Turn a task into a command line: `command` (verbatim for shell tasks, which may
-// be a full line) followed by its quoted args. Returns null with no command.
-function buildTaskCommand(task) {
-  let command = task.command;
-  if (command && typeof command === 'object') command = command.value;
-  command = substVars(command || '');
-  if (!command) return null;
-  const args = (task.args || []).map((a) => substVars(typeof a === 'object' ? (a.value ?? '') : a));
-  if (task.type === 'process') return [command, ...args].map(quoteArg).join(' ');
-  return [command, ...args.map(quoteArg)].join(' '); // shell task: command stays verbatim
-}
-
-// Prefix a sequence step with a directory change when it runs somewhere other than
-// the repo root, so chained steps honour their task's `options.cwd` even though
-// they share one terminal. PowerShell (the Windows default shell) has no `&&`, so
-// the chain operator differs by platform — see chainCommands.
-function stepCommand(spec) {
-  if (!spec.cwd || spec.cwd === getRepoPath()) return spec.command;
-  return process.platform === 'win32'
-    ? `Set-Location '${spec.cwd}'; ${spec.command}`
-    : `cd '${spec.cwd}' && ${spec.command}`;
-}
-
-// Join commands so each runs only if the previous succeeded (VS Code's
-// `dependsOrder: "sequence"`). bash/zsh use `&&`; Windows PowerShell 5.1 lacks it,
-// so we gate each later step on the automatic `$?` success variable instead.
-function chainCommands(cmds) {
-  if (cmds.length <= 1) return cmds[0] || '';
-  if (process.platform !== 'win32') return cmds.join(' && ');
-  let chain = cmds[cmds.length - 1];
-  for (let i = cmds.length - 2; i >= 0; i--) chain = `${cmds[i]}; if ($?) { ${chain} }`;
-  return chain;
-}
-
-// Resolve a task into terminal run specs. A plain task yields one spec. A compound
-// task (`dependsOn`, a label or array of labels) resolves each referenced task and
-// combines them per `dependsOrder`: "sequence" collapses them into ONE terminal
-// whose commands are chained so each waits for the previous to succeed; "parallel"
-// / "any" (the default) spreads them across one terminal each. A compound may also
-// carry its own `command`, which VS Code runs after its dependencies. `seen` breaks
-// reference cycles.
-function resolveTask(allTasks, task, seen = new Set()) {
-  const label = task.label || task.taskName;
-  if (label) {
-    if (seen.has(label)) return []; // cycle guard
-    seen.add(label);
-  }
-  const deps = task.dependsOn == null ? []
-    : Array.isArray(task.dependsOn) ? task.dependsOn : [task.dependsOn];
-
-  if (!deps.length) {
-    const cmd = buildTaskCommand(task);
-    if (!cmd) return [];
-    const opt = task.options || {};
-    return [{ command: cmd, cwd: opt.cwd ? substVars(opt.cwd) : getRepoPath(), env: envMap(opt.env), name: label }];
-  }
-
-  const depSpecs = deps.flatMap((d) => {
-    const dep = allTasks.find((x) => (x.label || x.taskName) === d);
-    return dep ? resolveTask(allTasks, dep, seen) : [];
-  });
-  // The compound's own command (if any) runs after its deps; resolve it as a leaf.
-  const ownSpecs = task.command ? resolveTask(allTasks, { ...task, dependsOn: undefined }, new Set()) : [];
-  const ordered = [...depSpecs, ...ownSpecs];
-  if (!ordered.length) return [];
-
-  if (task.dependsOrder === 'sequence') {
-    // One terminal, commands chained; merge the steps' envs onto it (last wins).
-    return [{
-      command: chainCommands(ordered.map(stepCommand)),
-      cwd: getRepoPath(),
-      env: Object.assign({}, ...ordered.map((s) => s.env)),
-      name: label,
-    }];
-  }
-  return ordered; // parallel / any: one terminal per resolved spec
-}
-
-// A run spec the renderer turns into an in-app terminal tab: the command line plus
-// the cwd/env to spawn its shell in, and the name used as the tab label.
-function launchSpec(cfg) {
-  const cmd = buildLaunchCommand(cfg);
-  if (!cmd) return null;
-  return { command: cmd, cwd: cfg.cwd ? substVars(cfg.cwd) : getRepoPath(), env: envMap(cfg.env), name: cfg.name };
 }
 
 // Names for the toolbar: launch configs + compounds, then task labels.
@@ -204,6 +34,7 @@ ipcMain.handle('get-run-configs', () => {
 // always picked up). The renderer opens an in-app terminal per spec; a compound
 // yields one spec per referenced configuration.
 ipcMain.handle('run-config', (_e, { kind, name }) => {
+  const { resolveTask, launchSpec } = makeRunConfigLib(getRepoPath());
   if (kind === 'task') {
     const tasks = readVscodeJson('tasks.json');
     const all = (tasks && tasks.tasks) || [];

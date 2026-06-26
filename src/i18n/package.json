@@ -1,0 +1,4 @@
+{
+  "//": "Marks this folder's .js files as ES modules so Node tooling (the test runner, ESLint) can load the i18n engine and locale files the way the browser does. The browser ignores this file; the Electron main process never imports i18n, so runtime is unaffected.",
+  "type": "module"
+}

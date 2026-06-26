@@ -156,10 +156,10 @@ Vanilla JS, no bundler, no test framework. The code is split into per-subsystem 
   - `sessions.js` — the PTY manager (Claude sessions), hook activity recording (text edits + the [filesystem-change diff](#tracking-filesystem-changes) for binaries/renames/deletes), session naming.
   - `hook-server.js` — the localhost hook → status HTTP server (see [status-detection.md](status-detection.md)).
   - `repo.js` — the open repo path, folder picker, last-folder persistence.
-  - `git.js` — all `git` porcelain handlers and the shared `git()` helper.
-  - `session-commit.js` + `edit-ops.js` — per-session commit/revert (replay/inverse of recorded ops; see [Per-session commit](#per-session-commit)).
+  - `git.js` — all `git` porcelain handlers and the shared `git()` helper; the pure stdout parsers (`git-parse.js`: `parsePorcelain`/`parseLog`) are split out so they're unit-tested (see [testing.md](testing.md)).
+  - `session-commit.js` + `edit-ops.js` — per-session commit/revert (replay/inverse of recorded ops; see [Per-session commit](#per-session-commit)). `edit-ops.js` is pure (Electron-free) and unit-tested.
   - `explorer.js` — file-tree, file-search, and file CRUD handlers.
-  - `run-configs.js` — `.vscode/launch.json` + `tasks.json` parsing and the run toolbar.
+  - `run-configs.js` + `run-configs-lib.js` — the run toolbar. `run-configs.js` owns file IO, IPC, and the `.vscode` watcher; `run-configs-lib.js` is the Electron-free JSONC parse + launch/task → command translation, unit-tested (see [testing.md](testing.md)).
   - `consoles.js` — the git-pane terminal PTYs.
   - `claude.js` — the shared `runHaiku()` helper (see [Haiku generation](#haiku-generation)).
 - **`preload/`** — the `contextBridge` IPC surface, split to mirror the main modules (`index.js` composes them). Add a channel here when wiring any new main↔renderer call.

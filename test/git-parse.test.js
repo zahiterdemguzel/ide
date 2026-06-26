@@ -1,0 +1,84 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { parsePorcelain, parseLog, CONFLICT } = require('../src/main/git-parse');
+
+test('parsePorcelain: splits staged, unstaged, and untracked', () => {
+  const out = [
+    'M  staged-only.js',   // staged modification (X=M, Y=space)
+    ' M unstaged-only.js', // unstaged modification (X=space, Y=M)
+    'MM both.js',          // staged + unstaged
+    'A  added.js',         // newly staged
+    '?? untracked.js',     // untracked
+  ].join('\n');
+  const r = parsePorcelain(out);
+  assert.deepEqual(r.staged, [
+    { status: 'M', file: 'staged-only.js' },
+    { status: 'M', file: 'both.js' },
+    { status: 'A', file: 'added.js' },
+  ]);
+  assert.deepEqual(r.unstaged, [
+    { status: 'M', file: 'unstaged-only.js' },
+    { status: 'M', file: 'both.js' },
+    { status: '?', file: 'untracked.js' },
+  ]);
+  assert.deepEqual(r.conflicts, []);
+});
+
+test('parsePorcelain: untracked never counts as staged', () => {
+  const r = parsePorcelain('?? new.js');
+  assert.deepEqual(r.staged, []);
+  assert.deepEqual(r.unstaged, [{ status: '?', file: 'new.js' }]);
+});
+
+test('parsePorcelain: a rename uses the destination path', () => {
+  const r = parsePorcelain('R  old/name.js -> new/name.js');
+  assert.deepEqual(r.staged, [{ status: 'R', file: 'new/name.js' }]);
+});
+
+test('parsePorcelain: every unmerged state is a conflict, not staged/unstaged', () => {
+  for (const state of CONFLICT) {
+    const r = parsePorcelain(`${state} conflicted.js`);
+    assert.deepEqual(r.conflicts, [{ status: state, file: 'conflicted.js' }], `state ${state}`);
+    assert.deepEqual(r.staged, [], `state ${state} should not stage`);
+    assert.deepEqual(r.unstaged, [], `state ${state} should not unstage`);
+  }
+});
+
+test('parsePorcelain: blank lines and trailing newline are ignored', () => {
+  const r = parsePorcelain('\n M a.js\n\n');
+  assert.deepEqual(r.unstaged, [{ status: 'M', file: 'a.js' }]);
+});
+
+test('parsePorcelain: non-ASCII paths pass through verbatim (quotePath=false)', () => {
+  const r = parsePorcelain(' M é.txt');
+  assert.deepEqual(r.unstaged, [{ status: 'M', file: 'é.txt' }]);
+});
+
+test('parsePorcelain: empty input yields empty lists', () => {
+  assert.deepEqual(parsePorcelain(''), { staged: [], unstaged: [], conflicts: [] });
+});
+
+test('parseLog: splits unit-separator fields into commit records', () => {
+  const US = '\x1f';
+  const out = [
+    ['abc123def', 'abc123d', 'Fix the thing', 'Ada', '2 hours ago'].join(US),
+    ['000111222', '0001112', 'Add a feature', 'Bob', '3 days ago'].join(US),
+  ].join('\n');
+  const commits = parseLog(out);
+  assert.deepEqual(commits, [
+    { hash: 'abc123def', short: 'abc123d', subject: 'Fix the thing', author: 'Ada', relDate: '2 hours ago' },
+    { hash: '000111222', short: '0001112', subject: 'Add a feature', author: 'Bob', relDate: '3 days ago' },
+  ]);
+});
+
+test('parseLog: a subject containing the field separator is not corrupted', () => {
+  // Subjects are free text but git only emits \x1f between our chosen fields,
+  // so a normal subject with punctuation stays intact.
+  const US = '\x1f';
+  const commits = parseLog(['h', 's', 'feat: do x, y (z)', 'A', 'now'].join(US));
+  assert.equal(commits[0].subject, 'feat: do x, y (z)');
+});
+
+test('parseLog: empty input yields no commits', () => {
+  assert.deepEqual(parseLog(''), []);
+});

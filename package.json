@@ -6,7 +6,9 @@
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win portable"
+    "build": "electron-builder --win portable",
+    "test": "node --test",
+    "lint": "eslint ."
   },
   "build": {
     "appId": "com.claude.session-editor",

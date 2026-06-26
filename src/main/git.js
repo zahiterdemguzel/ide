@@ -2,6 +2,7 @@ const { ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
+const { parsePorcelain, parseLog } = require('./git-parse');
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
@@ -24,28 +25,13 @@ function git(args, opts = {}) {
   });
 }
 
-// Unmerged index states from `git status --porcelain` (both columns set).
-const CONFLICT = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
-
 async function gitStatus() {
   // --untracked-files=all: list each untracked file individually instead of
   // collapsing a wholly-untracked folder into one "assets/" entry (which the
   // pane can't open or stage per-file).
   const r = await git(['status', '--porcelain=v1', '--untracked-files=all']);
   if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [], conflicts: [] };
-  const staged = [], unstaged = [], conflicts = [];
-  for (const line of r.stdout.split('\n')) {
-    if (!line) continue;
-    const x = line[0], y = line[1];
-    let file = line.slice(3);
-    if (file.includes(' -> ')) file = file.split(' -> ')[1]; // rename
-    // Unmerged (conflicted) entries have both columns set in one of these pairs.
-    // They must NOT go into staged/unstaged — the +/− actions there would be wrong
-    // (and would list the file twice). Surface them separately so they're visible.
-    if (CONFLICT.has(x + y)) { conflicts.push({ status: x + y, file }); continue; }
-    if (x !== ' ' && x !== '?') staged.push({ status: x, file });
-    if (y !== ' ') unstaged.push({ status: y === '?' ? '?' : y, file });
-  }
+  const { staged, unstaged, conflicts } = parsePorcelain(r.stdout);
   return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead: await aheadCount(), branch: await currentBranch() };
 }
 
@@ -153,13 +139,7 @@ async function gitLog() {
   const fmt = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f');
   const r = await git(['log', '-n', '100', '--pretty=format:' + fmt]);
   if (!r.ok) return { ok: false, error: r.stderr, commits: [] };
-  const commits = [];
-  for (const line of r.stdout.split('\n')) {
-    if (!line) continue;
-    const [hash, short, subject, author, relDate] = line.split('\x1f');
-    commits.push({ hash, short, subject, author, relDate });
-  }
-  return { ok: true, commits };
+  return { ok: true, commits: parseLog(r.stdout) };
 }
 ipcMain.handle('git-log', () => gitLog());
 
