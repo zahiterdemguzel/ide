@@ -80,6 +80,9 @@ export async function refreshGit() {
   const aheadEl = document.getElementById('git-ahead');
   aheadEl.textContent = r.ahead;
   aheadEl.hidden = !r.ahead;
+  const behindEl = document.getElementById('git-behind');
+  behindEl.textContent = r.behind;
+  behindEl.hidden = !r.behind;
   setBranchName(r.branch);
   unstagedFiles = r.unstaged;
   stagedFiles = r.staged;
@@ -338,8 +341,14 @@ document.getElementById('git-fetch').onclick = async () => {
   showGitMsg(r.ok ? 'Fetched' : (r.stderr || 'Fetch failed'), r.ok);
   refreshGit();
 };
-document.getElementById('git-pull').onclick = async () => {
+const pullBtn = document.getElementById('git-pull');
+pullBtn.onclick = async () => {
+  document.getElementById('git-behind').hidden = true;
+  pullBtn.classList.add('loading');
+  pullBtn.disabled = true;
   const r = await window.api.gitPull();
+  pullBtn.classList.remove('loading');
+  pullBtn.disabled = false;
   showGitMsg(r.ok ? 'Pulled' : (r.stderr || 'Pull failed'), r.ok);
   refreshGit();
 };

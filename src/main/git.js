@@ -32,7 +32,7 @@ async function gitStatus() {
   const r = await git(['status', '--porcelain=v1', '--untracked-files=all']);
   if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [], conflicts: [] };
   const { staged, unstaged, conflicts } = parsePorcelain(r.stdout);
-  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead: await aheadCount(), branch: await currentBranch() };
+  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead: await aheadCount(), behind: await behindCount(), branch: await currentBranch() };
 }
 
 // The checked-out branch's short name, or 'HEAD' when detached (no branch).
@@ -46,6 +46,15 @@ async function currentBranch() {
 // (no remote-tracking branch) or HEAD has no commits yet, so the badge stays hidden.
 async function aheadCount() {
   const r = await git(['rev-list', '--count', '@{u}..HEAD']);
+  if (!r.ok) return 0;
+  return parseInt(r.stdout.trim(), 10) || 0;
+}
+
+// Commits on the upstream not yet on HEAD — i.e. what a pull would bring in.
+// Reflects the last fetch's view of the remote, mirroring aheadCount(); returns
+// 0 when there is no upstream, so the pull badge stays hidden.
+async function behindCount() {
+  const r = await git(['rev-list', '--count', 'HEAD..@{u}']);
   if (!r.ok) return 0;
   return parseInt(r.stdout.trim(), 10) || 0;
 }

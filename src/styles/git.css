@@ -60,6 +60,8 @@
 
 #git-fetch, #git-pull, #files-new, #files-new-folder, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
 #git-fetch:hover, #git-pull:hover, #files-new:hover, #files-new-folder:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
+/* fetch/pull icons sit 25% larger than the 14px base to read as the primary remote actions */
+#git-fetch svg, #git-pull svg { width: 17.5px; height: 17.5px; }
 
 .git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
 /* Native textarea grips only ever sit bottom-end; to put the resize point at
@@ -104,6 +106,19 @@
   100% { left: 110%; }
 }
 
+/* #git-pull mirrors #git-push: corner badge for pending commits + pull progress bar */
+#git-pull { position: relative; overflow: visible; }
+#git-pull.loading { cursor: not-allowed; opacity: 0.8; }
+#git-pull.loading::after {
+  content: '';
+  position: absolute;
+  bottom: -2px; left: -60%;
+  width: 60%; height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: git-push-bar 1.1s ease-in-out infinite;
+}
+
 /* push error dialog */
 #git-error-dialog {
   border: 1px solid var(--border); border-radius: 6px;
@@ -140,12 +155,15 @@
 .confirm-btn-secondary:hover { background: var(--border); }
 .confirm-btn-danger { background: var(--red); color: #fff; }
 .confirm-btn-danger:hover { filter: brightness(1.1); }
-.git-ahead-badge {
+.git-ahead-badge, .git-behind-badge {
   position: absolute; top: -6px; right: -6px;
   min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
   border-radius: 8px; background: var(--green); color: #fff;
   font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
 }
+/* the pull button is icon-sized; push the badge fully off the corner so it
+   doesn't cover the icon (badge sits above-right of the glyph) */
+.git-behind-badge { top: -9px; right: -9px; }
 .git-msg { margin-top: 6px; font-size: 12px; min-height: 14px; }
 .git-msg.ok { color: var(--green); }
 .git-msg.err { color: var(--red); }
