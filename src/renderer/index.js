@@ -12,27 +12,99 @@ import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
 import { confirmDialog } from './shared/confirm.js';
 import { initSettings } from './settings.js';
+import { t } from '../i18n/index.js';
 import './panes.js';
 
 // Closing a center overlay returns to the active session (sessions owns it).
 onClose(showActiveSession);
 
-// Open folder: re-point the repo, then reload everything that depends on it.
-document.getElementById('open-folder').onclick = async () => {
-  try {
-    const current = await window.api.getRepoPath();
-    if (current && !(await confirmDialog({
-      title: 'Change folder?',
-      message: `Current: ${current}\n\nThis will reload the file tree, git pane, and toolbar.`,
-      ok: 'Open',
-    }))) return;
-    const r = await window.api.openFolder();
-    if (r.error) console.error('open-folder:', r.error);
-    if (!r.canceled) { window.api.setWindowTitle(r.repo); refreshGit(); refreshTree(); loadToolbar(); }
-  } catch (err) {
-    console.error('open-folder click failed:', err);
+// Open folder: a reverse-combobox that pops up the recent projects (most recent
+// first) plus a "Browse…" entry, then re-points the repo and reloads everything
+// that depends on it.
+const openFolderBtn = document.getElementById('open-folder');
+const recentMenu = document.getElementById('recent-folders-menu');
+
+function applyRepoChange(r) {
+  if (r.error) { console.error('open-folder:', r.error); return; }
+  if (!r.canceled) { window.api.setWindowTitle(r.repo); refreshGit(); refreshTree(); loadToolbar(); }
+}
+
+async function changeFolderGuard() {
+  const current = await window.api.getRepoPath();
+  if (!current) return true;
+  return confirmDialog({
+    title: 'Change folder?',
+    message: `Current: ${current}\n\nThis will reload the file tree, git pane, and toolbar.`,
+    ok: 'Open',
+  });
+}
+
+async function browseForFolder() {
+  if (!(await changeFolderGuard())) return;
+  try { applyRepoChange(await window.api.openFolder()); }
+  catch (err) { console.error('open-folder click failed:', err); }
+}
+
+async function openRecentFolder(dir) {
+  if (!(await changeFolderGuard())) return;
+  try { applyRepoChange(await window.api.openFolderPath(dir)); }
+  catch (err) { console.error('open-folder-path failed:', err); }
+}
+
+function baseName(p) {
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || p;
+}
+
+function closeRecentMenu() {
+  if (recentMenu.hidden) return;
+  recentMenu.classList.remove('open');
+  openFolderBtn.setAttribute('aria-expanded', 'false');
+  // Wait for the collapse animation before hiding so it actually plays.
+  recentMenu.addEventListener('transitionend', () => { recentMenu.hidden = true; }, { once: true });
+}
+
+async function openRecentMenu() {
+  const current = await window.api.getRepoPath();
+  let recents = [];
+  try { recents = await window.api.getRecentFolders(); } catch {}
+
+  recentMenu.replaceChildren();
+  for (const dir of recents) {
+    const item = document.createElement('button');
+    item.className = 'recent-item' + (dir === current ? ' current' : '');
+    item.title = dir;
+    const name = document.createElement('span');
+    name.className = 'recent-item-name';
+    name.textContent = baseName(dir);
+    const path = document.createElement('span');
+    path.className = 'recent-item-path';
+    path.textContent = dir;
+    item.append(name, path);
+    item.onclick = () => { closeRecentMenu(); openRecentFolder(dir); };
+    recentMenu.appendChild(item);
   }
+
+  const browse = document.createElement('button');
+  browse.className = 'recent-item recent-browse';
+  browse.textContent = t('explorer.browseFolder');
+  browse.onclick = () => { closeRecentMenu(); browseForFolder(); };
+  recentMenu.appendChild(browse);
+
+  recentMenu.hidden = false;
+  openFolderBtn.setAttribute('aria-expanded', 'true');
+  // Next frame so the un-hidden element transitions from the collapsed state.
+  requestAnimationFrame(() => recentMenu.classList.add('open'));
+}
+
+openFolderBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (recentMenu.hidden) openRecentMenu(); else closeRecentMenu();
 };
+document.addEventListener('click', (e) => {
+  if (!recentMenu.hidden && !recentMenu.contains(e.target) && e.target !== openFolderBtn && !openFolderBtn.contains(e.target)) closeRecentMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecentMenu(); });
 
 initSettings();
 initConsoles();

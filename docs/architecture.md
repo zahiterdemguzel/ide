@@ -155,7 +155,7 @@ Vanilla JS, no bundler, no test framework. The code is split into per-subsystem 
   - `window.js` — the `BrowserWindow` + window title.
   - `sessions.js` — the PTY manager (Claude sessions), hook activity recording (text edits + the [filesystem-change diff](#tracking-filesystem-changes) for binaries/renames/deletes), session naming.
   - `hook-server.js` — the localhost hook → status HTTP server (see [status-detection.md](status-detection.md)).
-  - `repo.js` — the open repo path, folder picker, last-folder persistence.
+  - `repo.js` — the open repo path, folder picker, last-folder + recent-folders persistence. The Open-folder button is a reverse-combobox: it pops up the last 7 opened projects (`get-recent-folders`) above the button plus a "Browse…" entry; picking a recent one re-points via `open-folder-path`, the dialog via `open-folder`. The capping/dedup logic lives in the Electron-free `recent-folders.js` (`addRecent`), unit-tested (see [testing.md](testing.md)).
   - `git.js` — all `git` porcelain handlers and the shared `git()` helper; the pure stdout parsers (`git-parse.js`: `parsePorcelain`/`parseLog`) are split out so they're unit-tested (see [testing.md](testing.md)).
   - `session-commit.js` + `edit-ops.js` — per-session commit/revert (replay/inverse of recorded ops; see [Per-session commit](#per-session-commit)). `edit-ops.js` is pure (Electron-free) and unit-tested.
   - `explorer.js` — file-tree, file-search, and file CRUD handlers.

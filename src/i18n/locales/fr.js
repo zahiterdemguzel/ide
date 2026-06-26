@@ -14,6 +14,7 @@ export default {
 
     'explorer.search': 'Rechercher des fichiers…',
     'explorer.openFolder': 'Ouvrir un dossier',
+    'explorer.browseFolder': 'Parcourir…',
     'explorer.newFile': 'Nouveau fichier',
     'explorer.newFolder': 'Nouveau dossier',
     'explorer.collapseAll': 'Tout réduire',

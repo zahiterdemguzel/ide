@@ -14,6 +14,7 @@ export default {
 
     'explorer.search': 'Dosyalarda ara…',
     'explorer.openFolder': 'Klasör aç',
+    'explorer.browseFolder': 'Gözat…',
     'explorer.newFile': 'Yeni dosya',
     'explorer.newFolder': 'Yeni klasör',
     'explorer.collapseAll': 'Tümünü daralt',

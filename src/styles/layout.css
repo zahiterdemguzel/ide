@@ -42,6 +42,43 @@
 .sidebar-actions button .btn-icon { width: 16px; height: 16px; display: block; }
 .sidebar-actions button:hover { background: var(--accent-hi); }
 
+/* Open-folder reverse-combobox: the recent-projects menu pops up *above* the
+   button (bottom: 100%) and grows downward into place from a collapsed top. */
+.open-folder-wrap { position: relative; }
+.recent-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 4px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 320px; overflow-y: auto;
+  transform-origin: bottom center;
+  opacity: 0; transform: translateY(8px) scaleY(0.85);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.recent-menu[hidden] { display: none; }
+.recent-menu.open { opacity: 1; transform: translateY(0) scaleY(1); }
+.sidebar-actions .recent-item {
+  background: none; color: var(--fg); border: none; border-radius: 4px;
+  padding: 6px 8px; cursor: pointer; font-size: 12px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  text-align: left; width: 100%; overflow: hidden;
+}
+.sidebar-actions .recent-item:hover { background: var(--bg-3); }
+.recent-item-name {
+  font-weight: 600; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.recent-item-path {
+  color: var(--fg-dim); font-size: 10px; font-family: Consolas, monospace;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sidebar-actions .recent-item.current .recent-item-name { color: var(--accent); }
+.sidebar-actions .recent-item.recent-browse {
+  color: var(--accent); font-weight: 600;
+  border-top: 1px solid var(--border); border-radius: 0 0 4px 4px;
+  margin-top: 2px; padding-top: 8px;
+}
+
 /* sidebar split: sessions (top, drag-resizable) + explorer (bottom fills rest) */
 #sessions-pane { flex: 0 0 var(--sess-h, 50%); min-height: 0; display: flex; flex-direction: column; }
 #files-pane { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }

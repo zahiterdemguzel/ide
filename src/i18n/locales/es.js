@@ -14,6 +14,7 @@ export default {
 
     'explorer.search': 'Buscar archivos…',
     'explorer.openFolder': 'Abrir carpeta',
+    'explorer.browseFolder': 'Examinar…',
     'explorer.newFile': 'Nuevo archivo',
     'explorer.newFolder': 'Nueva carpeta',
     'explorer.collapseAll': 'Contraer todo',

@@ -18,6 +18,7 @@ A module that does `require('electron')` (or reads files, spawns git, touches th
 | `src/main/edit-ops.js` | `src/main/session-commit.js` | `editOp`/`replayEdits`/`inverseEdits` — turning file-tool calls into replayable ops and replaying / de-applying them (the per-session commit/revert core, including the cross-session "don't clobber the other session's edits" guarantee). |
 | `src/main/run-configs-lib.js` | `src/main/run-configs.js` | `parseJsonc` (comments, trailing commas, comment-like text inside strings) and the launch/task → shell-command translation (`buildLaunchCommand`, `buildTaskCommand`, `resolveTask`, `chainCommands`). Platform-specific behaviour (PowerShell `$?` chaining vs `&&`) is tested by **injecting** the platform into `makeRunConfigLib(repoPath, platform)`. |
 | `src/main/git-parse.js` | `src/main/git.js` | `parsePorcelain` (staged/unstaged/conflicts split, rename arrows, unmerged states, non-ASCII paths) and `parseLog` (unit-separator field splitting). git.js runs the subprocess and feeds stdout here. |
+| `src/main/recent-folders.js` | `src/main/repo.js` | `addRecent` — front-insert + dedup + cap for the Open-folder recent-projects list (the reverse-combobox). repo.js handles the file persistence and IPC. |
 | `src/i18n/index.js` | — | `t()` lookup + English fallback, `setLocale` fallback for unknown codes, and **locale key parity** (every locale has exactly the base `en` key set — catches a string added to `en` but forgotten elsewhere, or an orphan/typo'd key). |
 
 ### i18n is ES modules
