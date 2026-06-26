@@ -15,8 +15,18 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   canvas.className = 'pixel-canvas';
   const ctx = canvas.getContext('2d');
   ctx.drawImage(img, 0, 0);
+
+  // A pixel-boundary grid overlaid on the canvas; only shown once pixels are big
+  // enough that the lines mark cells instead of smothering them.
+  const GRID_MIN_SCALE = 8;
+  const grid = document.createElement('div');
+  grid.className = 'pixel-grid';
+
   const applyScale = () => {
     canvas.style.width = (w * scale) + 'px'; canvas.style.height = (h * scale) + 'px';
+    grid.style.width = (w * scale) + 'px'; grid.style.height = (h * scale) + 'px';
+    grid.style.backgroundSize = scale + 'px ' + scale + 'px';
+    grid.classList.toggle('on', scale >= GRID_MIN_SCALE);
     zoomLabel.textContent = scale + '×';
   };
 
@@ -153,7 +163,7 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
 
   const stage = document.createElement('div');
   stage.className = 'pixel-stage';
-  stage.appendChild(canvas);
+  stage.append(canvas, grid);
   viewport.appendChild(stage);
 
   const editor = document.createElement('div');

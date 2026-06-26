@@ -27,8 +27,19 @@
 #asset-body:has(.pixel-editor) { padding: 0; overflow: hidden; }
 .pixel-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .pixel-viewport { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: grid; place-items: center; }
-.pixel-stage { display: inline-block; }
+.pixel-stage { display: inline-block; position: relative; }
 .pixel-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--bg-2); border: 1px solid var(--border); touch-action: none; }
+
+/* pixel-boundary grid overlay; offset by the canvas's 1px border so its lines
+   land exactly on pixel edges. JS sets size/background-size and toggles .on. */
+.pixel-grid {
+  position: absolute; top: 1px; left: 1px; pointer-events: none;
+  opacity: 0; transition: opacity 0.1s;
+  background-image:
+    linear-gradient(to right, rgba(128, 128, 128, 0.4) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(128, 128, 128, 0.4) 1px, transparent 1px);
+}
+.pixel-grid.on { opacity: 1; }
 
 .pixel-panel {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
