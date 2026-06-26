@@ -20,6 +20,13 @@
       "type": "shell",
       "command": "npm run build",
       "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "Run tests",
+      "type": "shell",
+      "command": "npm test",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true }
     }
   ]
 }
