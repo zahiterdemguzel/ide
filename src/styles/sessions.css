@@ -40,7 +40,9 @@
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gray); }
 .dot.working { background: var(--yellow); }
-.dot.needs-input { background: var(--red); box-shadow: 0 0 6px var(--red); }
+/* Needs-input and completed share one green signal — both mean "this session
+   wants your attention". The glow keeps an input request a touch more eye-catching. */
+.dot.needs-input { background: var(--green); box-shadow: 0 0 6px var(--green); }
 .dot.completed { background: var(--green); }
 .dot.pushed { background: var(--purple); }
 
