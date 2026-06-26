@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
-const { getWin } = require('./window');
+const { sendToRenderer } = require('./window');
 const { parseJsonc, parseEnvFile, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
@@ -88,7 +88,7 @@ function unwatchVscode() {
 }
 function watchVscode() {
   unwatchVscode();
-  const onChange = () => { const win = getWin(); if (win) win.webContents.send('run-configs-changed'); };
+  const onChange = () => { sendToRenderer('run-configs-changed'); };
   for (const name of ['launch.json', 'tasks.json']) {
     const p = path.join(getRepoPath(), '.vscode', name);
     fs.watchFile(p, { interval: 2000 }, (cur, prev) => {

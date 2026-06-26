@@ -3,7 +3,7 @@ const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
-const { getWin } = require('./window');
+const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { resolveClaude, runHaiku } = require('./claude');
 const { editOp } = require('./edit-ops');
@@ -134,8 +134,7 @@ async function generateSessionName(id, prompt) {
   if (!out) return;
   const name = out.split('\n').pop().trim().slice(0, 60);
   const s = sessions.get(id);
-  const win = getWin();
-  if (name && s) { s.name = name; if (win) win.webContents.send('session-name', { id, name }); }
+  if (name && s) { s.name = name; sendToRenderer('session-name', { id, name }); }
 }
 
 ipcMain.handle('new-session', (_e, { cols, rows }) => {
@@ -147,11 +146,10 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
     cwd: getRepoPath(),
     env: sessionEnv(),
   });
-  p.onData((data) => { const win = getWin(); if (win) win.webContents.send('pty-data', { id, data }); });
+  p.onData((data) => { sendToRenderer('pty-data', { id, data }); });
   p.onExit(() => {
     sessions.delete(id);
-    const win = getWin();
-    if (win) win.webContents.send('status', { id, state: 'completed' });
+    sendToRenderer('status', { id, state: 'completed' });
   });
   sessions.set(id, { pty: p, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '' });
   return { id, repo: getRepoPath() };

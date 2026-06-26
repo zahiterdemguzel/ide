@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { getWin } = require('./window');
+const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
 const { sessions, trackedFiles } = require('./sessions');
@@ -98,8 +98,7 @@ ipcMain.handle('commit-session', async (_e, id) => {
   if (ct.ok) {
     for (const abs of committedAbs) s.edits.delete(abs);
     for (const abs of committedFileOps) s.fileOps.delete(abs);
-    const win = getWin();
-    if (win) win.webContents.send('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+    sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   }
   return ct;
 });
@@ -150,8 +149,7 @@ ipcMain.handle('revert-session', async (_e, id) => {
     revertedOps.push(abs);
   }
   for (const abs of revertedOps) s.fileOps.delete(abs);
-  const win = getWin();
-  if (win) win.webContents.send('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+  sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   if (!reverted.length && !revertedOps.length && !skipped.length) return { ok: false, stderr: 'This session changed no files' };
   return { ok: true, reverted: reverted.length + revertedOps.length, skipped };
 });

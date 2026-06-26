@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const path = require('path');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const crypto = require('crypto');
-const { getWin } = require('./window');
+const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 
 // --- git-pane consoles: interactive shell PTYs in the repo dir, keyed by id.
@@ -34,12 +34,11 @@ function spawnConsole(id, { cols, rows, shell, command, cwd, env } = {}) {
     cwd: cwd || getRepoPath(),
     env: env ? { ...process.env, ...env } : process.env,
   });
-  p.onData((data) => { const win = getWin(); if (win) win.webContents.send('term-data', { id, data }); });
+  p.onData((data) => { sendToRenderer('term-data', { id, data }); });
   p.onExit(() => {
     if (consoles.get(id) !== p) return; // replaced by a restart — stay quiet
     consoles.delete(id);
-    const win = getWin();
-    if (win) win.webContents.send('term-exit', { id });
+    sendToRenderer('term-exit', { id });
   });
   consoles.set(id, p);
   if (command) p.write(command + '\r');

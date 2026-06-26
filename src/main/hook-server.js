@@ -1,5 +1,5 @@
 const http = require('http');
-const { getWin } = require('./window');
+const { sendToRenderer } = require('./window');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
 // circular require is safe. Access via the module object, never destructure at top.
@@ -48,10 +48,9 @@ function startHookServer() {
     req.on('end', async () => {
       try {
         const payload = JSON.parse(body);
-        const win = getWin();
         const state = eventToState(payload);
-        if (state && payload.session_id && win) {
-          win.webContents.send('status', { id: payload.session_id, state });
+        if (state && payload.session_id) {
+          sendToRenderer('status', { id: payload.session_id, state });
         }
         // Await before answering the hook: on PreToolUse this snapshots the
         // working tree, and the command hook blocks the tool from running until
@@ -60,8 +59,7 @@ function startHookServer() {
         // other event (no git call), so the added latency is bounded to file-
         // touching tools.
         const meta = await sessions.recordSessionActivity(payload);
-        const w = getWin();
-        if (meta && w) w.webContents.send('session-meta', meta);
+        if (meta) sendToRenderer('session-meta', meta);
       } catch { /* ignore malformed */ }
       res.end('ok');
     });
