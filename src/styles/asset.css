@@ -20,7 +20,7 @@
 
 /* image zoom */
 .zoom-wrap { display: inline-block; }
-.zoom-img { display: block; image-rendering: pixelated; }
+.zoom-img { display: block; image-rendering: auto; }
 
 /* pixel editor: a scrollable canvas viewport above a dedicated control panel,
    so the editor's many controls never crowd the shared top toolbar. */
