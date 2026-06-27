@@ -1,33 +1,45 @@
 /* git pane */
+
+/* Section headers: small uppercase eyebrows that separate Staged / Changes /
+   Conflicts. A hairline under each gives the pane a clear vertical rhythm so the
+   lists don't run together. */
 .git-section-title {
-  padding: 6px 12px; font-size: 9.5px; color: var(--fg-dim);
-  text-transform: uppercase; letter-spacing: .05em;
+  display: flex; align-items: center;
+  padding: 8px 12px 6px; font-size: 10px; font-weight: 600; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .07em;
 }
 .git-head-row { display: flex; align-items: center; justify-content: space-between; }
-.git-head-actions { display: flex; gap: 8px; }
+.git-head-actions { display: flex; gap: 4px; }
 .git-head-actions .git-btn { visibility: visible; }
 
-/* Changes / History tabs (mirrors the session filter tabs) */
-.git-tabs { display: flex; gap: 4px; padding: 6px 12px 8px; }
+/* Changes / History tabs — a segmented control that mirrors the session filter
+   tabs. The active segment carries the accent; the track sits on bg-3 so the
+   group reads as one unit. */
+.git-tabs {
+  display: flex; gap: 2px; margin: 6px 12px 8px; padding: 2px;
+  background: var(--bg-3); border-radius: 6px;
+}
 .git-tab {
-  flex: 1; text-align: center; padding: 3px 8px; background: none;
-  border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
-  color: var(--fg-dim); font-size: 11px; line-height: 1.4;
+  flex: 1; text-align: center; padding: 4px 8px; background: none;
+  border: none; border-radius: 4px; cursor: pointer;
+  color: var(--fg-dim); font-size: 11px; font-weight: 500; line-height: 1.5;
+  transition: color .12s ease, background .12s ease;
 }
 .git-tab:hover { color: var(--fg); }
-.git-tab.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent-hi); }
+.git-tab.active { color: var(--on-accent); background: var(--accent); }
 
 /* Each tab's body fills the pane; the commit box pins to the bottom of Changes. */
 #git-changes-view, #git-history-view {
   flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
 }
 #git-history-view[hidden], #git-changes-view[hidden] { display: none; }
+#git-history-view { padding-top: 2px; }
 #history-list { flex: 1; max-height: none; }
 
 /* history commit rows */
-.commit-item { align-items: flex-start; }
-.commit-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-item { align-items: flex-start; gap: 10px; padding: 7px 12px; }
+.commit-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.commit-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .commit-meta {
   font-size: 10.5px; color: var(--fg-dim); font-family: Consolas, monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -37,51 +49,70 @@
    replaces 2px of the row's left padding so subjects stay aligned with pushed rows. */
 .commit-item.unpushed { border-left: 2px solid var(--green); padding-left: 10px; }
 .commit-tag-unpushed {
-  display: inline-block; vertical-align: middle; padding: 0 5px;
+  display: inline-block; vertical-align: middle; padding: 1px 6px;
   border-radius: 7px; background: var(--green); color: #fff;
   font-family: inherit; font-size: 9px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .03em;
 }
 
-.git-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 40vh; }
+.git-list { list-style: none; margin: 0; padding: 2px 6px; overflow-y: auto; max-height: 40vh; }
 .git-list li {
-  display: flex; align-items: center; gap: 8px; padding: 4px 12px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 5px; cursor: pointer;
+  transition: background .1s ease;
 }
 .git-list li:hover { background: var(--bg-3); }
-.git-list li.warn { background: rgba(248, 81, 73, .12); }
-.git-status { width: 14px; text-align: center; font-family: Consolas, monospace; font-weight: 700; }
-.g-M { color: #e2c08d; }
-.g-A { color: var(--green); }
-.g-D { color: var(--red); }
-.g-u { color: var(--green); }
-.g-conflict { color: var(--red); }
-.git-conflicts-title { color: var(--red); font-weight: 700; }
-.git-file { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; }
-.git-btn {
-  background: none; border: 1px solid var(--border); color: var(--fg);
-  border-radius: 3px; cursor: pointer; width: 22px; height: 20px; line-height: 1; visibility: hidden;
+.git-list li.warn { background: color-mix(in srgb, var(--red) 14%, transparent); }
+/* Status glyph badge: a fixed monospace column tinted by change type. The faint
+   tinted background turns the bare M/A/D letter into a legible chip. */
+.git-status {
+  flex: none; width: 18px; height: 18px; border-radius: 4px;
   display: inline-flex; align-items: center; justify-content: center;
+  font-family: Consolas, monospace; font-weight: 700; font-size: 11px;
+}
+.g-M { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 16%, transparent); }
+.g-A { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
+.g-D { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
+.g-u { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
+.g-conflict { color: var(--red); background: color-mix(in srgb, var(--red) 18%, transparent); }
+.git-conflicts-title { color: var(--red); font-weight: 700; }
+.git-file { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; font-size: 12px; }
+.git-btn {
+  background: none; border: 1px solid transparent; color: var(--fg-dim);
+  border-radius: 4px; cursor: pointer; width: 22px; height: 20px; line-height: 1; visibility: hidden;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .1s ease, color .1s ease, border-color .1s ease;
 }
 .git-list li:hover .git-btn { visibility: visible; }
-.git-btn:hover { background: var(--accent); border-color: var(--accent); }
+.git-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 /* armed discard stays visible and red until the second click confirms */
 .git-revert.armed { visibility: visible; color: var(--red); border-color: var(--red); }
 .git-revert.armed:hover { background: var(--red); border-color: var(--red); color: #fff; }
 
-#git-fetch, #git-pull, #files-new, #files-new-folder, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 0; }
-#git-fetch:hover, #git-pull:hover, #files-new:hover, #files-new-folder:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); }
+/* Section-header action buttons (stage-all / discard-all / unstage-all): always
+   visible, ghosted until hovered so they don't compete with the eyebrow text. */
+.git-head-actions .git-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.git-head-actions .git-revert:hover { background: var(--red); border-color: var(--red); color: #fff; }
+
+#git-fetch, #git-pull, #files-new, #files-new-folder, #files-refresh, #files-collapse { background: none; border: none; color: var(--fg-dim); cursor: pointer; display: inline-flex; align-items: center; padding: 4px; border-radius: 4px; transition: background .1s ease, color .1s ease; }
+#git-fetch:hover, #git-pull:hover, #files-new:hover, #files-new-folder:hover, #files-refresh:hover, #files-collapse:hover { color: var(--fg); background: var(--bg-3); }
 /* fetch/pull icons sit 25% larger than the 14px base to read as the primary remote actions */
 #git-fetch svg, #git-pull svg { width: 17.5px; height: 17.5px; }
 
-.git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); }
+.git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--bg-2); }
 /* Native textarea grips only ever sit bottom-end; to put the resize point at
    the top-right we disable it and drive a custom grip (panes.js) that grows the
    box upward. */
 .commit-msg-wrap { position: relative; }
 #commit-msg {
-  display: block; width: 100%; resize: none; background: var(--bg-3); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 3px; padding: 6px;
-  font-family: inherit; font-size: 13px;
+  display: block; width: 100%; resize: none; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 5px; padding: 7px 8px;
+  font-family: inherit; font-size: 13px; line-height: 1.4;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+#commit-msg:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
 }
 #commit-msg-grip {
   position: absolute; top: 0; right: 0; width: 14px; height: 14px;
@@ -92,13 +123,18 @@
 /* Git status feedback rides in the commit box placeholder (git-pane.js). */
 #commit-msg.msg-ok::placeholder { color: var(--green); opacity: 1; }
 #commit-msg.msg-err::placeholder { color: var(--red); opacity: 1; }
-.git-commit-actions { display: flex; gap: 8px; margin-top: 8px; }
+.git-commit-actions { display: flex; gap: 6px; margin-top: 8px; }
 .git-commit-actions button {
-  flex: 1; background: var(--accent); color: var(--on-accent); border: none;
-  border-radius: 3px; padding: 6px; cursor: pointer; font-size: 12px;
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 6px 10px; cursor: pointer; font-size: 12px; font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
-.git-commit-actions button:hover { background: var(--accent-hi); }
+.git-commit-actions button:hover { background: var(--border); }
+/* Commit is the primary action of the pane — give it the full accent fill so it
+   leads; Undo / Push stay as quieter secondary buttons beside it. */
+#git-commit { flex: 1; background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+#git-commit:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 /* #git-push needs positioning context for the corner badge */
 #git-push { position: relative; overflow: visible; }
 #git-push.loading { overflow: hidden; cursor: not-allowed; opacity: 0.8; }
@@ -107,7 +143,7 @@
   position: absolute;
   bottom: 0; left: -60%;
   width: 60%; height: 2px;
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--accent);
   border-radius: 1px;
   animation: git-push-bar 1.1s ease-in-out infinite;
 }
@@ -131,33 +167,35 @@
 
 /* push error dialog */
 #git-error-dialog {
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-2); color: var(--fg);
   padding: 20px 24px; max-width: 420px; width: 90%;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
 }
-#git-error-dialog::backdrop { background: rgba(0,0,0,0.45); }
+#git-error-dialog::backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
 #git-error-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--red); }
 #git-error-msg { font-size: 12px; font-family: Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; margin-bottom: 16px; }
 #git-error-ok {
   float: right; background: var(--accent); color: var(--on-accent); border: none;
-  border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px;
+  border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px;
+  transition: background .12s ease;
 }
 #git-error-ok:hover { background: var(--accent-hi); }
 
 /* confirm dialog (e.g. change folder) — shares the error dialog's chrome */
 #confirm-dialog {
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-2); color: var(--fg);
   padding: 20px 24px; max-width: 420px; width: 90%;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
 }
-#confirm-dialog::backdrop { background: rgba(0,0,0,0.45); }
+#confirm-dialog::backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
 #confirm-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--fg); }
 #confirm-msg { font-size: 12px; white-space: pre-wrap; word-break: break-word; margin-bottom: 16px; color: var(--fg-dim); }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .confirm-actions button {
-  border: none; border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px;
+  border: none; border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px;
+  transition: background .12s ease, filter .12s ease;
 }
 .confirm-btn-primary { background: var(--accent); color: var(--on-accent); }
 .confirm-btn-primary:hover { background: var(--accent-hi); }
@@ -169,12 +207,12 @@
 /* warning dialog — non-fatal errors (e.g. a session failing to save/load); shares
    the error/confirm chrome but shows the error text in red with OK + Copy */
 #warn-dialog {
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-2); color: var(--fg);
   padding: 20px 24px; max-width: 480px; width: 90%;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
 }
-#warn-dialog::backdrop { background: rgba(0,0,0,0.45); }
+#warn-dialog::backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
 #warn-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--red); }
 #warn-msg {
   font-size: 12px; font-family: Consolas, monospace; color: var(--red);
@@ -182,12 +220,13 @@
   max-height: 240px; overflow-y: auto; margin-bottom: 16px;
 }
 .warn-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.warn-actions button { border: none; border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px; }
+.warn-actions button { border: none; border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px; }
 .git-ahead-badge, .git-behind-badge {
   position: absolute; top: -6px; right: -6px;
   min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;
   border-radius: 8px; background: var(--green); color: #fff;
   font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  box-shadow: 0 0 0 2px var(--bg-2);
 }
 /* the pull button is icon-sized; push the badge fully off the corner so it
    doesn't cover the icon (badge sits above-right of the glyph) */
@@ -202,45 +241,49 @@
 /* branch indicator + selector */
 /* Center the branch selector horizontally within the git pane header, independent
    of the GIT label on the left and the fetch/pull buttons on the right. */
-#git-main > .pane-head { position: relative; }
+#git-main > .pane-head { position: relative; border-bottom: 1px solid var(--border); }
 #git-branch {
   position: absolute; left: 50%; transform: translateX(-50%);
-  background: none; border: 1px solid var(--border); color: var(--fg-dim);
-  border-radius: 3px; cursor: pointer; padding: 1px 6px;
-  display: inline-flex; align-items: center; gap: 4px; max-width: 160px;
+  background: var(--bg-3); border: 1px solid var(--border); color: var(--fg);
+  border-radius: 12px; cursor: pointer; padding: 2px 10px;
+  display: inline-flex; align-items: center; gap: 5px; max-width: 160px;
   font-size: 11px; line-height: 1.5;
+  transition: border-color .12s ease, background .12s ease;
 }
-#git-branch:hover { color: var(--fg); border-color: var(--accent); }
-#git-branch svg { flex: none; }
+#git-branch:hover { background: var(--bg-3); border-color: var(--accent); }
+#git-branch svg { flex: none; color: var(--fg-dim); }
 #git-branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; }
 
 .branch-menu {
-  position: absolute; top: 30px; right: 12px; z-index: 20;
+  position: absolute; top: 34px; left: 50%; transform: translateX(-50%); z-index: 20;
   width: 240px; max-width: calc(100% - 24px);
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 6px; box-sizing: border-box;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55); padding: 6px; box-sizing: border-box;
 }
 .branch-menu[hidden] { display: none; }
 #branch-search {
   display: block; width: 100%; box-sizing: border-box; margin-bottom: 6px;
   background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 3px; padding: 5px 7px; font-family: inherit; font-size: 12px;
+  border-radius: 5px; padding: 6px 8px; font-family: inherit; font-size: 12px;
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
-#branch-search:focus { outline: none; border-color: var(--accent); }
+#branch-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 #history-search {
-  display: block; width: 100%; box-sizing: border-box; margin: 0 0 6px;
+  display: block; width: calc(100% - 24px); box-sizing: border-box; margin: 4px 12px 8px;
   background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 3px; padding: 5px 7px; font-family: inherit; font-size: 12px;
+  border-radius: 5px; padding: 6px 8px; font-family: inherit; font-size: 12px;
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
-#history-search:focus { outline: none; border-color: var(--accent); }
+#history-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 .branch-list {
   list-style: none; margin: 0; padding: 0; overflow-y: auto;
   /* ~15 rows is plenty of height; beyond that the list scrolls. */
   max-height: 390px;
 }
 .branch-item {
-  padding: 5px 8px; border-radius: 3px; cursor: pointer; font-size: 12px;
+  padding: 6px 9px; border-radius: 5px; cursor: pointer; font-size: 12px;
   font-family: Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background .1s ease;
 }
 .branch-item:hover { background: var(--bg-3); }
 .branch-item.current { color: var(--accent); font-weight: 700; }

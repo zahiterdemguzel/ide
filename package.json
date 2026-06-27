@@ -7,8 +7,8 @@
   "scripts": {
     "postinstall": "node scripts/fix-electron-signature.js",
     "start": "electron .",
-    "build": "electron-builder --win portable",
-    "build:mac": "electron-builder --mac",
+    "build": "electron-builder --win portable --publish never",
+    "build:mac": "electron-builder --mac --publish never",
     "test": "node --test",
     "lint": "eslint ."
   },
