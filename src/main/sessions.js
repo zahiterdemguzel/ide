@@ -7,6 +7,7 @@ const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claude');
 const { installGuide } = require('./claude-install');
+const { cleanEnv } = require('./proc-env');
 const { editOp } = require('./edit-ops');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
@@ -206,21 +207,12 @@ function applyFsDiff(s, before, after) {
 // When the app is launched from VS Code's debugger (.vscode/launch.json), VS Code
 // injects debugger/inspector variables into our env. node-pty would pass these to
 // the spawned `claude` CLI — itself a Node process — which then boots as a
-// debug-attached target and never starts the session. Strip them so a session
-// spawns identically regardless of how the app itself was launched.
+// debug-attached target and never starts the session. `cleanEnv` strips them so a
+// session spawns identically regardless of how the app itself was launched. The same
+// scrub guards the console PTYs (incl. the setup install/auth terminal), which run the
+// same `claude` binary — see src/main/proc-env.js.
 function sessionEnv() {
-  const env = { ...process.env };
-  delete env.ELECTRON_RUN_AS_NODE;
-  delete env.VSCODE_INSPECTOR_OPTIONS;
-  delete env.VSCODE_PID;
-  if (env.NODE_OPTIONS) {
-    const cleaned = env.NODE_OPTIONS
-      .replace(/--require[= ]\S*(vscode|js-debug|bootloader)\S*/gi, '')
-      .replace(/--inspect[\w-]*(=\S*)?/gi, '')
-      .trim();
-    if (cleaned) env.NODE_OPTIONS = cleaned; else delete env.NODE_OPTIONS;
-  }
-  return env;
+  return cleanEnv(process.env);
 }
 
 // Attribute the user's first prompt and any edited files to their session, so

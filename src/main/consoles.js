@@ -4,6 +4,7 @@ const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
+const { cleanEnv } = require('./proc-env');
 
 // --- git-pane consoles: interactive shell PTYs in the repo dir, keyed by id.
 // The renderer shows one tab per terminal. A terminal may run a launch config /
@@ -38,7 +39,11 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env } = {}) {
     cols: cols || 80,
     rows: rows || 24,
     cwd: cwd || getRepoPath(),
-    env: env ? { ...process.env, ...env } : process.env,
+    // Scrub VS Code debugger/inspector pollution: a console may run the `claude` CLI
+    // (the setup gate's install/auth terminal does), itself a Node process that would
+    // otherwise boot debug-attached and fail — the reason the install died here but
+    // worked in a clean Terminal. See src/main/proc-env.js.
+    env: env ? { ...cleanEnv(), ...env } : cleanEnv(),
   });
   // Run `command` only once the shell is ready to accept it. Writing it the instant
   // the PTY spawns races the shell's startup: zsh in particular hasn't initialised
