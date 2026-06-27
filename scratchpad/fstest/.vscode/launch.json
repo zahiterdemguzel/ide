@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    { "name": "Backend (Spring Boot Dev)", "type": "node", "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/mvnw", "runtimeArgs": ["spring-boot:run","-Pdev"],
+      "envFile": "${workspaceFolder}/dev.env", "console": "integratedTerminal" },
+    { "name": "Frontend (Vite)", "type": "node", "request": "launch",
+      "runtimeExecutable": "node", "args": ["node_modules/vite/bin/vite.js","--host"],
+      "console": "integratedTerminal" }
+  ],
+  "compounds": [
+    { "name": "Fullstack (Frontend + Backend)",
+      "configurations": ["Backend (Spring Boot Dev)","Frontend (Vite)"] }
+  ]
+}
