@@ -1,14 +1,17 @@
 // Pure text-search helpers backing the file editor's find bar (Ctrl+F). Kept
 // Electron- and DOM-free so the matching/navigation logic is unit-tested; the
 // editor (viewer/file.js) owns the textarea selection + scrolling around it.
+import { fold } from './text-fold.js';
 
 // All non-overlapping occurrences of `query` in `text`, as { start, end } index
 // pairs (end is exclusive, so text.slice(start, end) === the match). Empty or
 // whitespace-only queries match nothing. Case-insensitive unless `caseSensitive`.
+// fold() is length-preserving, so offsets into the folded haystack are valid
+// offsets into `text` — the caller highlights with text.slice(start, end).
 export function findMatches(text, query, caseSensitive = false) {
   if (!query) return [];
-  const hay = caseSensitive ? text : text.toLowerCase();
-  const needle = caseSensitive ? query : query.toLowerCase();
+  const hay = caseSensitive ? text : fold(text);
+  const needle = caseSensitive ? query : fold(query);
   const out = [];
   let from = 0;
   for (;;) {

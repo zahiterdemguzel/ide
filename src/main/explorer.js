@@ -73,8 +73,13 @@ ipcMain.handle('create-folder', (_e, rel) => {
 // contains both "enemy" and ".mp3", so folder names count too). A term of
 // "*.png" or ".png" matches by extension; any other term is a substring of the
 // path (which includes the extension, so a bare "png" / "js" gathers that type too).
+// fold() here mirrors the renderer's text-fold: NFC so a query typed precomposed
+// ("ş") matches a filename the OS hands back decomposed ("s"+combining cedilla,
+// as macOS volumes do), and lowercase for case-insensitivity. Indices don't
+// matter for substring matching, so the simple whole-string form is enough.
+const fold = (s) => String(s == null ? '' : s).normalize('NFC').toLowerCase();
 ipcMain.handle('search-names', async (_e, q) => {
-  const needle = (q || '').trim().toLowerCase();
+  const needle = fold((q || '').trim());
   if (!needle) return { ok: true, files: [] };
   const terms = needle.split(/\s+/).map((t) => {
     const ext = /^\*?\.([a-z0-9]+)$/.exec(t);
@@ -91,7 +96,7 @@ ipcMain.handle('search-names', async (_e, q) => {
       if (d.isDirectory() && shouldSkipDir(d.name)) continue;
       const childRel = rel ? rel + '/' + d.name : d.name;
       if (d.isDirectory()) { await walk(childRel); continue; }
-      const hay = childRel.toLowerCase();
+      const hay = fold(childRel);
       const hit = terms.every((t) => (t.suffix ? hay.endsWith(t.suffix) : hay.includes(t.sub)));
       if (hit && files.length < 500) files.push(childRel);
     }

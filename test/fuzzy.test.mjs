@@ -1,12 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fuzzyMatch, fuzzyFilter } from '../src/renderer/shared/fuzzy.js';
+import { fold } from '../src/renderer/shared/text-fold.js';
 
 test('fuzzyMatch: requires a subsequence, in order', () => {
   assert.ok(fuzzyMatch('app', 'src/app.js'));
   assert.ok(fuzzyMatch('aj', 'app.js'));        // gaps are fine
   assert.equal(fuzzyMatch('xyz', 'app.js'), null);
   assert.equal(fuzzyMatch('ja', 'app.js'), null); // out of order
+});
+
+test('fuzzyMatch: matches Turkish letters case-insensitively', () => {
+  assert.ok(fuzzyMatch('güzel', 'src/Güzel.js'));
+  assert.ok(fuzzyMatch('istanbul', 'İstanbul.txt'));
+});
+
+test('fuzzyMatch: positions stay aligned to the original target past a İ', () => {
+  // fold() is length-preserving, so a position indexes target[i] directly even
+  // though "İ" would lowercase to two units. The matched chars (folded) must be
+  // the folded query, in order.
+  const target = 'İstanbul/Şehir.js';
+  const { positions } = fuzzyMatch('şehir', target);
+  const matched = positions.map((i) => target[i]).join('');
+  assert.equal(fold(matched), fold('şehir'));
 });
 
 test('fuzzyMatch: empty query matches everything neutrally', () => {

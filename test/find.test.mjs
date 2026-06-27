@@ -31,6 +31,25 @@ test('findMatches: slice of a match equals the query (end is exclusive)', () => 
   assert.equal(text.slice(hit.start, hit.end), 'find');
 });
 
+test('findMatches: Turkish letters match case-insensitively', () => {
+  assert.equal(findMatches('Şçöü güzel', 'şçöü').length, 1);
+  assert.equal(findMatches('GÜZEL', 'güzel').length, 1);
+});
+
+test('findMatches: a İ before a hit does not shift later match offsets', () => {
+  // Regression: "İ".toLowerCase() is two code units, which used to push every
+  // later match index off by one and corrupt the editor's highlights.
+  const text = 'İstanbul güzel, GÜZEL günü';
+  const slices = findMatches(text, 'güzel').map((m) => text.slice(m.start, m.end));
+  assert.deepEqual(slices, ['güzel', 'GÜZEL']);
+});
+
+test('findMatches: lowercase query finds an İ-cased hit', () => {
+  const text = 'İstanbul';
+  const [hit] = findMatches(text, 'istanbul');
+  assert.equal(text.slice(hit.start, hit.end), 'İstanbul');
+});
+
 test('nearestMatch: first match at or after the caret', () => {
   const matches = [{ start: 2 }, { start: 10 }, { start: 20 }];
   assert.equal(nearestMatch(matches, 0), 0);

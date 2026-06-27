@@ -10,6 +10,8 @@
 // toward the shorter path and the earlier first match, so `app.js` beats
 // `vendor/app.bundle.js` for the query "app".
 
+import { fold } from './text-fold.js';
+
 const BOUNDARY_BEFORE = /[\\/._\- ]/;
 
 function basenameStart(target) {
@@ -22,9 +24,11 @@ function basenameStart(target) {
 // matched indices into `target`, for highlighting) or null when query is not a
 // subsequence of target. An empty query matches everything with a neutral score.
 export function fuzzyMatch(query, target) {
-  const q = query.toLowerCase().replace(/\s+/g, ''); // spaces are noise in a path
+  // fold() is length-preserving, so positions into `t` index `target` directly
+  // (quick-open highlights with target[i]).
+  const q = fold(query).replace(/\s+/g, ''); // spaces are noise in a path
   if (!q) return { score: 0, positions: [] };
-  const t = target.toLowerCase();
+  const t = fold(target);
   const baseStart = basenameStart(target);
 
   const positions = [];
