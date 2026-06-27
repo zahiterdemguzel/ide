@@ -9,6 +9,7 @@ const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claud
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { editOp } = require('./edit-ops');
+const { isBulkVcsCommand } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, sessionBytes, enforceLimit } = require('./session-persist');
@@ -17,7 +18,7 @@ const { serializeSession, deserializeSession, sessionBytes, enforceLimit } = req
 const hookServer = require('./hook-server');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
-//         preStatus, firstPrompt, name, archived, suspended }
+//         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
 // `pty` is null while a session is suspended (archived in the UI, or freshly
 // restored from disk after a restart): the Claude process is killed/absent to free
 // resources, but the entry — and all its tracked-file state — is kept so resuming
@@ -148,7 +149,20 @@ const TEXT_EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 // set (Bash, MCP tools, unknown tools) is assumed able to create/move/delete files.
 const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch',
   'WebSearch', 'TodoWrite', 'Task', 'BashOutput', 'KillShell', 'NotebookRead', 'ExitPlanMode']);
-const tracksFs = (name) => !!name && !TEXT_EDIT_TOOLS.has(name) && !READONLY_TOOLS.has(name);
+
+// Whether a tool call should be tracked by the working-tree diff. A tool is
+// fs-tracked when it isn't a text-edit tool (those replay as ops) and isn't
+// read-only — UNLESS it's a Bash command that only MOVES git state (pull/merge/
+// reset/…): those files aren't the session's work, so attributing them would
+// inflate the per-session commit (see fs-track.js). Computed from the whole
+// payload, and used identically on Pre and Post so the in-flight counter stays
+// balanced.
+function tracksFs(payload) {
+  const name = payload.tool_name;
+  if (!name || TEXT_EDIT_TOOLS.has(name) || READONLY_TOOLS.has(name)) return false;
+  if (name === 'Bash' && isBulkVcsCommand(payload.tool_input && payload.tool_input.command)) return false;
+  return true;
+}
 
 // The session's full tracked-file list for the renderer's commit button: text
 // edits plus path-level changes (binary creates, renames/moves, deletes).
@@ -221,10 +235,17 @@ async function recordSessionActivity(payload) {
   const s = sessions.get(payload.session_id);
   if (!s) return null;
   let changed = false;
-  if (payload.hook_event_name === 'UserPromptSubmit' && !s.firstPrompt && payload.prompt) {
-    s.firstPrompt = String(payload.prompt).trim();
-    generateSessionName(payload.session_id, s.firstPrompt);
-    changed = true;
+  if (payload.hook_event_name === 'UserPromptSubmit') {
+    // A new prompt means the agent is idle (no tool in flight), so reset the
+    // fs-tracking counter — self-heals a stuck count if a Post hook ever failed
+    // to fire, which would otherwise suppress every later snapshot.
+    s.fsInFlight = 0;
+    s.preStatus = null;
+    if (!s.firstPrompt && payload.prompt) {
+      s.firstPrompt = String(payload.prompt).trim();
+      generateSessionName(payload.session_id, s.firstPrompt);
+      changed = true;
+    }
   }
   if (payload.hook_event_name === 'PostToolUse') {
     const ti = payload.tool_input || {};
@@ -239,14 +260,22 @@ async function recordSessionActivity(payload) {
   }
   // Filesystem changes a text-edit tool can't express — a binary file a Bash/MCP
   // tool created, or a file it renamed/moved/deleted — are caught by diffing the
-  // git working tree across the tool call: snapshot on PreToolUse, compare on
-  // PostToolUse. Tools run sequentially within a session, so one `preStatus` slot
-  // is enough; a missing snapshot (e.g. a Post with no Pre) just skips the diff.
-  if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload.tool_name)) {
-    s.preStatus = await statusMap();
-  } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload.tool_name) && s.preStatus) {
-    if (applyFsDiff(s, s.preStatus, await statusMap())) changed = true;
-    s.preStatus = null;
+  // git working tree across the tool call: snapshot before the first fs tool of a
+  // burst, compare once the last one finishes. Claude runs tool calls in PARALLEL
+  // within a turn, so the Pre/Post hooks interleave; a single snapshot slot would
+  // let a second Pre clobber it and a Post-without-Pre drop its changes entirely.
+  // Instead we ref-count the fs tools in flight (`fsInFlight`): snapshot when the
+  // count goes 0→1, diff once it returns to 0, against that one consistent
+  // baseline — so every concurrent tool's changes are captured exactly once.
+  if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
+    if ((s.fsInFlight || 0) === 0) s.preStatus = await statusMap();
+    s.fsInFlight = (s.fsInFlight || 0) + 1;
+  } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload)) {
+    s.fsInFlight = Math.max(0, (s.fsInFlight || 0) - 1);
+    if (s.fsInFlight === 0 && s.preStatus) {
+      if (applyFsDiff(s, s.preStatus, await statusMap())) changed = true;
+      s.preStatus = null;
+    }
   }
   if (changed) schedulePersist();
   return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) } : null;
@@ -324,7 +353,7 @@ ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) =
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false });
   sessions.get(id).pty = spawnPty(id, cols, rows, false);
   schedulePersist();
   return { id, repo };

@@ -660,7 +660,20 @@ window.api.onSessionMeta(({ id, firstPrompt, files }) => {
   // session-meta fires for background sessions too, so refreshing the diff stat
   // here keeps an out-of-view session's badge current.
   refreshDiffStat(id);
+  // A session just touched the working tree, so the shared git pane is now stale.
+  // Refresh it immediately (debounced) instead of waiting up to 3s for the poll,
+  // so the Changes list always reflects what the agent just did.
+  scheduleGitRefresh();
 });
+
+// Coalesce the git-pane refreshes a burst of edits would trigger into one shortly
+// after activity settles — the pane reads the whole repo, so per-edit refreshes
+// would be wasteful, but the user still sees changes appear within a beat.
+let gitRefreshTimer = null;
+function scheduleGitRefresh() {
+  if (gitRefreshTimer) clearTimeout(gitRefreshTimer);
+  gitRefreshTimer = setTimeout(() => { gitRefreshTimer = null; refreshGit(); }, 400);
+}
 window.api.onSessionName(({ id, name }) => {
   const s = sessions.get(id);
   if (!s) return;
