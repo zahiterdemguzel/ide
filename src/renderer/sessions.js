@@ -7,7 +7,7 @@ import { confirmDialog } from './shared/confirm.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude } from './claude-setup.js';
-import { isCompletionTransition, playNotification } from './shared/notify.js';
+import { isCompletionTransition, playNotification, isSoundEnabled } from './shared/notify.js';
 import { t } from '../i18n/index.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -24,6 +24,18 @@ let currentTab = 'active';
 // folder's sessions are shown. Switching folders (setSessionsRepo) re-filters the
 // list without tearing down the other projects' live terminals.
 let currentRepo = null;
+
+// Optional per-row "+added -removed" diff badge in the sessions list. Off by
+// default; toggled from settings. Persists in localStorage.
+const SESS_DIFF_BADGE_STORE = 'ide.sessionDiffBadge';
+let sessionDiffBadge = localStorage.getItem(SESS_DIFF_BADGE_STORE) === 'true';
+
+export function isSessionDiffBadgeEnabled() { return sessionDiffBadge; }
+export function setSessionDiffBadge(on) {
+  sessionDiffBadge = !!on;
+  localStorage.setItem(SESS_DIFF_BADGE_STORE, sessionDiffBadge ? 'true' : 'false');
+  for (const [, s] of sessions) renderRowDiff(s);
+}
 
 const listEl = document.getElementById('session-list');
 const sessionTabs = document.getElementById('session-tabs');
@@ -88,7 +100,8 @@ function celebrateFinish(s) {
     s.li.classList.remove('just-finished');
     s.dot.classList.remove('just-finished');
   }, 1300);
-  playNotification();
+  // The animation always plays; the chime is opt-out via settings.
+  if (isSoundEnabled()) playNotification();
 }
 
 export function selectSession(id) {
@@ -251,6 +264,20 @@ function renderDiffButton(s) {
   }
 }
 
+// Mirror a session's diff stat onto its sidebar row as a small green/red badge,
+// when the setting is on and the session has net changes — otherwise hide it.
+function renderRowDiff(s) {
+  const el = s.diffBadge;
+  if (!el) return;
+  const ds = s.diffStat;
+  if (sessionDiffBadge && ds && ds.files > 0) {
+    el.innerHTML = `<span class="sess-diff-add">+${ds.additions}</span><span class="sess-diff-del">-${ds.deletions}</span>`;
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
 // Pull this session's diff stat from main and re-render its button. Debounced per
 // session so a burst of edits (or a background session churning) doesn't spawn a
 // git diff per keystroke. Driven off every session-meta — which main pushes for
@@ -264,6 +291,7 @@ function refreshDiffStat(id) {
     const s = sessions.get(id);
     if (!s) return;
     try { s.diffStat = await window.api.sessionDiffStat(id); } catch { return; }
+    renderRowDiff(s); // every session: keep out-of-view rows' badges current
     if (id === activeId) { renderCommitButton(s); renderDiffButton(s); }
   }, 350));
 }
@@ -356,6 +384,9 @@ function makeRow(id) {
   const label = document.createElement('span');
   label.className = 'sess-label';
   label.textContent = t('session.unnamed');
+  const diffBadge = document.createElement('span');
+  diffBadge.className = 'sess-diff';
+  diffBadge.style.display = 'none';
   const restore = document.createElement('button');
   restore.className = 'sess-restore';
   restore.title = 'Restore session';
@@ -392,11 +423,11 @@ function makeRow(id) {
     hideArmHint();
     closeSession(id);
   };
-  li.append(dot, label, restore, del, close);
+  li.append(dot, label, diffBadge, restore, del, close);
   li.onclick = () => selectSession(id);
   li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrDelete(); } };
   listEl.appendChild(li);
-  return { li, dot, label, closeBtn: close };
+  return { li, dot, label, diffBadge, closeBtn: close };
 }
 
 // Replace a container's contents with the "archived, restore to continue" hint
@@ -422,9 +453,9 @@ export async function newSession() {
   if (res.repo) currentRepo = res.repo;
 
   const { container, term, fit: fitAddon } = buildTerminal(id);
-  const { li, dot, label, closeBtn } = makeRow(id);
+  const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
 
-  sessions.set(id, { id, repo: res.repo || currentRepo, term, fit: fitAddon, container, li, dot, label, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
+  sessions.set(id, { id, repo: res.repo || currentRepo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
   setTab('active');
   selectSession(id);
 }
@@ -453,7 +484,7 @@ function restoreSessionRow(meta) {
   showSuspendedHint(container, archived
     ? 'Session archived — restore it to continue.'
     : 'Session restored — select to resume.');
-  const { li, dot, label, closeBtn } = makeRow(id);
+  const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
   const shown = name || (firstPrompt && firstPrompt.split('\n')[0]);
   if (shown) label.textContent = shown;
   // Carry the persisted status dot across the restart: finished stays green,
@@ -463,7 +494,7 @@ function restoreSessionRow(meta) {
   const st = state || 'idle';
   dot.className = 'dot ' + st;
   dot.title = STATE_LABEL[st] || st;
-  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true });
+  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true });
 }
 
 // On startup, pull the persisted sessions from main and rebuild the list, then
@@ -603,7 +634,7 @@ async function openDiffDialog() {
   try { r = await window.api.sessionDiff(id); } catch { /* gone */ }
   if (diffDialogId !== id) return; // closed or switched while the diff was computing
   // Keep the button's badge in agreement with what the dialog actually shows.
-  if (r) { s.diffStat = { additions: r.additions, deletions: r.deletions, files: r.files }; renderCommitButton(s); renderDiffButton(s); }
+  if (r) { s.diffStat = { additions: r.additions, deletions: r.deletions, files: r.files }; renderCommitButton(s); renderDiffButton(s); renderRowDiff(s); }
   if (!r || !r.ok || !r.files) {
     diffPatchText = null;
     diffDialogStat.textContent = '';

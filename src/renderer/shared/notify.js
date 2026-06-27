@@ -6,6 +6,7 @@
 // watermark, the status dots). The chosen sound persists in localStorage.
 
 const STORE_SOUND = 'ide.notifySound';
+const STORE_SOUND_ENABLED = 'ide.notifySoundEnabled';
 
 // The four selectable sounds. Each `notes` entry is one oscillator voice:
 // { f: frequency Hz, t: start offset s, d: duration s, type, g: peak gain }.
@@ -57,6 +58,16 @@ export function getSound() {
 
 export function setSound(id) {
   if (SOUNDS.some((s) => s.id === id)) localStorage.setItem(STORE_SOUND, id);
+}
+
+// Whether the completion chime plays. The finish *animation* is unconditional —
+// only the sound is gated here. Defaults on; persists in localStorage.
+export function isSoundEnabled() {
+  return localStorage.getItem(STORE_SOUND_ENABLED) !== 'false';
+}
+
+export function setSoundEnabled(on) {
+  localStorage.setItem(STORE_SOUND_ENABLED, on ? 'true' : 'false');
 }
 
 // Pure trigger test, unit-tested: the chime+animation fire only when a session that

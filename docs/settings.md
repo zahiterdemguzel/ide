@@ -2,8 +2,9 @@
 
 The gear button at the right end of the top toolbar (`#settings-btn`) opens the
 settings dialog (`#settings-dialog`), where the user picks a **theme**, a
-**language**, a **notification sound**, and which **panels** are visible. Every
-choice applies instantly and persists across restarts.
+**language**, a **notification sound**, a few **general** on/off preferences, and
+which **panels** are visible. Every choice applies instantly and persists across
+restarts.
 
 ## Notification sound
 
@@ -18,6 +19,25 @@ persists the id via `setSound()` (`localStorage` `ide.notifySound`, default
 the app reaches the chosen sound only through `playNotification()` — nothing else
 reads the setting. Add a sound by appending an entry to `SOUNDS` (id + display
 name + oscillator voices); the dropdown and the test pick it up automatically.
+
+## General preferences
+
+The **General** group (same frameless switch rows as Panels) holds standalone
+on/off toggles wired in `src/renderer/settings.js`:
+
+- **Completion sound** (`#settings-sound-enabled`, default **on**) gates only the
+  finish *chime*; the finish row/dot animation always plays. `notify.js` owns the
+  flag (`localStorage` `ide.notifySoundEnabled`) via `isSoundEnabled()` /
+  `setSoundEnabled()`, and `celebrateFinish()` in `sessions.js` calls
+  `playNotification()` only when it's on. Turning it off also greys out the sound
+  combobox (it does nothing while muted); turning it on previews the chime.
+- **Diff stats on sessions** (`#settings-session-diff`, default **off**) shows a
+  per-row `+added -removed` badge in the sessions list (the same numbers as the
+  session bar's Diff button). `sessions.js` owns the flag (`localStorage`
+  `ide.sessionDiffBadge`) via `isSessionDiffBadgeEnabled()` /
+  `setSessionDiffBadge()`; `renderRowDiff(s)` paints each row's `.sess-diff` badge
+  from the session's `diffStat` whenever the stat refreshes, and flipping the
+  toggle re-renders every row.
 
 ## Where it lives
 

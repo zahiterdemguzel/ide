@@ -6,7 +6,10 @@ import {
   availableLocales, currentLocale, setLocale, applyTranslations, pickLocale,
 } from '../i18n/index.js';
 import { refreshTermThemes } from './shared/terminal.js';
-import { SOUNDS, getSound, setSound, playNotification } from './shared/notify.js';
+import {
+  SOUNDS, getSound, setSound, playNotification, isSoundEnabled, setSoundEnabled,
+} from './shared/notify.js';
+import { isSessionDiffBadgeEnabled, setSessionDiffBadge } from './sessions.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -61,6 +64,8 @@ export function initSettings() {
   const langSel = document.getElementById('settings-language');
   const themeSel = document.getElementById('settings-theme');
   const soundSel = document.getElementById('settings-sound');
+  const soundEnabledBox = document.getElementById('settings-sound-enabled');
+  const sessionDiffBox = document.getElementById('settings-session-diff');
 
   langSel.onchange = () => {
     localStorage.setItem(STORE.locale, langSel.value);
@@ -76,6 +81,14 @@ export function initSettings() {
     setSound(soundSel.value);
     playNotification(soundSel.value);
   };
+  // The completion chime is opt-out; the finish animation is unaffected. Greying
+  // the sound picker out makes it clear it does nothing while the chime is off.
+  soundEnabledBox.onchange = () => {
+    setSoundEnabled(soundEnabledBox.checked);
+    soundSel.disabled = !soundEnabledBox.checked;
+    if (soundEnabledBox.checked) playNotification();
+  };
+  sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
 
   const open = () => {
     fillSelect(
@@ -93,6 +106,9 @@ export function initSettings() {
       SOUNDS.map((s) => ({ value: s.id, label: s.name })),
       getSound(),
     );
+    soundEnabledBox.checked = isSoundEnabled();
+    soundSel.disabled = !isSoundEnabled();
+    sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     dialog.showModal();
   };
 
