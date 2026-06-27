@@ -34,14 +34,25 @@ function spawnConsole(id, { cols, rows, shell, command, cwd, env } = {}) {
     cwd: cwd || getRepoPath(),
     env: env ? { ...process.env, ...env } : process.env,
   });
-  p.onData((data) => { sendToRenderer('term-data', { id, data }); });
+  // Run `command` only once the shell is ready to accept it. Writing it the instant
+  // the PTY spawns races the shell's startup: zsh in particular hasn't initialised
+  // its line editor (ZLE) until it has sourced its rc files and printed its first
+  // prompt, so an early write lands the text but drops the submitting Enter (\r) —
+  // the command appears but never runs. Waiting for the shell's first output (its
+  // prompt) means ZLE is up before we type. A timeout backstops a silent shell.
+  let cmdSent = !command;
+  const sendCommand = () => { if (!cmdSent) { cmdSent = true; p.write(command + '\r'); } };
+  p.onData((data) => {
+    sendToRenderer('term-data', { id, data });
+    sendCommand();
+  });
   p.onExit(() => {
     if (consoles.get(id) !== p) return; // replaced by a restart — stay quiet
     consoles.delete(id);
     sendToRenderer('term-exit', { id });
   });
   consoles.set(id, p);
-  if (command) p.write(command + '\r');
+  if (command) setTimeout(sendCommand, 2000);
   return p;
 }
 

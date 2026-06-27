@@ -32,11 +32,11 @@
   padding: 12px 16px; border-bottom: 1px solid var(--border);
 }
 .settings-head h3 { margin: 0; font-size: 14px; }
-#settings-close {
+#settings-close, #claude-setup-close {
   background: none; border: none; color: var(--fg-dim);
   font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px;
 }
-#settings-close:hover { color: var(--fg); }
+#settings-close:hover, #claude-setup-close:hover { color: var(--fg); }
 
 .settings-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 .settings-row { display: flex; flex-direction: column; gap: 6px; }
@@ -102,16 +102,55 @@
 .settings-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 .settings-primary:disabled { opacity: .55; cursor: default; }
 
-/* --- First-run Claude Code setup gate (src/renderer/claude-setup.js) --- */
-/* Reuses the settings dialog chrome (.settings-head/body/actions); a touch wider
- * to fit the install command lines without wrapping. */
+/* --- Claude Code setup wizard (src/renderer/claude-setup.js) --- */
+/* Reuses the settings dialog chrome (.settings-head/body/actions); wider + taller
+ * to fit the install commands and the embedded terminal without cramping. */
 #claude-setup-dialog {
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg-2); color: var(--fg);
-  padding: 0; width: 460px; max-width: 92vw;
+  padding: 0; width: 620px; max-width: 94vw; max-height: 90vh;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
+/* Keep the header/stepper/footer pinned and let only the body scroll, so the
+ * dialog never overflows the viewport. Scoped to [open] so the flex display
+ * doesn't override the native dialog:not([open]) hide. */
+#claude-setup-dialog[open] { display: flex; flex-direction: column; }
+#claude-setup-dialog .settings-body { overflow-y: auto; gap: 16px; }
 #claude-setup-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+
+/* Progress stepper: numbered dots joined by a connector, the active one accented
+ * and completed ones filled — the same status-dot vocabulary used elsewhere. */
+.setup-steps {
+  display: flex; align-items: center; gap: 0;
+  margin: 0; padding: 12px 16px; list-style: none;
+  border-bottom: 1px solid var(--border);
+}
+.setup-stepper-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--fg-dim); white-space: nowrap;
+}
+/* Non-last items grow so their trailing connector line stretches to the next. */
+.setup-stepper-item:not(:last-child) { flex: 1; }
+.setup-stepper-item:not(:last-child)::after {
+  content: ""; flex: 1; height: 1px; min-width: 22px;
+  background: var(--border); margin: 0 4px 0 12px;
+}
+.setup-stepnum {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg-3);
+  font-size: 11px; color: var(--fg-dim);
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.setup-stepper-item.active { color: var(--fg); }
+.setup-stepper-item.active .setup-stepnum {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+.setup-stepper-item.done .setup-stepnum {
+  background: var(--green); border-color: var(--green); color: var(--on-accent);
+}
+
+.setup-pane { display: flex; flex-direction: column; gap: 14px; }
 
 .setup-intro { margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg); }
 .setup-os {
@@ -145,7 +184,23 @@
 .setup-docs { font-size: 12px; color: var(--accent-hi); cursor: pointer; text-decoration: none; width: fit-content; }
 .setup-docs:hover { text-decoration: underline; }
 
-.setup-actions { justify-content: space-between; align-items: center; gap: 12px; }
-.setup-status { font-size: 12px; color: var(--fg-dim); }
+/* Embedded install/auth terminal, shown once "Run in terminal" is clicked. */
+.setup-term-title {
+  font-size: 11px; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px;
+}
+.setup-term-host {
+  height: 320px; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--term-bg, #1e1e1e); padding: 6px; overflow: hidden;
+}
+
+/* Footer: Back on the left, status filling the middle, the primary on the right. */
+.setup-actions { align-items: center; gap: 12px; }
+.setup-status { flex: 1; font-size: 12px; color: var(--fg-dim); }
 .setup-status.ok { color: var(--green); }
 .setup-status.err { color: var(--red); }
+.setup-back {
+  background: none; border: 1px solid var(--border); color: var(--fg);
+  border-radius: 3px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+}
+.setup-back:hover { border-color: var(--accent); color: var(--accent-hi); }
