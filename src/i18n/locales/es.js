@@ -117,6 +117,8 @@ export default {
     'setup.step.signin': 'Iniciar sesión',
     'setup.step.done': 'Listo',
     'setup.installing': 'Espera mientras Claude Code se instala en la terminal de abajo. Haz clic en Siguiente cuando termine la instalación.',
+    'setup.installed': 'Claude Code instalado — haz clic en Siguiente.',
+    'setup.installFailed': 'La instalación falló. Revisa la salida de la terminal, luego vuelve Atrás e inténtalo de nuevo.',
     'setup.authInfo': 'Continúa la autenticación en la terminal de abajo — se abre una ventana del navegador, o pega el código que muestra. Haz clic en Finalizar cuando hayas iniciado sesión.',
     'setup.terminalTitle': 'Terminal',
     'setup.restartNote': '¿Acabas de instalarla? Quizá debas reiniciar esta app para que detecte el nuevo comando.',
@@ -127,11 +129,6 @@ export default {
     'setup.next': 'Siguiente',
     'setup.back': 'Atrás',
     'setup.finish': 'Finalizar',
-
-    'usage.session': '5 horas',
-    'usage.weekly': 'Semanal',
-    'usage.resetsIn': 'se reinicia en {t}',
-    'usage.used': 'usado',
 
     'usage.session': '5 horas',
     'usage.weekly': 'Semanal',

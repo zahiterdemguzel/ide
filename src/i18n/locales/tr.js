@@ -117,6 +117,8 @@ export default {
     'setup.step.signin': 'Giriş yap',
     'setup.step.done': 'Bitti',
     'setup.installing': 'Claude Code aşağıdaki terminalde kurulurken lütfen bekleyin. Kurulum bitince Sonraki’ye tıklayın.',
+    'setup.installed': 'Claude Code kuruldu — Sonraki’ye tıklayın.',
+    'setup.installFailed': 'Kurulum başarısız oldu. Terminal çıktısını kontrol edin, ardından Geri’ye dönüp tekrar deneyin.',
     'setup.authInfo': 'Lütfen aşağıdaki terminalde kimlik doğrulamayı sürdürün — bir tarayıcı penceresi açılır veya gösterilen kodu yapıştırın. Giriş yaptıktan sonra Bitir’e tıklayın.',
     'setup.terminalTitle': 'Terminal',
     'setup.restartNote': 'Yeni mi kurdunuz? Yeni komutun tanınması için bu uygulamayı yeniden başlatmanız gerekebilir.',
@@ -127,11 +129,6 @@ export default {
     'setup.next': 'Sonraki',
     'setup.back': 'Geri',
     'setup.finish': 'Bitir',
-
-    'usage.session': '5 saatlik',
-    'usage.weekly': 'Haftalık',
-    'usage.resetsIn': '{t} sonra sıfırlanır',
-    'usage.used': 'kullanıldı',
 
     'usage.session': '5 saatlik',
     'usage.weekly': 'Haftalık',

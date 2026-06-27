@@ -118,6 +118,8 @@ export default {
     'setup.step.signin': 'Sign in',
     'setup.step.done': 'Done',
     'setup.installing': 'Please wait while Claude Code is installed in the terminal below. Click Next once the installation finishes.',
+    'setup.installed': 'Claude Code installed — click Next.',
+    'setup.installFailed': 'Installation failed. Check the terminal output, then go Back and try again.',
     'setup.authInfo': 'Please continue authentication in the terminal below — a browser window opens, or paste the code it shows. Click Finish once you’re signed in.',
     'setup.terminalTitle': 'Terminal',
     'setup.restartNote': 'Just installed it? You may need to restart this app so it picks up the new command.',
@@ -128,11 +130,6 @@ export default {
     'setup.next': 'Next',
     'setup.back': 'Back',
     'setup.finish': 'Finish',
-
-    'usage.session': '5-hour',
-    'usage.weekly': 'Weekly',
-    'usage.resetsIn': 'resets in {t}',
-    'usage.used': 'used',
 
     'usage.session': '5-hour',
     'usage.weekly': 'Weekly',

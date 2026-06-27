@@ -45,6 +45,29 @@ On Windows, Chromium runs its network service in a separate child process, and *
 
 Merely unsandboxing the service (`disable-features=NetworkServiceSandbox`) is **not** enough — the separate process is still present and still a target for DLL injection, so it keeps dying. The fix in `src/main/index.js` is `enable-features=NetworkServiceInProcess`, which runs the network service inside the main process: there is no separate child to crash, so the loop disappears. We keep `disable-features=NetworkServiceSandbox` alongside it as a harmless fallback. No security trade-off here since the app makes no network requests. Keep both.
 
+## Portable build: crash logs must dodge the temp self-extraction dir
+
+The `portable` electron-builder target produces a single `.exe` that, on every
+launch, **self-extracts to a throwaway `%TEMP%\<guid>` dir, runs from there, and
+deletes that dir on exit.** So `app.getPath('exe')` points *inside* the temp dir,
+and a `crashlogs/` folder written next to it is wiped the instant the app closes —
+i.e. every crash log vanishes exactly when you need it (this is why a crashing
+portable build looks like it leaves no trace).
+
+electron-builder exposes the real on-disk folder the user launched the `.exe` from
+via the `PORTABLE_EXECUTABLE_DIR` env var. `crashDir()` in `src/main/crashlog.js`
+prefers it, so logs land next to the actual `.exe` and persist across runs. Falls
+back to next-to-exe (installed builds) and the project root (dev). Keep the
+`PORTABLE_EXECUTABLE_DIR` preference — without it, portable builds are
+undiagnosable.
+
+Note: node-pty itself works fine in a packaged build — electron-builder's
+smart-unpack pulls the whole `@homebridge/node-pty-prebuilt-multiarch` module
+(`pty.node`, `conpty/OpenConsole.exe`, `winpty-agent.exe`, the conout worker, …)
+out of `app.asar` into `app.asar.unpacked`, and node-pty's `__dirname` already
+resolves there, so launch configs / tasks run in the portable build the same as
+under `npm start`.
+
 ## curl dependency
 
 Hook payloads are delivered with `curl` (ships with Windows 11). If hooks stop firing on a stripped-down machine, confirm `curl` is on PATH.

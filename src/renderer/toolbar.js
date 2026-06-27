@@ -59,40 +59,6 @@ export async function loadToolbar() {
   const launch = isPanelEnabled('launch') ? rawLaunch : [];
   const tasks = isPanelEnabled('tasks') ? rawTasks : [];
   for (const c of launch) toolbarRuns.appendChild(runButton('launch', c.name, c.compound));
-  // TEMP-FSTEST: auto-run the Fullstack compound when the test workspace is open.
-  try {
-    const rp = await window.api.getRepoPath();
-    const L = (m) => { try { window.api.fstestLog(m); } catch {} };
-    L('[FSTEST] loadToolbar repo=' + rp);
-    if (rp && /fstest$/.test(rp.replace(/[\\/]+$/, ''))) {
-      window.addEventListener('error', (e) => L('[window.error] ' + (e.error && e.error.stack || e.message)));
-      window.addEventListener('unhandledrejection', (e) => L('[unhandledrejection] ' + (e.reason && e.reason.stack || e.reason)));
-      if (window.__fstestArmed) return; window.__fstestArmed = true; // run once
-      L('[FSTEST] autorun armed, repo=' + rp);
-      const runOnce = async (tag) => {
-        const r = await window.api.runConfig({ kind: 'launch', name: 'Fullstack (Frontend + Backend)' });
-        L('[FSTEST] ' + tag + ' runConfig ok=' + (r && r.ok));
-        const { runSpecInConsole } = await import('./consoles.js');
-        for (const spec of ((r && r.runs) || [])) {
-          await runSpecInConsole(spec);
-          L('[FSTEST] ' + tag + ' ran ' + spec.name);
-        }
-      };
-      setTimeout(async () => {
-        try {
-          await runOnce('RUN1');
-          L('[FSTEST] RUN1 done, letting output flow 4s');
-          setTimeout(async () => {
-            try {
-              L('[FSTEST] RUN2 (restart, kills live PTYs mid-output)');
-              await runOnce('RUN2');
-              L('[FSTEST] RUN2 done; waiting to observe');
-            } catch (e) { L('[FSTEST] RUN2 error ' + (e && e.stack || e)); }
-          }, 4000);
-        } catch (e) { L('[FSTEST] RUN1 error ' + (e && e.stack || e)); }
-      }, 3000);
-    }
-  } catch (e) { try { window.api.fstestLog('[FSTEST] outer error ' + (e && e.stack || e)); } catch {} }
   if (launch.length && tasks.length) {
     const sep = document.createElement('span');
     sep.className = 'tool-sep';
