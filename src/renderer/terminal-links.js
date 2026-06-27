@@ -1,5 +1,4 @@
-import { extOf, IMG_EXT, AUDIO_EXT } from './shared/ext.js';
-import { EXT_LANG } from './shared/highlight.js';
+import { findTerminalLinks } from './shared/terminal-links-parse.js';
 import { openFromTree, showWeb } from './viewer/center.js';
 
 // --- terminal Ctrl+click links (file paths + web URLs) ---
@@ -35,47 +34,6 @@ function setLinkMod(down) {
 window.addEventListener('keydown', (e) => { if (e.key === (onMac ? 'Meta' : 'Control')) setLinkMod(true); }, true);
 window.addEventListener('keyup', (e) => { if (e.key === (onMac ? 'Meta' : 'Control')) setLinkMod(false); }, true);
 window.addEventListener('blur', () => setLinkMod(false));
-
-const URL_RE = /\bhttps?:\/\/[^\s)<>"'`]+/gi;
-// A path-ish token: an optional drive/anchor, then path chars, with optional
-// trailing :line[:col]. Over-matches plain words; looksLikePath() filters those.
-const PATH_RE = /(?:[A-Za-z]:[\\/]|\.{0,2}[\\/]|~[\\/])?[\w.@+-]+(?:[\\/][\w.@+-]+)*(?::\d+(?::\d+)?)?/g;
-
-// Extensions that make a separator-less token (e.g. "renderer.js") a real link.
-const PATH_EXT = new Set([
-  ...Object.keys(EXT_LANG), ...IMG_EXT, ...AUDIO_EXT,
-  'txt', 'log', 'lock', 'env', 'conf', 'gd', 'tscn', 'tres', 'godot',
-]);
-
-function looksLikePath(raw) {
-  const core = raw.replace(/:\d+(?::\d+)?$/, '');
-  if (core.length < 2) return false;
-  if (/[\\/]/.test(core)) return true;        // has a separator -> treat as a path
-  const ext = extOf(core);
-  return !!ext && PATH_EXT.has(ext);          // bare filename with a known extension
-}
-
-// Find non-overlapping URL (first) then path matches in one terminal line.
-function findTerminalLinks(text) {
-  const out = [];
-  const taken = new Array(text.length).fill(false);
-  const scan = (re, kind, keep) => {
-    re.lastIndex = 0;
-    let m;
-    while ((m = re.exec(text))) {
-      const s = m.index, e = s + m[0].length;
-      if (keep && !keep(m[0])) continue;
-      let free = true;
-      for (let i = s; i < e; i++) if (taken[i]) { free = false; break; }
-      if (!free) continue;
-      for (let i = s; i < e; i++) taken[i] = true;
-      out.push({ start: s, end: e, raw: m[0], kind });
-    }
-  };
-  scan(URL_RE, 'url');
-  scan(PATH_RE, 'path', looksLikePath);
-  return out;
-}
 
 async function openTerminalLink(kind, raw) {
   if (kind === 'url') { showWeb(raw); return; }

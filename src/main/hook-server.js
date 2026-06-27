@@ -1,5 +1,8 @@
 const http = require('http');
 const { sendToRenderer } = require('./window');
+// Pure event->state mapping, resume-downgrade rule, and settings JSON live in the
+// Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
+const { eventToState, shouldApplyState, hooksSettings: buildHooksSettings } = require('./hook-events');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
 // circular require is safe. Access via the module object, never destructure at top.
@@ -10,36 +13,8 @@ const getHookPort = () => hookPort;
 
 // --- hooks injected per session via `claude --settings <json>` ---
 // Every event posts its raw stdin payload to our local server, which derives
-// state from hook_event_name. Same command for all events keeps this trivial.
-function hooksSettings() {
-  const cmd = `curl -s -X POST http://127.0.0.1:${hookPort}/hook -d @-`;
-  const entry = [{ matcher: '*', hooks: [{ type: 'command', command: cmd }] }];
-  const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
-    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop'];
-  const hooks = {};
-  for (const e of events) hooks[e] = entry; // unknown events simply never fire
-  return JSON.stringify({ hooks });
-}
-
-function eventToState(payload) {
-  switch (payload.hook_event_name) {
-    case 'Stop': return 'completed';
-    case 'Notification':
-    case 'PermissionRequest': return 'needs-input';
-    case 'PostToolUse': {
-      const c = payload.tool_input && payload.tool_input.command;
-      if (c && /git\s+push/.test(c)) return 'pushed';
-      return 'working';
-    }
-    // A session that has only just started has no work in flight yet — it sits
-    // idle (gray) until the user submits the first prompt. Yellow ("working") is
-    // reserved for an agent actively responding.
-    case 'SessionStart': return 'idle';
-    case 'UserPromptSubmit':
-    case 'PreToolUse': return 'working';
-    default: return null;
-  }
-}
+// state from hook_event_name. Bound to the live server port at spawn time.
+const hooksSettings = () => buildHooksSettings(hookPort);
 
 function startHookServer() {
   const server = http.createServer((req, res) => {
@@ -51,13 +26,11 @@ function startHookServer() {
       try {
         const state = eventToState(payload);
         if (state && payload.session_id) {
-          // Resuming a saved session fires SessionStart → idle. That must NOT wipe
-          // the colour a session was reopened with (completed/pushed/interrupted) —
-          // only real new work should move it. So skip an idle that would downgrade
-          // an already-meaningful state; a brand-new session is already idle, so it
-          // is unaffected.
+          // Don't let a resume's SessionStart → idle wipe the meaningful colour a
+          // session was reopened with (completed/pushed/interrupted); shouldApplyState
+          // encodes that rule (see test/hook-events.test.js).
           const cur = sessions.getSessionState(payload.session_id);
-          if (!(state === 'idle' && cur && cur !== 'idle')) {
+          if (shouldApplyState(state, cur)) {
             sendToRenderer('status', { id: payload.session_id, state });
             sessions.setSessionState(payload.session_id, state); // persist so it survives a restart
           }
