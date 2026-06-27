@@ -76,7 +76,7 @@ function gitItem(file, status, staged, action, label) {
   };
 
   const btn = document.createElement('button');
-  btn.className = 'git-btn';
+  btn.className = 'git-btn git-glyph';
   btn.textContent = label;
   btn.onclick = async (e) => {
     e.stopPropagation();
@@ -95,7 +95,11 @@ export async function refreshGit() {
   stagedEl.innerHTML = '';
   unstagedEl.innerHTML = '';
   conflictsEl.innerHTML = '';
-  if (!r.ok) { conflictsSection.hidden = true; return; }
+  const cleanEl = document.getElementById('git-clean');
+  if (!r.ok) { conflictsSection.hidden = true; cleanEl.hidden = true; return; }
+  // Nothing staged, unstaged, or conflicted → the working tree is clean; show a
+  // reassuring empty state where the file lists would otherwise be.
+  cleanEl.hidden = !!(r.staged.length || r.unstaged.length || (r.conflicts || []).length);
   const aheadEl = document.getElementById('git-ahead');
   aheadEl.textContent = r.ahead;
   aheadEl.hidden = !r.ahead;
@@ -136,7 +140,7 @@ function conflictItem(file, status) {
   name.textContent = shortenPath(file);
   name.title = file;
   const btn = document.createElement('button');
-  btn.className = 'git-btn';
+  btn.className = 'git-btn git-glyph';
   btn.textContent = '✓';
   btn.title = 'Mark resolved (stage)';
   btn.onclick = async (e) => {
@@ -375,23 +379,23 @@ document.addEventListener('click', (e) => {
 // box's placeholder so it sits where the user is already looking, without taking
 // up its own row. It only shows while the box is empty; the default placeholder
 // returns as soon as the user focuses the box to type.
-const commitMsgEl = document.getElementById('commit-msg');
+const statusLineEl = document.getElementById('git-status-line');
 let gitMsgTimer = null;
 function showGitMsg(text, ok) {
-  commitMsgEl.placeholder = text;
-  commitMsgEl.classList.remove('msg-ok', 'msg-err');
-  commitMsgEl.classList.add(ok ? 'msg-ok' : 'msg-err');
-  // Feedback shouldn't linger forever — drop back to the default placeholder
-  // after 7s so a stale "Committed" / error doesn't sit there indefinitely.
+  statusLineEl.textContent = text;
+  statusLineEl.classList.toggle('ok', ok);
+  statusLineEl.classList.toggle('err', !ok);
+  statusLineEl.hidden = false;
+  // Feedback shouldn't linger forever — clear a stale "Committed" / error after 7s.
   if (gitMsgTimer) clearTimeout(gitMsgTimer);
   gitMsgTimer = setTimeout(clearGitMsg, 7000);
 }
 function clearGitMsg() {
   if (gitMsgTimer) { clearTimeout(gitMsgTimer); gitMsgTimer = null; }
-  commitMsgEl.placeholder = t('git.commitPlaceholder');
-  commitMsgEl.classList.remove('msg-ok', 'msg-err');
+  statusLineEl.textContent = '';
+  statusLineEl.hidden = true;
+  statusLineEl.classList.remove('ok', 'err');
 }
-commitMsgEl.addEventListener('focus', clearGitMsg);
 
 function showGitErrorDialog(message, title = 'Push failed') {
   document.getElementById('git-error-title').textContent = title;
@@ -402,20 +406,18 @@ document.getElementById('git-error-ok').onclick = () => {
   document.getElementById('git-error-dialog').close();
 };
 
-document.getElementById('git-fetch').onclick = async () => {
-  const r = await window.api.gitFetch();
-  showGitMsg(r.ok ? 'Fetched' : (r.stderr || 'Fetch failed'), r.ok);
-  refreshGit();
-};
-const pullBtn = document.getElementById('git-pull');
-pullBtn.onclick = async () => {
+// Sync folds the old Fetch + Pull into one action: fetch to refresh the
+// ahead/behind counts, then pull to fast-forward/merge the remote in.
+const syncBtn = document.getElementById('git-sync');
+syncBtn.onclick = async () => {
   document.getElementById('git-behind').hidden = true;
-  pullBtn.classList.add('loading');
-  pullBtn.disabled = true;
+  syncBtn.classList.add('loading');
+  syncBtn.disabled = true;
+  await window.api.gitFetch();
   const r = await window.api.gitPull();
-  pullBtn.classList.remove('loading');
-  pullBtn.disabled = false;
-  showGitMsg(r.ok ? 'Pulled' : (r.stderr || 'Pull failed'), r.ok);
+  syncBtn.classList.remove('loading');
+  syncBtn.disabled = false;
+  showGitMsg(r.ok ? 'Synced' : (r.stderr || 'Sync failed'), r.ok);
   refreshGit();
   if (r.needsMerge) offerClaudeMerge(t('git.pullMergeTitle'), t('git.pullMergeMsg'), r.stderr);
 };
