@@ -79,7 +79,40 @@
       </div>
       <div id="center-body">
         <div id="terminal-host"></div>
-        <div id="empty-hint" data-i18n-html="session.emptyHint">No session selected. Click <b>+ New session</b>.</div>
+        <div id="empty-hint">
+          <div class="welcome">
+            <div class="welcome-mark">
+              <span class="welcome-dots" aria-hidden="true"><i class="wd wd-g"></i><i class="wd wd-y"></i><i class="wd wd-p"></i></span>
+              <span class="welcome-word">IDE</span>
+            </div>
+            <p class="welcome-tagline" data-i18n="session.welcomeTagline">Run many Claude sessions at once.</p>
+
+            <div class="welcome-eyebrow" data-i18n="session.welcomeStart">Start</div>
+            <div class="welcome-actions">
+              <button class="welcome-action" id="welcome-new">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                <span class="wa-label" data-i18n="sessions.new">New session</span>
+              </button>
+              <button class="welcome-action" id="welcome-goto">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <span class="wa-label" data-i18n="quickOpen.placeholder">Go to file…</span>
+                <kbd class="wa-kbd">Ctrl P</kbd>
+              </button>
+              <button class="welcome-action" id="welcome-open">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+                <span class="wa-label" data-i18n="explorer.openFolder">Open folder</span>
+              </button>
+            </div>
+
+            <div class="welcome-eyebrow" data-i18n="session.welcomeLegend">Session status</div>
+            <ul class="welcome-legend">
+              <li><span class="legend-dot lg-working"></span><span data-i18n="session.stateWorking">Working</span></li>
+              <li><span class="legend-dot lg-done"></span><span data-i18n="session.stateDone">Done</span></li>
+              <li><span class="legend-dot lg-committed"></span><span data-i18n="session.stateCommitted">Committed</span></li>
+              <li><span class="legend-dot lg-interrupted"></span><span data-i18n="session.stateInterrupted">Interrupted</span></li>
+            </ul>
+          </div>
+        </div>
         <div id="diff-view">
           <div id="diff-head">
             <span id="diff-file"></span>

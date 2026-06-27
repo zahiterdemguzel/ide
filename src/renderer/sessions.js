@@ -122,7 +122,7 @@ function selectFirstVisible() {
   }
   activeId = null;
   for (const [, o] of sessions) o.container.style.display = 'none';
-  emptyHint.style.display = 'block';
+  emptyHint.style.display = 'flex';
   updateSessionBar();
 }
 
@@ -346,7 +346,7 @@ function showSuspendedHint(container, text) {
   container.replaceChildren(hint);
 }
 
-async function newSession() {
+export async function newSession() {
   // probe a size from a temporary fit after open
   const res = await window.api.newSession({ cols: 80, rows: 24 });
   const id = res.id;

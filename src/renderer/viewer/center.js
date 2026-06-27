@@ -68,7 +68,7 @@ export function closeOverlay() {
   if (onCloseCb && onCloseCb()) return; // returned true → an active session was shown
   hideAllOverlays();
   hideSessionViews();
-  emptyHint.style.display = 'block';
+  emptyHint.style.display = 'flex';
 }
 
 document.getElementById('diff-close').onclick = closeOverlay;

@@ -103,7 +103,7 @@ function onKey(e) {
   else if (e.key === 'Enter') { e.preventDefault(); choose(active); }
 }
 
-async function open() {
+export async function open() {
   if (backdrop) { input.focus(); input.select(); return; }
   backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop qo-backdrop';
