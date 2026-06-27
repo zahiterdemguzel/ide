@@ -100,6 +100,28 @@ ipcMain.handle('search-names', async (_e, q) => {
   return { ok: true, files };
 });
 
+// Flat list of every file in the repo for the Quick Open palette (Ctrl/Cmd+P),
+// which fuzzy-matches client-side. Same async walk + skip set as search-names,
+// but unfiltered and capped higher (10k) so big repos still open instantly.
+ipcMain.handle('list-files', async () => {
+  const files = [];
+  const repoPath = getRepoPath();
+  async function walk(rel) {
+    if (files.length >= 10000) return;
+    let ents;
+    try { ents = await fs.promises.readdir(path.join(repoPath, rel), { withFileTypes: true }); }
+    catch { return; }
+    for (const d of ents) {
+      if (SEARCH_SKIP.has(d.name)) continue;
+      const childRel = rel ? rel + '/' + d.name : d.name;
+      if (d.isDirectory()) { await walk(childRel); continue; }
+      if (files.length < 10000) files.push(childRel);
+    }
+  }
+  await walk('');
+  return { ok: true, files };
+});
+
 // Content search ("References"): git grep runs in a subprocess so it never
 // blocks the main thread. --untracked also greps new (un-ignored) files; capped
 // at 500 matches. ponytail: parse stdout regardless of exit code — grep exits 1

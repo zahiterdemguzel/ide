@@ -66,25 +66,25 @@ const quoteIfSpaced = (p) => (/\s/.test(p) ? `"${p}"` : p);
 export function attachClipboard(term, opts = {}) {
   const formatImagePath = opts.formatImagePath || quoteIfSpaced;
 
-  // Guard against a single gesture pasting twice: a right-click can fire
-  // `contextmenu` more than once on Windows/Electron, and each firing would
-  // otherwise start its own paste. Because paste() awaits an IPC round-trip
-  // before inserting, an in-flight flag lets the duplicate firing no-op.
-  let pasting = false;
   async function paste() {
-    if (pasting) return;
-    pasting = true;
-    try {
-      const img = await window.api.pasteImage();
-      if (img && img.ok && img.path) { term.paste(formatImagePath(img.path)); return; }
-      const text = window.api.clipboardRead
-        ? await window.api.clipboardRead()
-        : await navigator.clipboard.readText();
-      if (text) term.paste(text);
-    } finally {
-      pasting = false;
-    }
+    const img = await window.api.pasteImage();
+    if (img && img.ok && img.path) { term.paste(formatImagePath(img.path)); return; }
+    const text = window.api.clipboardRead
+      ? await window.api.clipboardRead()
+      : await navigator.clipboard.readText();
+    if (text) term.paste(text);
   }
+
+  // On right-click, Electron/Windows also delivers a native `paste` DOM event
+  // into xterm's hidden textarea, which xterm inserts on its own — on top of our
+  // programmatic paste() below, producing a double paste. Swallow the native
+  // paste in the capture phase (before xterm's own textarea/element listeners)
+  // so our image-aware paste() stays the single paste path. Ctrl+V is unaffected:
+  // its keydown handler already preventDefaults, so no native paste is generated.
+  term.element.addEventListener('paste', (e) => {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
 
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown' || !e.ctrlKey) return true;

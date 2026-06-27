@@ -20,6 +20,7 @@ A module that does `require('electron')` (or reads files, spawns git, touches th
 | `src/main/git-parse.js` | `src/main/git.js` | `parsePorcelain` (staged/unstaged/conflicts split, rename arrows, unmerged states, non-ASCII paths), `parseLog` (unit-separator field splitting), and `filterCommits` (History-search term matching across subject/author/hash). git.js runs the subprocess and feeds stdout here. |
 | `src/main/recent-folders.js` | `src/main/repo.js` | `addRecent` — front-insert + dedup + cap for the Open-folder recent-projects list (the reverse-combobox). repo.js handles the file persistence and IPC. |
 | `src/renderer/shared/git-status.js` | `src/renderer/git-pane.js` | `statusLabel` — the human-readable tooltip for a status badge, keyed on the staged/unstaged column so the same porcelain letter (notably `D`: staged deletion vs deleted-on-disk-not-staged) reads distinctly and an unstaged deletion is pointed at Discard. |
+| `src/renderer/shared/fuzzy.js` | `src/renderer/quick-open.js` | `fuzzyMatch`/`fuzzyFilter` — the Quick Open palette's subsequence matcher: subsequence requirement, consecutive-run / boundary / basename scoring, and the resulting ranking. quick-open.js is the thin DOM/IPC shell around it. |
 | `src/i18n/index.js` | — | `t()` lookup + English fallback, `setLocale` fallback for unknown codes, and **locale key parity** (every locale has exactly the base `en` key set — catches a string added to `en` but forgotten elsewhere, or an orphan/typo'd key). |
 
 ### Renderer/i18n helpers are ES modules

@@ -20,6 +20,10 @@ export default {
     'explorer.collapseAll': 'Tout réduire',
     'explorer.refresh': 'Actualiser',
 
+    'quickOpen.placeholder': 'Aller au fichier…',
+    'quickOpen.noMatches': 'Aucun fichier correspondant',
+    'quickOpen.empty': 'Aucun fichier dans ce dossier',
+
     'git.tab.changes': 'Modifications',
     'git.tab.history': 'Historique',
     'git.staged': 'Indexés',

@@ -25,6 +25,10 @@ export default {
     'quickOpen.noMatches': 'No matching files',
     'quickOpen.empty': 'No files in this folder',
 
+    'quickOpen.placeholder': 'Go to file…',
+    'quickOpen.noMatches': 'No matching files',
+    'quickOpen.empty': 'No files in this folder',
+
     'git.tab.changes': 'Changes',
     'git.tab.history': 'History',
     'git.staged': 'Staged',

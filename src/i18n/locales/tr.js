@@ -20,6 +20,10 @@ export default {
     'explorer.collapseAll': 'Tümünü daralt',
     'explorer.refresh': 'Yenile',
 
+    'quickOpen.placeholder': 'Dosyaya git…',
+    'quickOpen.noMatches': 'Eşleşen dosya yok',
+    'quickOpen.empty': 'Bu klasörde dosya yok',
+
     'git.tab.changes': 'Değişiklikler',
     'git.tab.history': 'Geçmiş',
     'git.staged': 'Hazırlanan',

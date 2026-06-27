@@ -15,6 +15,7 @@ module.exports = {
   createFile: (rel) => ipcRenderer.invoke('create-file', rel),
   createFolder: (rel) => ipcRenderer.invoke('create-folder', rel),
   searchNames: (q) => ipcRenderer.invoke('search-names', q),
+  listFiles: () => ipcRenderer.invoke('list-files'),
   searchRefs: (q) => ipcRenderer.invoke('search-refs', q),
   readText: (file) => ipcRenderer.invoke('read-text', file),
   writeText: (file, text) => ipcRenderer.invoke('write-text', { file, text }),
