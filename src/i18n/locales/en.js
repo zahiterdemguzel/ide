@@ -25,10 +25,6 @@ export default {
     'quickOpen.noMatches': 'No matching files',
     'quickOpen.empty': 'No files in this folder',
 
-    'quickOpen.placeholder': 'Go to file…',
-    'quickOpen.noMatches': 'No matching files',
-    'quickOpen.empty': 'No files in this folder',
-
     'git.tab.changes': 'Changes',
     'git.tab.history': 'History',
     'git.staged': 'Staged',
@@ -63,6 +59,19 @@ export default {
     'editor.findClose': 'Close (Esc)',
     'editor.findNoResults': 'No results',
 
+    'run.runFile': 'Run this {lang} file',
+    'run.runBtn': 'Run',
+    'run.withArgs': 'Run with arguments…',
+    'run.withArgsTitle': 'Run {name}',
+    'run.withArgsLabel': 'Arguments passed to {lang}',
+    'run.selectInterpreter': 'Select interpreter…',
+    'run.resetInterpreter': 'Reset to auto-detected',
+    'run.locate': 'Locate…',
+    'run.interpreter': 'Interpreter: {path}',
+    'run.interpreterAuto': '{lang}: auto-detected from PATH',
+    'run.notFoundTitle': '{lang} not found',
+    'run.notFoundMsg': "Couldn't find a {lang} interpreter on your system. Locate its executable to register it, then this file will run.",
+
     'terminal.clear': 'Clear',
     'terminal.clearTitle': 'Clear terminal',
     'terminal.new': 'New terminal',
@@ -82,6 +91,7 @@ export default {
     'settings.panel.browser': 'Browser',
 
     'browser.open': 'Browser',
+    'browser.inspect': 'Inspect element — click one to copy its details',
     'browser.terminate': 'Terminate browser',
     'browser.close': 'Close',
   },
