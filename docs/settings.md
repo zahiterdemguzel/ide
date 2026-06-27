@@ -143,7 +143,7 @@ matches).
 then mark the element with the matching `data-i18n*` attribute. A missing key
 falls back to English at runtime, but `npm test` enforces **full key parity** —
 every locale must carry exactly the `en` key set (see [testing.md](testing.md)),
-so adding a key to `en` alone fails CI. Dynamic strings built in JS (e.g. the
+so adding a key to `en` alone fails `npm test`. Dynamic strings built in JS (e.g. the
 commit-count button label) are not yet routed through `t()`; do that in the
 owning module when needed.
 

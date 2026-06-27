@@ -1,4 +1,4 @@
-# Testing, lint & CI
+# Testing & lint
 
 The app has no automated GUI/end-to-end harness, but the **pure, subtle logic** — the parts most likely to break silently under an edit — is split out into Electron-free modules and unit-tested with Node's built-in runner. There is **no test-framework dependency**: `npm test` is `node --test`.
 
@@ -7,7 +7,11 @@ The app has no automated GUI/end-to-end harness, but the **pure, subtle logic** 
 - `npm test` — runs every file under `test/` (`node --test`'s default glob).
 - `npm run lint` — ESLint (flat config in `eslint.config.js`) over the whole tree.
 
-CI (`.github/workflows/ci.yml`) runs both on every push to `master` and every PR. It skips the Electron binary download (`ELECTRON_SKIP_BINARY_DOWNLOAD=1`) because nothing under test needs it.
+There is no separate lint/test CI job — run `npm test` and `npm run lint` locally before finishing a change. The only GitHub Actions workflow is `.github/workflows/build.yml`, which packages the Windows and macOS apps on every push to `master` (see below).
+
+## Build workflow
+
+`.github/workflows/build.yml` runs on every push to `master` (and manual `workflow_dispatch`). A two-OS matrix packages the app with electron-builder: `windows-latest` runs `npm run build` (portable `.exe`) and `macos-latest` runs `npm run build:mac` (`.dmg`). Each job uploads its installer as a workflow artifact (`windows` / `macos`). `CSC_IDENTITY_AUTO_DISCOVERY=false` keeps electron-builder from attempting code-signing/notarization, since CI has no certificates. `fail-fast: false` lets one OS finish even if the other breaks.
 
 ## The testability split
 
