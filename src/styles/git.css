@@ -155,6 +155,24 @@
 .confirm-btn-secondary:hover { background: var(--border); }
 .confirm-btn-danger { background: var(--red); color: #fff; }
 .confirm-btn-danger:hover { filter: brightness(1.1); }
+
+/* warning dialog — non-fatal errors (e.g. a session failing to save/load); shares
+   the error/confirm chrome but shows the error text in red with OK + Copy */
+#warn-dialog {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-2); color: var(--fg);
+  padding: 20px 24px; max-width: 480px; width: 90%;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+#warn-dialog::backdrop { background: rgba(0,0,0,0.45); }
+#warn-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--red); }
+#warn-msg {
+  font-size: 12px; font-family: Consolas, monospace; color: var(--red);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 240px; overflow-y: auto; margin-bottom: 16px;
+}
+.warn-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.warn-actions button { border: none; border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px; }
 .git-ahead-badge, .git-behind-badge {
   position: absolute; top: -6px; right: -6px;
   min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;

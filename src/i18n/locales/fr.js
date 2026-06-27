@@ -64,6 +64,13 @@ export default {
     'session.stateCommitted': 'Validé',
     'session.stateInterrupted': 'Interrompu',
 
+    'warn.title': 'Une erreur est survenue',
+    'warn.session': 'Erreur de session',
+    'warn.unknown': 'Erreur inconnue',
+    'warn.copy': 'Copier',
+    'warn.copied': 'Copié',
+    'warn.ok': 'OK',
+
     'editor.find': 'Rechercher',
     'editor.findCase': 'Respecter la casse (Alt+C)',
     'editor.findPrev': 'Précédent (Shift+Enter)',

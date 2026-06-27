@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.log
+crashlogs/
 package-lock.json
 # Throwaway workspace the "Start IDE" launch config opens for testing the IDE
 # with the IDE. Has its own git repo so the test instance's git pane is isolated.

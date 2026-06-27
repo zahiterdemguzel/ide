@@ -18,4 +18,5 @@ module.exports = {
   onSessionMeta: (cb) => ipcRenderer.on('session-meta', (_e, msg) => cb(msg)),
   onSessionName: (cb) => ipcRenderer.on('session-name', (_e, msg) => cb(msg)),
   onSessionEvicted: (cb) => ipcRenderer.on('session-evicted', (_e, msg) => cb(msg)),
+  onSessionError: (cb) => ipcRenderer.on('session-error', (_e, msg) => cb(msg)),
 };

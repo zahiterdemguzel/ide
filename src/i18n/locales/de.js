@@ -64,6 +64,13 @@ export default {
     'session.stateCommitted': 'Committet',
     'session.stateInterrupted': 'Unterbrochen',
 
+    'warn.title': 'Etwas ist schiefgelaufen',
+    'warn.session': 'Sitzungsfehler',
+    'warn.unknown': 'Unbekannter Fehler',
+    'warn.copy': 'Kopieren',
+    'warn.copied': 'Kopiert',
+    'warn.ok': 'OK',
+
     'editor.find': 'Suchen',
     'editor.findCase': 'Groß-/Kleinschreibung beachten (Alt+C)',
     'editor.findPrev': 'Vorheriges (Shift+Enter)',

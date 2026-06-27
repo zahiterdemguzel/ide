@@ -46,8 +46,9 @@ function startHookServer() {
     let body = '';
     req.on('data', (d) => (body += d));
     req.on('end', async () => {
+      let payload;
+      try { payload = JSON.parse(body); } catch { res.end('ok'); return; } // ignore malformed
       try {
-        const payload = JSON.parse(body);
         const state = eventToState(payload);
         if (state && payload.session_id) {
           // Resuming a saved session fires SessionStart → idle. That must NOT wipe
@@ -69,7 +70,11 @@ function startHookServer() {
         // touching tools.
         const meta = await sessions.recordSessionActivity(payload);
         if (meta) sendToRenderer('session-meta', meta);
-      } catch { /* ignore malformed */ }
+      } catch (err) {
+        // Tracking this session's activity failed — surface it instead of silently
+        // losing the session's edit/commit state (and never crash the hook server).
+        sessions.reportSessionError('tracking session activity', err);
+      }
       res.end('ok');
     });
   });

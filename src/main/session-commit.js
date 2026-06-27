@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
-const { sessions, trackedFiles, setSessionState } = require('./sessions');
+const { sessions, trackedFiles, setSessionState, guard } = require('./sessions');
 const { commitContent, inverseEdits } = require('./edit-ops');
 const { sumNumstat } = require('./git-parse');
 
@@ -155,18 +155,18 @@ async function sessionDiff(s, repoPath, withPatch) {
 // Light pull for the Diff button's badge (counts only). The renderer refreshes it
 // off each session-meta (so a background session's badge tracks its edits) and on
 // restore/select.
-ipcMain.handle('session-diff-stat', async (_e, id) => {
+ipcMain.handle('session-diff-stat', guard('reading a session diff', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { additions: 0, deletions: 0, files: 0 };
   return sessionDiff(s, getRepoPath(), false);
-});
+}, { additions: 0, deletions: 0, files: 0 }));
 
 // Full patch for the Diff dialog (rendered over the terminal, terminal kept alive).
-ipcMain.handle('session-diff', async (_e, id) => {
+ipcMain.handle('session-diff', guard('reading a session diff', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { ok: false, patch: '', additions: 0, deletions: 0, files: 0 };
   return { ok: true, ...(await sessionDiff(s, getRepoPath(), true)) };
-});
+}, { ok: false, patch: '', additions: 0, deletions: 0, files: 0 }));
 
 // Commit ONLY the hunks this session edited, using its first prompt as the
 // message. For each touched file we replay the session's own edits onto the
@@ -174,7 +174,7 @@ ipcMain.handle('session-diff', async (_e, id) => {
 // same file are left uncommitted in the working tree. If an edit can't be
 // replayed cleanly (the other session moved that text, or an opaque op), we fall
 // back to the whole current file for that path.
-ipcMain.handle('commit-session', async (_e, id) => {
+ipcMain.handle('commit-session', guard('committing a session', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
@@ -200,7 +200,7 @@ ipcMain.handle('commit-session', async (_e, id) => {
   }
   if (ct.ok || pruned) sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   return ct;
-});
+}, (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
 
 // Revert ONLY this session's working-tree changes by de-applying its own edits,
 // so another session's edits to the same file survive. For each touched file we
@@ -209,7 +209,7 @@ ipcMain.handle('commit-session', async (_e, id) => {
 // is only safe when NO other live session also edited that file — otherwise we
 // skip it (clobbering another agent's work is worse than leaving ours). Reverted
 // files are forgotten so a later commit/revert won't double-apply them.
-ipcMain.handle('revert-session', async (_e, id) => {
+ipcMain.handle('revert-session', guard('reverting a session', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
@@ -251,6 +251,6 @@ ipcMain.handle('revert-session', async (_e, id) => {
   sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   if (!reverted.length && !revertedOps.length && !skipped.length) return { ok: false, stderr: 'This session changed no files' };
   return { ok: true, reverted: reverted.length + revertedOps.length, skipped };
-});
+}, (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
 
 module.exports = {};

@@ -28,15 +28,54 @@ const sessions = new Map();
 // profile), so sessions survive closing the app — both active and archived ones.
 const sessionsFile = path.join(sharedDataDir, 'sessions.json');
 
+// A session failing to save/load/commit/etc. must never crash the IDE; instead it
+// surfaces as a warning dialog in the renderer (red error text, OK + Copy). Errors
+// raised before the renderer exists (e.g. a corrupt sessions.json read at startup)
+// are queued and flushed once the renderer asks for the session list.
+const pendingSessionErrors = [];
+function reportSessionError(context, err) {
+  const message = err && err.stack ? err.stack : String(err);
+  console.error('[session error]', context, message);
+  if (!sendToRenderer('session-error', { context, message })) pendingSessionErrors.push({ context, message });
+}
+function flushSessionErrors() {
+  while (pendingSessionErrors.length) {
+    if (!sendToRenderer('session-error', pendingSessionErrors[0])) break;
+    pendingSessionErrors.shift();
+  }
+}
+
+// Wrap a session IPC handler so any throw becomes a reported warning + a safe
+// return value, instead of a rejected invoke (an unhandled rejection in the
+// renderer) or — for fire-and-forget `.on` handlers — an uncaught main-process
+// exception. `fallback` is what the renderer gets back on failure.
+function guard(context, fn, fallback) {
+  return async (...args) => {
+    try { return await fn(...args); }
+    catch (err) { reportSessionError(context, err); return typeof fallback === 'function' ? fallback(err) : fallback; }
+  };
+}
+function guardOn(context, fn) {
+  return (...args) => { try { fn(...args); } catch (err) { reportSessionError(context, err); } };
+}
+
 // Repopulate `sessions` from disk on load (oldest-first order preserved), so the
 // renderer can rebuild its list on startup. Restored entries have no PTY; they
-// resume under the same id on demand.
+// resume under the same id on demand. A missing file is normal (first run); a file
+// that exists but can't be read/parsed is surfaced so corrupt session state is
+// visible rather than silently dropped, and one bad entry never aborts the rest.
 function loadPersistedSessions() {
+  let raw;
+  try { raw = fs.readFileSync(sessionsFile, 'utf8'); }
+  catch (err) { if (err.code !== 'ENOENT') reportSessionError('reading saved sessions', err); return; }
   let list;
-  try { list = JSON.parse(fs.readFileSync(sessionsFile, 'utf8')); } catch { return; }
+  try { list = JSON.parse(raw); }
+  catch (err) { reportSessionError('reading saved sessions', err); return; }
   if (!Array.isArray(list)) return;
   for (const obj of list) {
-    if (obj && typeof obj.id === 'string') sessions.set(obj.id, deserializeSession(obj));
+    if (!obj || typeof obj.id !== 'string') continue;
+    try { sessions.set(obj.id, deserializeSession(obj)); }
+    catch (err) { reportSessionError('restoring a saved session', err); }
   }
 }
 loadPersistedSessions();
@@ -46,24 +85,30 @@ loadPersistedSessions();
 // quit before the process exits. Evicted sessions are also dropped from memory and
 // the UI so "old sessions get deleted" holds at runtime, not just on disk.
 function persistSessions() {
-  const snapshots = [...sessions].map(([id, s]) => serializeSession(id, s));
-  const measured = snapshots.map((o) => ({
-    id: o.id,
-    bytes: sessionBytes(o),
-    evictable: !sessions.get(o.id)?.pty, // never evict a session the user is actively running
-  }));
-  const { evictedIds } = enforceLimit(measured);
-  if (evictedIds.length) {
-    for (const id of evictedIds) {
-      const s = sessions.get(id);
-      if (s && s.pty) try { s.pty.kill(); } catch { /* already gone */ }
-      sessions.delete(id);
+  try {
+    const snapshots = [...sessions].map(([id, s]) => serializeSession(id, s));
+    const measured = snapshots.map((o) => ({
+      id: o.id,
+      bytes: sessionBytes(o),
+      evictable: !sessions.get(o.id)?.pty, // never evict a session the user is actively running
+    }));
+    const { evictedIds } = enforceLimit(measured);
+    if (evictedIds.length) {
+      for (const id of evictedIds) {
+        const s = sessions.get(id);
+        if (s && s.pty) try { s.pty.kill(); } catch { /* already gone */ }
+        sessions.delete(id);
+      }
+      sendToRenderer('session-evicted', { ids: evictedIds });
     }
-    sendToRenderer('session-evicted', { ids: evictedIds });
+    const evicted = new Set(evictedIds);
+    const kept = snapshots.filter((o) => !evicted.has(o.id));
+    fs.writeFileSync(sessionsFile, JSON.stringify(kept));
+  } catch (err) {
+    // Runs from a timer and on quit — a throw here would otherwise be an uncaught
+    // exception. Surface it instead so the user knows their sessions didn't save.
+    reportSessionError('saving sessions', err);
   }
-  const evicted = new Set(evictedIds);
-  const kept = snapshots.filter((o) => !evicted.has(o.id));
-  try { fs.writeFileSync(sessionsFile, JSON.stringify(kept)); } catch (err) { console.error('[persist sessions]', err); }
 }
 
 // Coalesce the frequent mutations (every recorded edit, name, archive toggle) into
@@ -257,14 +302,17 @@ function spawnPty(id, cols, rows, resume) {
 // Return the restored sessions so the renderer can rebuild its list on startup.
 // Only the UI-facing fields are sent; the tracked-file list drives the per-session
 // commit button immediately, before the session is even resumed.
-ipcMain.handle('get-sessions', () => {
+ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
+  // The renderer is alive by the time it asks for the list, so flush any errors
+  // queued during the pre-renderer startup load (e.g. a corrupt sessions.json).
+  flushSessionErrors();
   return [...sessions].map(([id, s]) => ({
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
   }));
-});
+}, []));
 
-ipcMain.handle('new-session', (_e, { cols, rows }) => {
+ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
@@ -273,22 +321,22 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
   sessions.get(id).pty = spawnPty(id, cols, rows, false);
   schedulePersist();
   return { id, repo };
-});
+}, (err) => ({ error: err && err.message ? err.message : String(err) })));
 
 // Archive: kill the Claude process to free resources but keep the session entry
 // (and all its tracked-file state) so it can resume under the same id.
-ipcMain.on('suspend-session', (_e, { id }) => {
+ipcMain.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
   const s = sessions.get(id);
   if (!s) return;
   s.suspended = true;
   s.archived = true;
   if (s.pty) { try { s.pty.kill(); } catch { /* already gone */ } s.pty = null; }
   schedulePersist();
-});
+}));
 
 // Restore: respawn the PTY (resuming the same Claude conversation) for an entry
 // that was suspended; its edits/fileOps continue accumulating against the same id.
-ipcMain.handle('resume-session', (_e, { id, cols, rows }) => {
+ipcMain.handle('resume-session', guard('restoring a session', (_e, { id, cols, rows }) => {
   const s = sessions.get(id);
   if (!s) return { ok: false };
   s.suspended = false;
@@ -296,26 +344,26 @@ ipcMain.handle('resume-session', (_e, { id, cols, rows }) => {
   s.pty = spawnPty(id, cols, rows, true);
   schedulePersist();
   return { ok: true, repo: getRepoPath() };
-});
+}, { ok: false }));
 
-ipcMain.on('pty-input', (_e, { id, data }) => {
+ipcMain.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   const s = sessions.get(id);
   if (s && s.pty) s.pty.write(data);
-});
-ipcMain.on('pty-resize', (_e, { id, cols, rows }) => {
+}));
+ipcMain.on('pty-resize', guardOn('resizing a session', (_e, { id, cols, rows }) => {
   const s = sessions.get(id);
   if (s && s.pty) try { s.pty.resize(cols, rows); } catch { /* race on close */ }
-});
-ipcMain.on('kill-session', (_e, { id }) => {
+}));
+ipcMain.on('kill-session', guardOn('closing a session', (_e, { id }) => {
   const s = sessions.get(id);
   if (!s) return;
   if (s.pty) try { s.pty.kill(); } catch { /* already gone */ }
   sessions.delete(id);
   schedulePersist();
-});
+}));
 
 function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, killAllSessions, persistSessions };
+module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, killAllSessions, persistSessions, reportSessionError, guard };

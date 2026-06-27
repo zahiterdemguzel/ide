@@ -65,6 +65,13 @@ export default {
     'session.stateCommitted': 'Committed',
     'session.stateInterrupted': 'Interrupted',
 
+    'warn.title': 'Something went wrong',
+    'warn.session': 'Session error',
+    'warn.unknown': 'Unknown error',
+    'warn.copy': 'Copy',
+    'warn.copied': 'Copied',
+    'warn.ok': 'OK',
+
     'editor.find': 'Find',
     'editor.findCase': 'Match case (Alt+C)',
     'editor.findPrev': 'Previous (Shift+Enter)',

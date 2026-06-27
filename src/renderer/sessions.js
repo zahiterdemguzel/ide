@@ -4,6 +4,8 @@ import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
 import { confirmDialog } from './shared/confirm.js';
+import { showWarning } from './shared/warn.js';
+import { ensureClaude } from './claude-setup.js';
 import { t } from '../i18n/index.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -349,8 +351,14 @@ function showSuspendedHint(container, text) {
 }
 
 export async function newSession() {
+  // Don't spawn a session if the Claude Code CLI is missing — guide the user to
+  // install it first (the gate re-checks and shows the setup dialog if needed).
+  if (!(await ensureClaude())) return;
   // probe a size from a temporary fit after open
   const res = await window.api.newSession({ cols: 80, rows: 24 });
+  // A failed spawn already raised a session-error dialog from main; bail rather
+  // than build a broken row around a missing id.
+  if (!res || !res.id) return;
   const id = res.id;
   if (res.repo) currentRepo = res.repo;
 
@@ -587,3 +595,9 @@ window.api.onSessionName(({ id, name }) => {
 // Main evicted the oldest sessions to stay under the persisted-storage budget;
 // drop their rows so the UI matches what survives on disk.
 window.api.onSessionEvicted(({ ids }) => { for (const id of ids) removeSessionUI(id); });
+// A session failed in main (saving/retrieving/committing/…). Rather than crash or
+// vanish into the console, surface it as a dismissable warning with the error text.
+window.api.onSessionError(({ context, message }) => {
+  const detail = context ? `${t('warn.session')} (${context}):\n\n${message}` : message;
+  showWarning(detail, t('warn.session'));
+});

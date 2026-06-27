@@ -64,6 +64,13 @@ export default {
     'session.stateCommitted': 'İşlendi',
     'session.stateInterrupted': 'Kesildi',
 
+    'warn.title': 'Bir şeyler ters gitti',
+    'warn.session': 'Oturum hatası',
+    'warn.unknown': 'Bilinmeyen hata',
+    'warn.copy': 'Kopyala',
+    'warn.copied': 'Kopyalandı',
+    'warn.ok': 'Tamam',
+
     'editor.find': 'Bul',
     'editor.findCase': 'Büyük/küçük harf eşleştir (Alt+C)',
     'editor.findPrev': 'Önceki (Shift+Enter)',

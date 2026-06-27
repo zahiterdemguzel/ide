@@ -5,6 +5,7 @@ require('./instance');
 const { createWindow } = require('./window');
 const { startHookServer } = require('./hook-server');
 const { killAllSessions, persistSessions } = require('./sessions');
+const { installCrashLogging } = require('./crashlog');
 
 // Requiring each subsystem registers its ipcMain handlers as a load side-effect.
 require('./repo');
@@ -16,8 +17,9 @@ require('./run-configs');
 require('./runners');
 require('./consoles');
 
-process.on('uncaughtException', (err) => console.error('[main uncaught]', err));
-process.on('unhandledRejection', (err) => console.error('[main unhandledRejection]', err));
+// Log every crash (uncaught exception, unhandled rejection, renderer/child-process
+// death) to a file under crashlogs/ — without exiting, so the app stays usable.
+installCrashLogging();
 
 // Windows: Chromium's GPU shader disk cache repeatedly fails to initialize
 // ("Gpu Cache Creation failed", "Unable to move the cache: Access is denied")
