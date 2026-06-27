@@ -59,22 +59,13 @@
 
 .git-list { list-style: none; margin: 0; padding: 2px 6px; overflow-y: auto; max-height: 40vh; }
 
-/* Conflicts + Staged + Changes share one scroll region with the commit box pinned
-   below it, so the lists flow as a single column (never split into fixed halves)
-   and a long Staged list scrolls the whole region rather than pushing Changes or
-   the commit box out of view. */
-#git-changes-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
-/* Children keep their natural height so the scroller (not each list) does the
-   scrolling; the clean-state message is the exception — it grows to fill and
-   centre itself when the tree is clean. */
-#git-changes-scroll > * { flex: none; }
-#git-changes-scroll > #git-clean { flex: 1 1 auto; }
-#conflicts-list, #staged-list, #unstaged-list { max-height: none; overflow: visible; }
-/* An empty list collapses to nothing so it reserves no space. The Staged header
-   stays visible regardless, so the section is always discoverable; the Changes
-   header hides when empty because the clean-state message covers that case. */
+/* Staged and Changes each scroll independently and share the free height below
+   their headers: when both are crowded they split it 50/50, each scrolling within
+   its half so neither pushes the other (or the commit box) out of view. An empty
+   list collapses to nothing — reserving no space — while its header stays put, so
+   both sections are always visible and the non-empty list takes the whole area. */
+#staged-list, #unstaged-list { flex: 1 1 0; min-height: 0; max-height: none; overflow-y: auto; }
 #staged-list:empty, #unstaged-list:empty { display: none; }
-.git-changes-title:has(+ #unstaged-list:empty) { display: none; }
 .git-list li {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 6px; border-radius: 5px; cursor: pointer;
