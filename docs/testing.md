@@ -13,6 +13,8 @@ There is no separate lint/test CI job — run `npm test` and `npm run lint` loca
 
 `.github/workflows/build.yml` runs on every push to `master` (and manual `workflow_dispatch`). A two-OS matrix packages the app with electron-builder: `windows-latest` runs `npm run build` (portable `.exe`) and `macos-latest` runs `npm run build:mac` (`.dmg`). Each job uploads its installer as a workflow artifact (`windows` / `macos`). `CSC_IDENTITY_AUTO_DISCOVERY=false` keeps electron-builder from attempting code-signing/notarization, since CI has no certificates. `fail-fast: false` lets one OS finish even if the other breaks.
 
+`package-lock.json` is gitignored, so the repo has no lockfile in it. That means the workflow uses `npm install` (not `npm ci`) and omits setup-node's `cache: npm` — both of those require a committed lockfile and would fail with "Dependencies lock file is not found."
+
 ## The testability split
 
 A module that does `require('electron')` (or reads files, spawns git, touches the DOM) can't be loaded under plain Node. So the rule is: **keep the OS/IPC shell thin and put the real logic in an Electron-free helper next to it.** This mirrors the existing `edit-ops.js` (pure) ↔ `session-commit.js` (IPC) split.
