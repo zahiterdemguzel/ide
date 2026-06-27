@@ -13,6 +13,7 @@ require('./sessions');
 require('./session-commit');
 require('./explorer');
 require('./run-configs');
+require('./runners');
 require('./consoles');
 
 process.on('uncaughtException', (err) => console.error('[main uncaught]', err));

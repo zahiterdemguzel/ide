@@ -6,6 +6,43 @@
 }
 #diff-file { font-family: Consolas, monospace; font-size: 12px; color: var(--fg); }
 #diff-actions { display: flex; align-items: center; gap: 10px; }
+
+/* Run split-button: a square Play button joined to a narrower caret. Shown only
+   while a runnable file is mounted (file editor). The two read as one control. */
+#run-split { display: inline-flex; align-items: stretch; }
+#run-split[hidden] { display: none; }
+#run-split.busy { opacity: .55; pointer-events: none; }
+#run-btn, #run-menu-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bg-3); color: var(--green); cursor: pointer;
+  border: 1px solid var(--border); padding: 0;
+}
+#run-btn { width: 26px; height: 24px; border-radius: 3px 0 0 3px; }
+#run-menu-btn {
+  width: 16px; height: 24px; border-radius: 0 3px 3px 0; border-left: none; color: var(--fg-dim);
+}
+#run-btn:hover, #run-menu-btn:hover, #run-menu-btn.open {
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+#run-btn:hover + #run-menu-btn { border-left-color: var(--accent); }
+
+/* Run options popover (the caret) — same chrome as the shell-picker menu. */
+#run-menu {
+  position: fixed; z-index: 50; background: var(--bg-2);
+  border: 1px solid var(--border); border-radius: 4px; padding: 3px;
+  display: flex; flex-direction: column; min-width: 180px; max-width: 360px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .4);
+}
+.run-menu-info {
+  padding: 5px 10px 7px; font-size: 11px; color: var(--fg-dim);
+  border-bottom: 1px solid var(--border); margin-bottom: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.run-menu-item {
+  background: none; border: none; color: var(--fg); text-align: left;
+  padding: 6px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;
+}
+.run-menu-item:hover { background: var(--accent); color: var(--on-accent); }
 #diff-save {
   padding: 2px 12px; font-size: 12px; cursor: pointer;
   background: var(--bg-3); color: var(--fg);
