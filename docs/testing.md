@@ -25,7 +25,7 @@ A module that does `require('electron')` (or reads files, spawns git, touches th
 | `src/renderer/shared/git-status.js` | `src/renderer/git-pane.js` | `statusLabel` — the human-readable tooltip for a status badge, keyed on the staged/unstaged column so the same porcelain letter (notably `D`: staged deletion vs deleted-on-disk-not-staged) reads distinctly and an unstaged deletion is pointed at Discard. |
 | `src/renderer/shared/fuzzy.js` | `src/renderer/quick-open.js` | `fuzzyMatch`/`fuzzyFilter` — the Quick Open palette's subsequence matcher: subsequence requirement, consecutive-run / boundary / basename scoring, and the resulting ranking. quick-open.js is the thin DOM/IPC shell around it. |
 | `src/renderer/shared/find.js` | `src/renderer/viewer/file.js` | `findMatches` (all non-overlapping hits, case-(in)sensitive), `nearestMatch` (first hit at/after the caret, wrapping), `stepMatch` (next/prev with wraparound) — the file editor's [find-in-file](architecture.md#file-editor) bar. file.js paints the hits into the `.editor-hl` overlay and drives scrolling. |
-| `src/i18n/index.js` | — | `t()` lookup + English fallback, `setLocale` fallback for unknown codes, and **locale key parity** (every locale has exactly the base `en` key set — catches a string added to `en` but forgotten elsewhere, or an orphan/typo'd key). |
+| `src/i18n/index.js` | — | `t()` lookup + English fallback, `setLocale` fallback for unknown codes, `pickLocale` (system-language → locale match on the primary subtag, preference order, English fallback — the first-run auto-detect), and **locale key parity** (every locale has exactly the base `en` key set — catches a string added to `en` but forgotten elsewhere, or an orphan/typo'd key). |
 
 ### Renderer/i18n helpers are ES modules
 

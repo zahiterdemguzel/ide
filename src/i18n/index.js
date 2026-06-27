@@ -33,6 +33,19 @@ export function setLocale(code) {
   document.documentElement.dir = dir || 'ltr';
 }
 
+// Pick the best-matching registered locale for an ordered list of preferred
+// language tags (e.g. navigator.languages: ['tr-TR', 'en-US']). Each tag's
+// primary subtag is matched case-insensitively against a locale code; the
+// first hit wins. Falls back to English when nothing matches, so an
+// unsupported system language lands on en. Used to seed the locale on first run.
+export function pickLocale(preferred = []) {
+  for (const tag of preferred) {
+    const primary = String(tag).toLowerCase().split('-')[0];
+    if (locales[primary]) return primary;
+  }
+  return BASE_LOCALE;
+}
+
 // Look up a key in the active locale, falling back to English, then the key
 // itself so a missing string is visible rather than blank.
 export function t(key) {

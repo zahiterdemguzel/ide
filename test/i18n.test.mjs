@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { t, setLocale, currentLocale, availableLocales, locales, BASE_LOCALE } from '../src/i18n/index.js';
+import { t, setLocale, currentLocale, availableLocales, locales, BASE_LOCALE, pickLocale } from '../src/i18n/index.js';
 
 // setLocale touches document.documentElement; the engine is otherwise DOM-free.
 const doc = (globalThis.document = { documentElement: {} });
@@ -47,6 +47,22 @@ test('setLocale: sets document lang and dir', () => {
   setLocale('en');
   assert.equal(doc.documentElement.lang, 'en');
   assert.equal(doc.documentElement.dir, 'ltr');
+});
+
+test('pickLocale: matches a system tag on its primary subtag, case-insensitively', () => {
+  assert.equal(pickLocale(['tr-TR', 'en-US']), 'tr');
+  assert.equal(pickLocale(['DE']), 'de');
+  assert.equal(pickLocale(['fr']), 'fr');
+});
+
+test('pickLocale: honours preference order, skipping unsupported tags', () => {
+  assert.equal(pickLocale(['pt-BR', 'es-ES', 'en']), 'es');
+});
+
+test('pickLocale: falls back to English when nothing matches or list is empty', () => {
+  assert.equal(pickLocale(['ja', 'zh-CN']), BASE_LOCALE);
+  assert.equal(pickLocale([]), BASE_LOCALE);
+  assert.equal(pickLocale(), BASE_LOCALE);
 });
 
 // The regression this guards: adding a UI string to en but forgetting the other

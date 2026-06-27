@@ -133,5 +133,12 @@ owning module when needed.
 > Node. The browser ignores it and the Electron main process never imports i18n,
 > so runtime is unaffected.
 
-The default language is English and the default theme is dark; both are used
-until the user changes them.
+The default theme is dark; it's used until the user changes it.
+
+**Language is auto-detected on first run.** When no `ide.locale` is stored yet
+(a fresh install on a device), `initSettings()` seeds it from the system
+language via `pickLocale(navigator.languages)` — it matches each preferred
+language tag's primary subtag (e.g. `tr-TR` → `tr`) against a registered locale
+in order, and falls back to English when none of ours match. The detected pick
+is written to `localStorage` immediately, so a later OS-language change won't
+silently switch the app; the user can always override it in the dialog.

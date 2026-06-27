@@ -3,7 +3,7 @@
 // either; the rest of the app reads nothing here — theme flows through CSS
 // custom properties and language through data-i18n attributes.
 import {
-  availableLocales, currentLocale, setLocale, applyTranslations, BASE_LOCALE,
+  availableLocales, currentLocale, setLocale, applyTranslations, pickLocale,
 } from '../i18n/index.js';
 import { refreshTermThemes } from './shared/terminal.js';
 
@@ -43,7 +43,14 @@ function fillSelect(select, items, value) {
 
 export function initSettings() {
   const savedTheme = localStorage.getItem(STORE.theme) || DEFAULT_THEME;
-  const savedLocale = localStorage.getItem(STORE.locale) || BASE_LOCALE;
+  // First run on this device: seed the language from the system (the browser's
+  // language list), falling back to English when none of ours match. Persisting
+  // the pick means a later OS-language change won't silently switch the app.
+  let savedLocale = localStorage.getItem(STORE.locale);
+  if (!savedLocale) {
+    savedLocale = pickLocale(navigator.languages || [navigator.language]);
+    localStorage.setItem(STORE.locale, savedLocale);
+  }
 
   applyTheme(savedTheme);
   setLocale(savedLocale);
