@@ -9,6 +9,13 @@ const { git } = require('./git');
 const { sessions, trackedFiles, setSessionState, persistSession, guard } = require('./sessions');
 const { commitContent, inverseEdits } = require('./edit-ops');
 const { sumNumstat } = require('./git-parse');
+const { runHaiku } = require('./claude');
+const { commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage } = require('./commit-msg');
+
+// Haiku can be slow (or its CLI fallback can hang); cap the per-session message
+// generation so the commit button never spins indefinitely. On timeout we commit
+// with the deterministic session-title fallback instead.
+const COMMIT_MSG_TIMEOUT_MS = 30000;
 
 // Build one commit whose tree is HEAD with only `entries` applied — via a
 // throwaway index + commit-tree, so the real index and the working tree are
@@ -125,6 +132,14 @@ async function sessionEntries(s, repoPath) {
 // change", so the button disables.
 async function sessionDiff(s, repoPath, withPatch) {
   const { entries } = await sessionEntries(s, repoPath);
+  return entriesToDiff(entries, withPatch);
+}
+
+// Diff a precomputed entry set against HEAD via a throwaway index — the body of
+// sessionDiff, split out so commit-session can render the patch for the SAME
+// frozen entries it is about to commit (for the message prompt) without rebuilding
+// them off the live, still-changing working tree.
+async function entriesToDiff(entries, withPatch) {
   const empty = { patch: '', additions: 0, deletions: 0, files: 0 };
   if (!entries.length) return empty;
   const idxFile = path.join(os.tmpdir(), `ide-sess-diff-${crypto.randomUUID()}`);
@@ -168,12 +183,33 @@ ipcMain.handle('session-diff', guard('reading a session diff', async (_e, id) =>
   return { ok: true, ...(await sessionDiff(s, getRepoPath(), true)) };
 }, { ok: false, patch: '', additions: 0, deletions: 0, files: 0 }));
 
-// Commit ONLY the hunks this session edited, using its first prompt as the
-// message. For each touched file we replay the session's own edits onto the
-// committed (HEAD) version and commit that — so another session's edits to the
-// same file are left uncommitted in the working tree. If an edit can't be
-// replayed cleanly (the other session moved that text, or an opaque op), we fall
-// back to the whole current file for that path.
+// Author a commit message from this session's OWN diff (the same patch the Diff
+// dialog shows), via Haiku — so the message describes the actual code change, not
+// the session's first conversational prompt. Bounded by COMMIT_MSG_TIMEOUT_MS;
+// on timeout/failure/empty-diff we fall back to the session title.
+async function sessionCommitMessage(s, id, patch) {
+  if (patch && patch.trim()) {
+    const out = await Promise.race([
+      runHaiku(commitMessagePrompt(patch), { cwd: getRepoPath() }),
+      new Promise((resolve) => setTimeout(() => resolve(null), COMMIT_MSG_TIMEOUT_MS)),
+    ]);
+    const cleaned = cleanCommitMessage(out);
+    if (cleaned) return cleaned;
+  }
+  return fallbackCommitMessage({ name: s.name, firstPrompt: s.firstPrompt, id });
+}
+
+// Commit ONLY the hunks this session edited. For each touched file we replay the
+// session's own edits onto the committed (HEAD) version and commit that — so
+// another session's edits to the same file are left uncommitted in the working
+// tree. If an edit can't be replayed cleanly (the other session moved that text,
+// or an opaque op), we fall back to the whole current file for that path.
+//
+// The message is generated from this session's diff via Haiku, which can take a
+// few seconds. We SNAPSHOT and clear the session's tracking up front, before that
+// await, so a session that keeps running during generation accumulates its new
+// edits as a SEPARATE batch — they are never folded into this commit. If the
+// commit then fails we restore the snapshot so the work isn't silently dropped.
 ipcMain.handle('commit-session', guard('committing a session', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
@@ -188,20 +224,32 @@ ipcMain.handle('commit-session', guard('committing a session', async (_e, id) =>
     if (pruned) sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
     return { ok: false, stderr: 'This session changed no files yet' };
   }
-  const msg = (s.firstPrompt || `session ${id.slice(0, 8)}`).slice(0, 500);
+
+  // Freeze the committed paths' tracking NOW (at click), so edits the session
+  // makes while the message generates land in a fresh batch, not this commit.
+  // `entries` already holds the frozen blob content, so the commit itself is
+  // unaffected by later working-tree changes regardless; clearing here is what
+  // keeps the NEXT commit (and the bar's file count) correctly scoped.
+  const editSnap = committedAbs.map((abs) => ({ abs, ops: s.edits.get(abs) }));
+  const fileOpSnap = committedFileOps.map((abs) => ({ abs, kind: s.fileOps.get(abs) }));
+  for (const abs of committedAbs) s.edits.delete(abs);
+  for (const abs of committedFileOps) s.fileOps.delete(abs);
+  persistSession(id);
+  sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+
+  const { patch } = await entriesToDiff(entries, true);
+  const msg = await sessionCommitMessage(s, id, patch);
   const ct = await commitBlobs(entries, msg);
-  // Forget what we committed so the button reads "nothing to commit" until the
-  // session edits again — and a later commit only carries those new edits, not a
-  // re-commit of blobs already at HEAD. Re-push the shrunk file list to the bar.
   if (ct.ok) {
-    for (const abs of committedAbs) s.edits.delete(abs);
-    for (const abs of committedFileOps) s.fileOps.delete(abs);
     setSessionState(id, 'pushed'); // mirror the renderer's purple dot, and persist it
-  }
-  // Persist the shrunk tracked-file state (committed or pruned). setSessionState
-  // already saves when the dot actually changes, but a re-commit leaves it 'pushed'
-  // (a no-op), so save here too — the cleared edits must reach disk regardless.
-  if (ct.ok || pruned) {
+    persistSession(id);
+    sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+  } else {
+    // The commit failed after we cleared tracking — restore the snapshot (newer
+    // edits, if any arrived during generation, stay ahead of the restored ops) so
+    // the user can retry. The working-tree changes were never touched.
+    for (const { abs, ops } of editSnap) s.edits.set(abs, [...ops, ...(s.edits.get(abs) || [])]);
+    for (const { abs, kind } of fileOpSnap) if (!s.fileOps.has(abs)) s.fileOps.set(abs, kind);
     persistSession(id);
     sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   }

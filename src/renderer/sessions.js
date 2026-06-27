@@ -240,6 +240,15 @@ function updateSessionBar() {
 // real committable count (same sessionEntries filter the commit uses), so prefer
 // it; fall back to the raw tracked count only until the first stat arrives.
 function renderCommitButton(s) {
+  // While a commit is in flight (snapshot + the Haiku message call, up to ~30s),
+  // this session's button shows a spinner and stays disabled — only this button,
+  // so the rest of the app (other sessions, the git pane) is never blocked.
+  // `s.committing` lives on the session so switching away and back keeps it.
+  if (s.committing) {
+    sessionCommitBtn.disabled = true;
+    sessionCommitBtn.textContent = 'Writing commit message…';
+    return;
+  }
   const n = s.diffStat ? s.diffStat.files : s.files.length;
   sessionCommitBtn.disabled = n === 0;
   sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing to commit';
@@ -554,6 +563,7 @@ function closeSession(id) {
 sessionCommitBtn.onclick = async () => {
   if (!activeId) return;
   const s = sessions.get(activeId);
+  if (s.committing) return; // a commit is already in flight for this session
   // The session is still working (yellow); its file set may be mid-change, so
   // confirm before committing a moving target.
   if (s.state === 'working' && !(await confirmDialog({
@@ -561,9 +571,12 @@ sessionCommitBtn.onclick = async () => {
     message: 'This session is still running. Its files may still be changing. Commit now anyway?',
     ok: 'Commit',
   }))) return;
+  s.committing = true; // spinner + blocks re-clicks until the message is authored and the commit lands
   s.commitMsg = '';
   updateSessionBar();
-  const r = await window.api.commitSession(s.id);
+  let r;
+  try { r = await window.api.commitSession(s.id); }
+  finally { s.committing = false; }
   if (r.ok) setState(s.id, 'pushed'); // the file list (→ button) is refreshed by the session-meta main re-pushes
   else { s.commitMsg = r.stderr || 'Commit failed'; s.commitMsgClass = 'err'; }
   if (activeId === s.id) updateSessionBar();
