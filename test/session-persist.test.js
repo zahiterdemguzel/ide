@@ -28,13 +28,13 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
   assert.equal('preStatus' in out, false);
 });
 
-test('persistedState: keeps the settled states, collapses everything else to interrupted', () => {
+test('persistedState: only an actively-running session reopens interrupted', () => {
   assert.equal(persistedState('completed'), 'completed'); // finished agent stays green
   assert.equal(persistedState('pushed'), 'pushed');       // committed work stays purple
+  assert.equal(persistedState('idle'), 'idle');           // untouched session stays gray
   assert.equal(persistedState('working'), 'interrupted');
   assert.equal(persistedState('needs-input'), 'interrupted');
-  assert.equal(persistedState('idle'), 'interrupted');
-  assert.equal(persistedState(undefined), 'interrupted'); // a pre-state snapshot
+  assert.equal(persistedState(undefined), 'idle');        // a pre-state snapshot
 });
 
 test('serializeSession: an in-flight session is persisted as interrupted', () => {
@@ -65,7 +65,7 @@ test('deserializeSession: tolerates a malformed snapshot', () => {
   assert.equal(restored.edits.size, 0);
   assert.equal(restored.fileOps.size, 0);
   assert.equal(restored.suspended, true);
-  assert.equal(restored.state, 'interrupted');
+  assert.equal(restored.state, 'idle');
 });
 
 test('sessionBytes: grows with the tracked content', () => {

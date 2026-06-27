@@ -8,13 +8,13 @@
 // enforceLimit) until it fits.
 const MAX_PERSIST_BYTES = 100 * 1024 * 1024; // 100 MB
 
-// The status-dot state we record on disk. Only the two *settled* states survive a
-// restart: `completed` (the agent finished — green) and `pushed` (its work was
-// committed — purple). Every other state (idle/working/needs-input) was a session
-// caught mid-flight, and its Claude process can't outlive the app, so it reopens as
-// `interrupted` (red) rather than pretending the in-flight state is still live.
+// The status-dot state we record on disk. A session whose agent was actively
+// running when the app closed (`working` or `needs-input`) reopens as
+// `interrupted` (red) — its Claude process can't outlive the app, so the in-flight
+// state isn't real anymore. Every settled state is kept verbatim: `completed`
+// (green), `pushed` (purple), and `idle` (gray — a session created but never used).
 function persistedState(state) {
-  return state === 'completed' || state === 'pushed' ? state : 'interrupted';
+  return state === 'working' || state === 'needs-input' ? 'interrupted' : (state || 'idle');
 }
 
 // Snapshot one live session entry to a plain object. The PTY and the transient
@@ -49,8 +49,8 @@ function deserializeSession(obj) {
     firstPrompt: obj.firstPrompt || '',
     name: obj.name || '',
     archived: !!obj.archived,
-    // A restored session's process is gone, so any non-settled state on disk reopens
-    // as `interrupted`; a snapshot predating this field has no state, also interrupted.
+    // A restored session's process is gone, so an in-flight state on disk reopens as
+    // `interrupted`; a snapshot predating this field has no state and reopens idle.
     state: persistedState(obj.state),
     suspended: true,
   };

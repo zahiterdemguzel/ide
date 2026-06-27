@@ -328,11 +328,11 @@ function restoreSessionRow(meta) {
   const { li, dot, label, closeBtn } = makeRow(id);
   const shown = name || (firstPrompt && firstPrompt.split('\n')[0]);
   if (shown) label.textContent = shown;
-  // Carry the persisted status dot across the restart: a finished session reopens
-  // green and a committed one purple; anything caught mid-flight reopens red
-  // (interrupted). Selecting it resumes the Claude process, which then drives the
-  // dot live again.
-  const st = state || 'interrupted';
+  // Carry the persisted status dot across the restart: finished stays green,
+  // committed stays purple, an untouched session stays gray, and only a session
+  // that was actively running reopens red (interrupted). Selecting it resumes the
+  // Claude process, which then drives the dot live again.
+  const st = state || 'idle';
   dot.className = 'dot ' + st;
   dot.title = STATE_LABEL[st] || st;
   sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true });
