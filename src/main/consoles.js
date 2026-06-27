@@ -34,17 +34,27 @@ function availableShells() {
 // stays inert.
 function spawnConsole(id, { cols, rows, shell, args, command, cwd, env } = {}) {
   const shPath = shell || availableShells()[0].path;
-  const p = pty.spawn(shPath, args || [], {
-    name: 'xterm-color',
-    cols: cols || 80,
-    rows: rows || 24,
-    cwd: cwd || getRepoPath(),
-    // Scrub VS Code debugger/inspector pollution: a console may run the `claude` CLI
-    // (the setup gate's install/auth terminal does), itself a Node process that would
-    // otherwise boot debug-attached and fail — the reason the install died here but
-    // worked in a clean Terminal. See src/main/proc-env.js.
-    env: env ? { ...cleanEnv(), ...env } : cleanEnv(),
-  });
+  let p;
+  try {
+    p = pty.spawn(shPath, args || [], {
+      name: 'xterm-color',
+      cols: cols || 80,
+      rows: rows || 24,
+      cwd: cwd || getRepoPath(),
+      // Scrub VS Code debugger/inspector pollution: a console may run the `claude` CLI
+      // (the setup gate's install/auth terminal does), itself a Node process that would
+      // otherwise boot debug-attached and fail — the reason the install died here but
+      // worked in a clean Terminal. See src/main/proc-env.js.
+      env: env ? { ...cleanEnv(), ...env } : cleanEnv(),
+    });
+  } catch (e) {
+    // A bad shell path / cwd / winpty hiccup must never take the app down: report the
+    // tab as exited (the renderer reopens a default shell) and bail out of this spawn.
+    console.error('[console] spawn failed', e);
+    consoles.delete(id);
+    sendToRenderer('term-exit', { id });
+    return null;
+  }
   // Run `command` only once the shell is ready to accept it. Writing it the instant
   // the PTY spawns races the shell's startup: zsh in particular hasn't initialised
   // its line editor (ZLE) until it has sourced its rc files and printed its first
@@ -52,7 +62,15 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env } = {}) {
   // the command appears but never runs. Waiting for the shell's first output (its
   // prompt) means ZLE is up before we type. A timeout backstops a silent shell.
   let cmdSent = !command;
-  const sendCommand = () => { if (!cmdSent) { cmdSent = true; p.write(command + '\r'); } };
+  const sendCommand = () => {
+    if (cmdSent) return;
+    cmdSent = true;
+    // The pty can die between spawn and this deferred/onData write (process exits
+    // immediately, conpty teardown races). A throw here lands in a setTimeout/onData
+    // callback with no caller to catch it — exactly the kind of stray error that would
+    // otherwise crash the whole app. Swallow it; onExit cleans up the tab.
+    try { p.write(command + '\r'); } catch (e) { console.error('[console] command write failed', e); }
+  };
   p.onData((data) => {
     sendToRenderer('term-data', { id, data });
     sendCommand();
@@ -81,7 +99,10 @@ ipcMain.handle('term-restart', (_e, opts = {}) => {
   spawnConsole(opts.id, opts);
   return { ok: true };
 });
-ipcMain.on('term-input', (_e, { id, data }) => { const p = consoles.get(id); if (p) p.write(data); });
+ipcMain.on('term-input', (_e, { id, data }) => {
+  const p = consoles.get(id);
+  if (p) try { p.write(data); } catch { /* pty closed under us — drop the keystroke, don't crash */ }
+});
 ipcMain.on('term-resize', (_e, { id, cols, rows }) => {
   const p = consoles.get(id);
   if (p) try { p.resize(cols, rows); } catch { /* race on close */ }
