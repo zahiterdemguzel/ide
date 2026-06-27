@@ -20,7 +20,7 @@ import {
 import { registerTerminalLinks } from './terminal-links.js';
 
 let claudeReady = false;   // unknown until the first check; gates newSession
-let guide = null;          // { platform, install, auth, installDone, docsUrl, run }
+let guide = null;          // { platform, installArgs, authArgs, installOk, installFail, docsUrl, run }
 let step = 0;              // 0 intro, 1 installing, 2 sign in
 let installDone = false;   // install command finished (its marker was seen)
 let watchInstall = false;  // are we watching the terminal output for that marker?
@@ -87,7 +87,7 @@ function goStep(target) {
   const next = Math.max(0, Math.min(LAST_STEP, target));
   if (next === 0) { go(0); return; }
   go(next);
-  startTerminal(next === 1 ? guide.install : guide.auth, next === 1);
+  startTerminal(next === 1 ? guide.installArgs : guide.authArgs, next === 1);
 }
 
 backBtn.onclick = () => goStep(step - 1);
@@ -118,9 +118,10 @@ function teardownTerminal() {
   termHost.replaceChildren();
 }
 
-// Reveal the terminal and spawn a shell running `command`. When `watch` is set we
-// scan its output for the install-completion marker to enable Next (the install step).
-async function startTerminal(command, watch) {
+// Reveal the terminal and spawn a shell with `args` as argv (e.g. `zsh -ilc '<cmd>'`),
+// which runs the command reliably without racing the shell's line editor. When `watch`
+// is set we scan the output for the install OK/FAIL markers to gate Next.
+async function startTerminal(args, watch) {
   termView.hidden = false;
   buildTerminal();
   watchInstall = watch;
@@ -128,7 +129,7 @@ async function startTerminal(command, watch) {
   // The view just un-hid; fit on the next frame so the host has real dimensions.
   requestAnimationFrame(fitTerminal);
   let res;
-  try { res = await window.api.termCreate({ cols: term.cols || 80, rows: term.rows || 24, command }); }
+  try { res = await window.api.termCreate({ cols: term.cols || 80, rows: term.rows || 24, args }); }
   catch { return; }
   termId = res.id;
   term.onData((d) => window.api.termInput(termId, d));
@@ -141,12 +142,26 @@ async function startTerminal(command, watch) {
 window.api.onTermData(({ id, data }) => {
   if (id !== termId || !term) return;
   term.write(data);
-  if (!watchInstall || installDone) return;
+  if (!watchInstall) return;
   outBuf += data;
-  if (outBuf.includes(guide.installDone)) {
-    installDone = true;
+  if (outBuf.includes(guide.installOk)) {
     watchInstall = false;
-    if (step === 1) nextBtn.disabled = false;
+    installDone = true;
+    if (step === 1) {
+      nextBtn.disabled = false;
+      statusEl.textContent = t('setup.installed');
+      statusEl.className = 'setup-status ok';
+    }
+  } else if (outBuf.includes(guide.installFail)) {
+    // The install command finished with a non-zero status: keep Next disabled and tell
+    // the user to read the terminal and retry (Back, then Next, re-runs the install).
+    watchInstall = false;
+    installDone = false;
+    if (step === 1) {
+      nextBtn.disabled = true;
+      statusEl.textContent = t('setup.installFailed');
+      statusEl.className = 'setup-status err';
+    }
   } else if (outBuf.length > 8000) {
     outBuf = outBuf.slice(-2000); // keep the buffer bounded on long installs
   }

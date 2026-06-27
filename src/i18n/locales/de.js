@@ -117,6 +117,8 @@ export default {
     'setup.step.signin': 'Anmelden',
     'setup.step.done': 'Fertig',
     'setup.installing': 'Bitte warte, während Claude Code im Terminal unten installiert wird. Klicke auf Weiter, sobald die Installation abgeschlossen ist.',
+    'setup.installed': 'Claude Code installiert — klicke auf Weiter.',
+    'setup.installFailed': 'Installation fehlgeschlagen. Prüfe die Terminalausgabe, gehe dann Zurück und versuche es erneut.',
     'setup.authInfo': 'Bitte setze die Anmeldung im Terminal unten fort — ein Browserfenster öffnet sich, oder füge den angezeigten Code ein. Klicke auf Fertigstellen, sobald du angemeldet bist.',
     'setup.terminalTitle': 'Terminal',
     'setup.restartNote': 'Gerade installiert? Eventuell musst du diese App neu starten, damit der neue Befehl erkannt wird.',

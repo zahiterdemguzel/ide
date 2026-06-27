@@ -117,6 +117,8 @@ export default {
     'setup.step.signin': 'Se connecter',
     'setup.step.done': 'Terminé',
     'setup.installing': 'Veuillez patienter pendant l’installation de Claude Code dans le terminal ci-dessous. Cliquez sur Suivant une fois l’installation terminée.',
+    'setup.installed': 'Claude Code installé — cliquez sur Suivant.',
+    'setup.installFailed': 'L’installation a échoué. Consultez la sortie du terminal, puis revenez en arrière et réessayez.',
     'setup.authInfo': 'Veuillez poursuivre l’authentification dans le terminal ci-dessous — une fenêtre du navigateur s’ouvre, ou collez le code affiché. Cliquez sur Terminer une fois connecté.',
     'setup.terminalTitle': 'Terminal',
     'setup.restartNote': 'Vous venez de l’installer ? Vous devrez peut-être redémarrer cette application pour qu’elle détecte la nouvelle commande.',

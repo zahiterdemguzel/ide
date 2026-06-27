@@ -1,43 +1,51 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { installGuide, installCommand, authCommand, INSTALL_DONE, DOCS_URL } = require('../src/main/claude-install');
+const { installGuide, installArgs, authArgs, INSTALL_OK, INSTALL_FAIL, DOCS_URL } = require('../src/main/claude-install');
 
-test('installCommand: Windows uses the PowerShell installer', () => {
-  assert.ok(installCommand('win32').startsWith('irm https://claude.ai/install.ps1 | iex'));
+test('installArgs: POSIX runs the shell installer in a login+interactive shell', () => {
+  for (const p of ['darwin', 'linux']) {
+    const a = installArgs(p);
+    assert.deepEqual(a.slice(0, 1), ['-ilc'], 'spawns `$SHELL -ilc <cmd>` so the command is an argument, not typed');
+    assert.match(a[1], /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
+  }
 });
 
-test('installCommand: macOS/Linux use the shell installer', () => {
-  assert.ok(installCommand('darwin').startsWith('curl -fsSL https://claude.ai/install.sh | bash'));
-  assert.ok(installCommand('linux').startsWith('curl -fsSL https://claude.ai/install.sh | bash'));
+test('installArgs: Windows runs the PowerShell installer and stays open', () => {
+  const a = installArgs('win32');
+  assert.ok(a.includes('-NoExit'));
+  assert.ok(a.includes('-Command'));
+  assert.match(a[a.length - 1], /irm https:\/\/claude\.ai\/install\.ps1 \| iex/);
 });
 
-test('installCommand: appends a completion marker chained with ; (runs even on failure)', () => {
-  const cmd = installCommand('linux');
-  assert.match(cmd, /; echo /);
-  // The printed token embeds a quote so the shell's echo of the typed command line
-  // doesn't itself match the marker — only the real program output does.
-  assert.ok(cmd.includes(`${INSTALL_DONE.slice(0, -'COMPLETE'.length)}"COMPLETE"`));
-  assert.ok(!cmd.includes(`echo ${INSTALL_DONE}`), 'unquoted marker must not appear verbatim in the command');
+test('installArgs: the command echoes OK on success and FAIL otherwise (never a false success)', () => {
+  const posix = installArgs('linux')[1];
+  // && on success → OK, || on failure → FAIL
+  assert.match(posix, new RegExp(`&& echo ${INSTALL_OK}`));
+  assert.match(posix, new RegExp(`\\|\\| echo ${INSTALL_FAIL}`));
+  const win = installArgs('win32')[3];
+  assert.match(win, new RegExp(`if \\(\\$\\?\\) \\{ echo ${INSTALL_OK} \\} else \\{ echo ${INSTALL_FAIL} \\}`));
 });
 
-test('authCommand: POSIX re-execs a login shell so PATH refreshes, then runs claude', () => {
-  assert.equal(authCommand('linux'), 'exec "$SHELL" -ilc claude');
-  assert.equal(authCommand('darwin'), 'exec "$SHELL" -ilc claude');
+test('authArgs: POSIX runs claude in a login+interactive shell (so PATH is fresh)', () => {
+  assert.deepEqual(authArgs('darwin'), ['-ilc', 'claude']);
+  assert.deepEqual(authArgs('linux'), ['-ilc', 'claude']);
 });
 
-test('authCommand: Windows refreshes PATH from the registry, then runs claude', () => {
-  const cmd = authCommand('win32');
+test('authArgs: Windows refreshes PATH from the registry, then runs claude', () => {
+  const a = authArgs('win32');
+  const cmd = a[a.length - 1];
   assert.match(cmd, /GetEnvironmentVariable\('Path','User'\)/);
   assert.match(cmd, /GetEnvironmentVariable\('Path','Machine'\)/);
   assert.ok(cmd.trimEnd().endsWith('claude'));
 });
 
-test('installGuide: bundles install, auth, marker, docs URL and run command', () => {
+test('installGuide: bundles the argv for each step, the markers, docs URL and run command', () => {
   const g = installGuide('darwin');
   assert.equal(g.platform, 'darwin');
-  assert.equal(g.install, installCommand('darwin'));
-  assert.equal(g.auth, authCommand('darwin'));
-  assert.equal(g.installDone, INSTALL_DONE);
+  assert.deepEqual(g.installArgs, installArgs('darwin'));
+  assert.deepEqual(g.authArgs, authArgs('darwin'));
+  assert.equal(g.installOk, INSTALL_OK);
+  assert.equal(g.installFail, INSTALL_FAIL);
   assert.equal(g.docsUrl, DOCS_URL);
   assert.equal(g.run, 'claude');
 });

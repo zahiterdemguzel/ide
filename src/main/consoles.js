@@ -25,9 +25,15 @@ function availableShells() {
 // Spawn a shell PTY under `id` (reused across restarts so term-data keeps routing
 // to the same tab). The onExit guard ignores a pty we've already replaced, so a
 // restart doesn't tear down its successor or report the tab as closed.
-function spawnConsole(id, { cols, rows, shell, command, cwd, env } = {}) {
+//
+// `args` are passed straight to the shell as argv — the way to run a command
+// *reliably*, by spawning e.g. `zsh -ilc '<cmd>'` rather than typing into an
+// interactive prompt (which races the shell's line editor; see the setup gate). When
+// `args` carry the command there is no `command` to type, so the deferred-write below
+// stays inert.
+function spawnConsole(id, { cols, rows, shell, args, command, cwd, env } = {}) {
   const shPath = shell || availableShells()[0].path;
-  const p = pty.spawn(shPath, [], {
+  const p = pty.spawn(shPath, args || [], {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
