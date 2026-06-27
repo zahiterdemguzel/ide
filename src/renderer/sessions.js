@@ -4,6 +4,7 @@ import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
 import { confirmDialog } from './shared/confirm.js';
+import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude } from './claude-setup.js';
 import { t } from '../i18n/index.js';
@@ -173,6 +174,7 @@ function updateSessionBar() {
   const s = sessions.get(activeId);
   if (!s) { sessionBar.style.display = 'none'; return; }
   sessionBar.style.display = 'flex';
+  if (sessionRevertBtn.classList.contains('armed')) hideArmHint();
   sessionRevertBtn.classList.remove('armed');
   sessionRevertBtn.textContent = 'Revert';
   sessionArchiveBtn.style.display = s.archived ? 'none' : '';
@@ -350,7 +352,20 @@ function makeRow(id) {
   del.className = 'sess-delete';
   del.title = 'Delete session permanently';
   del.innerHTML = TRASH_ICON;
-  del.onclick = (e) => { e.stopPropagation(); closeSession(id); };
+  // Permanent deletion can't be undone, so it arms on the first click (the comic
+  // bubble prompts the confirm) and only deletes on the second — the same two-click
+  // pattern as the git pane's discard/revert buttons.
+  del.onclick = (e) => {
+    e.stopPropagation();
+    if (!del.classList.contains('armed')) {
+      del.classList.add('armed');
+      del.title = t('armHint.deleteSession');
+      showArmHint(del);
+      return;
+    }
+    hideArmHint();
+    closeSession(id);
+  };
   li.append(dot, label, restore, del, close);
   li.onclick = () => selectSession(id);
   li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrDelete(); } };
@@ -476,8 +491,10 @@ sessionRevertBtn.onclick = async () => {
   if (!sessionRevertBtn.classList.contains('armed')) {
     sessionRevertBtn.classList.add('armed');
     sessionRevertBtn.textContent = 'Revert — sure?';
+    showArmHint(sessionRevertBtn);
     return;
   }
+  hideArmHint();
   sessionRevertBtn.classList.remove('armed');
   sessionRevertBtn.textContent = 'Revert';
   const s = sessions.get(activeId);

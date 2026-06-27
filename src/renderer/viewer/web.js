@@ -14,6 +14,7 @@
 // session terminals are hidden by the center coordinator first; the close/
 // terminate buttons are wired there too.
 import { confirmDialog } from '../shared/confirm.js';
+import { hideArmHint } from '../shared/arm-hint.js';
 
 const webView = document.getElementById('web-view');
 const webFrame = document.getElementById('web-frame');
@@ -31,7 +32,7 @@ const isLoaded = () => !isBlank(webFrame.getAttribute('src'));
 // The toolbar browser button is "active" (accent-coloured) whenever a real page
 // is loaded in the background webview, so it doubles as a browser-alive indicator.
 function setActive(on) { browserBtn.classList.toggle('active', on); }
-const disarmTerminate = () => terminateBtn.classList.remove('armed');
+const disarmTerminate = () => { terminateBtn.classList.remove('armed'); hideArmHint(); };
 
 // Visited addresses, most-recent-first, persisted so the address bar can offer
 // them as suggestions across restarts (the page cookies persist; this is just

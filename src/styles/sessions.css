@@ -49,6 +49,8 @@
 #session-list li.archived .sess-delete { display: inline-flex; }
 #session-list li.archived:hover .sess-delete { visibility: visible; }
 .sess-delete:hover { color: var(--red); }
+/* armed: the first click stays red + visible until the second click confirms */
+#session-list li.archived .sess-delete.armed { visibility: visible; color: var(--red); }
 #session-list li.archived .sess-label { color: var(--fg-dim); font-style: italic; }
 
 .dot { position: relative; width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gray); }

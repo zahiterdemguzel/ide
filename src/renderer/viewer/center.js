@@ -4,6 +4,7 @@ import { showDiff, showCommit } from './diff.js';
 import { showFile } from './file.js';
 import { showAsset, hideAsset } from './asset/index.js';
 import { showWeb as showWebView, openWeb as openWebView, hideWeb, terminateWeb, isWebOpen } from './web.js';
+import { showArmHint, hideArmHint } from '../shared/arm-hint.js';
 
 // --- center coordinator ---
 // Single owner of the center pane's overlays (diff / file / asset / web). Every
@@ -81,7 +82,12 @@ document.getElementById('browser-btn').onclick = toggleWeb;
 // git pane's discard/revert buttons. closeOverlay() then returns to the session.
 const webTerminate = document.getElementById('web-terminate');
 webTerminate.onclick = () => {
-  if (!webTerminate.classList.contains('armed')) { webTerminate.classList.add('armed'); return; }
+  if (!webTerminate.classList.contains('armed')) {
+    webTerminate.classList.add('armed');
+    showArmHint(webTerminate);
+    return;
+  }
+  hideArmHint();
   webTerminate.classList.remove('armed');
   terminateWeb();
   closeOverlay();

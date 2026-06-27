@@ -1,0 +1,50 @@
+/* Small speech-bubble callout that prompts the second click on the two-click
+   "arm then confirm" buttons (discard, revert, terminate, delete). Uses the same
+   popover palette as the branch menu / git-error dialog so it sits in the theme;
+   a tiny tail just hints at the comic-bubble idea. See arm-hint.js. */
+.arm-hint {
+  position: fixed;
+  z-index: 9999;
+  padding: 4px 8px;
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-size: 10.5px;
+  line-height: 1.25;
+  text-align: center;
+  white-space: pre-line;
+  pointer-events: none;
+  --arm-tail: 50%;
+}
+
+/* The tail: two stacked triangles (border + fill) so it keeps the 1px outline. */
+.arm-hint::before,
+.arm-hint::after {
+  content: "";
+  position: absolute;
+  left: var(--arm-tail);
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+}
+.arm-hint::before { top: 100%; border-top: 6px solid var(--border); }
+.arm-hint::after { top: calc(100% - 1px); border-top: 6px solid var(--bg-2); }
+
+/* Flipped variant: bubble sits below the button, tail points up. */
+.arm-hint-below::before { top: auto; bottom: 100%; border-top: 0; border-bottom: 6px solid var(--border); }
+.arm-hint-below::after { top: auto; bottom: calc(100% - 1px); border-top: 0; border-bottom: 6px solid var(--bg-2); }
+
+.arm-hint-pop { animation: arm-hint-pop 140ms ease-out; }
+
+@keyframes arm-hint-pop {
+  0% { opacity: 0; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arm-hint-pop { animation: none; }
+}
