@@ -135,11 +135,15 @@ function sessionVisible(s) {
 }
 
 // Show/hide rows for the current tab + project and keep each row's archived
-// styling/title in sync with its state.
+// styling/title in sync with its state. The archived tab lists newest-first
+// (reverse creation order) so the most recently archived session is on top.
 function applyTabFilter() {
-  for (const [, s] of sessions) {
+  const rows = [...sessions.values()];
+  if (currentTab === 'archived') rows.reverse();
+  for (const s of rows) {
     s.li.style.display = sessionVisible(s) ? '' : 'none';
     s.li.classList.toggle('archived', s.archived);
+    listEl.appendChild(s.li); // re-order the row to match the active tab's sort
   }
 }
 
