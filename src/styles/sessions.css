@@ -39,10 +39,36 @@
 .sess-restore:hover { color: var(--fg); }
 #session-list li.archived .sess-label { color: var(--fg-dim); font-style: italic; }
 
-.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gray); }
+.dot { position: relative; width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gray); }
 /* A just-started session sits idle (gray) — no work in flight yet. */
 .dot.idle { background: var(--gray); }
-.dot.working { background: var(--yellow); }
+/* Working is the only ongoing state, so it's the one that animates: the dot
+   itself breathes while a ripple ring radiates outward — colour alone reads as
+   "paused on yellow", motion reads as "still running". */
+.dot.working {
+  background: var(--yellow);
+  animation: sess-dot-pulse 1.2s ease-in-out infinite;
+}
+.dot.working::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--yellow);
+  animation: sess-dot-ripple 1.2s ease-out infinite;
+}
+@keyframes sess-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--yellow); opacity: 1; }
+  50%      { box-shadow: 0 0 5px 0 var(--yellow); opacity: 0.65; }
+}
+@keyframes sess-dot-ripple {
+  0%   { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.working { animation: none; }
+  .dot.working::after { animation: none; content: none; }
+}
 /* Needs-input and completed share one green signal — both mean "this session
    wants your attention". The glow keeps an input request a touch more eye-catching. */
 .dot.needs-input { background: var(--green); box-shadow: 0 0 6px var(--green); }

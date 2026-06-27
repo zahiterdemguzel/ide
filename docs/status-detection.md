@@ -7,12 +7,12 @@ Each session shows a colored dot driven automatically by Claude Code hooks — n
 | State | Color | Trigger |
 |---|---|---|
 | Idle | gray | a freshly created session, or `SessionStart` — started, but no work in flight yet |
-| Working | yellow | `UserPromptSubmit`, `PreToolUse` (and any non-push `PostToolUse`) |
+| Working | yellow (pulsing) | `UserPromptSubmit`, `PreToolUse` (and any non-push `PostToolUse`) |
 | Needs input | green (glowing) | `Notification`, `PermissionRequest` |
 | Completed | green | `Stop`, or the PTY exits |
 | Committed / pushed | purple | a successful per-session **Commit changes**, or a `PostToolUse` whose Bash command matches `git push` |
 
-A just-created session stays gray (idle) until the user submits the first prompt; yellow ("working") is reserved for an agent actively responding.
+A just-created session stays gray (idle) until the user submits the first prompt; yellow ("working") is reserved for an agent actively responding. Because "working" is the only ongoing state, its dot also **animates** — it breathes while a ripple ring radiates outward — so an in-progress session is distinguishable from a paused one at a glance, not just by hue. The animation respects `prefers-reduced-motion`. (See `.dot.working` in `src/styles/sessions.css`.)
 
 "Needs input" and "Completed" share one green signal — both mean the session wants the user's attention; the glow on "Needs input" keeps an active prompt slightly more eye-catching. The two remain distinct states (and tooltips) in code.
 
