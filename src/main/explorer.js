@@ -2,9 +2,10 @@ const { ipcMain, shell, clipboard, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { getRepoPath } = require('./repo');
+const { getRepoPath, onRepoChange } = require('./repo');
 const { git } = require('./git');
 const { shouldSkipDir, GREP_EXCLUDE_PATHSPECS } = require('./search-ignore');
+const { sendToRenderer } = require('./window');
 
 // Extension → MIME for the asset viewer (image preview / pixel editor / audio).
 const ASSET_MIME = {
@@ -281,5 +282,50 @@ ipcMain.handle('paste-image', () => {
 // document focus the canvas can briefly lack right after a selection.
 ipcMain.handle('clipboard-write', (_e, text) => { clipboard.writeText(text || ''); });
 ipcMain.handle('clipboard-read', () => clipboard.readText());
+
+// Auto-refresh the explorer tree when the repo changes on disk, so the user
+// never has to hit a refresh button. One recursive fs.watch over the repo root
+// catches create/rename/delete/edit at any depth (recursive is native on
+// win32/darwin). Two cheap guards keep it from hurting performance:
+//   1. Events whose top path segment is a skipped dir (node_modules, .git, build
+//      output — see search-ignore.js) are dropped before they cost anything, so
+//      a churning dependency/build dir never triggers a rebuild.
+//   2. The rest are debounced into a single `tree-changed` per quiet window, so a
+//      burst (git checkout, npm install of real source, save-all) collapses to
+//      one renderer rebuild. A trailing-edge timer means the last event in a
+//      burst always fires, so nothing is missed.
+const TREE_DEBOUNCE_MS = 250;
+let watcher = null;
+let debounce = null;
+
+function firstSegment(rel) {
+  if (!rel) return '';
+  const norm = rel.split(path.sep).join('/');
+  const slash = norm.indexOf('/');
+  return slash === -1 ? norm : norm.slice(0, slash);
+}
+
+function scheduleTreeChanged() {
+  if (debounce) clearTimeout(debounce);
+  debounce = setTimeout(() => { debounce = null; sendToRenderer('tree-changed'); }, TREE_DEBOUNCE_MS);
+}
+
+function watchRepo() {
+  if (watcher) { watcher.close(); watcher = null; }
+  if (debounce) { clearTimeout(debounce); debounce = null; }
+  try {
+    watcher = fs.watch(getRepoPath(), { recursive: true }, (_event, filename) => {
+      if (filename && shouldSkipDir(firstSegment(filename))) return;
+      scheduleTreeChanged();
+    });
+    // A watcher error (e.g. the folder was deleted) shouldn't crash the app.
+    watcher.on('error', () => { if (watcher) { watcher.close(); watcher = null; } });
+  } catch (e) {
+    console.error('[explorer watch failed]', e.message);
+  }
+}
+
+watchRepo();
+onRepoChange(watchRepo);
 
 module.exports = {};

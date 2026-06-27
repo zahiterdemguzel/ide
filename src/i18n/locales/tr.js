@@ -18,7 +18,6 @@ export default {
     'explorer.newFile': 'Yeni dosya',
     'explorer.newFolder': 'Yeni klasör',
     'explorer.collapseAll': 'Tümünü daralt',
-    'explorer.refresh': 'Yenile',
 
     'quickOpen.placeholder': 'Dosyaya git…',
     'quickOpen.noMatches': 'Eşleşen dosya yok',

@@ -190,7 +190,11 @@ export async function refreshTree() {
     }
   }
 }
-document.getElementById('files-refresh').onclick = refreshTree;
+// No manual refresh button: the main process watches the repo and pushes a
+// debounced `tree-changed` whenever something changes on disk, so the tree stays
+// in sync on its own. refreshTree() only re-fetches the folders that are actually
+// expanded, so an auto-refresh is cheap.
+window.api.onTreeChanged(() => { refreshTree(); });
 
 // Where a new file lands relative to a tree item: inside it when it's a folder,
 // alongside it (its parent dir) when it's a file.

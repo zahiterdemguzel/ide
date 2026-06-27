@@ -28,4 +28,7 @@ module.exports = {
   revealInFolder: (rel) => ipcRenderer.invoke('reveal-in-folder', rel),
   readAsset: (file) => ipcRenderer.invoke('read-asset', file),
   writeAsset: (file, base64) => ipcRenderer.invoke('write-asset', { file, base64 }),
+  // Fired (debounced in main) whenever the open repo changes on disk, so the tree
+  // can auto-refresh without a manual refresh button.
+  onTreeChanged: (cb) => ipcRenderer.on('tree-changed', () => cb()),
 };

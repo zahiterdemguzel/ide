@@ -18,7 +18,6 @@ export default {
     'explorer.newFile': 'Nouveau fichier',
     'explorer.newFolder': 'Nouveau dossier',
     'explorer.collapseAll': 'Tout réduire',
-    'explorer.refresh': 'Actualiser',
 
     'quickOpen.placeholder': 'Aller au fichier…',
     'quickOpen.noMatches': 'Aucun fichier correspondant',
