@@ -63,6 +63,9 @@
 .dot.needs-input { background: var(--green); box-shadow: 0 0 6px var(--green); }
 .dot.completed { background: var(--green); }
 .dot.pushed { background: var(--purple); }
+/* A session that was mid-flight when the app last closed: its Claude process can't
+   outlive a restart, so it reopens interrupted (red) until the user resumes it. */
+.dot.interrupted { background: var(--red); }
 
 /* session bar (top of center pane): name + scoped commit / revert */
 #session-bar {

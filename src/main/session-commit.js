@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
-const { sessions, trackedFiles } = require('./sessions');
+const { sessions, trackedFiles, setSessionState } = require('./sessions');
 const { commitContent, inverseEdits } = require('./edit-ops');
 
 // Build one commit whose tree is HEAD with only `entries` applied — via a
@@ -127,6 +127,7 @@ ipcMain.handle('commit-session', async (_e, id) => {
   if (ct.ok) {
     for (const abs of committedAbs) s.edits.delete(abs);
     for (const abs of committedFileOps) s.fileOps.delete(abs);
+    setSessionState(id, 'pushed'); // mirror the renderer's purple dot, and persist it
   }
   if (ct.ok || pruned) sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   return ct;

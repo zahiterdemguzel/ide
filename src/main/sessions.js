@@ -74,6 +74,18 @@ function schedulePersist() {
   persistTimer = setTimeout(() => { persistTimer = null; persistSessions(); }, 1000);
 }
 
+// Record a session's current status-dot state so it survives a restart (the hook
+// server drives this from the live event stream; commit-session marks 'pushed').
+// Only `completed`/`pushed` are kept verbatim on disk — everything else reopens as
+// `interrupted` (see persistedState) — but we store the live value so a later
+// transition to a settled state is captured. No-op for an unknown/evicted id.
+function setSessionState(id, state) {
+  const s = sessions.get(id);
+  if (!s || s.state === state) return;
+  s.state = state;
+  schedulePersist();
+}
+
 // Tools whose effect we replay as text ops (handled via `edits`, not the
 // filesystem diff below).
 const TEXT_EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
@@ -241,7 +253,7 @@ function spawnPty(id, cols, rows, resume) {
 ipcMain.handle('get-sessions', () => {
   return [...sessions].map(([id, s]) => ({
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
-    archived: !!s.archived, files: trackedFiles(s),
+    archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
   }));
 });
 
@@ -250,7 +262,7 @@ ipcMain.handle('new-session', (_e, { cols, rows }) => {
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '', archived: false, suspended: false });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false });
   sessions.get(id).pty = spawnPty(id, cols, rows, false);
   schedulePersist();
   return { id, repo };
@@ -299,4 +311,4 @@ function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, trackedFiles, killAllSessions, persistSessions };
+module.exports = { sessions, recordSessionActivity, setSessionState, trackedFiles, killAllSessions, persistSessions };

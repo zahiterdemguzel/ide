@@ -1,15 +1,15 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { MAX_PERSIST_BYTES, serializeSession, deserializeSession, sessionBytes, enforceLimit } = require('../src/main/session-persist');
+const { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, sessionBytes, enforceLimit } = require('../src/main/session-persist');
 
 // A live in-memory session entry the way sessions.js holds it.
-function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, edits = [], fileOps = [] } = {}) {
-  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, edits: new Map(edits), fileOps: new Map(fileOps) };
+function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', edits = [], fileOps = [] } = {}) {
+  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, state, edits: new Map(edits), fileOps: new Map(fileOps) };
 }
 
 test('serializeSession: drops runtime-only fields and flattens the Maps', () => {
   const s = liveSession({
-    repo: '/projects/app', firstPrompt: 'fix the bug', name: 'Bug fix', archived: true,
+    repo: '/projects/app', firstPrompt: 'fix the bug', name: 'Bug fix', archived: true, state: 'completed',
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });
@@ -20,6 +20,7 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
     firstPrompt: 'fix the bug',
     name: 'Bug fix',
     archived: true,
+    state: 'completed',
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });
@@ -27,9 +28,23 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
   assert.equal('preStatus' in out, false);
 });
 
+test('persistedState: keeps the settled states, collapses everything else to interrupted', () => {
+  assert.equal(persistedState('completed'), 'completed'); // finished agent stays green
+  assert.equal(persistedState('pushed'), 'pushed');       // committed work stays purple
+  assert.equal(persistedState('working'), 'interrupted');
+  assert.equal(persistedState('needs-input'), 'interrupted');
+  assert.equal(persistedState('idle'), 'interrupted');
+  assert.equal(persistedState(undefined), 'interrupted'); // a pre-state snapshot
+});
+
+test('serializeSession: an in-flight session is persisted as interrupted', () => {
+  assert.equal(serializeSession('id', liveSession({ state: 'working' })).state, 'interrupted');
+  assert.equal(serializeSession('id', liveSession({ state: 'pushed' })).state, 'pushed');
+});
+
 test('serialize -> deserialize round-trips the tracked-file state, minus the PTY', () => {
   const s = liveSession({
-    repo: '/projects/app', firstPrompt: 'p', name: 'n', archived: false,
+    repo: '/projects/app', firstPrompt: 'p', name: 'n', archived: false, state: 'pushed',
     edits: [['/r/a.js', [{ t: 'edit', old: 'a', new: 'b' }]]],
     fileOps: [['/r/x', 'delete']],
   });
@@ -37,6 +52,7 @@ test('serialize -> deserialize round-trips the tracked-file state, minus the PTY
   assert.equal(restored.pty, null);
   assert.equal(restored.suspended, true);            // no live process after a restart
   assert.equal(restored.archived, false);
+  assert.equal(restored.state, 'pushed');            // committed work reopens purple
   assert.equal(restored.repo, '/projects/app');      // session stays bound to its project
   assert.equal(restored.firstPrompt, 'p');
   assert.equal(restored.name, 'n');
@@ -49,6 +65,7 @@ test('deserializeSession: tolerates a malformed snapshot', () => {
   assert.equal(restored.edits.size, 0);
   assert.equal(restored.fileOps.size, 0);
   assert.equal(restored.suspended, true);
+  assert.equal(restored.state, 'interrupted');
 });
 
 test('sessionBytes: grows with the tracked content', () => {

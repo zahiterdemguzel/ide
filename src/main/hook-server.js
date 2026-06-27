@@ -51,6 +51,7 @@ function startHookServer() {
         const state = eventToState(payload);
         if (state && payload.session_id) {
           sendToRenderer('status', { id: payload.session_id, state });
+          sessions.setSessionState(payload.session_id, state); // persist so it survives a restart
         }
         // Await before answering the hook: on PreToolUse this snapshots the
         // working tree, and the command hook blocks the tool from running until

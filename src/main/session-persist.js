@@ -8,10 +8,20 @@
 // enforceLimit) until it fits.
 const MAX_PERSIST_BYTES = 100 * 1024 * 1024; // 100 MB
 
+// The status-dot state we record on disk. Only the two *settled* states survive a
+// restart: `completed` (the agent finished — green) and `pushed` (its work was
+// committed — purple). Every other state (idle/working/needs-input) was a session
+// caught mid-flight, and its Claude process can't outlive the app, so it reopens as
+// `interrupted` (red) rather than pretending the in-flight state is still live.
+function persistedState(state) {
+  return state === 'completed' || state === 'pushed' ? state : 'interrupted';
+}
+
 // Snapshot one live session entry to a plain object. The PTY and the transient
 // pre-tool git-status snapshot are runtime-only and deliberately omitted; the Maps
 // become arrays so JSON.stringify can round-trip them. `archived` records the UI
 // tab the session belongs to (an archived session restores into the Archived tab).
+// `state` is collapsed to a persistable status dot (see persistedState).
 function serializeSession(id, s) {
   return {
     id,
@@ -19,6 +29,7 @@ function serializeSession(id, s) {
     firstPrompt: s.firstPrompt || '',
     name: s.name || '',
     archived: !!s.archived,
+    state: persistedState(s.state),
     edits: [...s.edits.entries()],     // [ [absPath, op[]], ... ]
     fileOps: [...s.fileOps.entries()], // [ [absPath, 'add'|'delete'], ... ]
   };
@@ -38,6 +49,9 @@ function deserializeSession(obj) {
     firstPrompt: obj.firstPrompt || '',
     name: obj.name || '',
     archived: !!obj.archived,
+    // A restored session's process is gone, so any non-settled state on disk reopens
+    // as `interrupted`; a snapshot predating this field has no state, also interrupted.
+    state: persistedState(obj.state),
     suspended: true,
   };
 }
@@ -64,4 +78,4 @@ function enforceLimit(entries, maxBytes = MAX_PERSIST_BYTES) {
   return { evictedIds, totalBytes: total };
 }
 
-module.exports = { MAX_PERSIST_BYTES, serializeSession, deserializeSession, sessionBytes, enforceLimit };
+module.exports = { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, sessionBytes, enforceLimit };
