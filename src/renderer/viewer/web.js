@@ -152,7 +152,7 @@ webFrame.addEventListener('did-navigate-in-page', onNav);
 document.getElementById('web-back').onclick = () => { try { if (webFrame.canGoBack()) webFrame.goBack(); } catch {} };
 document.getElementById('web-fwd').onclick = () => { try { if (webFrame.canGoForward()) webFrame.goForward(); } catch {} };
 document.getElementById('web-reload').onclick = () => { try { webFrame.reload(); } catch {} };
-document.getElementById('web-external').onclick = () => window.api.openExternal(webUrlEl.value);
+
 
 // --- ⋮ menu (clean cookies control) ---
 
@@ -162,6 +162,11 @@ menuBtn.onclick = (e) => {
   menuEl.style.display = menuEl.style.display === 'block' ? 'none' : 'block';
 };
 document.addEventListener('click', (e) => { if (!menuEl.contains(e.target) && e.target !== menuBtn) hideMenu(); });
+
+document.getElementById('web-external').onclick = () => {
+  hideMenu();
+  window.api.openExternal(webUrlEl.value);
+};
 
 document.getElementById('web-reset-cookies').onclick = async () => {
   hideMenu();
