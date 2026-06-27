@@ -29,7 +29,55 @@ const sessions = new Map();
 
 // Persisted across restarts in the shared data dir (not the disposable per-instance
 // profile), so sessions survive closing the app — both active and archived ones.
-const sessionsFile = path.join(sharedDataDir, 'sessions.json');
+// Each session is its own file under sessionsDir (`<id>.json`) so a single session's
+// change only rewrites that one file (a fast, incremental save) and the whole set is
+// never serialized at once. The legacy single-file store (`sessions.json`) is
+// migrated into per-session files on first load, then deleted.
+const sessionsDir = path.join(sharedDataDir, 'sessions');
+const legacySessionsFile = path.join(sharedDataDir, 'sessions.json');
+
+// Monotonic creation order, persisted per session as `_seq`. The Map's own insertion
+// order is the live source of truth (oldest-first), but per-file storage loses it on
+// restart, so `_seq` restores the same order on load (and drives oldest-first
+// eviction). New sessions take the next value; on load it's bumped past the max seen.
+let seqCounter = 0;
+
+function sessionFilePath(id) {
+  return path.join(sessionsDir, encodeURIComponent(id) + '.json');
+}
+
+function ensureSessionsDir() {
+  fs.mkdirSync(sessionsDir, { recursive: true });
+}
+
+// Delete one session's file (on kill or eviction). A missing file is fine — the
+// session may never have been written yet.
+function removeSessionFile(id) {
+  try { fs.unlinkSync(sessionFilePath(id)); }
+  catch (err) { if (err.code !== 'ENOENT') reportSessionError('removing a saved session', err); }
+}
+
+// One-time migration of the old single-file store into per-session files, so an
+// existing install keeps its sessions. Each entry becomes its own file (carrying a
+// fresh `_seq` to preserve the array order); the legacy file is then removed.
+function migrateLegacyStore() {
+  let raw;
+  try { raw = fs.readFileSync(legacySessionsFile, 'utf8'); }
+  catch (err) { if (err.code !== 'ENOENT') reportSessionError('reading saved sessions', err); return; }
+  let list;
+  try { list = JSON.parse(raw); }
+  catch (err) { reportSessionError('reading saved sessions', err); return; }
+  if (Array.isArray(list)) {
+    ensureSessionsDir();
+    let seq = 0;
+    for (const obj of list) {
+      if (!obj || typeof obj.id !== 'string') continue;
+      try { fs.writeFileSync(sessionFilePath(obj.id), JSON.stringify({ ...obj, _seq: seq++ })); }
+      catch (err) { reportSessionError('saving a session', err); }
+    }
+  }
+  try { fs.unlinkSync(legacySessionsFile); } catch { /* best-effort cleanup */ }
+}
 
 // A session failing to save/load/commit/etc. must never crash the IDE; instead it
 // surfaces as a warning dialog in the renderer (red error text, OK + Copy). Errors
@@ -62,64 +110,97 @@ function guardOn(context, fn) {
   return (...args) => { try { fn(...args); } catch (err) { reportSessionError(context, err); } };
 }
 
-// Repopulate `sessions` from disk on load (oldest-first order preserved), so the
-// renderer can rebuild its list on startup. Restored entries have no PTY; they
-// resume under the same id on demand. A missing file is normal (first run); a file
-// that exists but can't be read/parsed is surfaced so corrupt session state is
-// visible rather than silently dropped, and one bad entry never aborts the rest.
+// Repopulate `sessions` from disk on load (oldest-first order restored from `_seq`),
+// so the renderer can rebuild its list on startup. Restored entries have no PTY; they
+// resume under the same id on demand. A missing directory is normal (first run); a
+// file that can't be read/parsed is surfaced so corrupt session state is visible
+// rather than silently dropped, and one bad file never aborts the rest.
 function loadPersistedSessions() {
-  let raw;
-  try { raw = fs.readFileSync(sessionsFile, 'utf8'); }
+  migrateLegacyStore();
+  let files;
+  try { files = fs.readdirSync(sessionsDir); }
   catch (err) { if (err.code !== 'ENOENT') reportSessionError('reading saved sessions', err); return; }
-  let list;
-  try { list = JSON.parse(raw); }
-  catch (err) { reportSessionError('reading saved sessions', err); return; }
-  if (!Array.isArray(list)) return;
-  for (const obj of list) {
+  const snapshots = [];
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    let obj;
+    try { obj = JSON.parse(fs.readFileSync(path.join(sessionsDir, file), 'utf8')); }
+    catch (err) { reportSessionError('reading saved sessions', err); continue; }
     if (!obj || typeof obj.id !== 'string') continue;
-    try { sessions.set(obj.id, deserializeSession(obj)); }
-    catch (err) { reportSessionError('restoring a saved session', err); }
+    snapshots.push(obj);
+  }
+  snapshots.sort((a, b) => (a._seq || 0) - (b._seq || 0));
+  for (const obj of snapshots) {
+    try {
+      const entry = deserializeSession(obj);
+      entry._seq = obj._seq || 0;
+      sessions.set(obj.id, entry);
+      seqCounter = Math.max(seqCounter, entry._seq + 1);
+    } catch (err) { reportSessionError('restoring a saved session', err); }
   }
 }
 loadPersistedSessions();
 
-// Write the current session set to disk, evicting the oldest evictable sessions
-// when the snapshot would exceed the 100 MB budget. Synchronous so it can run on
-// quit before the process exits. Evicted sessions are also dropped from memory and
-// the UI so "old sessions get deleted" holds at runtime, not just on disk.
+// Drop the oldest evictable sessions whenever the on-disk set would exceed the 100 MB
+// budget. A session with a live PTY (one the user is actively running) is never
+// evicted. Evicted sessions are removed from memory, disk, and the UI so "old
+// sessions get deleted" holds at runtime, not just on disk. Returns the surviving ids.
+function evictOverBudget() {
+  const measured = [...sessions].map(([id, s]) => ({
+    id,
+    bytes: sessionBytes(serializeSession(id, s)),
+    evictable: !s.pty, // never evict a session the user is actively running
+  }));
+  const { evictedIds } = enforceLimit(measured);
+  if (!evictedIds.length) return;
+  for (const id of evictedIds) {
+    const s = sessions.get(id);
+    if (s && s.pty) try { s.pty.kill(); } catch { /* already gone */ }
+    sessions.delete(id);
+    removeSessionFile(id);
+  }
+  sendToRenderer('session-evicted', { ids: evictedIds });
+}
+
+// Write one session to its own file (the common case: a single session changed). The
+// `_seq` rides along so load can restore creation order. Evicts over-budget sessions
+// after the write. A throw here must never crash the app — it's surfaced instead.
+function persistSession(id) {
+  const s = sessions.get(id);
+  if (!s) return;
+  try {
+    ensureSessionsDir();
+    if (s._seq === undefined) s._seq = seqCounter++;
+    fs.writeFileSync(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+    evictOverBudget();
+  } catch (err) {
+    reportSessionError('saving a session', err);
+  }
+}
+
+// Write every session to disk (used on quit). Synchronous so it completes before the
+// process exits. Evicts first so an over-budget set never writes files it's about to
+// delete. A throw here would otherwise be an uncaught exception on quit — surface it.
 function persistSessions() {
   try {
-    const snapshots = [...sessions].map(([id, s]) => serializeSession(id, s));
-    const measured = snapshots.map((o) => ({
-      id: o.id,
-      bytes: sessionBytes(o),
-      evictable: !sessions.get(o.id)?.pty, // never evict a session the user is actively running
-    }));
-    const { evictedIds } = enforceLimit(measured);
-    if (evictedIds.length) {
-      for (const id of evictedIds) {
-        const s = sessions.get(id);
-        if (s && s.pty) try { s.pty.kill(); } catch { /* already gone */ }
-        sessions.delete(id);
-      }
-      sendToRenderer('session-evicted', { ids: evictedIds });
+    evictOverBudget();
+    ensureSessionsDir();
+    for (const [id, s] of sessions) {
+      if (s._seq === undefined) s._seq = seqCounter++;
+      fs.writeFileSync(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
     }
-    const evicted = new Set(evictedIds);
-    const kept = snapshots.filter((o) => !evicted.has(o.id));
-    fs.writeFileSync(sessionsFile, JSON.stringify(kept));
   } catch (err) {
-    // Runs from a timer and on quit — a throw here would otherwise be an uncaught
-    // exception. Surface it instead so the user knows their sessions didn't save.
     reportSessionError('saving sessions', err);
   }
 }
 
-// Coalesce the frequent mutations (every recorded edit, name, archive toggle) into
-// one write shortly after activity settles, instead of writing on each one.
-let persistTimer = null;
-function schedulePersist() {
-  if (persistTimer) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => { persistTimer = null; persistSessions(); }, 1000);
+// Coalesce the high-frequency edit stream (every recorded PostToolUse) into one write
+// per session shortly after activity settles. Discrete user actions (archive, resume,
+// commit, new session, name) call persistSession() directly for an immediate save.
+const persistTimers = new Map();
+function schedulePersist(id) {
+  if (persistTimers.has(id)) clearTimeout(persistTimers.get(id));
+  persistTimers.set(id, setTimeout(() => { persistTimers.delete(id); persistSession(id); }, 1000));
 }
 
 // Record a session's current status-dot state so it survives a restart (the hook
@@ -131,7 +212,7 @@ function setSessionState(id, state) {
   const s = sessions.get(id);
   if (!s || s.state === state) return;
   s.state = state;
-  schedulePersist();
+  persistSession(id);
 }
 
 // The session's current status-dot state (undefined for an unknown id). The hook
@@ -277,7 +358,7 @@ async function recordSessionActivity(payload) {
       s.preStatus = null;
     }
   }
-  if (changed) schedulePersist();
+  if (changed) schedulePersist(payload.session_id);
   return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) } : null;
 }
 
@@ -291,7 +372,7 @@ async function generateSessionName(id, prompt) {
   if (!out) return;
   const name = out.split('\n').pop().trim().slice(0, 60);
   const s = sessions.get(id);
-  if (name && s) { s.name = name; sendToRenderer('session-name', { id, name }); schedulePersist(); }
+  if (name && s) { s.name = name; sendToRenderer('session-name', { id, name }); persistSession(id); }
 }
 
 // Spawn the Claude PTY for `id` and wire its data/exit streams. `resume` starts
@@ -353,9 +434,9 @@ ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) =
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, _seq: seqCounter++ });
   sessions.get(id).pty = spawnPty(id, cols, rows, false);
-  schedulePersist();
+  persistSession(id);
   return { id, repo };
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
 
@@ -367,7 +448,7 @@ ipcMain.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
   s.suspended = true;
   s.archived = true;
   if (s.pty) { try { s.pty.kill(); } catch { /* already gone */ } s.pty = null; }
-  schedulePersist();
+  persistSession(id);
 }));
 
 // Restore: respawn the PTY (resuming the same Claude conversation) for an entry
@@ -378,7 +459,7 @@ ipcMain.handle('resume-session', guard('restoring a session', (_e, { id, cols, r
   s.suspended = false;
   s.archived = false;
   s.pty = spawnPty(id, cols, rows, true);
-  schedulePersist();
+  persistSession(id);
   return { ok: true, repo: getRepoPath() };
 }, { ok: false }));
 
@@ -395,11 +476,12 @@ ipcMain.on('kill-session', guardOn('closing a session', (_e, { id }) => {
   if (!s) return;
   if (s.pty) try { s.pty.kill(); } catch { /* already gone */ }
   sessions.delete(id);
-  schedulePersist();
+  if (persistTimers.has(id)) { clearTimeout(persistTimers.get(id)); persistTimers.delete(id); }
+  removeSessionFile(id);
 }));
 
 function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, killAllSessions, persistSessions, reportSessionError, guard };
+module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, killAllSessions, persistSession, persistSessions, reportSessionError, guard };

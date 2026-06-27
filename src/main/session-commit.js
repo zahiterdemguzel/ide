@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
-const { sessions, trackedFiles, setSessionState, guard } = require('./sessions');
+const { sessions, trackedFiles, setSessionState, persistSession, guard } = require('./sessions');
 const { commitContent, inverseEdits } = require('./edit-ops');
 const { sumNumstat } = require('./git-parse');
 
@@ -198,7 +198,13 @@ ipcMain.handle('commit-session', guard('committing a session', async (_e, id) =>
     for (const abs of committedFileOps) s.fileOps.delete(abs);
     setSessionState(id, 'pushed'); // mirror the renderer's purple dot, and persist it
   }
-  if (ct.ok || pruned) sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+  // Persist the shrunk tracked-file state (committed or pruned). setSessionState
+  // already saves when the dot actually changes, but a re-commit leaves it 'pushed'
+  // (a no-op), so save here too — the cleared edits must reach disk regardless.
+  if (ct.ok || pruned) {
+    persistSession(id);
+    sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+  }
   return ct;
 }, (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
 
@@ -248,6 +254,7 @@ ipcMain.handle('revert-session', guard('reverting a session', async (_e, id) => 
     revertedOps.push(abs);
   }
   for (const abs of revertedOps) s.fileOps.delete(abs);
+  if (reverted.length || revertedOps.length) persistSession(id); // the forgotten edits must reach disk
   sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   if (!reverted.length && !revertedOps.length && !skipped.length) return { ok: false, stderr: 'This session changed no files' };
   return { ok: true, reverted: reverted.length + revertedOps.length, skipped };
