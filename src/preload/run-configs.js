@@ -5,4 +5,5 @@ module.exports = {
   getRunConfigs: () => ipcRenderer.invoke('get-run-configs'),
   runConfig: (args) => ipcRenderer.invoke('run-config', args),
   onRunConfigsChanged: (cb) => ipcRenderer.on('run-configs-changed', () => cb()),
+  fstestLog: (msg) => ipcRenderer.send('fstest-log', msg),
 };

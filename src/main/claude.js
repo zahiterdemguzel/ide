@@ -3,6 +3,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { usageView } = require('./usage-parse');
 
 // node-pty on Windows doesn't search PATH — resolve the full claude.exe path once.
 let claudeCmd = null;
@@ -127,4 +128,44 @@ async function runHaiku(prompt, { cwd } = {}) {
   return runCli(prompt, { cwd });
 }
 
-module.exports = { resolveClaude, runHaiku, claudeAvailable };
+// --- Subscription usage (toolbar meter) --------------------------------------
+// The user's remaining Claude usage isn't exposed by any CLI command or a
+// dedicated endpoint — it rides on the *unified rate-limit response headers* of a
+// real /v1/messages call (count_tokens returns none; verified live). So we make
+// the smallest possible call (max_tokens: 1 ≈ one output token) once a minute and
+// read the 5h + weekly windows off the headers. OAuth tokens only answer when the
+// first system block is the Claude Code identity string — same gate as runApi.
+function fetchUsage(token) {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify({
+      model: HAIKU_MODEL,
+      max_tokens: 1,
+      system: [{ type: 'text', text: CC_IDENTITY }],
+      messages: [{ role: 'user', content: '.' }],
+    });
+    const req = https.request('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'oauth-2025-04-20',
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+      },
+    }, (res) => {
+      res.on('data', () => {}); // drain so the socket can be reused/closed
+      res.on('end', () => resolve(res.statusCode === 200 ? usageView(res.headers, Date.now()) : null));
+    });
+    req.on('error', () => resolve(null));
+    req.end(payload);
+  });
+}
+
+// Returns the usage view model ({ windows: [...] }) or null when there is no
+// usable OAuth token or the call fails — the renderer hides the meter on null.
+async function readUsage() {
+  const token = readOauthToken();
+  return token ? fetchUsage(token) : null;
+}
+
+module.exports = { resolveClaude, runHaiku, claudeAvailable, readUsage };

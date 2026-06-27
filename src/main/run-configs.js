@@ -99,6 +99,11 @@ function watchVscode() {
   }
 }
 
+// TEMP-FSTEST: append renderer diagnostics to a file in the repo root.
+ipcMain.on('fstest-log', (_e, msg) => {
+  try { fs.appendFileSync('C:\\Users\\zahit\\AppData\\Local\\Temp\\fstest.log', String(msg) + '\n'); } catch {}
+});
+
 watchVscode();
 onRepoChange(watchVscode);
 
