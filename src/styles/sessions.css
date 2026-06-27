@@ -50,6 +50,9 @@
    progress indicator, not decoration, and Windows reports "reduce" whenever the
    OS animation setting is off — which would silently kill the only liveness cue. */
 .dot.working {
+  /* 20% larger than the static dots so the spinner reads clearly as a loader. */
+  width: 11px;
+  height: 11px;
   background: transparent;
   border: 2px solid color-mix(in srgb, var(--yellow) 28%, transparent);
   border-top-color: var(--yellow);
