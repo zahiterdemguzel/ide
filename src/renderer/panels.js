@@ -18,10 +18,12 @@ export const PANELS = [
   { id: 'launch', labelKey: 'settings.panel.launch' },
   { id: 'tasks', labelKey: 'settings.panel.tasks' },
   { id: 'browser', labelKey: 'settings.panel.browser' },
+  { id: 'usage', labelKey: 'settings.panel.usage' },
 ];
 
 const DEFAULTS = {
   explorer: true, git: true, terminal: true, launch: true, tasks: true, browser: true,
+  usage: true,
 };
 
 let state = { ...DEFAULTS };

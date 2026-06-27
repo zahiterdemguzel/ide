@@ -1,4 +1,5 @@
 import { t } from '../i18n/index.js';
+import { isPanelEnabled, onPanelsChanged } from './panels.js';
 
 // --- toolbar usage meter (Claude subscription limits) ---
 // Shows the user's remaining usage against the two rolling subscription windows —
@@ -18,6 +19,7 @@ const WINDOWS = [
 ];
 
 const fills = {}; // key -> { win, label, bar, fill, reset }
+let lastView = null; // remembered so a settings toggle can re-render without re-fetching
 
 function build() {
   meter.replaceChildren();
@@ -45,6 +47,8 @@ function build() {
 function level(util) { return util >= 0.8 ? 'crit' : util >= 0.5 ? 'warn' : 'ok'; }
 
 function render(view) {
+  // Turned off in settings → stay hidden regardless of whether data is available.
+  if (!isPanelEnabled('usage')) { meter.hidden = true; return; }
   if (!view || !view.windows || !view.windows.length) { meter.hidden = true; return; }
   const byKey = Object.fromEntries(view.windows.map((w) => [w.key, w]));
   let any = false;
@@ -72,6 +76,7 @@ async function refresh() {
   // hidden there. Any unexpected error is swallowed and treated the same way.
   let view = null;
   try { view = await window.api?.getUsage?.(); } catch {}
+  lastView = view;
   render(view);
 }
 
@@ -79,4 +84,7 @@ export function initUsageMeter() {
   build();
   refresh();
   setInterval(refresh, POLL_MS);
+  // Re-apply visibility when the user flips the meter toggle in settings —
+  // no re-fetch, just re-render the data we already have.
+  onPanelsChanged(() => render(lastView));
 }

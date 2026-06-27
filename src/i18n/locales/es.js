@@ -130,6 +130,7 @@ export default {
     'settings.panel.launch': 'Configuraciones de inicio',
     'settings.panel.tasks': 'Tareas',
     'settings.panel.browser': 'Navegador',
+    'settings.panel.usage': 'Métricas de uso',
 
     'setup.title': 'Configurar Claude Code',
     'setup.intro': 'No tienes Claude Code instalado. Haz clic en Siguiente para instalarlo.',

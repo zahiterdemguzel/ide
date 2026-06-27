@@ -21,7 +21,7 @@ and persists across restarts.
 
 The dialog's **Panels** group is a 2-up grid of frameless switch rows, one per
 toggleable area: **Explorer**, **Git**, **Terminal**, **Launch configs**,
-**Tasks**, and **Browser**.
+**Tasks**, **Browser**, and **Usage metrics**.
 Each row is a hidden `<input type="checkbox">` styled as a sliding toggle (the
 `.switch-ui` span draws the track + knob; see `settings.css`). The sessions list
 is deliberately *not* toggleable — it's the app's primary surface.
@@ -42,6 +42,11 @@ syncing the checkboxes and applying the saved state on load.
 - **Browser** flips the top-toolbar browser button's `.is-hidden` class; a CSS
   fallback (`#browser-btn.is-hidden + #settings-btn`) hands the right-edge
   alignment to the gear so it stays pinned to the corner.
+- **Usage metrics** gates the toolbar's usage meter (the 5-hour + weekly
+  subscription sliders). `usage-meter.js` checks `isPanelEnabled('usage')` in its
+  `render()` (staying hidden when off, regardless of available data) and
+  registers `onPanelsChanged` to re-render the cached view when the toggle flips
+  — no re-fetch. The meter still hides on its own when there's no usage data.
 - **Launch configs / Tasks** don't hide a DOM node — they filter what the run
   toolbar renders. `toolbar.js` reads `isPanelEnabled('launch'|'tasks')` in
   `loadToolbar()` and registers `onPanelsChanged(loadToolbar)`, so toggling

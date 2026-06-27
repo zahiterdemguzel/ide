@@ -130,6 +130,7 @@ export default {
     'settings.panel.launch': 'Başlatma yapılandırmaları',
     'settings.panel.tasks': 'Görevler',
     'settings.panel.browser': 'Tarayıcı',
+    'settings.panel.usage': 'Kullanım ölçümleri',
 
     'setup.title': "Claude Code'u kur",
     'setup.intro': 'Sisteminizde Claude Code kurulu değil. Kurmak için Sonraki’ye tıklayın.',

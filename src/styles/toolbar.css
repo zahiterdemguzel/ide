@@ -35,6 +35,7 @@
   display: grid; grid-template-columns: auto 60px auto;
   align-content: center; column-gap: 8px; row-gap: 2px;
   flex: none; padding: 0 6px; white-space: nowrap; line-height: 1.2;
+  margin-right: 10px; /* breathing room before the browser/settings buttons */
 }
 #usage-meter[hidden] { display: none; }
 .um-win { display: contents; } /* its 3 children flow straight into the grid */
