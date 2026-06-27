@@ -11,19 +11,17 @@ import { t } from '../i18n/index.js';
 const POLL_MS = 60000;
 const meter = document.getElementById('usage-meter');
 
-// 5-hour first (the window users hit first, and usually the server's representative
-// bottleneck), a separator, then the weekly window.
+// Stacked top-to-bottom: 5-hour (the window users hit first) on top, weekly below.
 const WINDOWS = [
   { key: '5h', labelKey: 'usage.session' },
   { key: '7d', labelKey: 'usage.weekly' },
 ];
 
-const fills = {}; // key -> { win, fill, reset }
+const fills = {}; // key -> { win, label, bar, fill, reset }
 
 function build() {
   meter.replaceChildren();
-  WINDOWS.forEach((w, i) => {
-    if (i) { const sep = document.createElement('span'); sep.className = 'um-sep'; meter.appendChild(sep); }
+  for (const w of WINDOWS) {
     const win = document.createElement('div');
     win.className = 'um-win';
     const label = document.createElement('span');
@@ -39,8 +37,8 @@ function build() {
     reset.className = 'um-reset';
     win.append(label, bar, reset);
     meter.appendChild(win);
-    fills[w.key] = { win, fill, reset };
-  });
+    fills[w.key] = { win, label, bar, fill, reset };
+  }
 }
 
 // ≥80% used reads as critical (red), ≥50% as warning (yellow), else healthy (green).
@@ -60,15 +58,20 @@ function render(view) {
     el.fill.style.width = pct + '%';
     el.fill.dataset.level = level(data.utilization);
     el.reset.textContent = data.resetIn ? t('usage.resetsIn').replace('{t}', data.resetIn) : '';
-    el.win.title = `${t(w.labelKey)}: ${pct}% ${t('usage.used')}`
+    // .um-win is display:contents (no box), so the row tooltip rides on its children.
+    const tip = `${t(w.labelKey)}: ${pct}% ${t('usage.used')}`
       + (data.resetIn ? ` · ${t('usage.resetsIn').replace('{t}', data.resetIn)}` : '');
+    el.label.title = el.bar.title = el.reset.title = tip;
   }
   meter.hidden = !any;
 }
 
 async function refresh() {
+  // get-usage returns null whenever there's no usable OAuth token — a machine
+  // without Claude Code installed (or not yet signed in) — so the meter stays
+  // hidden there. Any unexpected error is swallowed and treated the same way.
   let view = null;
-  try { view = await window.api.getUsage(); } catch {}
+  try { view = await window.api?.getUsage?.(); } catch {}
   render(view);
 }
 

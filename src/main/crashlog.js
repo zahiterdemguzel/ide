@@ -3,12 +3,20 @@ const path = require('path');
 const fs = require('fs');
 const { crashLogName, formatCrash } = require('./crashlog-lib');
 
-// Crash logs land in a `crashlogs/` folder next to the executable when packaged,
-// else in the project root in dev. Each crash is its own timestamped file, written
+// Crash logs land in a `crashlogs/` folder in a *persistent* location, written
 // synchronously so the log survives even a fatal uncaughtException that ends the
 // process right after.
+//
+// A portable build (electron-builder `target: portable`) self-extracts to a
+// throwaway %TEMP% dir on every launch and deletes it on exit, so writing next to
+// `app.getPath('exe')` (which points *inside* that temp dir) loses every crash log
+// the moment the app closes — exactly when we need it. electron-builder exposes the
+// real, on-disk folder the user launched the .exe from via `PORTABLE_EXECUTABLE_DIR`;
+// prefer it so logs persist across runs. Fall back to next-to-exe for an installed
+// build, and the project root in dev.
 function crashDir() {
-  const base = app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath();
+  const base = process.env.PORTABLE_EXECUTABLE_DIR
+    || (app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath());
   return path.join(base, 'crashlogs');
 }
 

@@ -323,7 +323,9 @@ ipcMain.handle('check-claude', async () => ({ ...await claudeAvailable(), guide:
 // toolbar meter, read live from the Messages API's unified rate-limit headers.
 // Polled ~once a minute by the renderer; null when unavailable (no OAuth token,
 // an API-key user, or a transport error) so the meter stays hidden.
-ipcMain.handle('get-usage', () => readUsage());
+ipcMain.handle('get-usage', async () => {
+  try { return await readUsage(); } catch { return null; }
+});
 
 ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();
