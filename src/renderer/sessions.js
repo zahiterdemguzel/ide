@@ -48,6 +48,9 @@ const diffModeSplitBtn = document.getElementById('sdiff-mode-split');
 const ARCHIVE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>';
 sessionArchiveBtn.innerHTML = ARCHIVE_ICON;
 
+// Lucide "trash-2" icon — the permanent-delete button shown only on archived rows.
+const TRASH_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
+
 const STATE_LABEL = {
   idle: 'Idle',
   working: 'Working',
@@ -114,7 +117,6 @@ function applyTabFilter() {
   for (const [, s] of sessions) {
     s.li.style.display = sessionVisible(s) ? '' : 'none';
     s.li.classList.toggle('archived', s.archived);
-    s.closeBtn.title = s.archived ? 'Close session permanently' : 'Archive session';
   }
 }
 
@@ -325,17 +327,23 @@ function makeRow(id) {
   close.className = 'sess-close';
   close.title = 'Archive session';
   close.innerHTML = ARCHIVE_ICON;
-  // First × archives a live session; a second × on the archived row closes it for good.
-  // Middle-clicking the row does the same (matching the git-pane terminal tabs).
-  const archiveOrClose = () => {
+  // The archive button only ever archives; archived rows hide it (CSS) and expose
+  // the trash button below for permanent deletion. Middle-clicking a live row also
+  // archives it (matching the git-pane terminal tabs).
+  const archiveOrDelete = () => {
     const s = sessions.get(id);
     if (s && s.archived) closeSession(id);
     else setArchived(id, true);
   };
-  close.onclick = (e) => { e.stopPropagation(); archiveOrClose(); };
-  li.append(dot, label, restore, close);
+  close.onclick = (e) => { e.stopPropagation(); setArchived(id, true); };
+  const del = document.createElement('button');
+  del.className = 'sess-delete';
+  del.title = 'Delete session permanently';
+  del.innerHTML = TRASH_ICON;
+  del.onclick = (e) => { e.stopPropagation(); closeSession(id); };
+  li.append(dot, label, restore, del, close);
   li.onclick = () => selectSession(id);
-  li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrClose(); } };
+  li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrDelete(); } };
   listEl.appendChild(li);
   return { li, dot, label, closeBtn: close };
 }
