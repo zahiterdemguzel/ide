@@ -105,18 +105,21 @@ async function createConsole(opts = {}) {
   return id;
 }
 
-// Run a launch/task spec: reuse a same-named config tab if one is still open
-// (fresh shell, same tab), otherwise open a new one. Either way it gets focus.
+// Run a launch/task/run-file spec: reuse a same-named tab of the same kind if one
+// is still open (fresh shell, same tab), otherwise open a new one. Either way it
+// gets focus. `spec.kind` distinguishes a .vscode config ('config', the default)
+// from an editor "run this file" ('run'), so the two never collide on a tab.
 export async function runSpecInConsole(spec) {
+  const kind = spec.kind || 'config';
   for (const [id, c] of consoles) {
-    if (c.kind === 'config' && c.name === spec.name) {
+    if (c.kind === kind && c.name === spec.name) {
       c.term.reset();
       await window.api.termRestart({ id, cols: c.term.cols, rows: c.term.rows, command: spec.command, cwd: spec.cwd, env: spec.env });
       selectConsole(id);
       return id;
     }
   }
-  return createConsole({ command: spec.command, cwd: spec.cwd, env: spec.env, name: spec.name, kind: 'config' });
+  return createConsole({ command: spec.command, cwd: spec.cwd, env: spec.env, name: spec.name, kind });
 }
 
 let shellMenuDismiss = null;

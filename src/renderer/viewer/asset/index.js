@@ -37,7 +37,7 @@ export async function showAsset(file, ext) {
   // PNGs small enough to paint pixel-by-pixel get the editor; the rest, zoom.
   img.onload = () => {
     if (ext === 'png' && img.naturalWidth < 200 && img.naturalHeight < 200) renderPixelEditor(file, img, assetBody, assetTools, registerCleanup);
-    else renderZoom(img, assetBody, assetTools);
+    else renderZoom(img, assetBody, assetTools, registerCleanup);
   };
   img.onerror = () => { assetBody.textContent = 'Could not decode image'; };
   img.src = dataUrl;
