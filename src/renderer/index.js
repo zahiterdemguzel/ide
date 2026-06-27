@@ -3,12 +3,12 @@
 // cross-module hand-offs and kicks off the initial loads.
 import './shared/bootstrap.js';
 import { onClose } from './viewer/center.js';
-import { showActiveSession, restoreSessions, setSessionsRepo } from './sessions.js';
+import { showActiveSession, restoreSessions, setSessionsRepo, newSession } from './sessions.js';
 import { refreshGit } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
 import './terminal-links.js';
-import './quick-open.js';
+import { open as openQuickOpen } from './quick-open.js';
 import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
 import { initSettings } from './settings.js';
@@ -85,6 +85,11 @@ async function openRecentMenu() {
   // Next frame so the un-hidden element transitions from the collapsed state.
   requestAnimationFrame(() => recentMenu.classList.add('open'));
 }
+
+// Welcome screen (empty center) actions mirror the primary entry points.
+document.getElementById('welcome-new').onclick = newSession;
+document.getElementById('welcome-goto').onclick = openQuickOpen;
+document.getElementById('welcome-open').onclick = browseForFolder;
 
 openFolderBtn.onclick = (e) => {
   e.stopPropagation();

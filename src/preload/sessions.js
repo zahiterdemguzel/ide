@@ -13,6 +13,8 @@ module.exports = {
   onStatus: (cb) => ipcRenderer.on('status', (_e, msg) => cb(msg)),
   commitSession: (id) => ipcRenderer.invoke('commit-session', id),
   revertSession: (id) => ipcRenderer.invoke('revert-session', id),
+  sessionDiff: (id) => ipcRenderer.invoke('session-diff', id),
+  sessionDiffStat: (id) => ipcRenderer.invoke('session-diff-stat', id),
   onSessionMeta: (cb) => ipcRenderer.on('session-meta', (_e, msg) => cb(msg)),
   onSessionName: (cb) => ipcRenderer.on('session-name', (_e, msg) => cb(msg)),
   onSessionEvicted: (cb) => ipcRenderer.on('session-evicted', (_e, msg) => cb(msg)),

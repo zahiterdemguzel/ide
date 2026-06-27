@@ -1,8 +1,10 @@
 import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme } from './shared/terminal.js';
 import { hideAllOverlays } from './viewer/center.js';
+import { renderDiffInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
 import { confirmDialog } from './shared/confirm.js';
+import { t } from '../i18n/index.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
 // switching sessions toggles which container is visible, preserving scrollback.
@@ -29,6 +31,13 @@ const sessionCommitBtn = document.getElementById('session-commit');
 const sessionRevertBtn = document.getElementById('session-revert');
 const sessionArchiveBtn = document.getElementById('session-archive');
 const sessionCommitMsg = document.getElementById('session-commit-msg');
+const sessionDiffBtn = document.getElementById('session-diff');
+const sessionDiffAdd = document.getElementById('session-diff-add');
+const sessionDiffDel = document.getElementById('session-diff-del');
+const diffOverlay = document.getElementById('session-diff-overlay');
+const diffPanel = document.getElementById('session-diff-panel');
+const diffDialogStat = document.getElementById('session-diff-stat');
+const diffDialogBody = document.getElementById('session-diff-body');
 
 // Lucide "archive" icon — used both on the session-bar archive button and on
 // each sidebar row's archive/close button.
@@ -55,6 +64,7 @@ function setState(id, state) {
 export function selectSession(id) {
   const s = sessions.get(id);
   if (!s) return;
+  closeDiffDialog(); // the dialog belongs to whichever session was showing
   activeId = id;
   hideAllOverlays();
   emptyHint.style.display = 'none';
@@ -171,10 +181,47 @@ function updateSessionBar() {
   const n = s.files.length;
   sessionCommitBtn.disabled = n === 0;
   sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing to commit';
+  renderDiffButton(s);
   // The notice is now only for failures / revert results, kept per-session so
   // switching sessions never carries a stale message over from another.
   sessionCommitMsg.textContent = s.commitMsg || '';
   sessionCommitMsg.className = 'git-msg ' + (s.commitMsgClass || '');
+}
+
+// The Diff button shows this session's net change as a green +added / red
+// -removed badge and is disabled when the session changed nothing. The counts
+// come from `s.diffStat` (computed by main); until that first arrives we fall
+// back to the tracked-file count so the button still enables when there is work.
+function renderDiffButton(s) {
+  const ds = s.diffStat;
+  const hasChange = ds ? ds.files > 0 : s.files.length > 0;
+  sessionDiffBtn.disabled = !hasChange;
+  if (ds && ds.files > 0) {
+    sessionDiffAdd.textContent = '+' + ds.additions;
+    sessionDiffDel.textContent = '-' + ds.deletions;
+    sessionDiffAdd.style.display = '';
+    sessionDiffDel.style.display = '';
+  } else {
+    sessionDiffAdd.style.display = 'none';
+    sessionDiffDel.style.display = 'none';
+  }
+}
+
+// Pull this session's diff stat from main and re-render its button. Debounced per
+// session so a burst of edits (or a background session churning) doesn't spawn a
+// git diff per keystroke. Driven off every session-meta — which main pushes for
+// the active AND background sessions — so a session working out of view keeps its
+// badge current; also on restore and select.
+const diffStatTimers = new Map();
+function refreshDiffStat(id) {
+  if (diffStatTimers.has(id)) clearTimeout(diffStatTimers.get(id));
+  diffStatTimers.set(id, setTimeout(async () => {
+    diffStatTimers.delete(id);
+    const s = sessions.get(id);
+    if (!s) return;
+    try { s.diffStat = await window.api.sessionDiffStat(id); } catch { return; }
+    if (id === activeId) renderDiffButton(s);
+  }, 350));
 }
 
 export function fit(s) {
@@ -350,6 +397,9 @@ export async function restoreSessions() {
   for (const meta of list) restoreSessionRow(meta);
   setTab('active');
   selectFirstVisible();
+  // Populate the Diff badges for sessions that left uncommitted work; main has no
+  // push trigger for a restored (idle) session, so pull each one's stat once.
+  for (const [, s] of sessions) if (s.files.length) refreshDiffStat(s.id);
 }
 
 // Tear down a session's UI without telling main to kill it (used both for an
@@ -416,6 +466,58 @@ sessionRevertBtn.onclick = async () => {
 
 sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); };
 
+// --- per-session Diff dialog: floats over the live terminal (kept alive behind
+// it, so the user doesn't lose track of which session it is). Closes on the ×, on
+// any click outside the panel (so they can go straight to committing), on Escape,
+// and when the session changes.
+let diffDialogId = null;
+
+export function closeDiffDialog() {
+  if (diffDialogId === null) return;
+  diffDialogId = null;
+  diffOverlay.hidden = true;
+  diffDialogBody.innerHTML = '';
+  document.removeEventListener('mousedown', onDiffOutside, true);
+  document.removeEventListener('keydown', onDiffKey, true);
+}
+
+function onDiffOutside(e) {
+  if (diffPanel.contains(e.target) || sessionDiffBtn.contains(e.target)) return;
+  closeDiffDialog();
+}
+function onDiffKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closeDiffDialog(); } }
+
+async function openDiffDialog() {
+  const id = activeId;
+  const s = sessions.get(id);
+  if (!s) return;
+  diffDialogId = id;
+  diffOverlay.hidden = false;
+  diffDialogStat.textContent = '';
+  diffDialogBody.innerHTML = '<div class="editor-notice">…</div>';
+  document.addEventListener('mousedown', onDiffOutside, true);
+  document.addEventListener('keydown', onDiffKey, true);
+  let r = null;
+  try { r = await window.api.sessionDiff(id); } catch { /* gone */ }
+  if (diffDialogId !== id) return; // closed or switched while the diff was computing
+  // Keep the button's badge in agreement with what the dialog actually shows.
+  if (r) { s.diffStat = { additions: r.additions, deletions: r.deletions, files: r.files }; renderDiffButton(s); }
+  if (!r || !r.ok || !r.files) {
+    diffDialogStat.textContent = '';
+    diffDialogBody.innerHTML = '';
+    const notice = document.createElement('div');
+    notice.className = 'editor-notice';
+    notice.textContent = t('session.diffEmpty');
+    diffDialogBody.appendChild(notice);
+    return;
+  }
+  diffDialogStat.innerHTML = `<span class="sdiff-add">+${r.additions}</span><span class="sdiff-del">-${r.deletions}</span>`;
+  renderDiffInto(diffDialogBody, r.patch, null, true);
+}
+
+sessionDiffBtn.onclick = () => { if (diffDialogId === null) openDiffDialog(); else closeDiffDialog(); };
+document.getElementById('session-diff-close').onclick = closeDiffDialog;
+
 document.getElementById('new-session').onclick = newSession;
 
 for (const btn of sessionTabs.children) btn.onclick = () => setTab(btn.dataset.tab);
@@ -446,6 +548,9 @@ window.api.onSessionMeta(({ id, firstPrompt, files }) => {
   s.firstPrompt = firstPrompt;
   s.files = files;
   if (id === activeId) updateSessionBar();
+  // session-meta fires for background sessions too, so refreshing the diff stat
+  // here keeps an out-of-view session's badge current.
+  refreshDiffStat(id);
 });
 window.api.onSessionName(({ id, name }) => {
   const s = sessions.get(id);

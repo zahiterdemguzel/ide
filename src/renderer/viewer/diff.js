@@ -45,12 +45,17 @@ function diffRow(oldNo, newNo, cls, text, lang) {
   return row;
 }
 
-// Render git's unified diff: track old/new line numbers from @@ hunk headers,
-// colour +/- lines, skip the file-header noise (index/--- /+++/mode/rename...).
-// With `fileHeaders` (multi-file commit patches) each `diff --git` emits a file
-// header row and re-derives the highlight language from that file's path.
-function renderDiff(text, lang, fileHeaders) {
-  diffBody.innerHTML = '';
+// Render git's unified diff into the shared center diff body.
+function renderDiff(text, lang, fileHeaders) { renderDiffInto(diffBody, text, lang, fileHeaders); }
+
+// Render git's unified diff into `body`: track old/new line numbers from @@ hunk
+// headers, colour +/- lines, skip the file-header noise (index/--- /+++/mode/
+// rename...). With `fileHeaders` (multi-file patches — commits and per-session
+// diffs) each `diff --git` emits a file header row and re-derives the highlight
+// language from that file's path. Exported so the per-session Diff dialog can
+// render into its own panel without going through the center diff overlay.
+export function renderDiffInto(body, text, lang, fileHeaders) {
+  body.innerHTML = '';
   let oldNo = 0, newNo = 0, curLang = lang;
   for (const line of text.split('\n')) {
     if (line.startsWith('diff --git')) {
@@ -58,7 +63,7 @@ function renderDiff(text, lang, fileHeaders) {
         const m = /b\/(.+)$/.exec(line);
         const name = m ? m[1] : line.slice('diff --git '.length);
         curLang = langFor(name);
-        diffBody.appendChild(fileHeaderRow(name));
+        body.appendChild(fileHeaderRow(name));
       }
       continue;
     }
@@ -71,11 +76,11 @@ function renderDiff(text, lang, fileHeaders) {
     if (line.startsWith('@@')) {
       const m = /@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
       if (m) { oldNo = +m[1]; newNo = +m[2]; }
-      diffBody.appendChild(diffRow('', '', 'hunk', line, curLang));
+      body.appendChild(diffRow('', '', 'hunk', line, curLang));
       continue;
     }
-    if (line.startsWith('+')) diffBody.appendChild(diffRow('', newNo++, 'add', line.slice(1), curLang));
-    else if (line.startsWith('-')) diffBody.appendChild(diffRow(oldNo++, '', 'del', line.slice(1), curLang));
-    else diffBody.appendChild(diffRow(oldNo++, newNo++, 'ctx', line.slice(1), curLang));
+    if (line.startsWith('+')) body.appendChild(diffRow('', newNo++, 'add', line.slice(1), curLang));
+    else if (line.startsWith('-')) body.appendChild(diffRow(oldNo++, '', 'del', line.slice(1), curLang));
+    else body.appendChild(diffRow(oldNo++, newNo++, 'ctx', line.slice(1), curLang));
   }
 }

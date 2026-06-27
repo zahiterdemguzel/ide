@@ -96,3 +96,45 @@
   display: inline-flex; align-items: center; line-height: 0;
 }
 #session-archive:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Diff button: "Diff" + a green +added / red -removed badge for this session's
+   net change. Disabled (and badge-less) when the session changed nothing. */
+#session-diff {
+  background: transparent; color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+#session-diff:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+#session-diff:disabled { color: var(--fg-dim); cursor: default; opacity: .7; }
+.sdiff-add { color: var(--green); font-variant-numeric: tabular-nums; }
+.sdiff-del { color: var(--red); font-variant-numeric: tabular-nums; }
+#session-diff:disabled .sdiff-add, #session-diff:disabled .sdiff-del { display: none; }
+
+/* Diff dialog: floats over the terminal, which stays alive behind it. The overlay
+   is a transparent click-catcher (so the terminal shows through and a click
+   outside the panel dismisses); the panel is centred over it. */
+#session-diff-overlay {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+}
+#session-diff-overlay[hidden] { display: none; }
+#session-diff-panel {
+  display: flex; flex-direction: column;
+  width: min(900px, 100%); height: min(80%, 100%);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, .5); overflow: hidden;
+}
+#session-diff-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+}
+#session-diff-title { font-weight: 600; white-space: nowrap; }
+.sdiff-head-spacer { flex: 1; }
+#session-diff-stat { display: inline-flex; gap: 8px; font-family: Consolas, monospace; font-size: 12px; }
+#session-diff-close {
+  background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1;
+}
+#session-diff-close:hover { color: var(--fg); }
+#session-diff-body {
+  flex: 1; overflow: auto; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5;
+}

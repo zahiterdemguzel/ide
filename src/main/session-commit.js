@@ -8,6 +8,7 @@ const { getRepoPath } = require('./repo');
 const { git } = require('./git');
 const { sessions, trackedFiles, setSessionState } = require('./sessions');
 const { commitContent, inverseEdits } = require('./edit-ops');
+const { sumNumstat } = require('./git-parse');
 
 // Build one commit whose tree is HEAD with only `entries` applied — via a
 // throwaway index + commit-tree, so the real index and the working tree are
@@ -58,18 +59,17 @@ async function commitBlobs(entries, msg) {
   }
 }
 
-// Commit ONLY the hunks this session edited, using its first prompt as the
-// message. For each touched file we replay the session's own edits onto the
-// committed (HEAD) version and commit that — so another session's edits to the
-// same file are left uncommitted in the working tree. If an edit can't be
-// replayed cleanly (the other session moved that text, or an opaque op), we fall
-// back to the whole current file for that path.
-ipcMain.handle('commit-session', async (_e, id) => {
-  const s = sessions.get(id);
-  if (!s) return { ok: false, stderr: 'Session is gone' };
-  const repoPath = getRepoPath();
+// Build the list of blob entries representing ONLY this session's changes vs
+// HEAD — for each touched file, replay the session's own edits onto the committed
+// (HEAD) version (another session's edits to the same file are left out). Shared
+// by commit (which commits the entries) and diff (which renders them). Returns the
+// entries plus bookkeeping the commit path needs: which abs paths each entry came
+// from (to forget after committing) and which are phantom empty patches (nothing
+// to commit, so they're pruned from tracking). `entries` items are either
+// { path, content } (string|Buffer blob) or { path, delete: true }.
+async function sessionEntries(s, repoPath) {
   const entries = [];
-  const committedAbs = [];     // edited (text-op) paths folded into this commit, to forget after
+  const committedAbs = [];     // edited (text-op) paths folded in, to forget after a commit
   const committedFileOps = []; // path-level (binary/rename/delete) paths folded in, to forget after
   const emptyAbs = [];         // text-op paths whose net change vs HEAD is nothing (empty patch)
   const emptyFileOps = [];     // path-level paths that would commit nothing (already at HEAD, or gone)
@@ -110,6 +110,71 @@ ipcMain.handle('commit-session', async (_e, id) => {
     }
     entries.push({ path: rel, content: buf }); committedFileOps.push(abs);
   }
+  return { entries, committedAbs, committedFileOps, emptyAbs, emptyFileOps };
+}
+
+// Render this session's combined changes (its entries vs HEAD) without touching
+// the real index or working tree: seed a throwaway index from HEAD, write each
+// entry's blob into it, then `git diff --cached` that index against HEAD. The
+// numstat backs the Diff button's +added/-removed badge; the full patch (only
+// fetched when `withPatch`) feeds the diff dialog. An empty entry set is "no
+// change", so the button disables.
+async function sessionDiff(s, repoPath, withPatch) {
+  const { entries } = await sessionEntries(s, repoPath);
+  const empty = { patch: '', additions: 0, deletions: 0, files: 0 };
+  if (!entries.length) return empty;
+  const idxFile = path.join(os.tmpdir(), `ide-sess-diff-${crypto.randomUUID()}`);
+  const env = { ...process.env, GIT_INDEX_FILE: idxFile };
+  try {
+    const head = await git(['rev-parse', '-q', '--verify', 'HEAD']);
+    const headSha = head.stdout.trim();
+    const seed = headSha ? await git(['read-tree', headSha], { env }) : await git(['read-tree', '--empty'], { env });
+    if (!seed.ok) return empty;
+    for (const e of entries) {
+      if (e.delete) { await git(['update-index', '--force-remove', e.path], { env }); continue; }
+      const hash = await git(['hash-object', '-w', '--stdin', '--path', e.path], { input: e.content });
+      if (!hash.ok) continue;
+      await git(['update-index', '--add', '--cacheinfo', `100644,${hash.stdout.trim()},${e.path}`], { env });
+    }
+    // --cached diffs the (throwaway) index against HEAD; with no HEAD it diffs the
+    // empty tree, so a brand-new repo's first changes still show.
+    const stat = await git(['diff', '--cached', '--numstat'], { env });
+    const totals = sumNumstat(stat.ok ? stat.stdout : '');
+    if (!withPatch) return { patch: '', ...totals };
+    const patch = await git(['diff', '--cached'], { env });
+    return { patch: patch.ok ? patch.stdout : '', ...totals };
+  } finally {
+    try { fs.unlinkSync(idxFile); } catch {}
+  }
+}
+
+// Light pull for the Diff button's badge (counts only). The renderer refreshes it
+// off each session-meta (so a background session's badge tracks its edits) and on
+// restore/select.
+ipcMain.handle('session-diff-stat', async (_e, id) => {
+  const s = sessions.get(id);
+  if (!s) return { additions: 0, deletions: 0, files: 0 };
+  return sessionDiff(s, getRepoPath(), false);
+});
+
+// Full patch for the Diff dialog (rendered over the terminal, terminal kept alive).
+ipcMain.handle('session-diff', async (_e, id) => {
+  const s = sessions.get(id);
+  if (!s) return { ok: false, patch: '', additions: 0, deletions: 0, files: 0 };
+  return { ok: true, ...(await sessionDiff(s, getRepoPath(), true)) };
+});
+
+// Commit ONLY the hunks this session edited, using its first prompt as the
+// message. For each touched file we replay the session's own edits onto the
+// committed (HEAD) version and commit that — so another session's edits to the
+// same file are left uncommitted in the working tree. If an edit can't be
+// replayed cleanly (the other session moved that text, or an opaque op), we fall
+// back to the whole current file for that path.
+ipcMain.handle('commit-session', async (_e, id) => {
+  const s = sessions.get(id);
+  if (!s) return { ok: false, stderr: 'Session is gone' };
+  const repoPath = getRepoPath();
+  const { entries, committedAbs, committedFileOps, emptyAbs, emptyFileOps } = await sessionEntries(s, repoPath);
   // Empty patches are phantom changes — forget them unconditionally (regardless of
   // whether a real commit follows) so the tracked-file count stops counting them.
   let pruned = false;

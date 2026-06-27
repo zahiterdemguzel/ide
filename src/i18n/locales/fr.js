@@ -48,6 +48,11 @@ export default {
     'session.revert': 'Rétablir',
     'session.revertTitle': 'Rétablir uniquement les modifications de cette session',
     'session.archiveTitle': 'Archiver cette session',
+    'session.diff': 'Diff',
+    'session.diffTitle': 'Voir les modifications de cette session',
+    'session.diffDialogTitle': 'Diff de la session',
+    'session.diffClose': 'Fermer',
+    'session.diffEmpty': "Cette session n'a pas encore de modifications.",
     'session.nothingToCommit': 'Rien à valider',
     'session.emptyHint': 'Aucune session sélectionnée. Cliquez sur <b>+ Nouvelle session</b>.',
 

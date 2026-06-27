@@ -48,6 +48,11 @@ export default {
     'session.revert': 'Revertir',
     'session.revertTitle': 'Revertir solo los cambios de esta sesión',
     'session.archiveTitle': 'Archivar esta sesión',
+    'session.diff': 'Diff',
+    'session.diffTitle': 'Ver los cambios de esta sesión',
+    'session.diffDialogTitle': 'Diff de la sesión',
+    'session.diffClose': 'Cerrar',
+    'session.diffEmpty': 'Esta sesión aún no tiene cambios.',
     'session.nothingToCommit': 'Nada que confirmar',
     'session.emptyHint': 'Ninguna sesión seleccionada. Haz clic en <b>+ Nueva sesión</b>.',
 

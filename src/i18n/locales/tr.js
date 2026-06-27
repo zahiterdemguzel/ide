@@ -48,6 +48,11 @@ export default {
     'session.revert': 'Geri al',
     'session.revertTitle': 'Yalnızca bu oturumun değişikliklerini geri al',
     'session.archiveTitle': 'Bu oturumu arşivle',
+    'session.diff': 'Diff',
+    'session.diffTitle': 'Bu oturumun değişikliklerini görüntüle',
+    'session.diffDialogTitle': 'Oturum diff’i',
+    'session.diffClose': 'Kapat',
+    'session.diffEmpty': 'Bu oturumda henüz değişiklik yok.',
     'session.nothingToCommit': 'İşlenecek değişiklik yok',
     'session.emptyHint': 'Seçili oturum yok. <b>+ Yeni oturum</b>’a tıklayın.',
 

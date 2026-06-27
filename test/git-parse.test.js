@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, filterCommits, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, filterCommits, sumNumstat, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -110,4 +110,26 @@ test('filterCommits: matches full or short hash', () => {
 test('filterCommits: all whitespace-split terms must match (any field)', () => {
   assert.deepEqual(filterCommits(COMMITS, 'ada parser').map((c) => c.short), ['99ffee0']);
   assert.deepEqual(filterCommits(COMMITS, 'ada theme'), []);
+});
+
+test('sumNumstat: totals additions, deletions, and changed files', () => {
+  const out = [
+    '12\t3\tsrc/a.js',
+    '0\t7\tsrc/b.js',
+    '5\t0\tsrc/c.js',
+  ].join('\n');
+  assert.deepEqual(sumNumstat(out), { additions: 17, deletions: 10, files: 3 });
+});
+
+test('sumNumstat: a binary file counts as a changed file with 0 lines', () => {
+  const out = ['10\t2\ttext.js', '-\t-\timg.png'].join('\n');
+  assert.deepEqual(sumNumstat(out), { additions: 10, deletions: 2, files: 2 });
+});
+
+test('sumNumstat: blank lines and trailing newline are ignored', () => {
+  assert.deepEqual(sumNumstat('\n4\t1\ta.js\n\n'), { additions: 4, deletions: 1, files: 1 });
+});
+
+test('sumNumstat: empty input is no change', () => {
+  assert.deepEqual(sumNumstat(''), { additions: 0, deletions: 0, files: 0 });
 });

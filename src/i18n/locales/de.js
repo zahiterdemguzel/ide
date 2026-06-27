@@ -48,6 +48,11 @@ export default {
     'session.revert': 'Zurücksetzen',
     'session.revertTitle': 'Nur die Änderungen dieser Sitzung zurücksetzen',
     'session.archiveTitle': 'Diese Sitzung archivieren',
+    'session.diff': 'Diff',
+    'session.diffTitle': 'Änderungen dieser Sitzung anzeigen',
+    'session.diffDialogTitle': 'Sitzungs-Diff',
+    'session.diffClose': 'Schließen',
+    'session.diffEmpty': 'Diese Sitzung hat noch keine Änderungen.',
     'session.nothingToCommit': 'Nichts zu committen',
     'session.emptyHint': 'Keine Sitzung ausgewählt. Klicke auf <b>+ Neue Sitzung</b>.',
 

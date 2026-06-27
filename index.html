@@ -71,6 +71,7 @@
         <span id="session-title"></span>
         <div class="bar-right">
           <span id="session-commit-msg" class="git-msg"></span>
+          <button id="session-diff" data-i18n-title="session.diffTitle" title="View this session's diff" disabled><span class="sdiff-label" data-i18n="session.diff">Diff</span><span id="session-diff-add" class="sdiff-add"></span><span id="session-diff-del" class="sdiff-del"></span></button>
           <button id="session-revert" data-i18n-title="session.revertTitle" data-i18n="session.revert" title="Revert only this session's changes">Revert</button>
           <button id="session-archive" data-i18n-title="session.archiveTitle" title="Archive this session"></button>
           <button id="session-commit" disabled>Nothing to commit</button>
@@ -135,6 +136,20 @@
             <button id="web-close" data-i18n-title="browser.close" title="Close">×</button>
           </div>
           <webview id="web-frame" src="about:blank" partition="persist:browser"></webview>
+        </div>
+        <!-- Per-session Diff dialog: floats over the terminal (which stays alive
+             behind it), so the user keeps the session in view. Clicking the
+             transparent backdrop or the × closes it. -->
+        <div id="session-diff-overlay" hidden>
+          <div id="session-diff-panel" role="dialog" aria-modal="true">
+            <div id="session-diff-head">
+              <span id="session-diff-title" data-i18n="session.diffDialogTitle">Session diff</span>
+              <span id="session-diff-stat" class="sdiff-stat"></span>
+              <span class="sdiff-head-spacer"></span>
+              <button id="session-diff-close" data-i18n-title="session.diffClose" title="Close">×</button>
+            </div>
+            <div id="session-diff-body"></div>
+          </div>
         </div>
       </div>
     </main>

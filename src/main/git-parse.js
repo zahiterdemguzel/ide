@@ -52,4 +52,20 @@ function filterCommits(commits, query) {
   });
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, filterCommits };
+// Sum `git diff --numstat` output into a per-diff total. Each line is
+// "<added>\t<deleted>\t<path>"; a binary file reports "-\t-" (no line counts),
+// but it is still a changed file, so it counts toward `files` while contributing
+// 0 to additions/deletions. Used to badge the per-session Diff button.
+function sumNumstat(stdout) {
+  let additions = 0, deletions = 0, files = 0;
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue;
+    const [add, del] = line.split('\t');
+    files++;
+    if (add !== '-') additions += parseInt(add, 10) || 0;
+    if (del !== '-') deletions += parseInt(del, 10) || 0;
+  }
+  return { additions, deletions, files };
+}
+
+module.exports = { CONFLICT, parsePorcelain, parseLog, filterCommits, sumNumstat };
