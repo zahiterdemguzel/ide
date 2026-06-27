@@ -16,9 +16,15 @@
       "options": { "cwd": "${workspaceFolder}" }
     },
     {
-      "label": "Build exe",
+      "label": "Build windows",
       "type": "shell",
       "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "Build macos",
+      "type": "shell",
+      "command": "npm run build:mac",
       "options": { "cwd": "${workspaceFolder}" }
     },
     {
