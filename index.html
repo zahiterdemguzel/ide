@@ -83,9 +83,26 @@
           <div id="diff-head">
             <span id="diff-file"></span>
             <div id="diff-actions">
+              <div id="run-split" hidden>
+                <button id="run-btn" title="Run file" aria-label="Run file">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                <button id="run-menu-btn" title="Run options" aria-label="Run options">
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+              </div>
               <button id="diff-save" title="Save (Ctrl+S)" hidden>Save</button>
               <button id="diff-close" title="Close">×</button>
             </div>
+          </div>
+          <div id="editor-find" hidden>
+            <input id="editor-find-input" type="text" placeholder="Find" spellcheck="false"
+                   autocomplete="off" data-i18n-placeholder="editor.find" />
+            <span id="editor-find-count"></span>
+            <button id="editor-find-case" data-i18n-title="editor.findCase" title="Match case (Alt+C)">Aa</button>
+            <button id="editor-find-prev" data-i18n-title="editor.findPrev" title="Previous (Shift+Enter)">↑</button>
+            <button id="editor-find-next" data-i18n-title="editor.findNext" title="Next (Enter)">↓</button>
+            <button id="editor-find-close" data-i18n-title="editor.findClose" title="Close (Esc)">×</button>
           </div>
           <div id="diff-body"></div>
         </div>

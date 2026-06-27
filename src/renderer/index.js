@@ -8,6 +8,7 @@ import { refreshGit } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
 import './terminal-links.js';
+import './quick-open.js';
 import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
 import { initSettings } from './settings.js';

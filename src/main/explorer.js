@@ -246,4 +246,11 @@ ipcMain.handle('paste-image', () => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
+// Terminal copy/paste goes through the main-process clipboard: the renderer's
+// async navigator.clipboard is unreliable under file:// (not a secure context,
+// so navigator.clipboard can be undefined and throw synchronously) and needs
+// document focus the canvas can briefly lack right after a selection.
+ipcMain.handle('clipboard-write', (_e, text) => { clipboard.writeText(text || ''); });
+ipcMain.handle('clipboard-read', () => clipboard.readText());
+
 module.exports = {};

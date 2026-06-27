@@ -23,6 +23,31 @@
   flex: 1; overflow: auto; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5;
 }
 
+/* file editor find bar — floats over the top-right of the editor body */
+#editor-find {
+  position: absolute; top: 0; right: 16px; z-index: 3;
+  display: flex; align-items: center; gap: 4px;
+  padding: 5px 6px; background: var(--bg-3);
+  border: 1px solid var(--border); border-top: none;
+  border-radius: 0 0 4px 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+#editor-find[hidden] { display: none; }
+#editor-find-input {
+  width: 180px; padding: 3px 6px; font: 12px Consolas, monospace;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 3px;
+}
+#editor-find-input:focus { outline: none; border-color: var(--accent); }
+#editor-find-count {
+  min-width: 56px; text-align: center; font-size: 11px; color: var(--fg-dim);
+}
+#editor-find button {
+  padding: 2px 6px; min-width: 24px; font-size: 12px; line-height: 1; cursor: pointer;
+  background: none; color: var(--fg-dim); border: 1px solid transparent; border-radius: 3px;
+}
+#editor-find button:hover { color: var(--fg); background: var(--bg-2); }
+#editor-find-case.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+
 /* file editor: a transparent textarea overlays a highlighted <pre> so native
    editing (caret, selection, undo) shows the syntax colours behind it. */
 .editor { display: inline-flex; min-width: 100%; min-height: 100%; }

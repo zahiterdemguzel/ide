@@ -21,6 +21,10 @@ export default {
     'explorer.collapseAll': 'Collapse all',
     'explorer.refresh': 'Refresh',
 
+    'quickOpen.placeholder': 'Go to file…',
+    'quickOpen.noMatches': 'No matching files',
+    'quickOpen.empty': 'No files in this folder',
+
     'git.tab.changes': 'Changes',
     'git.tab.history': 'History',
     'git.staged': 'Staged',
@@ -47,6 +51,13 @@ export default {
     'session.archiveTitle': 'Archive this session',
     'session.nothingToCommit': 'Nothing to commit',
     'session.emptyHint': 'No session selected. Click <b>+ New session</b>.',
+
+    'editor.find': 'Find',
+    'editor.findCase': 'Match case (Alt+C)',
+    'editor.findPrev': 'Previous (Shift+Enter)',
+    'editor.findNext': 'Next (Enter)',
+    'editor.findClose': 'Close (Esc)',
+    'editor.findNoResults': 'No results',
 
     'terminal.clear': 'Clear',
     'terminal.clearTitle': 'Clear terminal',

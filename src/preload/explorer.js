@@ -8,6 +8,9 @@ module.exports = {
   pathForFile: (file) => webUtils.getPathForFile(file),
   // Spill a clipboard image to a temp PNG; returns { ok, path } or { ok: false }.
   pasteImage: () => ipcRenderer.invoke('paste-image'),
+  // Terminal copy/paste via the main-process clipboard (reliable under file://).
+  clipboardWrite: (text) => ipcRenderer.invoke('clipboard-write', text),
+  clipboardRead: () => ipcRenderer.invoke('clipboard-read'),
   listDir: (rel) => ipcRenderer.invoke('list-dir', rel),
   createFile: (rel) => ipcRenderer.invoke('create-file', rel),
   createFolder: (rel) => ipcRenderer.invoke('create-folder', rel),
