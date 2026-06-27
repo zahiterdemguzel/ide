@@ -86,6 +86,13 @@ function setSessionState(id, state) {
   schedulePersist();
 }
 
+// The session's current status-dot state (undefined for an unknown id). The hook
+// server reads this to avoid the SessionStart `idle` reset wiping a resumed
+// session's saved colour (completed/pushed/interrupted) before any new work runs.
+function getSessionState(id) {
+  return sessions.get(id)?.state;
+}
+
 // Tools whose effect we replay as text ops (handled via `edits`, not the
 // filesystem diff below).
 const TEXT_EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
@@ -311,4 +318,4 @@ function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, setSessionState, trackedFiles, killAllSessions, persistSessions };
+module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, killAllSessions, persistSessions };

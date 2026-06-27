@@ -50,8 +50,16 @@ function startHookServer() {
         const payload = JSON.parse(body);
         const state = eventToState(payload);
         if (state && payload.session_id) {
-          sendToRenderer('status', { id: payload.session_id, state });
-          sessions.setSessionState(payload.session_id, state); // persist so it survives a restart
+          // Resuming a saved session fires SessionStart → idle. That must NOT wipe
+          // the colour a session was reopened with (completed/pushed/interrupted) —
+          // only real new work should move it. So skip an idle that would downgrade
+          // an already-meaningful state; a brand-new session is already idle, so it
+          // is unaffected.
+          const cur = sessions.getSessionState(payload.session_id);
+          if (!(state === 'idle' && cur && cur !== 'idle')) {
+            sendToRenderer('status', { id: payload.session_id, state });
+            sessions.setSessionState(payload.session_id, state); // persist so it survives a restart
+          }
         }
         // Await before answering the hook: on PreToolUse this snapshots the
         // working tree, and the command hook blocks the tool from running until
