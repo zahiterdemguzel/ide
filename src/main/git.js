@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
-const { parsePorcelain, parseLog } = require('./git-parse');
+const { parsePorcelain, parseLog, markPushed } = require('./git-parse');
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
@@ -142,13 +142,26 @@ ipcMain.handle('git-push', async () => {
 });
 
 // --- history (History tab) ---
+// Hashes of commits on HEAD not yet on the upstream — what the History tab tags as
+// "unpushed" (and the push badge counts). With no upstream (no remote-tracking
+// branch, or the rev-list otherwise fails) nothing has been pushed, so every listed
+// commit counts as unpushed.
+async function unpushedHashes(commits) {
+  const r = await git(['rev-list', '@{u}..HEAD']);
+  if (!r.ok) return commits.map((c) => c.hash);
+  return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
 // Recent commits for the History tab. Fields are unit-separator (\x1f) delimited,
 // one commit per line — subjects never contain newlines, so splitting on \n is safe.
+// Each commit is tagged pushed/unpushed so the tab can show the split and pick the
+// right "undo" action (history rewrite vs. revert commit).
 async function gitLog() {
   const fmt = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f');
   const r = await git(['log', '-n', '100', '--pretty=format:' + fmt]);
   if (!r.ok) return { ok: false, error: r.stderr, commits: [] };
-  return { ok: true, commits: parseLog(r.stdout) };
+  const commits = parseLog(r.stdout);
+  return { ok: true, commits: markPushed(commits, await unpushedHashes(commits)) };
 }
 ipcMain.handle('git-log', () => gitLog());
 
@@ -157,8 +170,22 @@ ipcMain.handle('git-log', () => gitLog());
 ipcMain.handle('git-commit-diff', (_e, hash) => git(['show', '--format=', hash]));
 
 // Revert a commit: create a new commit that undoes it. Non-destructive — it does
-// not rewrite history, so it's safe even on pushed commits.
+// not rewrite history, so it's the right tool for commits already pushed to the remote.
 ipcMain.handle('git-revert-commit', (_e, hash) => git(['revert', '--no-edit', hash]));
+
+// Undo an UNPUSHED commit by dropping it from history. Safe to rewrite since it
+// isn't on the remote yet (the renderer only routes unpushed commits here). The
+// HEAD commit is a soft reset so its changes stay staged — mirroring the Undo
+// button; an older commit is excised by replaying everything after it onto its
+// parent. If that rebase can't apply cleanly (the commit conflicts with a later
+// one) we abort it so the worktree is left clean rather than mid-rebase.
+ipcMain.handle('git-undo-commit', async (_e, hash) => {
+  const head = await git(['rev-parse', 'HEAD']);
+  if (head.ok && head.stdout.trim() === hash) return git(['reset', '--soft', hash + '^']);
+  const r = await git(['rebase', '--onto', hash + '^', hash]);
+  if (!r.ok) await git(['rebase', '--abort']);
+  return r;
+});
 ipcMain.handle('git-fetch', () => git(['fetch']));
 // Fast-forward only: a plain `git pull` that needs a merge would try to open an
 // editor (no tty → hang) or leave conflicts. --ff-only fails cleanly when the

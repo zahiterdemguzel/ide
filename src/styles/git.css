@@ -32,6 +32,16 @@
   font-size: 10.5px; color: var(--fg-dim); font-family: Consolas, monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Unpushed commits: an accent stripe + green pill, matching the green "ahead"
+   push badge so "not on the remote yet" reads the same everywhere. The 2px stripe
+   replaces 2px of the row's left padding so subjects stay aligned with pushed rows. */
+.commit-item.unpushed { border-left: 2px solid var(--green); padding-left: 10px; }
+.commit-tag-unpushed {
+  display: inline-block; vertical-align: middle; padding: 0 5px;
+  border-radius: 7px; background: var(--green); color: #fff;
+  font-family: inherit; font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .03em;
+}
 
 .git-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 40vh; }
 .git-list li {

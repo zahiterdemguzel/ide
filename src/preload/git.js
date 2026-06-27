@@ -23,4 +23,5 @@ module.exports = {
   gitLog: () => ipcRenderer.invoke('git-log'),
   gitCommitDiff: (hash) => ipcRenderer.invoke('git-commit-diff', hash),
   gitRevertCommit: (hash) => ipcRenderer.invoke('git-revert-commit', hash),
+  gitUndoCommit: (hash) => ipcRenderer.invoke('git-undo-commit', hash),
 };

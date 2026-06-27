@@ -39,6 +39,17 @@ function parseLog(stdout) {
   return commits;
 }
 
+// Tag each parsed commit with `pushed`: false when its hash is in the unpushed
+// set (commits on HEAD not yet on the upstream), true otherwise. The set comes
+// from `git rev-list @{u}..HEAD`; with no upstream the caller passes every listed
+// hash, so all local commits read as unpushed. Lets the History tab show — and
+// act on — the pushed/unpushed split: unpushed commits can be safely undone
+// (history rewrite), pushed ones must be reverted (a new undo commit).
+function markPushed(commits, unpushedHashes) {
+  const unpushed = new Set(unpushedHashes);
+  return commits.map((c) => ({ ...c, pushed: !unpushed.has(c.hash) }));
+}
+
 // Filter parsed commits by a free-text query, matching across subject, author,
 // and hash (full or short). Whitespace splits the query into terms that must ALL
 // match (in any field), so "fix ada" finds Ada's fix commits. Case-insensitive;
@@ -68,4 +79,4 @@ function sumNumstat(stdout) {
   return { additions, deletions, files };
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, filterCommits, sumNumstat };
+module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, filterCommits, sumNumstat };

@@ -1,5 +1,6 @@
 import { openGitFile, openCommit } from './viewer/center.js';
 import { statusLabel } from './shared/git-status.js';
+import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { t } from '../i18n/index.js';
 
 // --- git pane ---
@@ -50,9 +51,11 @@ function gitItem(file, status, staged, action, label) {
     if (!revert.classList.contains('armed')) {
       revert.classList.add('armed');
       li.classList.add('warn');
-      revert.title = 'Click again to discard — this cannot be undone';
+      revert.title = t('armHint.discard');
+      showArmHint(revert);
       return;
     }
+    hideArmHint();
     const r = await window.api.gitRevert({ file, untracked: status === '?' });
     if (r && !r.ok) showGitErrorDialog(r.stderr || 'Discard failed', 'Discard failed');
     refreshGit();
@@ -89,6 +92,7 @@ export async function refreshGit() {
   unstagedFiles = r.unstaged;
   stagedFiles = r.staged;
   revertAllBtn.classList.remove('armed');
+  hideArmHint(); // rows are rebuilt below, dropping any armed button the bubble pointed at
   // Conflicted files can't be staged/discarded by the +/− actions; show them in
   // their own section. Staging a resolved file is done after the user (or a Claude
   // session) edits it — it then moves out of conflicts on the next refresh.
@@ -146,9 +150,11 @@ revertAllBtn.onclick = async () => {
   if (!revertAllBtn.classList.contains('armed')) {
     revertAllBtn.classList.add('armed');
     document.querySelectorAll('#unstaged-list li').forEach(li => li.classList.add('warn'));
-    revertAllBtn.title = 'Click again to discard all changes — this cannot be undone';
+    revertAllBtn.title = t('armHint.discardAll');
+    showArmHint(revertAllBtn);
     return;
   }
+  hideArmHint();
   for (const it of unstagedFiles) await window.api.gitRevert({ file: it.file, untracked: it.status === '?' });
   refreshGit();};
 
@@ -172,8 +178,13 @@ gitTabs.querySelectorAll('.git-tab').forEach((tab) => {
 const REVERT_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
 
 function commitItem(c) {
+  // Unpushed commits aren't on the remote yet, so they're tagged (green pill +
+  // accent stripe, mirroring the green "ahead" push badge) and their button drops
+  // the commit from history. Pushed commits can't be safely rewritten, so theirs
+  // reverts (a new undo commit) instead.
+  const unpushed = !c.pushed;
   const li = document.createElement('li');
-  li.className = 'commit-item';
+  li.className = unpushed ? 'commit-item unpushed' : 'commit-item';
   li.onclick = () => openCommit(c.hash, c.subject);
 
   const main = document.createElement('div');
@@ -185,23 +196,37 @@ function commitItem(c) {
   const meta = document.createElement('div');
   meta.className = 'commit-meta';
   meta.textContent = `${c.short} · ${c.author} · ${c.relDate}`;
+  if (unpushed) {
+    const tag = document.createElement('span');
+    tag.className = 'commit-tag-unpushed';
+    tag.textContent = t('git.unpushed');
+    tag.title = t('git.unpushedTitle');
+    meta.append(' ', tag);
+  }
   main.append(subject, meta);
 
-  // Two-click revert: first click arms (red), second creates the revert commit.
+  // Two-click confirm, same as the file discard buttons: first click arms (red),
+  // second runs it — undo (drop) for unpushed, revert (new commit) for pushed.
+  const armKey = unpushed ? 'armHint.undoCommit' : 'armHint.revertCommit';
   const revert = document.createElement('button');
   revert.className = 'git-btn git-revert';
   revert.innerHTML = REVERT_SVG;
-  revert.title = 'Revert this commit';
+  revert.title = unpushed ? t('git.undoCommitTitle') : t('git.revertCommitTitle');
   revert.onclick = async (e) => {
     e.stopPropagation();
     if (!revert.classList.contains('armed')) {
       revert.classList.add('armed');
       li.classList.add('warn');
-      revert.title = 'Click again to revert this commit';
+      revert.title = t(armKey);
+      showArmHint(revert);
       return;
     }
-    const r = await window.api.gitRevertCommit(c.hash);
-    if (!r.ok) showGitErrorDialog(r.stderr || 'Revert failed', 'Revert failed');
+    hideArmHint();
+    const r = unpushed ? await window.api.gitUndoCommit(c.hash) : await window.api.gitRevertCommit(c.hash);
+    if (!r.ok) {
+      const title = unpushed ? 'Undo failed' : 'Revert failed';
+      showGitErrorDialog(r.stderr || title, title);
+    }
     refreshHistory();
     refreshGit();
   };

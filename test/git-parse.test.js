@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, filterCommits, sumNumstat, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, filterCommits, sumNumstat, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -88,6 +88,28 @@ const COMMITS = [
   { hash: '000111222', short: '0001112', subject: 'Add a dark theme', author: 'Bob', relDate: '3 days ago' },
   { hash: '99ffee00aa', short: '99ffee0', subject: 'Refactor the parser', author: 'Ada', relDate: '1 week ago' },
 ];
+
+test('markPushed: hashes in the unpushed set are flagged pushed:false, the rest true', () => {
+  const r = markPushed(COMMITS, ['abc123def', '000111222']);
+  assert.deepEqual(r.map((c) => c.pushed), [false, false, true]);
+  // original fields are preserved
+  assert.equal(r[0].subject, 'Fix the login bug');
+});
+
+test('markPushed: an empty unpushed set marks every commit pushed', () => {
+  assert.deepEqual(markPushed(COMMITS, []).map((c) => c.pushed), [true, true, true]);
+});
+
+test('markPushed: with no upstream every hash is unpushed, so all read pushed:false', () => {
+  const all = COMMITS.map((c) => c.hash);
+  assert.deepEqual(markPushed(COMMITS, all).map((c) => c.pushed), [false, false, false]);
+});
+
+test('markPushed: does not mutate the input commits', () => {
+  const input = [{ hash: 'x', short: 'x', subject: 's', author: 'a', relDate: 'now' }];
+  markPushed(input, ['x']);
+  assert.equal('pushed' in input[0], false);
+});
 
 test('filterCommits: blank query returns the list unchanged', () => {
   assert.equal(filterCommits(COMMITS, ''), COMMITS);
