@@ -1,6 +1,6 @@
 import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme } from './shared/terminal.js';
 import { hideAllOverlays } from './viewer/center.js';
-import { renderDiffInto } from './viewer/diff.js';
+import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
 import { confirmDialog } from './shared/confirm.js';
@@ -38,6 +38,8 @@ const diffOverlay = document.getElementById('session-diff-overlay');
 const diffPanel = document.getElementById('session-diff-panel');
 const diffDialogStat = document.getElementById('session-diff-stat');
 const diffDialogBody = document.getElementById('session-diff-body');
+const diffModeUnifiedBtn = document.getElementById('sdiff-mode-unified');
+const diffModeSplitBtn = document.getElementById('sdiff-mode-split');
 
 // Lucide "archive" icon — used both on the session-bar archive button and on
 // each sidebar row's archive/close button.
@@ -471,14 +473,33 @@ sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); }
 // any click outside the panel (so they can go straight to committing), on Escape,
 // and when the session changes.
 let diffDialogId = null;
+let diffMode = 'unified';   // 'unified' (single column) | 'split' (side-by-side); persists across opens
+let diffPatchText = null;   // the open dialog's patch, kept so the mode toggle re-renders without re-fetching
 
 export function closeDiffDialog() {
   if (diffDialogId === null) return;
   diffDialogId = null;
+  diffPatchText = null;
   diffOverlay.hidden = true;
   diffDialogBody.innerHTML = '';
   document.removeEventListener('mousedown', onDiffOutside, true);
   document.removeEventListener('keydown', onDiffKey, true);
+}
+
+// Render the held patch in the active mode and reflect it on the toggle buttons.
+function renderDiffDialog() {
+  diffModeUnifiedBtn.classList.toggle('active', diffMode === 'unified');
+  diffModeSplitBtn.classList.toggle('active', diffMode === 'split');
+  diffPanel.classList.toggle('split', diffMode === 'split');
+  if (diffPatchText == null) return;
+  if (diffMode === 'split') renderDiffSplitInto(diffDialogBody, diffPatchText, null);
+  else renderDiffInto(diffDialogBody, diffPatchText, null, true);
+}
+
+function setDiffMode(mode) {
+  if (diffMode === mode) return;
+  diffMode = mode;
+  renderDiffDialog();
 }
 
 function onDiffOutside(e) {
@@ -503,6 +524,7 @@ async function openDiffDialog() {
   // Keep the button's badge in agreement with what the dialog actually shows.
   if (r) { s.diffStat = { additions: r.additions, deletions: r.deletions, files: r.files }; renderDiffButton(s); }
   if (!r || !r.ok || !r.files) {
+    diffPatchText = null;
     diffDialogStat.textContent = '';
     diffDialogBody.innerHTML = '';
     const notice = document.createElement('div');
@@ -512,11 +534,14 @@ async function openDiffDialog() {
     return;
   }
   diffDialogStat.innerHTML = `<span class="sdiff-add">+${r.additions}</span><span class="sdiff-del">-${r.deletions}</span>`;
-  renderDiffInto(diffDialogBody, r.patch, null, true);
+  diffPatchText = r.patch;
+  renderDiffDialog();
 }
 
 sessionDiffBtn.onclick = () => { if (diffDialogId === null) openDiffDialog(); else closeDiffDialog(); };
 document.getElementById('session-diff-close').onclick = closeDiffDialog;
+diffModeUnifiedBtn.onclick = () => setDiffMode('unified');
+diffModeSplitBtn.onclick = () => setDiffMode('split');
 
 document.getElementById('new-session').onclick = newSession;
 

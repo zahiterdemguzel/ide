@@ -52,6 +52,8 @@ export default {
     'session.diffTitle': 'Voir les modifications de cette session',
     'session.diffDialogTitle': 'Diff de la session',
     'session.diffClose': 'Fermer',
+    'session.diffUnified': 'Unifié',
+    'session.diffSplit': 'Côte à côte',
     'session.diffEmpty': "Cette session n'a pas encore de modifications.",
     'session.nothingToCommit': 'Rien à valider',
     'session.welcomeTagline': 'Lancez plusieurs sessions Claude à la fois.',

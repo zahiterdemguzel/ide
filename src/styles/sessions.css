@@ -110,12 +110,13 @@
 .sdiff-del { color: var(--red); font-variant-numeric: tabular-nums; }
 #session-diff:disabled .sdiff-add, #session-diff:disabled .sdiff-del { display: none; }
 
-/* Diff dialog: floats over the terminal, which stays alive behind it. The overlay
-   is a transparent click-catcher (so the terminal shows through and a click
-   outside the panel dismisses); the panel is centred over it. */
+/* Diff dialog: floats over the terminal (kept alive behind it). The overlay
+   darkens + blurs the backdrop like the approval/confirm dialogs; a click outside
+   the panel dismisses. */
 #session-diff-overlay {
   position: absolute; inset: 0; z-index: 20;
   display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: rgba(0, 0, 0, .45); backdrop-filter: blur(3px);
 }
 #session-diff-overlay[hidden] { display: none; }
 #session-diff-panel {
@@ -124,6 +125,8 @@
   background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, .5); overflow: hidden;
 }
+/* Side-by-side needs more room for the two columns. */
+#session-diff-panel.split { width: min(1300px, 100%); }
 #session-diff-head {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--border);
@@ -138,3 +141,32 @@
 #session-diff-body {
   flex: 1; overflow: auto; font-family: Consolas, monospace; font-size: 12px; line-height: 1.5;
 }
+
+/* Unified / Split segmented toggle in the dialog head. */
+#session-diff-modes { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.sdiff-mode {
+  background: var(--bg-3); color: var(--fg-dim); border: none;
+  padding: 4px 10px; font-size: 11px; cursor: pointer;
+}
+.sdiff-mode + .sdiff-mode { border-left: 1px solid var(--border); }
+.sdiff-mode:hover { color: var(--fg); }
+.sdiff-mode.active { background: var(--accent); color: var(--on-accent); }
+
+/* Side-by-side rows (old | new). Each side carries the shared .diff-ln gutter +
+   .diff-code from diff.css; the per-side add/del/ctx classes drive the colouring
+   and the +/-/space marker. The right side gets a divider border; the blank side
+   of an unpaired del/add is a faint filler. */
+.sbs-row { display: flex; white-space: pre; }
+.sbs-side { display: flex; flex: 1 1 0; min-width: 0; overflow: hidden; }
+.sbs-side + .sbs-side { border-left: 1px solid var(--border); }
+.sbs-side .diff-code { flex: 1; padding: 0 12px; overflow: hidden; }
+.sbs-side.add { background: rgba(63, 185, 80, .15); }
+.sbs-side.add .diff-code::before { content: '+'; color: var(--green); margin-left: -8px; padding-right: 4px; }
+.sbs-side.del { background: rgba(248, 81, 73, .15); }
+.sbs-side.del .diff-code::before { content: '-'; color: var(--red); margin-left: -8px; padding-right: 4px; }
+.sbs-side.ctx .diff-code::before { content: ' '; margin-left: -8px; padding-right: 4px; }
+.sbs-side.empty { background: var(--bg-2); }
+.sbs-row.file { background: var(--bg-2); border-top: 1px solid var(--border); font-weight: 600; }
+.sbs-row.file .diff-code { flex: 1; padding: 4px 12px; color: var(--fg); }
+.sbs-row.hunk { color: var(--accent-hi); background: var(--bg-3); }
+.sbs-row.hunk .diff-code { flex: 1; padding: 0 12px; }

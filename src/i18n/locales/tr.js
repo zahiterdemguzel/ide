@@ -52,6 +52,8 @@ export default {
     'session.diffTitle': 'Bu oturumun değişikliklerini görüntüle',
     'session.diffDialogTitle': 'Oturum diff’i',
     'session.diffClose': 'Kapat',
+    'session.diffUnified': 'Birleşik',
+    'session.diffSplit': 'Yan yana',
     'session.diffEmpty': 'Bu oturumda henüz değişiklik yok.',
     'session.nothingToCommit': 'İşlenecek değişiklik yok',
     'session.welcomeTagline': 'Aynı anda birçok Claude oturumu çalıştırın.',

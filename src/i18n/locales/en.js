@@ -53,6 +53,8 @@ export default {
     'session.diffTitle': "View this session's diff",
     'session.diffDialogTitle': 'Session diff',
     'session.diffClose': 'Close',
+    'session.diffUnified': 'Unified',
+    'session.diffSplit': 'Split',
     'session.diffEmpty': 'This session has no changes yet.',
     'session.nothingToCommit': 'Nothing to commit',
     'session.welcomeTagline': 'Run many Claude sessions at once.',

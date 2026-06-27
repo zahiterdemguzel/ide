@@ -52,6 +52,8 @@ export default {
     'session.diffTitle': 'Ver los cambios de esta sesión',
     'session.diffDialogTitle': 'Diff de la sesión',
     'session.diffClose': 'Cerrar',
+    'session.diffUnified': 'Unificado',
+    'session.diffSplit': 'Dividido',
     'session.diffEmpty': 'Esta sesión aún no tiene cambios.',
     'session.nothingToCommit': 'Nada que confirmar',
     'session.welcomeTagline': 'Ejecuta muchas sesiones de Claude a la vez.',
