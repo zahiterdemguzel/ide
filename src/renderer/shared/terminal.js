@@ -30,20 +30,20 @@ export function refreshTermThemes() {
   for (const term of themedTerminals) term.options.theme = theme;
 }
 
-// Copy text to the clipboard, falling back to execCommand if the async
-// Clipboard API rejects (it requires document focus, which Electron can
-// transiently lack right after a selection in the terminal canvas).
+// Copy via the main-process clipboard (window.api.clipboardWrite): the renderer's
+// async navigator.clipboard is undefined under file:// (not a secure context) and
+// otherwise needs document focus the canvas can lack right after a selection, so
+// Ctrl+C silently failed. execCommand is a last resort if the IPC bridge is absent.
 function copyToClipboard(text) {
-  navigator.clipboard.writeText(text).catch(() => {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-  });
+  if (window.api && window.api.clipboardWrite) { window.api.clipboardWrite(text); return; }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
 }
 
 // Default formatter for a pasted image's temp-file path: quote it if it has
@@ -66,11 +66,24 @@ const quoteIfSpaced = (p) => (/\s/.test(p) ? `"${p}"` : p);
 export function attachClipboard(term, opts = {}) {
   const formatImagePath = opts.formatImagePath || quoteIfSpaced;
 
+  // Guard against a single gesture pasting twice: a right-click can fire
+  // `contextmenu` more than once on Windows/Electron, and each firing would
+  // otherwise start its own paste. Because paste() awaits an IPC round-trip
+  // before inserting, an in-flight flag lets the duplicate firing no-op.
+  let pasting = false;
   async function paste() {
-    const img = await window.api.pasteImage();
-    if (img && img.ok && img.path) { term.paste(formatImagePath(img.path)); return; }
-    const text = await navigator.clipboard.readText();
-    if (text) term.paste(text);
+    if (pasting) return;
+    pasting = true;
+    try {
+      const img = await window.api.pasteImage();
+      if (img && img.ok && img.path) { term.paste(formatImagePath(img.path)); return; }
+      const text = window.api.clipboardRead
+        ? await window.api.clipboardRead()
+        : await navigator.clipboard.readText();
+      if (text) term.paste(text);
+    } finally {
+      pasting = false;
+    }
   }
 
   term.attachCustomKeyEventHandler((e) => {
