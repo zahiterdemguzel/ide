@@ -8,11 +8,12 @@
 .term-tab {
   display: inline-flex; align-items: center; gap: 4px; flex: none;
   max-width: 160px; padding: 2px 4px 2px 8px; border: 1px solid var(--border);
-  border-radius: 4px; cursor: pointer; color: var(--fg-dim);
+  border-radius: 5px; cursor: pointer; color: var(--fg-dim);
   font-size: 12.5px; text-transform: none; letter-spacing: 0; background: none;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 .term-tab:hover { color: var(--fg); }
-.term-tab.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent-hi, #2a2d2e); }
+.term-tab.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
 .term-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .term-tab-close {
   display: inline-flex; align-items: center; justify-content: center;
@@ -24,21 +25,23 @@
 
 #term-clear, #term-add {
   background: none; border: 1px solid var(--border); color: var(--fg-dim);
-  border-radius: 3px; cursor: pointer; font-size: 11px; padding: 1px 8px; line-height: 1.4;
+  border-radius: 5px; cursor: pointer; font-size: 11px; padding: 2px 8px; line-height: 1.4;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 #term-add { padding: 1px 7px; font-size: 14px; }
-#term-clear:hover, #term-add:hover { color: var(--fg); border-color: var(--accent); }
+#term-clear:hover, #term-add:hover { color: var(--fg); border-color: var(--accent); background: var(--bg-3); }
 
 #console-hosts { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
 .console-host { height: 100%; padding: 2px 0 2px 6px; }
 
 #shell-menu {
-  position: fixed; z-index: 50; background: var(--panel, #252526);
-  border: 1px solid var(--border); border-radius: 4px; padding: 3px;
-  display: flex; flex-direction: column; min-width: 90px; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+  position: fixed; z-index: 50; background: var(--bg-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px;
+  display: flex; flex-direction: column; min-width: 90px; box-shadow: 0 6px 24px rgba(0,0,0,.5);
 }
 .shell-menu-item {
   background: none; border: none; color: var(--fg); text-align: left;
-  padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;
+  padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  transition: background .1s ease, color .1s ease;
 }
-.shell-menu-item:hover { background: var(--accent-hi, #2a2d2e); }
+.shell-menu-item:hover { background: var(--accent); color: var(--on-accent); }

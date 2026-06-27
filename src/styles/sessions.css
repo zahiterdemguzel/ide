@@ -1,12 +1,17 @@
-/* session filter tabs: Active (default) / Archived / All */
-.sess-tabs { display: flex; gap: 4px; padding: 0 12px 8px; }
+/* session filter tabs: Active (default) / Archived / All — a segmented control,
+   matching the git pane's Changes/History toggle. */
+.sess-tabs {
+  display: flex; gap: 2px; margin: 0 12px 8px; padding: 2px;
+  background: var(--bg-3); border-radius: 6px;
+}
 .sess-tab {
-  flex: 1; text-align: center; padding: 3px 8px; background: none;
-  border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
-  color: var(--fg-dim); font-size: 11px; line-height: 1.4;
+  flex: 1; text-align: center; padding: 4px 8px; background: none;
+  border: none; border-radius: 4px; cursor: pointer;
+  color: var(--fg-dim); font-size: 11px; font-weight: 500; line-height: 1.5;
+  transition: color .12s ease, background .12s ease;
 }
 .sess-tab:hover { color: var(--fg); }
-.sess-tab.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent-hi); }
+.sess-tab.active { color: var(--on-accent); background: var(--accent); }
 
 /* session list */
 #session-list { list-style: none; margin: 0; padding: 0; flex: 1; overflow-y: auto; }
@@ -17,6 +22,7 @@
   padding: 7px 12px;
   cursor: pointer;
   border-left: 2px solid transparent;
+  transition: background .1s ease;
 }
 #session-list li:hover { background: var(--bg-3); }
 #session-list li.active { background: var(--bg-3); border-left-color: var(--accent-hi); }
@@ -126,21 +132,24 @@
 .bar-right { display: flex; align-items: center; gap: 10px; flex: none; }
 #session-commit-msg { margin: 0; white-space: nowrap; }
 #session-commit {
-  background: var(--accent); color: var(--on-accent); border: none; border-radius: 4px;
+  background: var(--accent); color: var(--on-accent); border: none; border-radius: 5px;
   padding: 6px 12px; cursor: pointer; font-size: 12px;
+  transition: background .12s ease;
 }
 #session-commit:hover:not(:disabled) { background: var(--accent-hi); }
 #session-commit:disabled { background: var(--bg-3); color: var(--fg-dim); cursor: default; }
 #session-revert {
   background: transparent; color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+  border-radius: 5px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 #session-revert:hover { border-color: var(--red); color: var(--red); }
 #session-revert.armed { background: var(--red); border-color: var(--red); color: #fff; }
 #session-archive {
   background: transparent; color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 6px 8px; cursor: pointer;
+  border-radius: 5px; padding: 6px 8px; cursor: pointer;
   display: inline-flex; align-items: center; line-height: 0;
+  transition: border-color .12s ease, color .12s ease;
 }
 #session-archive:hover { border-color: var(--accent); color: var(--accent); }
 
@@ -148,8 +157,9 @@
    net change. Disabled (and badge-less) when the session changed nothing. */
 #session-diff {
   background: transparent; color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+  border-radius: 5px; padding: 6px 10px; cursor: pointer; font-size: 12px;
   display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s ease, color .12s ease;
 }
 #session-diff:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 #session-diff:disabled { color: var(--fg-dim); cursor: default; opacity: .7; }
@@ -169,8 +179,8 @@
 #session-diff-panel {
   display: flex; flex-direction: column;
   width: min(900px, 100%); height: min(80%, 100%);
-  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, .5); overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .55); overflow: hidden;
 }
 /* Side-by-side needs more room for the two columns. */
 #session-diff-panel.split { width: min(1300px, 100%); }
@@ -183,6 +193,7 @@
 #session-diff-stat { display: inline-flex; gap: 8px; font-family: Consolas, monospace; font-size: 12px; }
 #session-diff-close {
   background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1;
+  border-radius: 4px; transition: color .12s ease;
 }
 #session-diff-close:hover { color: var(--fg); }
 #session-diff-body {
@@ -190,12 +201,12 @@
 }
 
 /* Unified / Split segmented toggle in the dialog head. */
-#session-diff-modes { display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+#session-diff-modes { display: inline-flex; gap: 2px; padding: 2px; background: var(--bg-3); border-radius: 6px; }
 .sdiff-mode {
-  background: var(--bg-3); color: var(--fg-dim); border: none;
-  padding: 4px 10px; font-size: 11px; cursor: pointer;
+  background: none; color: var(--fg-dim); border: none; border-radius: 4px;
+  padding: 4px 10px; font-size: 11px; font-weight: 500; cursor: pointer;
+  transition: color .12s ease, background .12s ease;
 }
-.sdiff-mode + .sdiff-mode { border-left: 1px solid var(--border); }
 .sdiff-mode:hover { color: var(--fg); }
 .sdiff-mode.active { background: var(--accent); color: var(--on-accent); }
 

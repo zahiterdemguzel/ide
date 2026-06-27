@@ -7,7 +7,8 @@
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0;
   background: var(--bg-2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 #browser-btn { margin-left: auto; margin-right: 6px; }
 /* When the browser button is toggled off, the gear inherits the right-alignment. */
@@ -20,12 +21,12 @@
 
 /* Settings dialog */
 #settings-dialog {
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-2); color: var(--fg);
   padding: 0; width: 360px; max-width: 90vw;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
-#settings-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+#settings-dialog::backdrop { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
 
 .settings-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -35,6 +36,7 @@
 #settings-close, #claude-setup-close {
   background: none; border: none; color: var(--fg-dim);
   font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px;
+  border-radius: 4px; transition: color .12s ease;
 }
 #settings-close:hover, #claude-setup-close:hover { color: var(--fg); }
 
@@ -42,11 +44,12 @@
 .settings-row { display: flex; flex-direction: column; gap: 6px; }
 .settings-row > span { font-size: 11px; color: var(--fg-dim); }
 .settings-row select {
-  width: 100%; padding: 6px 8px;
+  width: 100%; padding: 7px 8px;
   background: var(--bg-3); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 3px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 5px; font-size: 13px; cursor: pointer;
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
-.settings-row select:focus { outline: none; border-color: var(--accent-hi); }
+.settings-row select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 
 /* Panel-visibility toggles: a titled group of switch cards in a 2-up grid. */
 .settings-group { display: flex; flex-direction: column; gap: 8px; }
@@ -97,7 +100,8 @@
 }
 .settings-primary {
   background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent);
-  border-radius: 3px; padding: 6px 18px; cursor: pointer; font-size: 13px;
+  border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px;
+  transition: background .12s ease, border-color .12s ease;
 }
 .settings-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 .settings-primary:disabled { opacity: .55; cursor: default; }
@@ -106,17 +110,17 @@
 /* Reuses the settings dialog chrome (.settings-head/body/actions); wider + taller
  * to fit the install commands and the embedded terminal without cramping. */
 #claude-setup-dialog {
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-2); color: var(--fg);
   padding: 0; width: 620px; max-width: 94vw; max-height: 90vh;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 /* Keep the header/stepper/footer pinned and let only the body scroll, so the
  * dialog never overflows the viewport. Scoped to [open] so the flex display
  * doesn't override the native dialog:not([open]) hide. */
 #claude-setup-dialog[open] { display: flex; flex-direction: column; }
 #claude-setup-dialog .settings-body { overflow-y: auto; gap: 16px; }
-#claude-setup-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+#claude-setup-dialog::backdrop { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
 
 /* Progress stepper: numbered dots joined by a connector, the active one accented
  * and completed ones filled — the same status-dot vocabulary used elsewhere. */
@@ -169,7 +173,7 @@
   text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px;
 }
 .setup-term-host {
-  height: 320px; border: 1px solid var(--border); border-radius: 4px;
+  height: 320px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--term-bg, #1e1e1e); padding: 6px; overflow: hidden;
 }
 
@@ -180,6 +184,7 @@
 .setup-status.err { color: var(--red); }
 .setup-back {
   background: none; border: 1px solid var(--border); color: var(--fg);
-  border-radius: 3px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+  border-radius: 5px; padding: 6px 12px; cursor: pointer; font-size: 13px;
+  transition: border-color .12s ease, color .12s ease;
 }
 .setup-back:hover { border-color: var(--accent); color: var(--accent-hi); }

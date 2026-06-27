@@ -7,16 +7,17 @@
 #web-addr { position: relative; flex: 1; min-width: 0; }
 #web-url {
   width: 100%; box-sizing: border-box; font-family: Consolas, monospace; font-size: 12px;
-  color: var(--fg); background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px;
-  padding: 4px 8px; outline: none;
+  color: var(--fg); background: var(--bg-3); border: 1px solid var(--border); border-radius: 5px;
+  padding: 5px 8px; outline: none;
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
-#web-url:focus { border-color: var(--accent, #4a8cff); }
+#web-url:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 /* address suggestions (latest visited) */
 #web-suggest {
   display: none; position: absolute; left: 0; right: 0; top: calc(100% + 3px); z-index: 10;
   margin: 0; padding: 4px 0; list-style: none; max-height: 260px; overflow-y: auto;
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
 }
 #web-suggest li {
   padding: 5px 10px; font-family: Consolas, monospace; font-size: 12px; color: var(--fg-dim);
@@ -25,7 +26,8 @@
 #web-suggest li:hover { background: var(--bg-3); color: var(--fg); }
 .web-nav {
   background: none; border: none; color: var(--fg-dim);
-  cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 3px;
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 3px 6px; border-radius: 4px;
+  transition: background .12s ease, color .12s ease;
 }
 .web-nav:hover { color: var(--fg); background: var(--bg-3); }
 /* Inspect (color-picker) button: accent while picking, green flash after copy. */
@@ -36,18 +38,19 @@
 #web-menu-wrap { position: relative; }
 #web-menu-dropdown {
   display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 10;
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); padding: 4px; min-width: 140px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); padding: 4px; min-width: 140px;
 }
 #web-menu-dropdown button {
   display: block; width: 100%; text-align: left; background: none; border: none;
-  color: var(--fg); cursor: pointer; font-size: 12px; padding: 6px 10px; border-radius: 3px; white-space: nowrap;
+  color: var(--fg); cursor: pointer; font-size: 12px; padding: 6px 10px; border-radius: 4px; white-space: nowrap;
+  transition: background .1s ease;
 }
 #web-menu-dropdown button:hover { background: var(--bg-3); }
 /* Terminate (⏻) arms red on first click, kills the page on the second — same
  * two-click confirm pattern as the git pane's discard/revert buttons. */
 #web-terminate.armed { color: var(--red); }
 #web-terminate.armed:hover { color: #fff; background: var(--red); }
-#web-close { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1; }
+#web-close { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1; border-radius: 4px; transition: color .12s ease; }
 #web-close:hover { color: var(--fg); }
 #web-frame { flex: 1; min-height: 0; border: none; }

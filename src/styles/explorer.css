@@ -1,10 +1,11 @@
 /* file explorer search */
 #file-search {
-  margin: 0 8px 6px; padding: 5px 8px; font-size: 12px;
+  margin: 0 8px 6px; padding: 6px 8px; font-size: 12px;
   background: var(--bg-3); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 4px; outline: none;
+  border: 1px solid var(--border); border-radius: 5px; outline: none;
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
-#file-search:focus { border-color: var(--accent); }
+#file-search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 
 /* clear (×) button — drop the OS-tinted native glyph and repaint it via a mask
    so the X follows the theme (--fg-dim, same as the explorer toolbar buttons). */
@@ -39,6 +40,7 @@
 .tree-row {
   display: flex; align-items: center; gap: 4px;
   height: 22px; padding-right: 8px; cursor: pointer; white-space: nowrap;
+  transition: background .1s ease;
 }
 .tree-row:hover { background: var(--bg-3); }
 .tree-row.sel { background: var(--list-sel); }
@@ -56,6 +58,7 @@
   padding: 9px 12px; text-align: left; border-radius: 5px;
   background: none; border: none; color: var(--fg); font-size: 13px;
   cursor: pointer; white-space: nowrap;
+  transition: background .1s ease, color .1s ease;
 }
 #tree-ctx-menu button:hover { background: var(--bg-3); }
 #tree-ctx-menu .ctx-icon {

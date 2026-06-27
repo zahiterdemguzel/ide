@@ -16,10 +16,11 @@
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--bg-3); color: var(--green); cursor: pointer;
   border: 1px solid var(--border); padding: 0;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
-#run-btn { width: 26px; height: 24px; border-radius: 3px 0 0 3px; }
+#run-btn { width: 26px; height: 24px; border-radius: 5px 0 0 5px; }
 #run-menu-btn {
-  width: 16px; height: 24px; border-radius: 0 3px 3px 0; border-left: none; color: var(--fg-dim);
+  width: 16px; height: 24px; border-radius: 0 5px 5px 0; border-left: none; color: var(--fg-dim);
 }
 #run-btn:hover, #run-menu-btn:hover, #run-menu-btn.open {
   background: var(--accent); border-color: var(--accent); color: var(--on-accent);
@@ -29,9 +30,9 @@
 /* Run options popover (the caret) — same chrome as the shell-picker menu. */
 #run-menu {
   position: fixed; z-index: 50; background: var(--bg-2);
-  border: 1px solid var(--border); border-radius: 4px; padding: 3px;
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px;
   display: flex; flex-direction: column; min-width: 180px; max-width: 360px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .4);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .5);
 }
 .run-menu-info {
   padding: 5px 10px 7px; font-size: 11px; color: var(--fg-dim);
@@ -40,13 +41,15 @@
 }
 .run-menu-item {
   background: none; border: none; color: var(--fg); text-align: left;
-  padding: 6px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;
+  padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+  transition: background .1s ease, color .1s ease;
 }
 .run-menu-item:hover { background: var(--accent); color: var(--on-accent); }
 #diff-save {
-  padding: 2px 12px; font-size: 12px; cursor: pointer;
+  padding: 4px 12px; font-size: 12px; cursor: pointer;
   background: var(--bg-3); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 3px;
+  border: 1px solid var(--border); border-radius: 5px;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 #diff-save:disabled { opacity: .5; cursor: default; }
 #diff-save.dirty:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
@@ -54,6 +57,7 @@
 #diff-close {
   background: none; border: none; color: var(--fg-dim);
   cursor: pointer; font-size: 18px; line-height: 1;
+  border-radius: 4px; transition: color .12s ease;
 }
 #diff-close:hover { color: var(--fg); }
 #diff-body {
@@ -66,21 +70,23 @@
   display: flex; align-items: center; gap: 4px;
   padding: 5px 6px; background: var(--bg-3);
   border: 1px solid var(--border); border-top: none;
-  border-radius: 0 0 4px 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+  border-radius: 0 0 6px 6px; box-shadow: 0 4px 12px rgba(0, 0, 0, .4);
 }
 #editor-find[hidden] { display: none; }
 #editor-find-input {
-  width: 180px; padding: 3px 6px; font: 12px Consolas, monospace;
+  width: 180px; padding: 4px 6px; font: 12px Consolas, monospace;
   background: var(--bg); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 3px;
+  border: 1px solid var(--border); border-radius: 4px;
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
-#editor-find-input:focus { outline: none; border-color: var(--accent); }
+#editor-find-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 #editor-find-count {
   min-width: 56px; text-align: center; font-size: 11px; color: var(--fg-dim);
 }
 #editor-find button {
   padding: 2px 6px; min-width: 24px; font-size: 12px; line-height: 1; cursor: pointer;
-  background: none; color: var(--fg-dim); border: 1px solid transparent; border-radius: 3px;
+  background: none; color: var(--fg-dim); border: 1px solid transparent; border-radius: 4px;
+  transition: background .1s ease, color .1s ease;
 }
 #editor-find button:hover { color: var(--fg); background: var(--bg-2); }
 #editor-find-case.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }

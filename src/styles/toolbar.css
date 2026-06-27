@@ -15,7 +15,8 @@
 .tool-btn {
   display: inline-flex; align-items: center; gap: 5px;
   background: var(--bg-2); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 4px; padding: 4px 9px; cursor: pointer; font-size: 12px; white-space: nowrap;
+  border-radius: 5px; padding: 4px 9px; cursor: pointer; font-size: 12px; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 .tool-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tool-btn.busy { opacity: .55; pointer-events: none; }
@@ -54,16 +55,17 @@
 
 /* shown when a clicked config can't be translated into a terminal command */
 #run-error-dialog {
-  border: 1px solid var(--border); border-radius: 6px;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-2); color: var(--fg);
   padding: 20px 24px; max-width: 420px; width: 90%;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
 }
-#run-error-dialog::backdrop { background: rgba(0,0,0,0.45); }
+#run-error-dialog::backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
 #run-error-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--red); }
 #run-error-msg { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; margin-bottom: 16px; }
 #run-error-ok {
   float: right; background: var(--accent); color: var(--on-accent); border: none;
-  border-radius: 3px; padding: 5px 16px; cursor: pointer; font-size: 13px;
+  border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px;
+  transition: background .12s ease;
 }
 #run-error-ok:hover { background: var(--accent-hi); }
