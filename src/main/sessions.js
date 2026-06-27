@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
-const { resolveClaude, runHaiku, claudeAvailable, claudeAuthed } = require('./claude');
+const { resolveClaude, runHaiku, claudeAvailable } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { editOp } = require('./edit-ops');
 const { git } = require('./git');
@@ -318,10 +318,6 @@ ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
 // spawn (see claude-setup.js). The platform-specific install commands ride along
 // so the renderer needs no OS logic.
 ipcMain.handle('check-claude', async () => ({ ...await claudeAvailable(), guide: installGuide() }));
-
-// Sign-in status — the wizard polls this on its Sign-in step to enable Finish once
-// the user has completed Claude Code's OAuth login.
-ipcMain.handle('check-claude-auth', () => ({ authed: claudeAuthed() }));
 
 ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();

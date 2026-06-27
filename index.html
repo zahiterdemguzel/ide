@@ -349,9 +349,9 @@
       <button id="confirm-ok" class="confirm-btn-primary">Open</button>
     </div>
   </dialog>
-  <!-- Setup gate: a linear 3-page wizard shown when the Claude Code CLI isn't
-       installed (see src/renderer/claude-setup.js). The embedded terminals are
-       driven by JS: page 2 runs the installer, page 3 runs the sign-in. -->
+  <!-- Setup gate: a step-by-step wizard shown when the Claude Code CLI isn't
+       installed (see src/renderer/claude-setup.js). The command rows and the
+       embedded terminal are filled in / driven by JS. -->
   <dialog id="claude-setup-dialog">
     <div class="settings-head">
       <h3 data-i18n="setup.title">Set up Claude Code</h3>
@@ -361,38 +361,51 @@
     <!-- progress stepper -->
     <ol id="setup-steps" class="setup-steps">
       <li class="setup-stepper-item" data-step="0"><span class="setup-stepnum">1</span><span class="setup-steplabel" data-i18n="setup.step.install">Install</span></li>
-      <li class="setup-stepper-item" data-step="1"><span class="setup-stepnum">2</span><span class="setup-steplabel" data-i18n="setup.step.installing">Installing</span></li>
-      <li class="setup-stepper-item" data-step="2"><span class="setup-stepnum">3</span><span class="setup-steplabel" data-i18n="setup.step.signin">Sign in</span></li>
+      <li class="setup-stepper-item" data-step="1"><span class="setup-stepnum">2</span><span class="setup-steplabel" data-i18n="setup.step.signin">Sign in</span></li>
+      <li class="setup-stepper-item" data-step="2"><span class="setup-stepnum">3</span><span class="setup-steplabel" data-i18n="setup.step.done">Done</span></li>
     </ol>
 
     <div class="settings-body">
-      <!-- page 1: intro -->
+      <!-- step 1: install -->
       <section class="setup-pane" data-pane="0">
-        <p class="setup-intro" data-i18n="setup.intro">This IDE runs the Claude Code CLI, but it isn't installed yet.</p>
-        <p class="setup-note" data-i18n="setup.introNext">Click Next and the IDE will install it for you.</p>
+        <p class="setup-intro" data-i18n="setup.intro">This IDE runs the Claude Code CLI, which isn't installed yet. Install it to start a session.</p>
         <div id="claude-setup-os" class="setup-os"></div>
+        <div class="setup-step">
+          <div class="setup-step-title" data-i18n="setup.recommended">Recommended install</div>
+          <div id="setup-cmd-native" class="setup-cmd"></div>
+        </div>
+        <div class="setup-step" id="setup-npm-step">
+          <div class="setup-step-title" data-i18n="setup.viaNpm">Or install with npm (needs Node.js 18+)</div>
+          <div id="setup-cmd-npm" class="setup-cmd"></div>
+        </div>
+        <p class="setup-note" data-i18n="setup.installHint">Click “Run in terminal” to install right here, or copy a command into your own terminal and click Next.</p>
       </section>
 
-      <!-- page 2: installing -->
+      <!-- step 2: sign in -->
       <section class="setup-pane" data-pane="1" hidden>
-        <p class="setup-note" data-i18n="setup.installing">Please wait while Claude Code installs…</p>
-        <div id="setup-install-host" class="setup-term-host"></div>
+        <p class="setup-note" data-i18n="setup.signinInfo">When the install finishes, Claude Code starts its login automatically in the terminal below. Follow the prompts — a browser window opens, or paste the code it shows.</p>
+        <p class="setup-note" data-i18n="setup.signinManual">Installed it in your own terminal? Run “claude” there to sign in.</p>
       </section>
 
-      <!-- page 3: sign in -->
+      <!-- step 3: done -->
       <section class="setup-pane" data-pane="2" hidden>
-        <p class="setup-note" data-i18n="setup.authText">Please continue signing in using the terminal below.</p>
-        <div id="setup-auth-host" class="setup-term-host"></div>
+        <p class="setup-note" data-i18n="setup.doneInfo">Once Claude Code is installed and you’re signed in, recheck to finish setup.</p>
         <p id="setup-restart-note" class="setup-note setup-restart" data-i18n="setup.restartNote" hidden>Just installed it? You may need to restart this app so it picks up the new command.</p>
         <a id="setup-docs" class="setup-docs" href="#" data-i18n="setup.docs">Read the setup guide</a>
       </section>
+
+      <!-- embedded terminal, shared across steps once a run starts -->
+      <div id="setup-term-view" hidden>
+        <div class="setup-term-title" data-i18n="setup.terminalTitle">Terminal</div>
+        <div id="setup-term-host" class="setup-term-host"></div>
+      </div>
     </div>
 
     <div class="settings-actions setup-actions">
       <button id="setup-back" class="setup-back" hidden>‹ <span data-i18n="setup.back">Back</span></button>
       <span id="setup-status" class="setup-status"></span>
       <button id="setup-next" class="settings-primary" data-i18n="setup.next">Next</button>
-      <button id="setup-finish" class="settings-primary" data-i18n="setup.finish" hidden>Finish</button>
+      <button id="claude-setup-recheck" class="settings-primary" data-i18n="setup.recheck" hidden>I've installed it — Recheck</button>
     </div>
   </dialog>
 </body>

@@ -46,12 +46,10 @@ function spawnConsole(id, { cols, rows, shell, command, cwd, env } = {}) {
     sendToRenderer('term-data', { id, data });
     sendCommand();
   });
-  p.onExit((e) => {
+  p.onExit(() => {
     if (consoles.get(id) !== p) return; // replaced by a restart — stay quiet
     consoles.delete(id);
-    // exitCode lets a caller (the setup wizard) tell a clean install from a failed
-    // one; node-pty passes {exitCode, signal}.
-    sendToRenderer('term-exit', { id, exitCode: e && typeof e.exitCode === 'number' ? e.exitCode : null });
+    sendToRenderer('term-exit', { id });
   });
   consoles.set(id, p);
   if (command) setTimeout(sendCommand, 2000);

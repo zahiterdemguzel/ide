@@ -115,17 +115,6 @@ function claudeAvailable() {
   });
 }
 
-// Whether the user has signed in to Claude Code: its OAuth login writes an
-// accessToken into ~/.claude/.credentials.json. The setup wizard polls this on its
-// Sign-in step to enable Finish once auth completes. We only check the token
-// exists (not its expiry) — an expired token still means "has signed in before".
-function claudeAuthed() {
-  try {
-    const o = JSON.parse(fs.readFileSync(CREDS_PATH, 'utf8')).claudeAiOauth;
-    return !!(o && o.accessToken);
-  } catch { return false; }
-}
-
 // One-shot Haiku generation: API fast path, CLI fallback. The full instruction
 // is in `prompt` (the API uses a generic system prompt). Resolves to the trimmed
 // text, or null only when both paths fail.
@@ -138,4 +127,4 @@ async function runHaiku(prompt, { cwd } = {}) {
   return runCli(prompt, { cwd });
 }
 
-module.exports = { resolveClaude, runHaiku, claudeAvailable, claudeAuthed };
+module.exports = { resolveClaude, runHaiku, claudeAvailable };
