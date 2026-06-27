@@ -23,6 +23,7 @@ const menuBtn = document.getElementById('web-menu');
 const menuEl = document.getElementById('web-menu-dropdown');
 const browserBtn = document.getElementById('browser-btn');
 const terminateBtn = document.getElementById('web-terminate');
+const inspectBtn = document.getElementById('web-inspect');
 
 const isBlank = (url) => !url || url === 'about:blank';
 const isLoaded = () => !isBlank(webFrame.getAttribute('src'));
@@ -63,6 +64,7 @@ export function hideWeb() {
   hideSuggest();
   hideMenu();
   disarmTerminate();
+  if (inspecting) stopInspect();
 }
 
 // Navigate to a URL and reveal the overlay (terminal-link Ctrl+click).
@@ -173,3 +175,157 @@ document.getElementById('web-reset-cookies').onclick = async () => {
   await window.api.clearWebData();
   try { webFrame.reload(); } catch {}
 };
+
+// --- inspect element (color-picker button) ---
+//
+// Lets the user pick any element in the guest page and copies a full report of it
+// (page URL, XPath, selector, size, the key computed styles, and the trimmed
+// outerHTML) to the clipboard. The picker has to run *inside* the guest process,
+// so we inject it with `webFrame.executeJavaScript`: the injected IIFE returns a
+// Promise that stays pending until the user clicks an element (or hits Escape /
+// cancels), and `executeJavaScript` resolves the host-side await with whatever
+// that Promise resolves to — a plain (structured-cloneable) data object. The
+// guest also parks a `window.__ideInspectCancel` we can call to abort the pick
+// from the host (re-clicking the button, or closing the overlay).
+
+let inspecting = false;
+
+// This function is never called here — it's stringified and run in the guest page.
+function guestInspector() {
+  return new Promise((resolve) => {
+    const hl = document.createElement('div');
+    Object.assign(hl.style, {
+      position: 'fixed', zIndex: 2147483647, pointerEvents: 'none', boxSizing: 'border-box',
+      background: 'rgba(74,140,255,0.22)', border: '1px solid rgba(74,140,255,0.95)', borderRadius: '2px',
+    });
+    const label = document.createElement('div');
+    Object.assign(label.style, {
+      position: 'fixed', zIndex: 2147483647, pointerEvents: 'none', whiteSpace: 'nowrap',
+      font: '11px/1.5 Consolas, monospace', background: '#1e1e1e', color: '#fff',
+      padding: '2px 6px', borderRadius: '3px', maxWidth: '90vw', overflow: 'hidden', textOverflow: 'ellipsis',
+    });
+    document.documentElement.append(hl, label);
+    document.body.style.cursor = 'crosshair';
+    let current = null;
+
+    const selector = (el) => {
+      if (el.id) return el.tagName.toLowerCase() + '#' + el.id;
+      let s = el.tagName.toLowerCase();
+      if (el.classList.length) s += '.' + Array.from(el.classList).join('.');
+      return s;
+    };
+    const xpath = (el) => {
+      if (el.id) return '//*[@id="' + el.id + '"]';
+      const parts = [];
+      for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        let i = 1;
+        for (let sib = n.previousElementSibling; sib; sib = sib.previousElementSibling) {
+          if (sib.tagName === n.tagName) i++;
+        }
+        parts.unshift(n.tagName.toLowerCase() + '[' + i + ']');
+      }
+      return '/' + parts.join('/');
+    };
+    const collect = (el) => {
+      const cs = getComputedStyle(el);
+      const props = ['display', 'position', 'width', 'height', 'margin', 'padding', 'border',
+        'color', 'background-color', 'font-family', 'font-size', 'font-weight', 'line-height',
+        'text-align', 'box-shadow', 'border-radius', 'opacity', 'z-index', 'flex', 'grid-template-columns'];
+      const styles = {};
+      for (const p of props) {
+        const v = cs.getPropertyValue(p);
+        if (v && v !== 'none' && v !== 'normal' && v !== 'auto' && v !== '0px') styles[p] = v;
+      }
+      const r = el.getBoundingClientRect();
+      const MAX = 1500;
+      let html = el.outerHTML || '';
+      const trimmed = html.length > MAX;
+      if (trimmed) html = html.slice(0, MAX) + '\n…';
+      return {
+        url: location.href, xpath: xpath(el), selector: selector(el), tag: el.tagName.toLowerCase(),
+        id: el.id || '', className: typeof el.className === 'string' ? el.className : '',
+        rect: { w: Math.round(r.width), h: Math.round(r.height), x: Math.round(r.left), y: Math.round(r.top) },
+        styles, html, trimmed,
+      };
+    };
+
+    const onMove = (e) => {
+      const el = e.target;
+      if (!el || el === hl || el === label) return;
+      current = el;
+      const r = el.getBoundingClientRect();
+      Object.assign(hl.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+      label.textContent = selector(el) + '  ' + Math.round(r.width) + '×' + Math.round(r.height);
+      label.style.left = r.left + 'px';
+      label.style.top = (r.top > 22 ? r.top - 20 : r.bottom + 4) + 'px';
+    };
+    const cleanup = () => {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('click', onClick, true);
+      document.removeEventListener('keydown', onKey, true);
+      hl.remove(); label.remove();
+      document.body.style.cursor = '';
+      window.__ideInspectCancel = null;
+    };
+    const onClick = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const data = collect(current || e.target);
+      cleanup();
+      resolve(data);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); cleanup(); resolve(null); } };
+
+    window.__ideInspectCancel = () => { cleanup(); resolve(null); };
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('click', onClick, true);
+    document.addEventListener('keydown', onKey, true);
+  });
+}
+
+function formatInspect(d) {
+  const lines = [
+    'URL: ' + d.url,
+    'Selector: ' + d.selector,
+    'XPath: ' + d.xpath,
+    'Tag: ' + d.tag,
+  ];
+  if (d.id) lines.push('ID: ' + d.id);
+  if (d.className) lines.push('Classes: ' + d.className);
+  lines.push('Size: ' + d.rect.w + ' × ' + d.rect.h + ' px  @ (' + d.rect.x + ', ' + d.rect.y + ')');
+  const keys = Object.keys(d.styles);
+  if (keys.length) {
+    lines.push('', 'Computed styles:');
+    for (const k of keys) lines.push('  ' + k + ': ' + d.styles[k]);
+  }
+  lines.push('', 'HTML' + (d.trimmed ? ' (trimmed):' : ':'), d.html);
+  return lines.join('\n');
+}
+
+function copyText(text) {
+  if (window.api && window.api.clipboardWrite) window.api.clipboardWrite(text);
+  else if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+}
+
+function flashInspect() {
+  inspectBtn.classList.add('copied');
+  setTimeout(() => inspectBtn.classList.remove('copied'), 900);
+}
+
+function stopInspect() {
+  try { webFrame.executeJavaScript('window.__ideInspectCancel && window.__ideInspectCancel()'); } catch {}
+}
+
+async function startInspect() {
+  if (!isLoaded()) return;
+  if (inspecting) { stopInspect(); return; }
+  inspecting = true;
+  inspectBtn.classList.add('armed');
+  try {
+    const data = await webFrame.executeJavaScript('(' + guestInspector.toString() + ')()', true);
+    if (data) { copyText(formatInspect(data)); flashInspect(); }
+  } catch {}
+  inspecting = false;
+  inspectBtn.classList.remove('armed');
+}
+
+inspectBtn.onclick = startInspect;

@@ -70,6 +70,7 @@ export default {
     'settings.panel.browser': 'Navigateur',
 
     'browser.open': 'Navigateur',
+    'browser.inspect': 'Inspecter l’élément — cliquez pour copier ses détails',
     'browser.terminate': 'Terminer le navigateur',
     'browser.close': 'Fermer',
   },

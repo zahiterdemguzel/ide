@@ -70,6 +70,7 @@ export default {
     'settings.panel.browser': 'Tarayıcı',
 
     'browser.open': 'Tarayıcı',
+    'browser.inspect': 'Öğeyi incele — ayrıntılarını kopyalamak için tıklayın',
     'browser.terminate': 'Tarayıcıyı sonlandır',
     'browser.close': 'Kapat',
   },
