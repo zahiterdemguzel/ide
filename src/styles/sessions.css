@@ -42,32 +42,21 @@
 .dot { position: relative; width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gray); }
 /* A just-started session sits idle (gray) — no work in flight yet. */
 .dot.idle { background: var(--gray); }
-/* Working is the only ongoing state, so it's the one that animates: the dot
-   itself breathes while a ripple ring radiates outward — colour alone reads as
-   "paused on yellow", motion reads as "still running". */
+/* Working is the only ongoing state, so it's the one that animates. A solid
+   sphere can't show rotation (it has no features), so the working dot becomes a
+   ring spinner: a faint full ring with one bright segment. The gap between them
+   is what makes the spin visible — that reads as "still running" at a glance.
+   Deliberately NOT gated behind prefers-reduced-motion: this is a functional
+   progress indicator, not decoration, and Windows reports "reduce" whenever the
+   OS animation setting is off — which would silently kill the only liveness cue. */
 .dot.working {
-  background: var(--yellow);
-  animation: sess-dot-pulse 1.2s ease-in-out infinite;
+  background: transparent;
+  border: 2px solid color-mix(in srgb, var(--yellow) 28%, transparent);
+  border-top-color: var(--yellow);
+  animation: sess-dot-spin 0.7s linear infinite;
 }
-.dot.working::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 1px solid var(--yellow);
-  animation: sess-dot-ripple 1.2s ease-out infinite;
-}
-@keyframes sess-dot-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 var(--yellow); opacity: 1; }
-  50%      { box-shadow: 0 0 5px 0 var(--yellow); opacity: 0.65; }
-}
-@keyframes sess-dot-ripple {
-  0%   { transform: scale(1); opacity: 0.7; }
-  100% { transform: scale(2.4); opacity: 0; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .dot.working { animation: none; }
-  .dot.working::after { animation: none; content: none; }
+@keyframes sess-dot-spin {
+  to { transform: rotate(360deg); }
 }
 /* Needs-input and completed share one green signal — both mean "this session
    wants your attention". The glow keeps an input request a touch more eye-catching. */
