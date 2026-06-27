@@ -11,7 +11,10 @@ There is no separate lint/test CI job — run `npm test` and `npm run lint` loca
 
 ## Build workflow
 
-`.github/workflows/build.yml` runs on every push to `master` (and manual `workflow_dispatch`). A two-OS matrix packages the app with electron-builder: `windows-latest` runs `npm run build` (portable `.exe`) and `macos-latest` runs `npm run build:mac` (`.dmg`). Each job uploads its installer as a workflow artifact (`windows` / `macos`). `CSC_IDENTITY_AUTO_DISCOVERY=false` keeps electron-builder from attempting code-signing/notarization, since CI has no certificates. `fail-fast: false` lets one OS finish even if the other breaks.
+`.github/workflows/build.yml` runs on every push to `master` (and manual `workflow_dispatch`). It has two jobs:
+
+- **`build`** — a two-OS matrix that packages the app with electron-builder: `windows-latest` runs `npm run build` (portable `.exe`) and `macos-latest` runs `npm run build:mac` (`.dmg`). Each job uploads its installer as a workflow artifact (`windows` / `macos`). `CSC_IDENTITY_AUTO_DISCOVERY=false` keeps electron-builder from attempting code-signing/notarization, since CI has no certificates. `fail-fast: false` lets one OS finish even if the other breaks.
+- **`release`** — runs after both builds, downloads their artifacts, and publishes them to a single rolling GitHub Release tagged `latest` (via `softprops/action-gh-release`). Each push refreshes that release, so the newest `.exe` + `.dmg` are always one click from the repo's front page under **Releases**. It needs `contents: write` permission and is gated on `github.event_name == 'push'` (a `workflow_dispatch` dry run skips it, since there's no commit to tag). The release is marked `prerelease` because the binaries are unsigned.
 
 `package-lock.json` is gitignored, so the repo has no lockfile in it. That means the workflow uses `npm install` (not `npm ci`) and omits setup-node's `cache: npm` — both of those require a committed lockfile and would fail with "Dependencies lock file is not found."
 

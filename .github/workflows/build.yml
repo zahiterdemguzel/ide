@@ -37,3 +37,26 @@ jobs:
           name: ${{ matrix.name }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    # Releases attach to a tag; cut one only for real pushes, not dry-run dispatch.
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      # One rolling "latest" release, refreshed on every push to master, so the
+      # newest Windows .exe and macOS .dmg are always one click from the repo page.
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          body: >-
+            Automated build from the latest commit on `master`
+            (${{ github.sha }}). Unsigned — see docs/platform-notes.md.
+          prerelease: true
+          files: artifacts/**/*
