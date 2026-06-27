@@ -51,7 +51,11 @@ async function commitBlobs(entries, msg) {
     // Sync the REAL index for just these paths, so they read as clean against the
     // new HEAD and only the OTHER session's edits remain as unstaged changes.
     // Other paths in the index are left alone.
-    for (const e of staged) await git(['update-index', '--cacheinfo', `100644,${e.sha},${e.path}`]);
+    // --add: --cacheinfo refuses a path not already in the index (a file the
+    // session newly created), which would leave HEAD ahead of the index and
+    // surface as a phantom staged-delete + untracked pair. --add covers both the
+    // new-path and update-existing cases.
+    for (const e of staged) await git(['update-index', '--add', '--cacheinfo', `100644,${e.sha},${e.path}`]);
     for (const p of removed) await git(['update-index', '--force-remove', p]);
     return ct;
   } finally {
