@@ -100,3 +100,52 @@
   border-radius: 3px; padding: 6px 18px; cursor: pointer; font-size: 13px;
 }
 .settings-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+.settings-primary:disabled { opacity: .55; cursor: default; }
+
+/* --- First-run Claude Code setup gate (src/renderer/claude-setup.js) --- */
+/* Reuses the settings dialog chrome (.settings-head/body/actions); a touch wider
+ * to fit the install command lines without wrapping. */
+#claude-setup-dialog {
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-2); color: var(--fg);
+  padding: 0; width: 460px; max-width: 92vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+#claude-setup-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+
+.setup-intro { margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg); }
+.setup-os {
+  font-size: 11px; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+
+.setup-step { display: flex; flex-direction: column; gap: 6px; }
+.setup-step-title { font-size: 11px; color: var(--fg-dim); }
+
+/* A command line: monospace text on the left, copy / run buttons on the right. */
+.setup-cmd-row {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px;
+  padding: 7px 9px;
+}
+.setup-cmd-text {
+  flex: 1; min-width: 0; font-family: Consolas, monospace; font-size: 12.5px;
+  color: var(--fg); user-select: text; overflow-x: auto; white-space: nowrap;
+}
+.setup-cmd-actions { flex: none; display: flex; gap: 6px; }
+.setup-cmd-btn {
+  background: var(--bg-2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 3px; padding: 3px 9px; font-size: 11.5px; cursor: pointer; white-space: nowrap;
+}
+.setup-cmd-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.setup-cmd-run { border-color: var(--accent); color: var(--accent-hi); }
+
+.setup-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--fg-dim); }
+.setup-restart { color: var(--yellow); }
+.setup-docs { font-size: 12px; color: var(--accent-hi); cursor: pointer; text-decoration: none; width: fit-content; }
+.setup-docs:hover { text-decoration: underline; }
+
+.setup-actions { justify-content: space-between; align-items: center; gap: 12px; }
+.setup-status { font-size: 12px; color: var(--fg-dim); }
+.setup-status.ok { color: var(--green); }
+.setup-status.err { color: var(--red); }

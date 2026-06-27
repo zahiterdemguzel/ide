@@ -11,6 +11,7 @@ import './terminal-links.js';
 import { open as openQuickOpen } from './quick-open.js';
 import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
+import { initClaudeSetup } from './claude-setup.js';
 import { initSettings } from './settings.js';
 import { initPanels } from './panels.js';
 import { t } from '../i18n/index.js';
@@ -103,6 +104,10 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecen
 initSettings();
 initPanels();
 initConsoles();
+// First-run gate: detect whether the Claude Code CLI is installed and, if not,
+// guide the user through installing it (runs after initSettings so the dialog's
+// strings are translated, and after initConsoles so "Run in terminal" has a tab).
+initClaudeSetup();
 restoreSessions();
 refreshGit();
 refreshTree();

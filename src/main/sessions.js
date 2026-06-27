@@ -5,7 +5,8 @@ const path = require('path');
 const fs = require('fs');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
-const { resolveClaude, runHaiku } = require('./claude');
+const { resolveClaude, runHaiku, claudeAvailable } = require('./claude');
+const { installGuide } = require('./claude-install');
 const { editOp } = require('./edit-ops');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
@@ -311,6 +312,11 @@ ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
     archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
   }));
 }, []));
+
+// First-run gate: is the Claude Code CLI installed? The renderer guides the user
+// through installing it before any session can spawn (see claude-setup.js). The
+// platform-specific install commands ride along so the renderer needs no OS logic.
+ipcMain.handle('check-claude', async () => ({ ...await claudeAvailable(), guide: installGuide() }));
 
 ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();

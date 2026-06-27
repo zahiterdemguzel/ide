@@ -349,5 +349,33 @@
       <button id="confirm-ok" class="confirm-btn-primary">Open</button>
     </div>
   </dialog>
+  <!-- First-run gate: shown when the Claude Code CLI isn't installed (see
+       src/renderer/claude-setup.js). The command rows are filled in by JS so the
+       copy / run-in-terminal buttons can carry the real platform command. -->
+  <dialog id="claude-setup-dialog">
+    <div class="settings-head">
+      <h3 data-i18n="setup.title">Set up Claude Code</h3>
+      <button id="claude-setup-close" data-i18n-title="settings.close" title="Close">×</button>
+    </div>
+    <div class="settings-body">
+      <p class="setup-intro" data-i18n="setup.intro">This IDE runs the Claude Code CLI, which isn't installed yet. Install it to start a session.</p>
+      <div id="claude-setup-os" class="setup-os"></div>
+      <div class="setup-step">
+        <div class="setup-step-title" data-i18n="setup.recommended">Recommended install</div>
+        <div id="setup-cmd-native" class="setup-cmd"></div>
+      </div>
+      <div class="setup-step">
+        <div class="setup-step-title" data-i18n="setup.viaNpm">Or install with npm (needs Node.js 18+)</div>
+        <div id="setup-cmd-npm" class="setup-cmd"></div>
+      </div>
+      <p class="setup-note" data-i18n="setup.loginNote">After it installs, run “claude” once in a terminal to log in.</p>
+      <p id="setup-restart-note" class="setup-note setup-restart" data-i18n="setup.restartNote" hidden>Just installed it? You may need to restart this app so it picks up the new command.</p>
+      <a id="setup-docs" class="setup-docs" href="#" data-i18n="setup.docs">Read the setup guide</a>
+    </div>
+    <div class="settings-actions setup-actions">
+      <span id="setup-status" class="setup-status"></span>
+      <button id="claude-setup-recheck" class="settings-primary" data-i18n="setup.recheck">I've installed it — Recheck</button>
+    </div>
+  </dialog>
 </body>
 </html>

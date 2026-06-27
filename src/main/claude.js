@@ -93,6 +93,28 @@ function runCli(prompt, { cwd } = {}) {
   });
 }
 
+// Detect whether the Claude Code CLI is installed and runnable. The app drives a
+// first-run setup gate off this: a user without Claude Code is guided to install
+// it before they can open a session (see src/renderer/claude-setup.js). We run
+// `claude --version` — fast (no agentic boot) and the truest test of "actually
+// usable", since a stale PATH entry that no longer launches still counts as
+// missing. Any failure (not on PATH, non-zero exit, timeout) resolves to
+// not-installed. `resolveClaude()` is intentionally re-run (cache cleared) so a
+// re-check after a fresh install can pick the binary up.
+function claudeAvailable() {
+  claudeCmd = null; // re-probe PATH: the user may have just installed it
+  return new Promise((resolve) => {
+    const exe = resolveClaude();
+    const win32 = process.platform === 'win32';
+    execFile(win32 ? `"${exe}"` : exe, ['--version'],
+      { timeout: 10000, shell: win32 },
+      (err, stdout) => {
+        if (err) return resolve({ installed: false, version: null });
+        resolve({ installed: true, version: (stdout || '').trim() || null });
+      });
+  });
+}
+
 // One-shot Haiku generation: API fast path, CLI fallback. The full instruction
 // is in `prompt` (the API uses a generic system prompt). Resolves to the trimmed
 // text, or null only when both paths fail.
@@ -105,4 +127,4 @@ async function runHaiku(prompt, { cwd } = {}) {
   return runCli(prompt, { cwd });
 }
 
-module.exports = { resolveClaude, runHaiku };
+module.exports = { resolveClaude, runHaiku, claudeAvailable };

@@ -2,6 +2,7 @@ const { ipcRenderer } = require('electron');
 
 // Per-session Claude PTYs + the per-session commit/revert + name/meta streams.
 module.exports = {
+  checkClaude: () => ipcRenderer.invoke('check-claude'),
   getSessions: () => ipcRenderer.invoke('get-sessions'),
   newSession: (size) => ipcRenderer.invoke('new-session', size),
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),
