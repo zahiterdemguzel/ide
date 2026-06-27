@@ -118,3 +118,7 @@ refreshTree();
 loadToolbar();
 // ponytail: poll while focused; a file watcher would be more code for no real gain
 setInterval(() => { if (document.hasFocus()) refreshGit(); }, 3000);
+// Refresh the moment the window regains focus too, so changes made while the app
+// was in the background (an external editor, a terminal console) show without
+// waiting for the next poll tick. (Session-driven changes refresh on session-meta.)
+window.addEventListener('focus', () => refreshGit());

@@ -2,8 +2,22 @@
 
 The gear button at the right end of the top toolbar (`#settings-btn`) opens the
 settings dialog (`#settings-dialog`), where the user picks a **theme**, a
-**language**, and which **panels** are visible. Every choice applies instantly
-and persists across restarts.
+**language**, a **notification sound**, and which **panels** are visible. Every
+choice applies instantly and persists across restarts.
+
+## Notification sound
+
+The **Notification sound** combobox (`#settings-sound`) picks the chime that
+plays when a session finishes (working → completed; see
+[status-detection.md](status-detection.md#finish-notification)). The four sounds
+are the `SOUNDS` registry in `src/renderer/shared/notify.js` — synthesized with
+the Web Audio API, so there's no binary asset and they work offline. `settings.js`
+fills the dropdown from `SOUNDS` (showing `getSound()` as selected), and on change
+persists the id via `setSound()` (`localStorage` `ide.notifySound`, default
+`chime`) and **previews it immediately** with `playNotification(id)`. The rest of
+the app reaches the chosen sound only through `playNotification()` — nothing else
+reads the setting. Add a sound by appending an entry to `SOUNDS` (id + display
+name + oscillator voices); the dropdown and the test pick it up automatically.
 
 ## Where it lives
 

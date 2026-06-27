@@ -7,6 +7,7 @@ import { confirmDialog } from './shared/confirm.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude } from './claude-setup.js';
+import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { t } from '../i18n/index.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -64,9 +65,30 @@ const STATE_LABEL = {
 function setState(id, state) {
   const s = sessions.get(id);
   if (!s) return;
+  const prev = s.state;
   s.state = state;
   s.dot.className = 'dot ' + state;
   s.dot.title = STATE_LABEL[state] || state;
+  // A session that was working has just finished — pull the user's eye back with a
+  // one-shot row/dot animation and a chime, since the result is likely off-screen.
+  if (isCompletionTransition(prev, state)) celebrateFinish(s);
+}
+
+// Replays the "just finished" flash on the row + dot. A re-add of the class can't
+// restart a CSS animation while it's still applied, so the class is cleared first
+// (reflow) before re-adding — and removed again once the longest animation ends.
+function celebrateFinish(s) {
+  for (const el of [s.li, s.dot]) {
+    el.classList.remove('just-finished');
+    void el.offsetWidth; // force reflow so a back-to-back finish re-triggers
+    el.classList.add('just-finished');
+  }
+  clearTimeout(s.finishAnim);
+  s.finishAnim = setTimeout(() => {
+    s.li.classList.remove('just-finished');
+    s.dot.classList.remove('just-finished');
+  }, 1300);
+  playNotification();
 }
 
 export function selectSession(id) {

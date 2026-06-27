@@ -124,6 +124,7 @@ export default {
     'settings.title': 'Configuración',
     'settings.language': 'Idioma',
     'settings.theme': 'Tema',
+    'settings.sound': 'Sonido de notificación',
     'settings.close': 'Cerrar',
     'settings.done': 'Listo',
     'settings.panels': 'Paneles',

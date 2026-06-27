@@ -125,6 +125,7 @@ export default {
     'settings.title': 'Settings',
     'settings.language': 'Language',
     'settings.theme': 'Theme',
+    'settings.sound': 'Notification sound',
     'settings.close': 'Close',
     'settings.done': 'Done',
     'settings.panels': 'Panels',

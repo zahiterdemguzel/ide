@@ -6,6 +6,7 @@ import {
   availableLocales, currentLocale, setLocale, applyTranslations, pickLocale,
 } from '../i18n/index.js';
 import { refreshTermThemes } from './shared/terminal.js';
+import { SOUNDS, getSound, setSound, playNotification } from './shared/notify.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -59,6 +60,7 @@ export function initSettings() {
   const dialog = document.getElementById('settings-dialog');
   const langSel = document.getElementById('settings-language');
   const themeSel = document.getElementById('settings-theme');
+  const soundSel = document.getElementById('settings-sound');
 
   langSel.onchange = () => {
     localStorage.setItem(STORE.locale, langSel.value);
@@ -68,6 +70,11 @@ export function initSettings() {
   themeSel.onchange = () => {
     localStorage.setItem(STORE.theme, themeSel.value);
     applyTheme(themeSel.value);
+  };
+  // Persist the choice and immediately preview it, so picking a sound plays it.
+  soundSel.onchange = () => {
+    setSound(soundSel.value);
+    playNotification(soundSel.value);
   };
 
   const open = () => {
@@ -80,6 +87,11 @@ export function initSettings() {
       themeSel,
       THEMES.map((t) => ({ value: t.id, label: t.name })),
       document.documentElement.dataset.theme,
+    );
+    fillSelect(
+      soundSel,
+      SOUNDS.map((s) => ({ value: s.id, label: s.name })),
+      getSound(),
     );
     dialog.showModal();
   };

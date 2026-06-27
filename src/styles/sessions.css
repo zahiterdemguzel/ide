@@ -84,6 +84,39 @@
    outlive a restart, so it reopens interrupted (red) until the user resumes it. */
 .dot.interrupted { background: var(--red); }
 
+/* Working → completed: a one-shot "finished" celebration to pull the eye back to a
+   session whose result is likely off-screen (paired with a chime, see notify.js).
+   The dot gives a quick bounce and an expanding green ring, and the whole row gets
+   a brief green wash that fades out. Deliberately not gated behind
+   prefers-reduced-motion — like the working spinner, this is a functional attention
+   cue, and Windows reports "reduce" whenever OS animations are off, which would
+   silently kill it. It's a single short pulse, not sustained motion. */
+#session-list li.just-finished { animation: sess-finish-flash 1.2s ease-out; }
+@keyframes sess-finish-flash {
+  0% { background: color-mix(in srgb, var(--green) 34%, transparent); }
+  100% { background: transparent; }
+}
+.dot.just-finished { animation: sess-finish-pop 0.5s ease-out; }
+@keyframes sess-finish-pop {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.7); }
+  100% { transform: scale(1); }
+}
+/* The expanding ring — a pseudo-element so it overlays the dot without affecting
+   layout (the dot is position:relative). */
+.dot.just-finished::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid var(--green);
+  animation: sess-finish-ring 0.6s ease-out forwards;
+}
+@keyframes sess-finish-ring {
+  from { opacity: 0.9; transform: scale(0.5); }
+  to { opacity: 0; transform: scale(2.6); }
+}
+
 /* session bar (top of center pane): name + scoped commit / revert */
 #session-bar {
   display: none; align-items: center; justify-content: space-between; gap: 12px;

@@ -17,6 +17,14 @@ A just-created session stays gray (idle) until the user submits the first prompt
 
 "Needs input" and "Completed" share one green signal — both mean the session wants the user's attention; the glow on "Needs input" keeps an active prompt slightly more eye-catching. The two remain distinct states (and tooltips) in code.
 
+## Finish notification
+
+The moment a session goes from **working** (yellow) to **completed** (green) — the only transition that means "the thing you were waiting on just finished" — the sidebar plays a one-shot attention cue: the row flashes green and its dot bounces with an expanding ring (`.just-finished` in `src/styles/sessions.css`), and a short chime plays. The result is usually off-screen (a background session, or the user looking elsewhere), so this pulls the eye back. `setState()` (renderer `sessions.js`) detects the transition via the pure `isCompletionTransition(prev, next)` and calls `celebrateFinish()`, which (re)applies the animation classes and calls `playNotification()`.
+
+Only **working → completed** fires it — not `needs-input` (also green) and not any already-settled state moving to `completed` (e.g. a restored session). The trigger is the pure, unit-tested `isCompletionTransition` in `src/renderer/shared/notify.js` (`test/notify.test.mjs`). Like the working spinner, the animation is **not** gated behind `prefers-reduced-motion` — it's a functional attention cue and Windows reports "reduce" whenever OS animations are off, which would silently kill it; it's a single short pulse, not sustained motion.
+
+The chime is one of four sounds the user picks in **Settings → Notification sound** (see [docs/settings.md](settings.md#notification-sound)). The sounds are **synthesized with the Web Audio API**, not shipped as audio files — no binary asset, works offline under `file://`, matching the app's pure-CSS/synth approach. `notify.js` owns the `SOUNDS` registry (each a list of oscillator voices with a pluck/bell envelope), the persisted choice (`localStorage` `ide.notifySound`, default `chime`), and a shared lazily-created `AudioContext` (resumed on each play to survive the autoplay policy).
+
 ## How it works
 
 `hooksSettings()` builds an inline hooks config and passes it to each session via the `claude --settings <json>` flag — so the user's global `~/.claude/settings.json` is **never modified**. Every hook is a `command` hook that `curl`s its stdin payload to a local `http` server started in `startHookServer()`. `eventToState()` maps `hook_event_name` → state; the result is pushed to the renderer keyed by `session_id` (which equals the `--session-id` we spawned with).

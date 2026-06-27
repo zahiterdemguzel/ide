@@ -124,6 +124,7 @@ export default {
     'settings.title': 'Ayarlar',
     'settings.language': 'Dil',
     'settings.theme': 'Tema',
+    'settings.sound': 'Bildirim sesi',
     'settings.close': 'Kapat',
     'settings.done': 'Tamam',
     'settings.panels': 'Paneller',
