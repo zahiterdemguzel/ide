@@ -296,6 +296,21 @@ function refreshDiffStat(id) {
   }, 350));
 }
 
+// Re-validate every session's diff stat. A session's count is computed against
+// HEAD, so it goes stale whenever HEAD moves underneath it — a commit from the
+// main git pane, a commit from another session, or a file changed on disk — none
+// of which fire that session's own session-meta. The git pane calls this from
+// refreshGit() (the choke point hit after any commit, on the poll, and on focus)
+// whenever the working-tree state actually changed, so a button reading
+// "Commit 2 files" corrects to "Nothing to commit" without the user opening the
+// diff to force it. Each per-session refresh is debounced, so duplicate triggers
+// (this plus a concurrent session-meta) coalesce.
+export function refreshAllDiffStats() {
+  for (const [, s] of sessions) {
+    if (s.files.length || (s.diffStat && s.diffStat.files)) refreshDiffStat(s.id);
+  }
+}
+
 export function fit(s) {
   if (!s || !s.fit || !s.term) return; // suspended sessions have no terminal
   try {

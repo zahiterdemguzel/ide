@@ -2,7 +2,7 @@ import { openGitFile, openCommit } from './viewer/center.js';
 import { statusLabel } from './shared/git-status.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { confirmDialog } from './shared/confirm.js';
-import { newSessionWithPrompt } from './sessions.js';
+import { newSessionWithPrompt, refreshAllDiffStats } from './sessions.js';
 import { t } from '../i18n/index.js';
 
 // Offer to hand a git/GitHub problem to a fresh Claude session. Used when a pull or
@@ -119,6 +119,22 @@ export async function refreshGit() {
   for (const it of conflicts) conflictsEl.appendChild(conflictItem(it.file, it.status));
   for (const it of r.staged) stagedEl.appendChild(gitItem(it.file, it.status, true, window.api.gitUnstage, '−'));
   for (const it of r.unstaged) unstagedEl.appendChild(gitItem(it.file, it.status, false, window.api.gitStage, '+'));
+  // When the working-tree state actually changed (a commit moved HEAD, a file was
+  // staged/edited on disk), re-validate every session's commit-count — it's
+  // computed against HEAD and the poll/focus/commit paths all funnel through here.
+  // Gated on a signature so the 3s poll doesn't fan out a diff-per-session when
+  // nothing moved.
+  const sig = gitStateSignature(r);
+  if (sig !== lastGitSig) { lastGitSig = sig; refreshAllDiffStats(); }
+}
+
+// A compact fingerprint of the working-tree state: branch + ahead/behind (so a
+// commit, which always bumps `ahead`, registers) plus every staged/unstaged/
+// conflicted path and its status (so an external edit or stage registers).
+let lastGitSig = null;
+function gitStateSignature(r) {
+  const files = (list) => (list || []).map((it) => it.status + it.file).join(',');
+  return [r.branch, r.ahead, r.behind, files(r.staged), files(r.unstaged), files(r.conflicts)].join('|');
 }
 
 const conflictsSection = document.getElementById('conflicts-section');
