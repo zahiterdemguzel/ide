@@ -79,4 +79,23 @@ function sumNumstat(stdout) {
   return { additions, deletions, files };
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, filterCommits, sumNumstat };
+// Decide whether a FAILED `git pull --ff-only` failed *because the branches
+// diverged* (a real merge is needed) rather than for an unrelated reason (no
+// upstream, network, auth). Only the divergence case is something a Claude
+// session can resolve, so it's the one the renderer offers to hand off. git's
+// ff-only refusal reads "fatal: Not possible to fast-forward, aborting." and the
+// reconcile hint mentions "divergent branches" — match either, case-insensitively.
+function pullNeedsMerge(stderr) {
+  return /not possible to fast-forward|diverg/i.test(stderr || '');
+}
+
+// The push counterpart: a push the remote REJECTED because it has commits we don't
+// (someone else pushed first). The fix is the same pull/merge/push a Claude session
+// can do. git phrases this as "Updates were rejected … fetch first" / "non-fast-forward"
+// / "tip of your current branch is behind". Auth/network/no-remote failures don't
+// match, so those still surface as a plain error rather than a pointless merge offer.
+function pushNeedsMerge(stderr) {
+  return /fetch first|updates were rejected|non-fast-forward|behind its remote|tip of your current branch is behind/i.test(stderr || '');
+}
+
+module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, filterCommits, sumNumstat, pullNeedsMerge, pushNeedsMerge };

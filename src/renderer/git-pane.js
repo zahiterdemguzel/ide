@@ -1,7 +1,21 @@
 import { openGitFile, openCommit } from './viewer/center.js';
 import { statusLabel } from './shared/git-status.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
+import { confirmDialog } from './shared/confirm.js';
+import { newSessionWithPrompt } from './sessions.js';
 import { t } from '../i18n/index.js';
+
+// Offer to hand a git/GitHub problem to a fresh Claude session. Used when a pull or
+// push fails because the branch diverged from the remote, and from the Conflicts
+// section's "Let Claude resolve" button. It confirms first, then spawns a session
+// pre-loaded with one generic merge prompt that covers all three cases — plus the
+// exact git error, so the agent knows what actually went wrong without re-deriving it.
+async function offerClaudeMerge(title, message, errorText) {
+  if (!(await confirmDialog({ title, message, ok: t('git.letClaude') }))) return;
+  const err = (errorText || '').trim();
+  const prompt = err ? `${t('git.mergePrompt')}\n\n${t('git.mergePromptError')}\n${err}` : t('git.mergePrompt');
+  newSessionWithPrompt(prompt);
+}
 
 // --- git pane ---
 const stagedEl = document.getElementById('staged-list');
@@ -105,6 +119,8 @@ export async function refreshGit() {
 
 const conflictsSection = document.getElementById('conflicts-section');
 const conflictsEl = document.getElementById('conflicts-list');
+document.getElementById('conflicts-resolve').onclick = () =>
+  offerClaudeMerge(t('git.conflictsTitle'), t('git.conflictsMsg'));
 
 // A conflicted file: click to view its diff, "+" to mark resolved (git add) once
 // the markers are sorted out. No discard here — resolving is a deliberate edit.
@@ -395,6 +411,7 @@ pullBtn.onclick = async () => {
   pullBtn.disabled = false;
   showGitMsg(r.ok ? 'Pulled' : (r.stderr || 'Pull failed'), r.ok);
   refreshGit();
+  if (r.needsMerge) offerClaudeMerge(t('git.pullMergeTitle'), t('git.pullMergeMsg'), r.stderr);
 };
 const commitBtn = document.getElementById('git-commit');
 commitBtn.onclick = async () => {
@@ -426,6 +443,11 @@ pushBtn.onclick = async () => {
   const r = await window.api.gitPush();
   pushBtn.classList.remove('loading');
   pushBtn.disabled = false;
-  if (!r.ok) showGitErrorDialog(r.stderr || 'Push failed');
+  // A rejection because the remote moved on is fixable by a pull/merge/push, so
+  // offer to hand it to Claude rather than just reporting the wall of git text.
+  if (!r.ok) {
+    if (r.needsMerge) offerClaudeMerge(t('git.pushMergeTitle'), t('git.pushMergeMsg'), r.stderr);
+    else showGitErrorDialog(r.stderr || 'Push failed');
+  }
   refreshGit();
 };

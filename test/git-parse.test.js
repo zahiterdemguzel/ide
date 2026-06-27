@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, filterCommits, sumNumstat, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, filterCommits, sumNumstat, pullNeedsMerge, pushNeedsMerge, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -28,6 +28,27 @@ test('parsePorcelain: untracked never counts as staged', () => {
   const r = parsePorcelain('?? new.js');
   assert.deepEqual(r.staged, []);
   assert.deepEqual(r.unstaged, [{ status: '?', file: 'new.js' }]);
+});
+
+test('pullNeedsMerge: true only when an ff-only pull failed on divergence', () => {
+  // git's --ff-only refusal and the reconcile hint both signal a real merge.
+  assert.equal(pullNeedsMerge('fatal: Not possible to fast-forward, aborting.'), true);
+  assert.equal(pullNeedsMerge('hint: You have divergent branches and need to specify how to reconcile them.'), true);
+  // Unrelated failures aren't something a merge session can fix.
+  assert.equal(pullNeedsMerge("fatal: couldn't find remote ref"), false);
+  assert.equal(pullNeedsMerge('fatal: Authentication failed'), false);
+  assert.equal(pullNeedsMerge(''), false);
+  assert.equal(pullNeedsMerge(undefined), false);
+});
+
+test('pushNeedsMerge: true only when the remote rejected a stale push', () => {
+  assert.equal(pushNeedsMerge('! [rejected]        master -> master (fetch first)'), true);
+  assert.equal(pushNeedsMerge('error: failed to push some refs; Updates were rejected because the remote contains work'), true);
+  assert.equal(pushNeedsMerge('hint: Updates were rejected because the tip of your current branch is behind'), true);
+  // First-push / auth / network failures aren't a merge situation.
+  assert.equal(pushNeedsMerge("fatal: The current branch has no upstream branch"), false);
+  assert.equal(pushNeedsMerge('fatal: Authentication failed'), false);
+  assert.equal(pushNeedsMerge(''), false);
 });
 
 test('parsePorcelain: a rename uses the destination path', () => {

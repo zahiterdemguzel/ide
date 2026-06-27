@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
-const { parsePorcelain, parseLog, markPushed } = require('./git-parse');
+const { parsePorcelain, parseLog, markPushed, pullNeedsMerge, pushNeedsMerge } = require('./git-parse');
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
@@ -133,12 +133,13 @@ ipcMain.handle('git-undo', () => git(['reset', '--soft', 'HEAD~1']));
 // with -u to create the tracking ref (the common first-push case) so the user
 // doesn't have to drop to a terminal.
 ipcMain.handle('git-push', async () => {
-  const r = await git(['push']);
-  if (r.ok) return r;
-  if (/no upstream|set-upstream|--set-upstream/i.test(r.stderr)) {
-    return git(['push', '-u', 'origin', 'HEAD']);
+  let r = await git(['push']);
+  if (!r.ok && /no upstream|set-upstream|--set-upstream/i.test(r.stderr)) {
+    r = await git(['push', '-u', 'origin', 'HEAD']);
   }
-  return r;
+  // A rejection because the remote moved on (someone pushed first) is fixable by a
+  // pull/merge/push — flag it so the renderer can offer to hand that to a session.
+  return { ...r, needsMerge: !r.ok && pushNeedsMerge(r.stderr) };
 });
 
 // --- history (History tab) ---
@@ -190,6 +191,11 @@ ipcMain.handle('git-fetch', () => git(['fetch']));
 // Fast-forward only: a plain `git pull` that needs a merge would try to open an
 // editor (no tty → hang) or leave conflicts. --ff-only fails cleanly when the
 // branches diverged, and the user can hand the merge/conflict to a Claude session.
-ipcMain.handle('git-pull', () => git(['pull', '--ff-only']));
+// On a divergence failure, flag `needsMerge` so the renderer can offer to hand the
+// merge/conflict resolution to a Claude session instead of leaving the user stuck.
+ipcMain.handle('git-pull', async () => {
+  const r = await git(['pull', '--ff-only']);
+  return { ...r, needsMerge: !r.ok && pullNeedsMerge(r.stderr) };
+});
 
 module.exports = { git, gitStatus };

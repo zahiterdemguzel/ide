@@ -403,6 +403,18 @@ export async function newSession() {
   selectSession(id);
 }
 
+// Spawn a fresh session and pre-type a message into it (e.g. the git pane handing
+// off a merge/conflict resolution). The message is queued per id and typed once the
+// session's terminal shows its first output — Claude's input box isn't ready the
+// instant the PTY spawns, so we wait for it to paint. It is left UNSENT (no Enter)
+// so the user reviews it and submits, rather than risk it firing before Claude is ready.
+const pendingPrompts = new Map();
+export async function newSessionWithPrompt(text) {
+  await newSession();
+  const id = getActiveId();
+  if (id) pendingPrompts.set(id, text);
+}
+
 // Rebuild a row for a session restored from disk on startup. It has no live
 // terminal yet (the Claude process can't outlive the app); the placeholder invites
 // the user to resume it, which selectSession does on demand. Its tracked-file list
@@ -608,6 +620,13 @@ hostEl.addEventListener('drop', (e) => {
 window.api.onPtyData(({ id, data }) => {
   const s = sessions.get(id);
   if (s && s.term) s.term.write(data);
+  // First output means Claude's TUI is painting — give it a beat to ready its
+  // input box, then drop in any queued message (see newSessionWithPrompt).
+  if (pendingPrompts.has(id)) {
+    const text = pendingPrompts.get(id);
+    pendingPrompts.delete(id);
+    setTimeout(() => window.api.sendInput(id, text), 1000);
+  }
 });
 window.api.onStatus(({ id, state }) => setState(id, state));
 window.api.onSessionMeta(({ id, firstPrompt, files }) => {

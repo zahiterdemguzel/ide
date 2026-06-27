@@ -215,7 +215,10 @@
       </div>
       <div id="git-changes-view">
       <div id="conflicts-section" hidden>
-        <div class="git-section-title git-conflicts-title" data-i18n="git.conflicts">Conflicts</div>
+        <div class="git-section-title git-conflicts-title git-head-row">
+          <span data-i18n="git.conflicts">Conflicts</span>
+          <button id="conflicts-resolve" class="git-btn" data-i18n="git.resolveWithClaude" data-i18n-title="git.resolveWithClaudeTitle">Let Claude resolve</button>
+        </div>
         <ul id="conflicts-list" class="git-list"></ul>
       </div>
       <div class="git-section-title git-head-row">
