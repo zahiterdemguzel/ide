@@ -179,19 +179,29 @@ function updateSessionBar() {
   const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || t('session.unnamed');
   sessionTitle.textContent = name;
   sessionTitle.title = name;
-  // The button itself reports commit state, driven purely by the session's
-  // tracked-file list: live "Commit N files" while edits remain, disabled
-  // "Nothing to commit" once empty. A successful commit forgets those files
-  // (main re-pushes session-meta), so the same button works repeatedly across a
-  // session — it re-enables as soon as the session edits again.
-  const n = s.files.length;
-  sessionCommitBtn.disabled = n === 0;
-  sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing to commit';
+  renderCommitButton(s);
   renderDiffButton(s);
   // The notice is now only for failures / revert results, kept per-session so
   // switching sessions never carries a stale message over from another.
   sessionCommitMsg.textContent = s.commitMsg || '';
   sessionCommitMsg.className = 'git-msg ' + (s.commitMsgClass || '');
+}
+
+// The commit button reports commit state: live "Commit N files" while edits
+// remain, disabled "Nothing to commit" once empty. A successful commit forgets
+// those files (main re-pushes session-meta), so the same button works repeatedly
+// across a session — it re-enables as soon as the session edits again.
+//
+// The count must match what a commit would ACTUALLY commit, not every file the
+// session ever touched: `s.files` (trackedFiles) includes empty-patch files —
+// ones whose net change vs HEAD is now nothing (already committed elsewhere, or
+// edited-then-reverted) — which commit-session drops. `s.diffStat.files` is that
+// real committable count (same sessionEntries filter the commit uses), so prefer
+// it; fall back to the raw tracked count only until the first stat arrives.
+function renderCommitButton(s) {
+  const n = s.diffStat ? s.diffStat.files : s.files.length;
+  sessionCommitBtn.disabled = n === 0;
+  sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing to commit';
 }
 
 // The Diff button shows this session's net change as a green +added / red
@@ -226,7 +236,7 @@ function refreshDiffStat(id) {
     const s = sessions.get(id);
     if (!s) return;
     try { s.diffStat = await window.api.sessionDiffStat(id); } catch { return; }
-    if (id === activeId) renderDiffButton(s);
+    if (id === activeId) { renderCommitButton(s); renderDiffButton(s); }
   }, 350));
 }
 
@@ -538,7 +548,7 @@ async function openDiffDialog() {
   try { r = await window.api.sessionDiff(id); } catch { /* gone */ }
   if (diffDialogId !== id) return; // closed or switched while the diff was computing
   // Keep the button's badge in agreement with what the dialog actually shows.
-  if (r) { s.diffStat = { additions: r.additions, deletions: r.deletions, files: r.files }; renderDiffButton(s); }
+  if (r) { s.diffStat = { additions: r.additions, deletions: r.deletions, files: r.files }; renderCommitButton(s); renderDiffButton(s); }
   if (!r || !r.ok || !r.files) {
     diffPatchText = null;
     diffDialogStat.textContent = '';
