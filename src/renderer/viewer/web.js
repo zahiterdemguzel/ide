@@ -284,7 +284,7 @@ function guestInspector() {
 
 function formatInspect(d) {
   const lines = [
-    'URL: ' + d.url,
+    'Page URL: ' + (d.url || webUrlEl.value),
     'Selector: ' + d.selector,
     'XPath: ' + d.xpath,
     'Tag: ' + d.tag,
