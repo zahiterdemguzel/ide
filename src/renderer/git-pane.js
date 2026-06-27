@@ -376,12 +376,18 @@ document.addEventListener('click', (e) => {
 // up its own row. It only shows while the box is empty; the default placeholder
 // returns as soon as the user focuses the box to type.
 const commitMsgEl = document.getElementById('commit-msg');
+let gitMsgTimer = null;
 function showGitMsg(text, ok) {
   commitMsgEl.placeholder = text;
   commitMsgEl.classList.remove('msg-ok', 'msg-err');
   commitMsgEl.classList.add(ok ? 'msg-ok' : 'msg-err');
+  // Feedback shouldn't linger forever — drop back to the default placeholder
+  // after 7s so a stale "Committed" / error doesn't sit there indefinitely.
+  if (gitMsgTimer) clearTimeout(gitMsgTimer);
+  gitMsgTimer = setTimeout(clearGitMsg, 7000);
 }
 function clearGitMsg() {
+  if (gitMsgTimer) { clearTimeout(gitMsgTimer); gitMsgTimer = null; }
   commitMsgEl.placeholder = t('git.commitPlaceholder');
   commitMsgEl.classList.remove('msg-ok', 'msg-err');
 }
