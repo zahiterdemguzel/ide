@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
+const { shouldSkipDir, GREP_EXCLUDE_PATHSPECS } = require('./search-ignore');
 
 // Extension → MIME for the asset viewer (image preview / pixel editor / audio).
 const ASSET_MIME = {
@@ -66,13 +67,12 @@ ipcMain.handle('create-folder', (_e, rel) => {
 });
 
 // Recursive filename search for the explorer. Walks the tree async, skipping
-// .git/node_modules; case-insensitive, capped at 500 hits. The query is split on
-// whitespace into terms that ALL must match the file's full repo-relative path
-// (e.g. "enemy .mp3" finds files whose path contains both "enemy" and ".mp3", so
-// folder names count too). A term of "*.png" or ".png" matches by extension; any
-// other term is a substring of the path (which includes the extension, so a bare
-// "png" / "js" gathers that type too).
-const SEARCH_SKIP = new Set(['.git', 'node_modules']);
+// dependency/build dirs (see search-ignore.js); case-insensitive, capped at 500
+// hits. The query is split on whitespace into terms that ALL must match the
+// file's full repo-relative path (e.g. "enemy .mp3" finds files whose path
+// contains both "enemy" and ".mp3", so folder names count too). A term of
+// "*.png" or ".png" matches by extension; any other term is a substring of the
+// path (which includes the extension, so a bare "png" / "js" gathers that type too).
 ipcMain.handle('search-names', async (_e, q) => {
   const needle = (q || '').trim().toLowerCase();
   if (!needle) return { ok: true, files: [] };
@@ -88,7 +88,7 @@ ipcMain.handle('search-names', async (_e, q) => {
     try { ents = await fs.promises.readdir(path.join(repoPath, rel), { withFileTypes: true }); }
     catch { return; }
     for (const d of ents) {
-      if (SEARCH_SKIP.has(d.name)) continue;
+      if (d.isDirectory() && shouldSkipDir(d.name)) continue;
       const childRel = rel ? rel + '/' + d.name : d.name;
       if (d.isDirectory()) { await walk(childRel); continue; }
       const hay = childRel.toLowerCase();
@@ -101,7 +101,7 @@ ipcMain.handle('search-names', async (_e, q) => {
 });
 
 // Flat list of every file in the repo for the Quick Open palette (Ctrl/Cmd+P),
-// which fuzzy-matches client-side. Same async walk + skip set as search-names,
+// which fuzzy-matches client-side. Same async walk + skip dirs as search-names,
 // but unfiltered and capped higher (10k) so big repos still open instantly.
 ipcMain.handle('list-files', async () => {
   const files = [];
@@ -112,7 +112,7 @@ ipcMain.handle('list-files', async () => {
     try { ents = await fs.promises.readdir(path.join(repoPath, rel), { withFileTypes: true }); }
     catch { return; }
     for (const d of ents) {
-      if (SEARCH_SKIP.has(d.name)) continue;
+      if (d.isDirectory() && shouldSkipDir(d.name)) continue;
       const childRel = rel ? rel + '/' + d.name : d.name;
       if (d.isDirectory()) { await walk(childRel); continue; }
       if (files.length < 10000) files.push(childRel);
@@ -123,12 +123,14 @@ ipcMain.handle('list-files', async () => {
 });
 
 // Content search ("References"): git grep runs in a subprocess so it never
-// blocks the main thread. --untracked also greps new (un-ignored) files; capped
-// at 500 matches. ponytail: parse stdout regardless of exit code — grep exits 1
-// on no matches (and when repoPath isn't a git repo, yielding empty results).
+// blocks the main thread. --untracked also greps new (un-ignored) files; the
+// trailing pathspecs prune dependency/build dirs (search-ignore.js) so an
+// un-ignored node_modules doesn't drown out real hits. Capped at 500 matches.
+// ponytail: parse stdout regardless of exit code — grep exits 1 on no matches
+// (and when repoPath isn't a git repo, yielding empty results).
 ipcMain.handle('search-refs', async (_e, q) => {
   if (!q) return { ok: true, matches: [] };
-  const r = await git(['grep', '-n', '-I', '-F', '-i', '--untracked', '--', q]);
+  const r = await git(['grep', '-n', '-I', '-F', '-i', '--untracked', '--', q, ...GREP_EXCLUDE_PATHSPECS]);
   const matches = [];
   for (const line of r.stdout.split('\n')) {
     if (!line || matches.length >= 500) break;
