@@ -13,6 +13,7 @@ import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
 import { initClaudeSetup } from './claude-setup.js';
 import { initSettings } from './settings.js';
+import { initUsageMeter } from './usage-meter.js';
 import { initPanels } from './panels.js';
 import { t } from '../i18n/index.js';
 import './panes.js';
@@ -102,6 +103,9 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecentMenu(); });
 
 initSettings();
+// Toolbar meter for the user's remaining Claude subscription usage (after
+// initSettings so its labels are translated).
+initUsageMeter();
 initPanels();
 initConsoles();
 // On every launch, detect whether the Claude Code CLI is installed and, if not,

@@ -134,6 +134,11 @@ export default {
     'usage.resetsIn': 'resets in {t}',
     'usage.used': 'used',
 
+    'usage.session': '5-hour',
+    'usage.weekly': 'Weekly',
+    'usage.resetsIn': 'resets in {t}',
+    'usage.used': 'used',
+
     'browser.open': 'Browser',
     'browser.inspect': 'Inspect element — click one to copy its details',
     'browser.terminate': 'Terminate browser',

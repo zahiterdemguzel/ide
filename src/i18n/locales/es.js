@@ -133,6 +133,11 @@ export default {
     'usage.resetsIn': 'se reinicia en {t}',
     'usage.used': 'usado',
 
+    'usage.session': '5 horas',
+    'usage.weekly': 'Semanal',
+    'usage.resetsIn': 'se reinicia en {t}',
+    'usage.used': 'usado',
+
     'browser.open': 'Navegador',
     'browser.inspect': 'Inspeccionar elemento — haz clic para copiar sus detalles',
     'browser.terminate': 'Terminar navegador',

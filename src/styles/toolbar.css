@@ -19,6 +19,30 @@
 .tool-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex: none; }
 .toolbar-hint { color: var(--fg-dim); font-size: 12px; padding: 0 4px; }
 
+/* usage meter: Claude subscription limits (5h + weekly), pinned to the right of
+   the run buttons, just left of the browser/settings buttons */
+#usage-meter {
+  display: flex; align-items: center; gap: 10px; margin-left: auto; padding: 0 4px;
+  flex: none; white-space: nowrap;
+}
+#usage-meter[hidden] { display: none; }
+/* keep the browser/settings cluster pinned right even before the meter loads */
+#usage-meter[hidden] + #browser-btn { margin-left: auto; }
+.um-win { display: flex; align-items: center; gap: 6px; cursor: default; }
+.um-label { font-size: 11px; font-weight: 400; color: var(--fg); }
+.um-bar {
+  width: 64px; height: 5px; border-radius: 3px; overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+.um-fill {
+  height: 100%; width: 0; border-radius: 3px;
+  background: var(--green); transition: width .3s ease;
+}
+.um-fill[data-level="warn"] { background: var(--yellow); }
+.um-fill[data-level="crit"] { background: var(--red); }
+.um-reset { font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.um-sep { width: 1px; height: 16px; background: var(--border); flex: none; }
+
 /* shown when a clicked config can't be translated into a terminal command */
 #run-error-dialog {
   border: 1px solid var(--border); border-radius: 6px;

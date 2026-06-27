@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
-const { resolveClaude, runHaiku, claudeAvailable } = require('./claude');
+const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { editOp } = require('./edit-ops');
 const { git } = require('./git');
@@ -318,6 +318,12 @@ ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
 // spawn (see claude-setup.js). The platform-specific install commands ride along
 // so the renderer needs no OS logic.
 ipcMain.handle('check-claude', async () => ({ ...await claudeAvailable(), guide: installGuide() }));
+
+// Remaining Claude subscription usage (5h + weekly rolling windows) for the
+// toolbar meter, read live from the Messages API's unified rate-limit headers.
+// Polled ~once a minute by the renderer; null when unavailable (no OAuth token,
+// an API-key user, or a transport error) so the meter stays hidden.
+ipcMain.handle('get-usage', () => readUsage());
 
 ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) => {
   const id = crypto.randomUUID();

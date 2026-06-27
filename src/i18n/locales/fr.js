@@ -128,6 +128,11 @@ export default {
     'setup.back': 'Retour',
     'setup.finish': 'Terminer',
 
+    'usage.session': '5 heures',
+    'usage.weekly': 'Hebdomadaire',
+    'usage.resetsIn': 'réinit. dans {t}',
+    'usage.used': 'utilisé',
+
     'browser.open': 'Navigateur',
     'browser.inspect': 'Inspecter l’élément — cliquez pour copier ses détails',
     'browser.terminate': 'Terminer le navigateur',

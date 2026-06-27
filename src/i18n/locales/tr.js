@@ -133,6 +133,11 @@ export default {
     'usage.resetsIn': '{t} sonra sıfırlanır',
     'usage.used': 'kullanıldı',
 
+    'usage.session': '5 saatlik',
+    'usage.weekly': 'Haftalık',
+    'usage.resetsIn': '{t} sonra sıfırlanır',
+    'usage.used': 'kullanıldı',
+
     'browser.open': 'Tarayıcı',
     'browser.inspect': 'Öğeyi incele — ayrıntılarını kopyalamak için tıklayın',
     'browser.terminate': 'Tarayıcıyı sonlandır',

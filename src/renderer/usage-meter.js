@@ -1,0 +1,79 @@
+import { t } from '../i18n/index.js';
+
+// --- toolbar usage meter (Claude subscription limits) ---
+// Shows the user's remaining usage against the two rolling subscription windows —
+// the 5-hour session limit and the weekly limit — as labelled sliders with a
+// "resets in …" countdown. The data comes from main's get-usage, which reads the
+// Messages API's unified rate-limit response headers (see src/main/usage-parse.js).
+// Polled once a minute (per the headers' own granularity); hidden whenever main
+// returns null (no OAuth token, an API-key user, or a transient failure).
+
+const POLL_MS = 60000;
+const meter = document.getElementById('usage-meter');
+
+// 5-hour first (the window users hit first, and usually the server's representative
+// bottleneck), a separator, then the weekly window.
+const WINDOWS = [
+  { key: '5h', labelKey: 'usage.session' },
+  { key: '7d', labelKey: 'usage.weekly' },
+];
+
+const fills = {}; // key -> { win, fill, reset }
+
+function build() {
+  meter.replaceChildren();
+  WINDOWS.forEach((w, i) => {
+    if (i) { const sep = document.createElement('span'); sep.className = 'um-sep'; meter.appendChild(sep); }
+    const win = document.createElement('div');
+    win.className = 'um-win';
+    const label = document.createElement('span');
+    label.className = 'um-label';
+    label.dataset.i18n = w.labelKey; // so a language switch re-translates it
+    label.textContent = t(w.labelKey);
+    const bar = document.createElement('div');
+    bar.className = 'um-bar';
+    const fill = document.createElement('div');
+    fill.className = 'um-fill';
+    bar.appendChild(fill);
+    const reset = document.createElement('span');
+    reset.className = 'um-reset';
+    win.append(label, bar, reset);
+    meter.appendChild(win);
+    fills[w.key] = { win, fill, reset };
+  });
+}
+
+// ≥80% used reads as critical (red), ≥50% as warning (yellow), else healthy (green).
+function level(util) { return util >= 0.8 ? 'crit' : util >= 0.5 ? 'warn' : 'ok'; }
+
+function render(view) {
+  if (!view || !view.windows || !view.windows.length) { meter.hidden = true; return; }
+  const byKey = Object.fromEntries(view.windows.map((w) => [w.key, w]));
+  let any = false;
+  for (const w of WINDOWS) {
+    const el = fills[w.key];
+    const data = byKey[w.key];
+    if (!data) { el.win.style.display = 'none'; continue; }
+    any = true;
+    el.win.style.display = '';
+    const pct = Math.round(data.utilization * 100);
+    el.fill.style.width = pct + '%';
+    el.fill.dataset.level = level(data.utilization);
+    el.reset.textContent = data.resetIn ? t('usage.resetsIn').replace('{t}', data.resetIn) : '';
+    el.win.title = `${t(w.labelKey)}: ${pct}% ${t('usage.used')}`
+      + (data.resetIn ? ` · ${t('usage.resetsIn').replace('{t}', data.resetIn)}` : '');
+  }
+  meter.hidden = !any;
+}
+
+async function refresh() {
+  let view = null;
+  try { view = await window.api.getUsage(); } catch {}
+  render(view);
+}
+
+export function initUsageMeter() {
+  build();
+  refresh();
+  setInterval(refresh, POLL_MS);
+}
