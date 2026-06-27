@@ -56,6 +56,7 @@ export default {
     'session.diffSplit': 'Yan yana',
     'session.diffEmpty': 'Bu oturumda henüz değişiklik yok.',
     'session.nothingToCommit': 'İşlenecek değişiklik yok',
+    'session.unnamed': 'İsimsiz Oturum',
     'session.welcomeTagline': 'Aynı anda birçok Claude oturumu çalıştırın.',
     'session.welcomeStart': 'Başla',
     'session.welcomeLegend': 'Oturum durumu',

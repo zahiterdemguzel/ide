@@ -56,6 +56,7 @@ export default {
     'session.diffSplit': 'Côte à côte',
     'session.diffEmpty': "Cette session n'a pas encore de modifications.",
     'session.nothingToCommit': 'Rien à valider',
+    'session.unnamed': 'Session sans nom',
     'session.welcomeTagline': 'Lancez plusieurs sessions Claude à la fois.',
     'session.welcomeStart': 'Démarrer',
     'session.welcomeLegend': 'État de la session',

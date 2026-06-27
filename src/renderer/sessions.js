@@ -174,7 +174,7 @@ function updateSessionBar() {
   sessionRevertBtn.classList.remove('armed');
   sessionRevertBtn.textContent = 'Revert';
   sessionArchiveBtn.style.display = s.archived ? 'none' : '';
-  const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || ('session ' + s.id.slice(0, 8));
+  const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || t('session.unnamed');
   sessionTitle.textContent = name;
   sessionTitle.title = name;
   // The button itself reports commit state, driven purely by the session's
@@ -315,7 +315,7 @@ function makeRow(id) {
   dot.className = 'dot idle';
   const label = document.createElement('span');
   label.className = 'sess-label';
-  label.textContent = 'session ' + id.slice(0, 8);
+  label.textContent = t('session.unnamed');
   const restore = document.createElement('button');
   restore.className = 'sess-restore';
   restore.title = 'Restore session';

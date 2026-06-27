@@ -57,6 +57,7 @@ export default {
     'session.diffSplit': 'Split',
     'session.diffEmpty': 'This session has no changes yet.',
     'session.nothingToCommit': 'Nothing to commit',
+    'session.unnamed': 'Unnamed Session',
     'session.welcomeTagline': 'Run many Claude sessions at once.',
     'session.welcomeStart': 'Start',
     'session.welcomeLegend': 'Session status',
