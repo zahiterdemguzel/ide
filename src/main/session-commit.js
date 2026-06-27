@@ -7,7 +7,7 @@ const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
 const { sessions, trackedFiles } = require('./sessions');
-const { replayEdits, inverseEdits } = require('./edit-ops');
+const { commitContent, inverseEdits } = require('./edit-ops');
 
 // Build one commit whose tree is HEAD with only `entries` applied — via a
 // throwaway index + commit-tree, so the real index and the working tree are
@@ -71,13 +71,20 @@ ipcMain.handle('commit-session', async (_e, id) => {
   const entries = [];
   const committedAbs = [];     // edited (text-op) paths folded into this commit, to forget after
   const committedFileOps = []; // path-level (binary/rename/delete) paths folded in, to forget after
+  const emptyAbs = [];         // text-op paths whose net change vs HEAD is nothing (empty patch)
+  const emptyFileOps = [];     // path-level paths that would commit nothing (already at HEAD, or gone)
   for (const [abs, ops] of s.edits) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     if (!rel || rel.startsWith('..')) continue; // outside the repo
     const headFile = await git(['show', `HEAD:${rel}`]);
-    const { content, clean } = replayEdits(headFile.ok ? headFile.stdout : '', ops);
-    if (clean) { entries.push({ path: rel, content }); committedAbs.push(abs); continue; }
-    try { entries.push({ path: rel, content: fs.readFileSync(abs, 'utf8') }); committedAbs.push(abs); } catch { /* gone */ }
+    let working = null;
+    try { working = fs.readFileSync(abs, 'utf8'); } catch { /* gone */ }
+    const content = commitContent(headFile.ok ? headFile.stdout : '', ops, working);
+    // content === null: an empty patch (replays back to HEAD) or the file is gone.
+    // Either way there is nothing to commit, so drop it instead of committing a
+    // no-op blob that inflates the file count and stages a diff-less change.
+    if (content == null) { emptyAbs.push(abs); continue; }
+    entries.push({ path: rel, content }); committedAbs.push(abs);
   }
   // Path-level changes a text op can't represent: a binary file the session
   // created (committed from its current bytes — read as a Buffer so it stays
@@ -86,10 +93,32 @@ ipcMain.handle('commit-session', async (_e, id) => {
   for (const [abs, kind] of s.fileOps) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     if (!rel || rel.startsWith('..') || seen.has(rel)) continue; // outside the repo / already an edit
-    if (kind === 'delete') { entries.push({ path: rel, delete: true }); committedFileOps.push(abs); continue; }
-    try { entries.push({ path: rel, content: fs.readFileSync(abs) }); committedFileOps.push(abs); } catch { /* vanished */ }
+    if (kind === 'delete') {
+      // Nothing committed at HEAD means there is nothing to delete — a phantom op.
+      if (!(await git(['cat-file', '-e', `HEAD:${rel}`])).ok) { emptyFileOps.push(abs); continue; }
+      entries.push({ path: rel, delete: true }); committedFileOps.push(abs); continue;
+    }
+    let buf = null;
+    try { buf = fs.readFileSync(abs); } catch { /* vanished */ }
+    if (buf == null) { emptyFileOps.push(abs); continue; }
+    // Empty add: the current bytes already match what's committed at HEAD. Compare
+    // by blob hash (binary-safe, same filters commitBlobs applies via --path).
+    const headSha = await git(['rev-parse', '-q', '--verify', `HEAD:${rel}`]);
+    if (headSha.ok) {
+      const curSha = await git(['hash-object', '--path', rel, '--stdin'], { input: buf });
+      if (curSha.ok && curSha.stdout.trim() === headSha.stdout.trim()) { emptyFileOps.push(abs); continue; }
+    }
+    entries.push({ path: rel, content: buf }); committedFileOps.push(abs);
   }
-  if (!entries.length) return { ok: false, stderr: 'This session changed no files yet' };
+  // Empty patches are phantom changes — forget them unconditionally (regardless of
+  // whether a real commit follows) so the tracked-file count stops counting them.
+  let pruned = false;
+  for (const abs of emptyAbs) if (s.edits.delete(abs)) pruned = true;
+  for (const abs of emptyFileOps) if (s.fileOps.delete(abs)) pruned = true;
+  if (!entries.length) {
+    if (pruned) sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+    return { ok: false, stderr: 'This session changed no files yet' };
+  }
   const msg = (s.firstPrompt || `session ${id.slice(0, 8)}`).slice(0, 500);
   const ct = await commitBlobs(entries, msg);
   // Forget what we committed so the button reads "nothing to commit" until the
@@ -98,8 +127,8 @@ ipcMain.handle('commit-session', async (_e, id) => {
   if (ct.ok) {
     for (const abs of committedAbs) s.edits.delete(abs);
     for (const abs of committedFileOps) s.fileOps.delete(abs);
-    sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   }
+  if (ct.ok || pruned) sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   return ct;
 });
 

@@ -35,6 +35,23 @@ function replayEdits(base, ops) {
   return { content: s, clean };
 }
 
+// Resolve the blob a session should commit for one text-edited file. Replay its
+// ops onto the committed (HEAD) `base`; if that can't be done cleanly (the other
+// session moved the text, or an opaque op), fall back to the current `working`
+// file. Returns the content to commit, or `null` when there is nothing to commit:
+//   - `working` is null (the file is gone), or
+//   - the resolved content is byte-identical to `base` — an EMPTY PATCH.
+// An empty patch is a file the session touched but whose net effect against HEAD
+// is nothing (it edited then undid the change, or rewrote identical text). The
+// caller must drop these so the commit — and the "Commit N files" count — never
+// counts phantom changes that would commit nothing.
+function commitContent(base, ops, working) {
+  const { content, clean } = replayEdits(base, ops);
+  const resolved = clean ? content : working;
+  if (resolved == null || resolved === base) return null;
+  return resolved;
+}
+
 // De-apply a session's ops from the current working string (the inverse of
 // replayEdits) — back out just this session's substitutions, leaving any other
 // session's edits to the same file untouched. Ops are inverted newest-first:
@@ -59,4 +76,4 @@ function inverseEdits(working, ops) {
   return { content: s, clean };
 }
 
-module.exports = { editOp, replayEdits, inverseEdits };
+module.exports = { editOp, replayEdits, commitContent, inverseEdits };

@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { editOp, replayEdits, inverseEdits } = require('../src/main/edit-ops');
+const { editOp, replayEdits, commitContent, inverseEdits } = require('../src/main/edit-ops');
 
 test('editOp: maps each file tool to its op shape', () => {
   assert.deepEqual(editOp('Write', { content: 'x' }), { t: 'write', content: 'x' });
@@ -58,6 +58,43 @@ test('replayEdits: multi applies its edits in order', () => {
     { old: '2', new: 'two' },
   ] }]);
   assert.deepEqual(r, { content: 'one two 3', clean: true });
+});
+
+test('commitContent: a clean replay that changes the file is committed', () => {
+  const r = commitContent('hello world', [{ t: 'edit', old: 'world', new: 'there' }], 'ignored');
+  assert.equal(r, 'hello there');
+});
+
+test('commitContent: an edit that nets back to HEAD is an empty patch (null)', () => {
+  // Session changed "a"->"b" then "b"->"a": the result equals HEAD, so committing
+  // it would produce no diff. It must be dropped, not committed as a no-op blob.
+  const r = commitContent('value a', [
+    { t: 'edit', old: 'a', new: 'b' },
+    { t: 'edit', old: 'b', new: 'a' },
+  ], 'whatever');
+  assert.equal(r, null);
+});
+
+test('commitContent: a Write of the identical content is an empty patch (null)', () => {
+  const r = commitContent('same', [{ t: 'write', content: 'same' }], 'same');
+  assert.equal(r, null);
+});
+
+test('commitContent: an unclean replay falls back to the working file', () => {
+  // old_string is gone from HEAD (another session moved it), so the replay is
+  // unclean — we commit the current working contents instead.
+  const r = commitContent('moved text', [{ t: 'edit', old: 'absent', new: 'x' }], 'working now');
+  assert.equal(r, 'working now');
+});
+
+test('commitContent: unclean fallback equal to HEAD is still an empty patch', () => {
+  const r = commitContent('base', [{ t: 'opaque' }], 'base');
+  assert.equal(r, null);
+});
+
+test('commitContent: a missing working file (gone) returns null', () => {
+  const r = commitContent('base', [{ t: 'opaque' }], null);
+  assert.equal(r, null);
 });
 
 test('inverseEdits: backs out an edit (new -> old)', () => {
