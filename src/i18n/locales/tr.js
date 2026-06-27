@@ -45,13 +45,6 @@ export default {
     'git.noBranches': 'Dal yok',
     'git.createBranch': 'Dal oluştur',
 
-    'armHint.clickAgain': 'Onaylamak için\ntekrar tıkla',
-    'armHint.discard': 'Atmak için tekrar tıkla — bu geri alınamaz',
-    'armHint.discardAll': 'Tümünü atmak için tekrar tıkla — bu geri alınamaz',
-    'armHint.revertCommit': "Bu commit'i geri almak için tekrar tıkla",
-    'armHint.revertSession': 'Bu oturumun değişikliklerini geri almak için tekrar tıkla',
-    'armHint.terminate': 'Bu tarayıcıyı kapatmak için tekrar tıkla',
-    'armHint.deleteSession': 'Bu oturumu kalıcı olarak silmek için tekrar tıkla',
     'git.unpushed': 'Gönderilmedi',
     'git.unpushedTitle': 'Henüz uzak depoya gönderilmedi',
     'git.revertCommitTitle': "Bu commit'i geri al (yeni bir geri alma commit'i ekler)",

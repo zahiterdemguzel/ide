@@ -37,9 +37,30 @@ const OUTPUT_RULE = 'Do exactly what the user message asks and output only the '
   + 'requested text — no preamble, no explanation, no code fences, no quotes, no '
   + 'Co-Authored-By trailer.';
 
+// The CLI stores its OAuth credentials in one of two places depending on the OS:
+// a `~/.claude/.credentials.json` file on Linux/Windows, but the *macOS Keychain*
+// (generic password, service "Claude Code-credentials") on darwin — there is no
+// file there. Read the file first (cheap, and present if the user opted out of
+// the Keychain), then fall back to the Keychain on macOS. Either way we get the
+// same `{ claudeAiOauth: { accessToken, expiresAt, … } }` JSON blob.
+const KEYCHAIN_SERVICE = 'Claude Code-credentials';
+
+function readCredsJson() {
+  try { return fs.readFileSync(CREDS_PATH, 'utf8'); } catch {}
+  if (process.platform === 'darwin') {
+    try {
+      return execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-w'],
+        { encoding: 'utf8' });
+    } catch {}
+  }
+  return null;
+}
+
 function readOauthToken() {
   try {
-    const o = JSON.parse(fs.readFileSync(CREDS_PATH, 'utf8')).claudeAiOauth;
+    const raw = readCredsJson();
+    if (!raw) return null;
+    const o = JSON.parse(raw).claudeAiOauth;
     if (!o || !o.accessToken) return null;
     // treat as expired a minute early to avoid racing the boundary
     if (o.expiresAt && Date.now() > o.expiresAt - 60000) return null;

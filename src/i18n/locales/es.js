@@ -45,13 +45,6 @@ export default {
     'git.noBranches': 'Sin ramas',
     'git.createBranch': 'Crear rama',
 
-    'armHint.clickAgain': 'Haz clic de nuevo\npara aprobar',
-    'armHint.discard': 'Haz clic de nuevo para descartar: no se puede deshacer',
-    'armHint.discardAll': 'Haz clic de nuevo para descartar todo: no se puede deshacer',
-    'armHint.revertCommit': 'Haz clic de nuevo para revertir este commit',
-    'armHint.revertSession': 'Haz clic de nuevo para revertir los cambios de esta sesión',
-    'armHint.terminate': 'Haz clic de nuevo para cerrar este navegador',
-    'armHint.deleteSession': 'Haz clic de nuevo para eliminar esta sesión de forma permanente',
     'git.unpushed': 'Sin enviar',
     'git.unpushedTitle': 'Aún no enviado al remoto',
     'git.revertCommitTitle': 'Revertir este commit (añade un nuevo commit de deshacer)',
