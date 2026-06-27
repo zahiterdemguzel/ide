@@ -58,6 +58,13 @@ export default {
     'editor.findClose': 'Fermer (Esc)',
     'editor.findNoResults': 'Aucun résultat',
 
+    'editor.find': 'Rechercher',
+    'editor.findCase': 'Respecter la casse (Alt+C)',
+    'editor.findPrev': 'Précédent (Shift+Enter)',
+    'editor.findNext': 'Suivant (Enter)',
+    'editor.findClose': 'Fermer (Esc)',
+    'editor.findNoResults': 'Aucun résultat',
+
     'run.runFile': 'Exécuter ce fichier {lang}',
     'run.runBtn': 'Exécuter',
     'run.withArgs': 'Exécuter avec des arguments…',

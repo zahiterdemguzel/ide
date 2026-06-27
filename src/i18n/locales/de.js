@@ -58,6 +58,13 @@ export default {
     'editor.findClose': 'Schließen (Esc)',
     'editor.findNoResults': 'Keine Treffer',
 
+    'editor.find': 'Suchen',
+    'editor.findCase': 'Groß-/Kleinschreibung beachten (Alt+C)',
+    'editor.findPrev': 'Vorheriges (Shift+Enter)',
+    'editor.findNext': 'Nächstes (Enter)',
+    'editor.findClose': 'Schließen (Esc)',
+    'editor.findNoResults': 'Keine Treffer',
+
     'run.runFile': 'Diese {lang}-Datei ausführen',
     'run.runBtn': 'Ausführen',
     'run.withArgs': 'Mit Argumenten ausführen…',

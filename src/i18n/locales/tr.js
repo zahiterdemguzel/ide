@@ -58,6 +58,13 @@ export default {
     'editor.findClose': 'Kapat (Esc)',
     'editor.findNoResults': 'Sonuç yok',
 
+    'editor.find': 'Bul',
+    'editor.findCase': 'Büyük/küçük harf eşleştir (Alt+C)',
+    'editor.findPrev': 'Önceki (Shift+Enter)',
+    'editor.findNext': 'Sonraki (Enter)',
+    'editor.findClose': 'Kapat (Esc)',
+    'editor.findNoResults': 'Sonuç yok',
+
     'run.runFile': 'Bu {lang} dosyasını çalıştır',
     'run.runBtn': 'Çalıştır',
     'run.withArgs': 'Argümanlarla çalıştır…',
