@@ -313,9 +313,10 @@ ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
   }));
 }, []));
 
-// First-run gate: is the Claude Code CLI installed? The renderer guides the user
-// through installing it before any session can spawn (see claude-setup.js). The
-// platform-specific install commands ride along so the renderer needs no OS logic.
+// Availability gate: is the Claude Code CLI installed? The renderer calls this on
+// every launch and guides the user through installing it before any session can
+// spawn (see claude-setup.js). The platform-specific install commands ride along
+// so the renderer needs no OS logic.
 ipcMain.handle('check-claude', async () => ({ ...await claudeAvailable(), guide: installGuide() }));
 
 ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) => {

@@ -1,12 +1,13 @@
-// First-run setup gate for the Claude Code CLI.
+// Claude Code availability gate.
 //
 // This IDE is a front-end for the `claude` CLI — without it no session can spawn.
-// On startup we ask main whether `claude` is installed (check-claude); if it
-// isn't, we open a guided dialog with the platform-specific install command (copy
-// it, or run it straight into a built-in terminal), an npm fallback, the login
-// step, and a "Recheck" button. newSession() also routes through ensureClaude(),
-// so any attempt to open a session re-runs the check and re-shows the guide until
-// Claude Code is actually present. See docs/architecture.md "Claude Code setup gate".
+// On EVERY startup (not just the first run — nothing is persisted to skip it) we
+// ask main whether `claude` is installed (check-claude); if it isn't, we open a
+// guided dialog with the platform-specific install command (copy it, or run it
+// straight into a built-in terminal), an npm fallback, the login step, and a
+// "Recheck" button. newSession() also routes through ensureClaude(), so any
+// attempt to open a session re-runs the check and re-shows the guide until Claude
+// Code is actually present. See docs/architecture.md "Claude Code setup gate".
 import { t } from '../i18n/index.js';
 import { runSpecInConsole } from './consoles.js';
 
@@ -96,7 +97,8 @@ async function probe() {
   return claudeReady;
 }
 
-// Startup check: if Claude Code is missing, open the guide immediately.
+// Runs on every app launch (wired unconditionally in index.js): if Claude Code is
+// missing, open the guide immediately.
 export async function initClaudeSetup() {
   await probe();
   if (!claudeReady) openSetup();
