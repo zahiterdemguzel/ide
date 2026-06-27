@@ -11,7 +11,9 @@ const js = require('@eslint/js');
 const globals = require('globals');
 
 module.exports = [
-  { ignores: ['node_modules/**', 'dist/**'] },
+  // .test-workspace is a throwaway sandbox the "Start IDE" launch config opens;
+  // it's not part of this codebase, so don't lint scratch files in it.
+  { ignores: ['node_modules/**', 'dist/**', '.test-workspace/**'] },
 
   js.configs.recommended,
   {

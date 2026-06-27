@@ -5,6 +5,7 @@ const { execFileSync } = require('child_process');
 const { getWin, setWindowTitle } = require('./window');
 const { sharedDataDir } = require('./instance');
 const { addRecent } = require('./recent-folders');
+const { parseFolderArg } = require('./cli-args');
 
 // Restore the last opened folder; fall back to cwd on first run / bad path.
 // Kept in the shared data dir (not the per-instance profile) so it persists
@@ -31,7 +32,20 @@ function loadRecentFolders() {
 let recentFolders = loadRecentFolders();
 const getRecentFolders = () => recentFolders;
 
-let repoPath = loadLastFolder();
+// A `--folder <path>` CLI override wins over the persisted last folder, so a
+// launched instance can open a specific directory (e.g. a throwaway test
+// workspace) without disturbing the shared last-folder.txt — it's applied to the
+// initial repoPath directly and never written back. Falls through to the last
+// folder when the flag is absent or its path doesn't exist.
+function cliFolder() {
+  const p = parseFolderArg(process.argv);
+  if (!p) return null;
+  if (fs.existsSync(p)) return path.resolve(p);
+  console.error('[cli folder not found, ignoring]', p);
+  return null;
+}
+
+let repoPath = cliFolder() || loadLastFolder();
 const getRepoPath = () => repoPath;
 
 // Make sure the restored folder shows up in the recent list on first run.
