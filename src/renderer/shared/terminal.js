@@ -1,6 +1,8 @@
 // xterm.js is loaded as a classic <script> before the module graph, so its
 // globals are available. Re-export them here so feature modules import from one
 // place instead of reaching into `window`.
+import { decodeOsc52 } from './osc52.js';
+
 export const Terminal = window.Terminal;
 export const FitAddon = window.FitAddon.FitAddon;
 
@@ -103,6 +105,18 @@ export function attachClipboard(term, opts = {}) {
     // preventDefault stops the browser's native paste event from also firing
     // into xterm's textarea, which would paste a second time.
     if (key === 'v') { e.preventDefault(); paste(); return false; }
+    return true;
+  });
+
+  // Apps copy by emitting OSC 52 (e.g. the Claude CLI's drag-to-select, which
+  // reports "auto copy succeeded") rather than a key event. xterm has no built-in
+  // handler, so those copies silently vanished — nothing reached the OS clipboard.
+  // Decode the base64 payload and route it through the same clipboard path as
+  // Ctrl+C. Always return true so the sequence is consumed (never echoed), even
+  // for a malformed or read ("?") request that decodeOsc52 declines.
+  term.parser.registerOscHandler(52, (data) => {
+    const text = decodeOsc52(data);
+    if (text) copyToClipboard(text);
     return true;
   });
 
