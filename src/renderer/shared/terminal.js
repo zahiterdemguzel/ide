@@ -67,12 +67,17 @@ export function attachClipboard(term, opts = {}) {
   const formatImagePath = opts.formatImagePath || quoteIfSpaced;
 
   async function paste() {
-    const img = await window.api.pasteImage();
-    if (img && img.ok && img.path) { term.paste(formatImagePath(img.path)); return; }
-    const text = window.api.clipboardRead
-      ? await window.api.clipboardRead()
-      : await navigator.clipboard.readText();
-    if (text) term.paste(text);
+    // Defense-in-depth: a clipboard read can still reject (the navigator.clipboard
+    // fallback below, or an IPC failure). Swallow it so the gesture is a harmless
+    // no-op rather than an unhandled rejection that silently drops the paste.
+    try {
+      const img = await window.api.pasteImage();
+      if (img && img.ok && img.path) { term.paste(formatImagePath(img.path)); return; }
+      const text = window.api.clipboardRead
+        ? await window.api.clipboardRead()
+        : await navigator.clipboard.readText();
+      if (text) term.paste(text);
+    } catch { /* clipboard momentarily unavailable */ }
   }
 
   // On right-click, Electron/Windows also delivers a native `paste` DOM event

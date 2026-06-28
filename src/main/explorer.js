@@ -6,6 +6,7 @@ const { getRepoPath, onRepoChange } = require('./repo');
 const { git } = require('./git');
 const { shouldSkipDir, GREP_EXCLUDE_PATHSPECS } = require('./search-ignore');
 const { sendToRenderer } = require('./window');
+const { withClipboardRetry } = require('./clipboard-lib');
 
 // Extension → MIME for the asset viewer (image preview / pixel editor / audio).
 const ASSET_MIME = {
@@ -264,10 +265,16 @@ ipcMain.handle('write-asset', (_e, { file, base64 }) => {
 // that path into the session (as an "@<path>" mention Claude can read). Returns
 // { ok: false } when the clipboard has no image, so the caller falls back to a
 // normal text paste.
-ipcMain.handle('paste-image', () => {
+ipcMain.handle('paste-image', async () => {
   try {
-    const img = clipboard.readImage();
-    if (img.isEmpty()) return { ok: false };
+    // Only the read can throw transiently (clipboard lock); an empty clipboard is
+    // a valid "no image", so it returns null rather than retrying. fs work stays
+    // outside the retry so a real write failure isn't retried as if it were a lock.
+    const img = await withClipboardRetry(() => {
+      const i = clipboard.readImage();
+      return i.isEmpty() ? null : i;
+    }, { fallback: null });
+    if (!img) return { ok: false };
     const dir = path.join(os.tmpdir(), 'claude-ide-pastes');
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `paste-${Date.now()}.png`);
@@ -280,8 +287,15 @@ ipcMain.handle('paste-image', () => {
 // async navigator.clipboard is unreliable under file:// (not a secure context,
 // so navigator.clipboard can be undefined and throw synchronously) and needs
 // document focus the canvas can briefly lack right after a selection.
-ipcMain.handle('clipboard-write', (_e, text) => { clipboard.writeText(text || ''); });
-ipcMain.handle('clipboard-read', () => clipboard.readText());
+//
+// Both calls retry: on Windows the clipboard is a single lock another process can
+// briefly hold, so a bare readText()/writeText() intermittently throws
+// "OpenClipboard failed". Without the retry that throw rejected the IPC call and
+// the renderer's paste() swallowed the rejection, silently dropping the paste.
+ipcMain.handle('clipboard-write', (_e, text) =>
+  withClipboardRetry(() => { clipboard.writeText(text || ''); return true; }, { fallback: false }));
+ipcMain.handle('clipboard-read', () =>
+  withClipboardRetry(() => clipboard.readText(), { fallback: '' }));
 
 // Auto-refresh the explorer tree when the repo changes on disk, so the user
 // never has to hit a refresh button. One recursive fs.watch over the repo root
