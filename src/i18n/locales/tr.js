@@ -75,6 +75,11 @@ export default {
     'git.unpushedTitle': 'Henüz uzak depoya gönderilmedi',
     'git.revertCommitTitle': "Bu commit'i geri al (yeni bir geri alma commit'i ekler)",
     'git.undoCommitTitle': "Bu commit'i geri al (henüz gönderilmedi)",
+    'git.stashes': 'Zulalar',
+    'git.stashChangesTitle': 'Tüm değişiklikleri zulala',
+    'git.stashApplyTitle': 'Bu zulayı uygula (koru)',
+    'git.stashPopTitle': 'Bu zulayı çıkar (uygula ve sil)',
+    'git.stashDropTitle': 'Bu zulayı sil',
 
     'armHint.clickAgain': 'Onaylamak için\ntekrar tıkla',
     'armHint.discard': 'Atmak için tekrar tıkla — bu geri alınamaz',
@@ -84,6 +89,7 @@ export default {
     'armHint.revertSession': 'Bu oturumun değişikliklerini geri almak için tekrar tıkla',
     'armHint.terminate': 'Bu tarayıcıyı kapatmak için tekrar tıkla',
     'armHint.deleteSession': 'Bu oturumu kalıcı olarak silmek için tekrar tıkla',
+    'armHint.dropStash': 'Bu zulayı silmek için tekrar tıkla',
 
     'session.revert': 'Geri al',
     'session.revertTitle': 'Yalnızca bu oturumun değişikliklerini geri al',

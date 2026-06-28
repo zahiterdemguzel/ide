@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
-const { parsePorcelain, parseLog, markPushed, pullNeedsMerge, pushNeedsMerge } = require('./git-parse');
+const { parsePorcelain, parseLog, markPushed, parseStashList, pullNeedsMerge, pushNeedsMerge } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 
 // --- git (plain porcelain, no dep) ---
@@ -184,6 +184,31 @@ ipcMain.handle('git-undo-commit', async (_e, hash) => {
   if (!r.ok) await git(['rebase', '--abort']);
   return r;
 });
+// --- stash ---
+// List stashes for the Stashes section. The selector (stash@{N}) is needed to
+// apply/pop/drop a specific one; the message + relative date fill the row.
+ipcMain.handle('git-stash-list', async () => {
+  const r = await git(['stash', 'list', '--pretty=format:%gd%x1f%s%x1f%cr']);
+  if (!r.ok) return { ok: false, error: r.stderr, stashes: [] };
+  return { ok: true, stashes: parseStashList(r.stdout) };
+});
+
+// Stash the whole working tree so the user can set the changes aside.
+// --include-untracked saves new files too (the "put everything away" intent).
+// With nothing to stash, git exits 0 with "No local changes to save" — the
+// renderer reads that to report it rather than a misleading "stashed".
+ipcMain.handle('git-stash-push', () => git(['stash', 'push', '--include-untracked']));
+
+// One stash's full patch for the center diff viewer (-p; no color/metadata noise).
+ipcMain.handle('git-stash-show', (_e, ref) => git(['stash', 'show', '-p', ref]));
+
+// Apply a stash and keep it (apply) or apply then delete it (pop). Either can
+// conflict if the working tree moved on; git reports it and the renderer surfaces it.
+ipcMain.handle('git-stash-apply', (_e, ref) => git(['stash', 'apply', ref]));
+ipcMain.handle('git-stash-pop', (_e, ref) => git(['stash', 'pop', ref]));
+// Delete a stash without applying it (two-click armed in the UI — it's destructive).
+ipcMain.handle('git-stash-drop', (_e, ref) => git(['stash', 'drop', ref]));
+
 ipcMain.handle('git-fetch', () => git(['fetch']));
 // Fast-forward only: a plain `git pull` that needs a merge would try to open an
 // editor (no tty → hang) or leave conflicts. --ff-only fails cleanly when the

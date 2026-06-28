@@ -40,7 +40,10 @@
         </div>
         <ul id="session-list"></ul>
         <div class="sidebar-actions">
-          <button id="new-session"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span data-i18n="sessions.new">New session</span></button>
+          <div class="split-btn">
+            <button id="new-session"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span data-i18n="sessions.new">New session</span></button>
+            <button id="new-session-opts" class="split-btn-caret" data-i18n-title="sessions.newWithModel" title="New session with a chosen model"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
         </div>
       </div>
       <div id="gutter-sess" class="gutter gutter-row" title="Drag to resize"></div>
@@ -229,14 +232,21 @@
       <div class="git-section-title git-changes-title git-head-row">
         <span data-i18n="git.changes">Changes</span>
         <span class="git-head-actions">
+          <button id="git-stash-create" class="git-btn stash-act" data-i18n-title="git.stashChangesTitle" title="Stash all changes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg></button>
           <button id="revert-all" class="git-btn git-revert" data-i18n-title="git.discardAll" title="Discard all changes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
           <button id="stage-all" class="git-btn git-glyph" data-i18n-title="git.stageAll" title="Stage all changes">+</button>
         </span>
       </div>
       <ul id="unstaged-list" class="git-list"></ul>
       <div id="git-clean" class="git-clean" hidden><span data-i18n="git.clean">Working tree clean</span></div>
+      <div id="stashes-section" hidden>
+        <div class="git-section-title git-stashes-title git-head-row">
+          <span data-i18n="git.stashes">Stashes</span>
+        </div>
+        <ul id="stash-list" class="git-list"></ul>
+      </div>
       <div class="git-commit">
-        <div class="commit-msg-wrap"><textarea id="commit-msg" rows="2" data-i18n-placeholder="git.commitPlaceholder" placeholder="Commit message"></textarea><div id="commit-msg-grip" title="Drag to resize"></div></div>
+        <div class="commit-msg-wrap"><textarea id="commit-msg" rows="2" data-i18n-placeholder="git.commitPlaceholder" placeholder="Commit message"></textarea></div>
         <div class="git-commit-actions">
           <button id="git-commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg> <span data-i18n="git.commit">Commit</span></button>
           <button id="git-undo" data-i18n-title="git.undoTitle" title="Undo last commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg> <span data-i18n="git.undo">Undo</span></button>
@@ -292,6 +302,29 @@
       <button id="warn-ok" class="confirm-btn-primary" data-i18n="warn.ok">OK</button>
     </div>
   </dialog>
+  <!-- Per-session model picker, opened by the New session split-button caret.
+       Pre-filled from the settings defaults; the choice applies to just this one
+       new session (see src/renderer/sessions.js). -->
+  <dialog id="session-model-dialog">
+    <div class="settings-head">
+      <h3 data-i18n="sessions.modelDialogTitle">New session</h3>
+      <button id="session-model-close" data-i18n-title="settings.close" title="Close">×</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-group-hint" data-i18n="sessions.modelDialogHint">Choose the models this session runs with.</div>
+      <label class="settings-row">
+        <span data-i18n="settings.model">Session model</span>
+        <select id="session-model-main"></select>
+      </label>
+      <label class="settings-row">
+        <span data-i18n="settings.subagentModel">Subagent model</span>
+        <select id="session-model-subagent"></select>
+      </label>
+    </div>
+    <div class="settings-actions">
+      <button id="session-model-create" class="settings-primary" data-i18n="sessions.createSession">Create session</button>
+    </div>
+  </dialog>
   <dialog id="settings-dialog">
     <div class="settings-head">
       <h3 data-i18n="settings.title">Settings</h3>
@@ -310,6 +343,18 @@
         <span data-i18n="settings.sound">Notification sound</span>
         <select id="settings-sound"></select>
       </label>
+      <div class="settings-group">
+        <div class="settings-group-title" data-i18n="settings.agents">Agent models</div>
+        <div class="settings-group-hint" data-i18n="settings.agentsHint">Applies to new sessions. Pick a model per session when creating one.</div>
+        <label class="settings-row">
+          <span data-i18n="settings.model">Session model</span>
+          <select id="settings-model"></select>
+        </label>
+        <label class="settings-row">
+          <span data-i18n="settings.subagentModel">Subagent model</span>
+          <select id="settings-subagent-model"></select>
+        </label>
+      </div>
       <div class="settings-group">
         <div class="settings-group-title" data-i18n="settings.general">General</div>
         <div class="panel-grid">

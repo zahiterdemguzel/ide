@@ -75,6 +75,11 @@ export default {
     'git.unpushedTitle': 'Noch nicht zum Remote gepusht',
     'git.revertCommitTitle': 'Diesen Commit zurücknehmen (fügt einen neuen Commit hinzu)',
     'git.undoCommitTitle': 'Diesen Commit rückgängig machen (noch nicht gepusht)',
+    'git.stashes': 'Stashes',
+    'git.stashChangesTitle': 'Alle Änderungen stashen',
+    'git.stashApplyTitle': 'Diesen Stash anwenden (behalten)',
+    'git.stashPopTitle': 'Diesen Stash poppen (anwenden und entfernen)',
+    'git.stashDropTitle': 'Diesen Stash verwerfen',
 
     'armHint.clickAgain': 'Zum Bestätigen\nerneut klicken',
     'armHint.discard': 'Nochmals klicken zum Verwerfen — nicht umkehrbar',
@@ -84,6 +89,7 @@ export default {
     'armHint.revertSession': 'Nochmals klicken, um die Änderungen dieser Sitzung zurückzunehmen',
     'armHint.terminate': 'Nochmals klicken, um diesen Browser zu schließen',
     'armHint.deleteSession': 'Nochmals klicken, um diese Sitzung dauerhaft zu löschen',
+    'armHint.dropStash': 'Nochmals klicken, um diesen Stash zu verwerfen',
 
     'session.revert': 'Zurücksetzen',
     'session.revertTitle': 'Nur die Änderungen dieser Sitzung zurücksetzen',

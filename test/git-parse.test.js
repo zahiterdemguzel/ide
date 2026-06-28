@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, filterCommits, sumNumstat, pullNeedsMerge, pushNeedsMerge, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -28,6 +28,22 @@ test('parsePorcelain: untracked never counts as staged', () => {
   const r = parsePorcelain('?? new.js');
   assert.deepEqual(r.staged, []);
   assert.deepEqual(r.unstaged, [{ status: '?', file: 'new.js' }]);
+});
+
+test('parseStashList: splits selector, message, and relative date', () => {
+  const out = [
+    'stash@{0}\x1fWIP on master: 1a2b3c4 Add feature\x1f2 hours ago',
+    'stash@{1}\x1fOn dev: tweak the parser\x1f3 days ago',
+  ].join('\n');
+  assert.deepEqual(parseStashList(out), [
+    { ref: 'stash@{0}', message: 'WIP on master: 1a2b3c4 Add feature', relDate: '2 hours ago' },
+    { ref: 'stash@{1}', message: 'On dev: tweak the parser', relDate: '3 days ago' },
+  ]);
+});
+
+test('parseStashList: empty output → no stashes', () => {
+  assert.deepEqual(parseStashList(''), []);
+  assert.deepEqual(parseStashList('\n'), []);
 });
 
 test('pullNeedsMerge: true only when an ff-only pull failed on divergence', () => {

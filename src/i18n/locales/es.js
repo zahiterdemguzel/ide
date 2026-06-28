@@ -75,6 +75,11 @@ export default {
     'git.unpushedTitle': 'Aún no enviado al remoto',
     'git.revertCommitTitle': 'Revertir este commit (añade un nuevo commit de deshacer)',
     'git.undoCommitTitle': 'Deshacer este commit (aún no enviado)',
+    'git.stashes': 'Guardados',
+    'git.stashChangesTitle': 'Guardar todos los cambios en un stash',
+    'git.stashApplyTitle': 'Aplicar este stash (conservarlo)',
+    'git.stashPopTitle': 'Extraer este stash (aplicar y eliminar)',
+    'git.stashDropTitle': 'Eliminar este stash',
 
     'armHint.clickAgain': 'Haz clic de nuevo\npara aprobar',
     'armHint.discard': 'Haz clic de nuevo para descartar: no se puede deshacer',
@@ -84,6 +89,7 @@ export default {
     'armHint.revertSession': 'Haz clic de nuevo para revertir los cambios de esta sesión',
     'armHint.terminate': 'Haz clic de nuevo para cerrar este navegador',
     'armHint.deleteSession': 'Haz clic de nuevo para eliminar esta sesión de forma permanente',
+    'armHint.dropStash': 'Haz clic de nuevo para eliminar este stash',
 
     'session.revert': 'Revertir',
     'session.revertTitle': 'Revertir solo los cambios de esta sesión',

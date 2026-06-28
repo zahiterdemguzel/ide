@@ -21,6 +21,15 @@ export async function showCommit(hash, subject) {
   showDiffContainer();
 }
 
+// Show a stash's full patch (Stashes section → click a stash). Like a commit, it
+// spans many files, so render per-file headers and derive the language per path.
+export async function showStash(ref, message) {
+  const r = await window.api.gitStashShow(ref);
+  setDiffTitle(message || ref);
+  renderDiff(r.stdout || r.stderr || '(no changes)', null, true);
+  showDiffContainer();
+}
+
 function fileHeaderRow(name) {
   const row = document.createElement('div');
   row.className = 'diff-row file';

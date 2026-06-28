@@ -63,6 +63,20 @@ function filterCommits(commits, query) {
   });
 }
 
+// Parse `git stash list --pretty=format:%gd%x1f%s%x1f%cr` stdout. Fields are
+// unit-separator (\x1f) delimited, one stash per line. `%gd` is the selector
+// (stash@{N}) used to apply/pop/drop a specific stash; `%s` is its message (git's
+// default "WIP on <branch>: …" unless the user named it); `%cr` a relative date.
+function parseStashList(stdout) {
+  const stashes = [];
+  for (const line of stdout.split('\n')) {
+    if (!line) continue;
+    const [ref, message, relDate] = line.split('\x1f');
+    stashes.push({ ref, message, relDate });
+  }
+  return stashes;
+}
+
 // Sum `git diff --numstat` output into a per-diff total. Each line is
 // "<added>\t<deleted>\t<path>"; a binary file reports "-\t-" (no line counts),
 // but it is still a changed file, so it counts toward `files` while contributing
@@ -98,4 +112,4 @@ function pushNeedsMerge(stderr) {
   return /fetch first|updates were rejected|non-fast-forward|behind its remote|tip of your current branch is behind/i.test(stderr || '');
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, filterCommits, sumNumstat, pullNeedsMerge, pushNeedsMerge };
+module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge };

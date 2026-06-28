@@ -1,4 +1,4 @@
-import { openGitFile, openCommit } from './viewer/center.js';
+import { openGitFile, openCommit, openStash } from './viewer/center.js';
 import { statusLabel } from './shared/git-status.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { confirmDialog } from './shared/confirm.js';
@@ -90,6 +90,7 @@ function gitItem(file, status, staged, action, label) {
 }
 
 export async function refreshGit() {
+  refreshStashes(); // independent of working-tree status; runs even when not in a repo
   const r = await window.api.gitStatus();
   if (r.repo) window.api.setWindowTitle(r.repo);
   stagedEl.innerHTML = '';
@@ -294,6 +295,107 @@ export async function refreshHistory() {
   allCommits = r.ok ? r.commits : [];
   renderHistory();
 }
+
+// --- stashes (a section in the Changes view, shown only when stashes exist,
+// mirroring the Conflicts section) ---
+const stashesSection = document.getElementById('stashes-section');
+const stashListEl = document.getElementById('stash-list');
+
+// copy icon — apply a stash but keep it in the list
+const STASH_APPLY_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>';
+// download icon — pop a stash (apply it, then drop it)
+const STASH_POP_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>';
+// trash icon — drop a stash (delete it without applying). Stroke is bumped to 3
+// (via the .git-revert rule) so it reads boldly at the 14px row size.
+const STASH_DROP_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
+
+// Run a stash op (apply/pop/drop), surface any git error, then refresh the pane —
+// each op changes either the working tree or the stash list, so a full refresh
+// re-renders the section and the file lists together.
+async function runStash(op, errTitle) {
+  const r = await op();
+  if (r && !r.ok) showGitErrorDialog(r.stderr || errTitle, errTitle);
+  refreshGit();
+}
+
+function stashItem(s) {
+  // Reuses the commit-row layout (.commit-main / subject / meta) since a stash
+  // reads the same way: a message line over a muted ref · date meta line.
+  const li = document.createElement('li');
+  li.className = 'stash-item';
+  li.onclick = () => openStash(s.ref, s.message);
+
+  const main = document.createElement('div');
+  main.className = 'commit-main';
+  const subject = document.createElement('div');
+  subject.className = 'commit-subject';
+  subject.textContent = s.message;
+  subject.title = s.message;
+  const meta = document.createElement('div');
+  meta.className = 'commit-meta';
+  meta.textContent = `${s.ref} · ${s.relDate}`;
+  main.append(subject, meta);
+
+  const apply = document.createElement('button');
+  apply.className = 'git-btn stash-act';
+  apply.innerHTML = STASH_APPLY_SVG;
+  apply.title = t('git.stashApplyTitle');
+  apply.onclick = (e) => { e.stopPropagation(); runStash(() => window.api.gitStashApply(s.ref), 'Apply failed'); };
+
+  const pop = document.createElement('button');
+  pop.className = 'git-btn stash-act';
+  pop.innerHTML = STASH_POP_SVG;
+  pop.title = t('git.stashPopTitle');
+  pop.onclick = (e) => { e.stopPropagation(); runStash(() => window.api.gitStashPop(s.ref), 'Pop failed'); };
+
+  // Dropping a stash is destructive and unrecoverable, so it keeps the same
+  // two-click armed pattern as the discard buttons (the .git-revert class drives
+  // the armed-red styling), but shows a trash icon since it deletes rather than reverts.
+  const drop = document.createElement('button');
+  drop.className = 'git-btn git-revert';
+  drop.innerHTML = STASH_DROP_SVG;
+  drop.title = t('git.stashDropTitle');
+  drop.onclick = (e) => {
+    e.stopPropagation();
+    if (!drop.classList.contains('armed')) {
+      drop.classList.add('armed');
+      li.classList.add('warn');
+      drop.title = t('armHint.dropStash');
+      showArmHint(drop);
+      return;
+    }
+    hideArmHint();
+    runStash(() => window.api.gitStashDrop(s.ref), 'Drop failed');
+  };
+
+  li.append(main, apply, pop, drop);
+  return li;
+}
+
+// Re-render the stash rows only when the set actually changed. The poll/focus
+// paths call this every few seconds; rebuilding the DOM each time would wipe a
+// hovered row's effects and disarm a half-clicked Drop button. The signature is
+// the stash identities (ref + message) — NOT the relative date, so a cosmetic
+// "2 hours ago" → "3 hours ago" tick doesn't force a pointless redraw.
+let lastStashSig = null;
+async function refreshStashes() {
+  const r = await window.api.gitStashList();
+  const stashes = r.ok ? r.stashes : [];
+  const sig = stashes.map((s) => s.ref + '\x1f' + s.message).join('\n');
+  if (sig === lastStashSig) return;
+  lastStashSig = sig;
+  stashListEl.innerHTML = '';
+  stashesSection.hidden = !stashes.length;
+  for (const s of stashes) stashListEl.appendChild(stashItem(s));
+}
+
+// "Stash" button in the Changes header: set the whole working tree aside.
+document.getElementById('git-stash-create').onclick = async () => {
+  const r = await window.api.gitStashPush();
+  const noChanges = /no local changes/i.test((r.stdout || '') + (r.stderr || ''));
+  showGitMsg(r.ok ? (noChanges ? 'Nothing to stash' : 'Changes stashed') : (r.stderr || 'Stash failed'), r.ok && !noChanges);
+  refreshGit();
+};
 
 // --- branch selector ---
 // The header shows the current branch; clicking it opens a searchable popover of

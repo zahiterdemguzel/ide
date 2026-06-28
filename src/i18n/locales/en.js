@@ -76,6 +76,11 @@ export default {
     'git.unpushedTitle': 'Not pushed to the remote yet',
     'git.revertCommitTitle': 'Revert this commit (adds a new undo commit)',
     'git.undoCommitTitle': 'Undo this commit (not pushed yet)',
+    'git.stashes': 'Stashes',
+    'git.stashChangesTitle': 'Stash all changes',
+    'git.stashApplyTitle': 'Apply this stash (keep it)',
+    'git.stashPopTitle': 'Pop this stash (apply and remove)',
+    'git.stashDropTitle': 'Drop this stash',
 
     'armHint.clickAgain': 'Click again\nto approve',
     'armHint.discard': "Click again to discard — this can't be undone",
@@ -85,6 +90,7 @@ export default {
     'armHint.revertSession': "Click again to revert this session's changes",
     'armHint.terminate': 'Click again to close this browser',
     'armHint.deleteSession': 'Click again to delete this session permanently',
+    'armHint.dropStash': 'Click again to drop this stash',
 
     'session.revert': 'Revert',
     'session.revertTitle': "Revert only this session's changes",

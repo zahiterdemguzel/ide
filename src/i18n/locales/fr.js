@@ -75,6 +75,11 @@ export default {
     'git.unpushedTitle': 'Pas encore poussé vers le dépôt distant',
     'git.revertCommitTitle': 'Annuler ce commit (ajoute un nouveau commit d’annulation)',
     'git.undoCommitTitle': 'Défaire ce commit (pas encore poussé)',
+    'git.stashes': 'Remises',
+    'git.stashChangesTitle': 'Remiser toutes les modifications',
+    'git.stashApplyTitle': 'Appliquer cette remise (la conserver)',
+    'git.stashPopTitle': 'Dépiler cette remise (appliquer et supprimer)',
+    'git.stashDropTitle': 'Supprimer cette remise',
 
     'armHint.clickAgain': 'Cliquez encore\npour confirmer',
     'armHint.discard': 'Cliquez à nouveau pour abandonner — irréversible',
@@ -84,6 +89,7 @@ export default {
     'armHint.revertSession': 'Cliquez à nouveau pour annuler les modifications de cette session',
     'armHint.terminate': 'Cliquez à nouveau pour fermer ce navigateur',
     'armHint.deleteSession': 'Cliquez à nouveau pour supprimer définitivement cette session',
+    'armHint.dropStash': 'Cliquez à nouveau pour supprimer cette remise',
 
     'session.revert': 'Rétablir',
     'session.revertTitle': 'Rétablir uniquement les modifications de cette session',

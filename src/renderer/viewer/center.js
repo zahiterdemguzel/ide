@@ -1,6 +1,6 @@
 import { IMG_EXT, AUDIO_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
-import { showDiff, showCommit } from './diff.js';
+import { showDiff, showCommit, showStash } from './diff.js';
 import { showFile } from './file.js';
 import { showAsset, hideAsset } from './asset/index.js';
 import { showWeb as showWebView, openWeb as openWebView, hideWeb, terminateWeb, isWebOpen } from './web.js';
@@ -49,6 +49,9 @@ export function openGitFile(file, status, staged) {
 
 // Open a historical commit's patch (History tab) in the diff overlay.
 export function openCommit(hash, subject) { clearCenter(); showCommit(hash, subject); }
+
+// Open a stash's patch (Stashes section) in the diff overlay.
+export function openStash(ref, message) { clearCenter(); showStash(ref, message); }
 
 export function showWeb(url) { clearCenter(); showWebView(url); }
 
