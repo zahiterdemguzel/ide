@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="src/styles/explorer.css" />
   <link rel="stylesheet" href="src/styles/diff.css" />
   <link rel="stylesheet" href="src/styles/asset.css" />
+  <link rel="stylesheet" href="src/styles/sheet.css" />
   <link rel="stylesheet" href="src/styles/web.css" />
   <link rel="stylesheet" href="src/styles/git.css" />
   <link rel="stylesheet" href="src/styles/console.css" />
@@ -156,6 +157,37 @@
             <button id="asset-close" title="Close">×</button>
           </div>
           <div id="asset-body"></div>
+        </div>
+        <div id="sheet-view">
+          <div id="sheet-head">
+            <span id="sheet-file"></span>
+            <div id="sheet-tools">
+              <input id="sheet-name-box" type="text" spellcheck="false" autocomplete="off"
+                     data-i18n-title="sheet.nameBox" title="Active cell — type an address to jump" />
+              <input id="sheet-formula-box" type="text" spellcheck="false" autocomplete="off"
+                     data-i18n-placeholder="sheet.formulaBar" placeholder="Cell value or formula" />
+              <span id="sheet-fmt-tools">
+                <button id="sheet-bold" data-i18n-title="sheet.bold" title="Bold"><b>B</b></button>
+                <button id="sheet-italic" data-i18n-title="sheet.italic" title="Italic"><i>I</i></button>
+                <select id="sheet-numfmt" data-i18n-title="sheet.numberFormat" title="Number format">
+                  <option value="">General</option>
+                  <option value="0">1234</option>
+                  <option value="0.00">1234.00</option>
+                  <option value="#,##0">1,234</option>
+                  <option value="#,##0.00">1,234.00</option>
+                  <option value="0%">12%</option>
+                  <option value="0.00%">12.34%</option>
+                  <option value="$#,##0.00">$1,234.00</option>
+                  <option value="yyyy-mm-dd">Date</option>
+                </select>
+              </span>
+              <button id="sheet-save" data-i18n-title="sheet.save" title="Save (Ctrl+S)" hidden>Save</button>
+              <button id="sheet-open-ext" data-i18n-title="sheet.openExternal" title="Open externally">↗</button>
+            </div>
+            <button id="sheet-close" title="Close">×</button>
+          </div>
+          <div id="sheet-body"></div>
+          <div id="sheet-tabs"></div>
         </div>
         <div id="web-view">
           <div id="web-head">
@@ -296,7 +328,8 @@
     {
       "imports": {
         "three": "./node_modules/three/build/three.module.js",
-        "three/addons/": "./node_modules/three/examples/jsm/"
+        "three/addons/": "./node_modules/three/examples/jsm/",
+        "xlsx": "./node_modules/xlsx/xlsx.mjs"
       }
     }
   </script>

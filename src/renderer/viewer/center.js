@@ -1,8 +1,9 @@
-import { IMG_EXT, AUDIO_EXT, MODEL_EXT, extOf } from '../shared/ext.js';
+import { IMG_EXT, AUDIO_EXT, MODEL_EXT, SHEET_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
 import { showDiff, showCommit, showStash } from './diff.js';
 import { showFile } from './file.js';
 import { showAsset, hideAsset } from './asset/index.js';
+import { showSheet, hideSheet } from './sheet/index.js';
 import { showWeb as showWebView, openWeb as openWebView, hideWeb, terminateWeb, isWebOpen } from './web.js';
 import { showArmHint, hideArmHint } from '../shared/arm-hint.js';
 
@@ -17,7 +18,7 @@ import { showArmHint, hideArmHint } from '../shared/arm-hint.js';
 const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
 
-export function hideAllOverlays() { hideDiff(); hideAsset(); hideWeb(); }
+export function hideAllOverlays() { hideDiff(); hideAsset(); hideSheet(); hideWeb(); }
 
 // Hide the per-session terminal containers via the DOM (no import of sessions).
 // The session bar (commit/revert) belongs to the terminal view, so hide it too —
@@ -36,6 +37,7 @@ export function openFromTree(file, jump) {
   clearCenter();
   const ext = extOf(file);
   if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext)) showAsset(file, ext);
+  else if (SHEET_EXT.has(ext)) showSheet(file, ext);
   else showFile(file, jump);
 }
 
@@ -77,6 +79,7 @@ export function closeOverlay() {
 
 document.getElementById('diff-close').onclick = closeOverlay;
 document.getElementById('asset-close').onclick = closeOverlay;
+document.getElementById('sheet-close').onclick = closeOverlay;
 document.getElementById('web-close').onclick = closeOverlay;
 document.getElementById('browser-btn').onclick = toggleWeb;
 

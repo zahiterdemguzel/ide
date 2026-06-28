@@ -9,6 +9,8 @@ export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg
 export const AUDIO_EXT = new Set(['wav', 'ogg', 'mp3']);
 // 3D model formats the three.js viewer can render (one loader per extension).
 export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']);
+// Tabular formats the spreadsheet viewer opens (CSV + the Excel workbook formats).
+export const SHEET_EXT = new Set(['csv', 'tsv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods']);
 
 // Filename color by extension. Languages use GitHub Linguist's colors (the dots
 // on every repo) so they match what people already recognize; a few are bumped
@@ -30,6 +32,8 @@ const FILE_COLORS = {
   usdz: '#ff7043', stl: '#ff7043', ply: '#ff7043',
   ini: '#9e9e9e', env: '#9e9e9e', conf: '#9e9e9e', cfg: '#9e9e9e',
   zip: '#bcaaa4', tar: '#bcaaa4', gz: '#bcaaa4', rar: '#bcaaa4', '7z': '#bcaaa4',
-  txt: '#bdbdbd', pdf: '#e57373', csv: '#66bb6a', sql: '#e8a33d',
+  txt: '#bdbdbd', pdf: '#e57373', sql: '#e8a33d',
+  csv: '#66bb6a', tsv: '#66bb6a', xlsx: '#3fa873', xls: '#3fa873',
+  xlsm: '#3fa873', xlsb: '#3fa873', ods: '#3fa873',
 };
 export function fileColor(name) { return FILE_COLORS[extOf(name)] || 'var(--fg)'; }

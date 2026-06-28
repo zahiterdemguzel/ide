@@ -1,0 +1,97 @@
+/* spreadsheet viewer (CSV / XLSX): formula-bar head, scrollable cell grid, and
+   a sheet-tab strip — mirrors the asset/diff overlay layout (absolute inset:0). */
+#sheet-view { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); }
+
+#sheet-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+}
+#sheet-file { font-family: Consolas, monospace; font-size: 12px; color: var(--fg); flex: none; max-width: 24%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#sheet-tools { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+#sheet-name-box {
+  flex: none; width: 72px; font-family: Consolas, monospace; font-size: 12px; text-align: center;
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 3px 4px;
+}
+#sheet-formula-box {
+  flex: 1; min-width: 0; font-family: Consolas, monospace; font-size: 12px;
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px;
+}
+#sheet-formula-box:focus, #sheet-name-box:focus { outline: none; border-color: var(--accent); }
+
+#sheet-fmt-tools { display: flex; align-items: center; gap: 4px; flex: none; }
+#sheet-fmt-tools button, #sheet-save, #sheet-open-ext {
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 3px; padding: 3px 8px; cursor: pointer; font-size: 12px; line-height: 1.4;
+}
+#sheet-fmt-tools button { min-width: 26px; }
+#sheet-fmt-tools button:hover, #sheet-save:hover, #sheet-open-ext:hover { border-color: var(--accent); }
+#sheet-fmt-tools button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#sheet-numfmt { background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; font-size: 12px; padding: 3px 4px; cursor: pointer; }
+#sheet-save.dirty { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#sheet-save:disabled { opacity: 0.45; cursor: default; }
+#sheet-close { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1; flex: none; }
+#sheet-close:hover { color: var(--fg); }
+
+#sheet-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.sheet-loading, .sheet-error { padding: 16px; font-size: 12px; color: var(--fg-dim); }
+.sheet-error { color: var(--red, #e06c75); white-space: pre-wrap; }
+.sheet-trunc-note {
+  position: sticky; bottom: 0; left: 0;
+  padding: 4px 10px; font-size: 11px; color: var(--fg-dim);
+  background: var(--bg-2); border-top: 1px solid var(--border);
+}
+
+/* the grid: a table with a sticky header row and sticky row-number column. Fixed
+   layout so <col> widths are honored and rendering stays fast on big sheets. */
+.sheet-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 12px; font-family: Consolas, monospace; }
+.sheet-table th, .sheet-table td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+.sheet-colhead, .sheet-rowhead, .sheet-corner {
+  background: var(--bg-2); color: var(--fg-dim); text-align: center; font-weight: normal;
+  user-select: none; position: sticky; z-index: 1;
+}
+.sheet-colhead { top: 0; height: 22px; }
+.sheet-rowhead { left: 0; min-width: 42px; width: 42px; }
+.sheet-corner { top: 0; left: 0; z-index: 3; width: 42px; }
+.sheet-colhead { z-index: 2; }
+.sheet-colhead.hl, .sheet-rowhead.hl { background: var(--accent); color: var(--on-accent); }
+
+.sheet-cell {
+  height: 22px; padding: 1px 5px; color: var(--fg); background: var(--bg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: cell;
+  max-width: 0; /* let table-layout:fixed clip overflow instead of stretching */
+}
+.sheet-cell.sel { background: color-mix(in srgb, var(--accent) 22%, var(--bg)); }
+.sheet-cell.active { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--bg); }
+.sheet-cell-err { color: var(--red, #e06c75); }
+
+/* the in-cell editor: an input that fills the focused cell during editing */
+.sheet-editor {
+  width: 100%; height: 100%; box-sizing: border-box; border: none; outline: none;
+  font-family: Consolas, monospace; font-size: 12px; padding: 0 4px;
+  background: var(--bg); color: var(--fg);
+}
+
+/* sheet tabs along the bottom, like Excel */
+#sheet-tabs {
+  display: flex; align-items: stretch; gap: 2px; flex: none;
+  padding: 0 6px; background: var(--bg-2); border-top: 1px solid var(--border); overflow-x: auto;
+}
+.sheet-tab {
+  background: none; border: none; border-top: 2px solid transparent;
+  color: var(--fg-dim); cursor: pointer; font-size: 12px; padding: 5px 12px; white-space: nowrap;
+}
+.sheet-tab:hover { color: var(--fg); }
+.sheet-tab.active { color: var(--fg); border-top-color: var(--accent); background: var(--bg); }
+
+/* right-click context menu (insert / delete rows & columns) */
+.sheet-menu {
+  position: fixed; z-index: 50; min-width: 168px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); padding: 4px 0;
+}
+.sheet-menu button {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  color: var(--fg); font-size: 12px; padding: 5px 12px; cursor: pointer;
+}
+.sheet-menu button:hover { background: var(--accent); color: var(--on-accent); }
