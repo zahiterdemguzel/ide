@@ -6,14 +6,20 @@
 // watermark, the status dots). The chosen sound persists in localStorage.
 
 const STORE_SOUND = 'ide.notifySound';
+// Legacy on/off flag. The completion sound used to have a separate toggle; it's
+// now the "None" entry in the picker. A stored "off" still resolves to silence.
 const STORE_SOUND_ENABLED = 'ide.notifySoundEnabled';
 
-// The four selectable sounds. Each `notes` entry is one oscillator voice:
+// The selectable sounds. Each `notes` entry is one oscillator voice:
 // { f: frequency Hz, t: start offset s, d: duration s, type, g: peak gain }.
 // playTones() schedules them with a short attack + exponential decay so they read
 // as a pluck/bell rather than a flat beep. `name` drives the settings combobox
-// (kept plain like the theme names, which also aren't translated).
+// (kept plain like the theme names, which also aren't translated) — except the
+// "None" sentinel, whose label is translated in settings.js. "None" has no notes,
+// so playNotification('none') schedules nothing: it's a silent no-op, which is how
+// the picker mutes the completion chime without a separate toggle.
 export const SOUNDS = [
+  { id: 'none', name: 'None', notes: [] },
   {
     id: 'chime',
     name: 'Chime',
@@ -52,22 +58,17 @@ export const SOUNDS = [
 const DEFAULT_SOUND = 'chime';
 
 export function getSound() {
+  // Honour the legacy off-toggle: a previously muted chime maps to "None".
+  if (localStorage.getItem(STORE_SOUND_ENABLED) === 'false') return 'none';
   const id = localStorage.getItem(STORE_SOUND);
   return SOUNDS.some((s) => s.id === id) ? id : DEFAULT_SOUND;
 }
 
 export function setSound(id) {
-  if (SOUNDS.some((s) => s.id === id)) localStorage.setItem(STORE_SOUND, id);
-}
-
-// Whether the completion chime plays. The finish *animation* is unconditional —
-// only the sound is gated here. Defaults on; persists in localStorage.
-export function isSoundEnabled() {
-  return localStorage.getItem(STORE_SOUND_ENABLED) !== 'false';
-}
-
-export function setSoundEnabled(on) {
-  localStorage.setItem(STORE_SOUND_ENABLED, on ? 'true' : 'false');
+  if (!SOUNDS.some((s) => s.id === id)) return;
+  localStorage.setItem(STORE_SOUND, id);
+  // The picker now owns on/off, so drop the stale legacy flag once the user picks.
+  localStorage.removeItem(STORE_SOUND_ENABLED);
 }
 
 // Pure trigger test, unit-tested: the chime+animation fire only when a session that

@@ -3,11 +3,11 @@
 // either; the rest of the app reads nothing here — theme flows through CSS
 // custom properties and language through data-i18n attributes.
 import {
-  availableLocales, currentLocale, setLocale, applyTranslations, pickLocale,
+  availableLocales, currentLocale, setLocale, applyTranslations, pickLocale, t,
 } from '../i18n/index.js';
 import { refreshTermThemes } from './shared/terminal.js';
 import {
-  SOUNDS, getSound, setSound, playNotification, isSoundEnabled, setSoundEnabled,
+  SOUNDS, getSound, setSound, playNotification,
 } from './shared/notify.js';
 import { isSessionDiffBadgeEnabled, setSessionDiffBadge } from './sessions.js';
 
@@ -119,7 +119,6 @@ export function initSettings() {
   const langSel = document.getElementById('settings-language');
   const themeSel = document.getElementById('settings-theme');
   const soundSel = document.getElementById('settings-sound');
-  const soundEnabledBox = document.getElementById('settings-sound-enabled');
   const sessionDiffBox = document.getElementById('settings-session-diff');
   const statusLineBox = document.getElementById('settings-statusline');
   const modelSel = document.getElementById('settings-model');
@@ -135,16 +134,10 @@ export function initSettings() {
     applyTheme(themeSel.value);
   };
   // Persist the choice and immediately preview it, so picking a sound plays it.
+  // "None" persists too and previews as silence (its empty notes play nothing).
   soundSel.onchange = () => {
     setSound(soundSel.value);
     playNotification(soundSel.value);
-  };
-  // The completion chime is opt-out; the finish animation is unaffected. Greying
-  // the sound picker out makes it clear it does nothing while the chime is off.
-  soundEnabledBox.onchange = () => {
-    setSoundEnabled(soundEnabledBox.checked);
-    soundSel.disabled = !soundEnabledBox.checked;
-    if (soundEnabledBox.checked) playNotification();
   };
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
   statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
@@ -166,14 +159,15 @@ export function initSettings() {
     );
     fillSelect(
       soundSel,
-      SOUNDS.map((s) => ({ value: s.id, label: s.name })),
+      SOUNDS.map((s) => ({
+        value: s.id,
+        label: s.id === 'none' ? t('settings.soundNone') : s.name,
+      })),
       getSound(),
     );
     const modelOpts = MODELS.map((m) => ({ value: m.id, label: m.name }));
     fillSelect(modelSel, modelOpts, getSessionModel());
     fillSelect(subagentSel, modelOpts, getSubagentModel());
-    soundEnabledBox.checked = isSoundEnabled();
-    soundSel.disabled = !isSoundEnabled();
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
     dialog.showModal();

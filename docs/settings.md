@@ -10,15 +10,25 @@ restarts.
 
 The **Notification sound** combobox (`#settings-sound`) picks the chime that
 plays when a session finishes (working → completed; see
-[status-detection.md](status-detection.md#finish-notification)). The four sounds
-are the `SOUNDS` registry in `src/renderer/shared/notify.js` — synthesized with
-the Web Audio API, so there's no binary asset and they work offline. `settings.js`
+[status-detection.md](status-detection.md#finish-notification)). The sounds are
+the `SOUNDS` registry in `src/renderer/shared/notify.js` — synthesized with the
+Web Audio API, so there's no binary asset and they work offline. `settings.js`
 fills the dropdown from `SOUNDS` (showing `getSound()` as selected), and on change
 persists the id via `setSound()` (`localStorage` `ide.notifySound`, default
 `chime`) and **previews it immediately** with `playNotification(id)`. The rest of
 the app reaches the chosen sound only through `playNotification()` — nothing else
 reads the setting. Add a sound by appending an entry to `SOUNDS` (id + display
 name + oscillator voices); the dropdown and the test pick it up automatically.
+
+**Muting.** The first entry, **None** (`id: 'none'`), is the mute option — there
+is no separate on/off toggle. It carries empty `notes`, so selecting it (and the
+finish chime that reads it) plays nothing: `playNotification('none')` is a silent
+no-op. Its label is the only `SOUNDS` name that's translated (`settings.soundNone`),
+since "None" is a word, not a product name; `settings.js` substitutes the
+translation when filling the dropdown. For backward compatibility `getSound()`
+maps the old mute flag (`localStorage` `ide.notifySoundEnabled === 'false'`, from
+the former Completion-sound toggle) to `none`; `setSound()` clears that stale flag
+once the user picks anything.
 
 ## Agent models
 
@@ -64,12 +74,6 @@ was created with. Live sessions are never retargeted — the defaults only affec
 The **General** group (same frameless switch rows as Panels) holds standalone
 on/off toggles wired in `src/renderer/settings.js`:
 
-- **Completion sound** (`#settings-sound-enabled`, default **on**) gates only the
-  finish *chime*; the finish row/dot animation always plays. `notify.js` owns the
-  flag (`localStorage` `ide.notifySoundEnabled`) via `isSoundEnabled()` /
-  `setSoundEnabled()`, and `celebrateFinish()` in `sessions.js` calls
-  `playNotification()` only when it's on. Turning it off also greys out the sound
-  combobox (it does nothing while muted); turning it on previews the chime.
 - **Diff stats on sessions** (`#settings-session-diff`, default **off**) shows a
   per-row `+added -removed` badge in the sessions list (the same numbers as the
   session bar's Diff button). `sessions.js` owns the flag (`localStorage`

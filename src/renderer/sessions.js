@@ -7,7 +7,7 @@ import { confirmDialog } from './shared/confirm.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude } from './claude-setup.js';
-import { isCompletionTransition, playNotification, isSoundEnabled } from './shared/notify.js';
+import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { MODELS, getSessionModel, getSubagentModel } from './settings.js';
 import { t } from '../i18n/index.js';
 
@@ -101,8 +101,9 @@ function celebrateFinish(s) {
     s.li.classList.remove('just-finished');
     s.dot.classList.remove('just-finished');
   }, 1300);
-  // The animation always plays; the chime is opt-out via settings.
-  if (isSoundEnabled()) playNotification();
+  // The animation always plays; the chime is the user's chosen sound, and is
+  // silent when they've picked "None" in settings.
+  playNotification();
 }
 
 export function selectSession(id) {
