@@ -1,6 +1,0 @@
-# The CSP in index.html whitelists its inline import map (the 3D model viewer's
-# three.js loader) by a SHA-256 hash of the script's exact bytes. A CRLF checkout
-# (Windows core.autocrlf=true) would change those bytes and silently break the
-# hash, blocking the import map. Pin index.html to LF so the hash holds on every
-# platform.
-index.html text eol=lf
