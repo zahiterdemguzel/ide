@@ -8,6 +8,7 @@ import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude } from './claude-setup.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
+import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { MODELS, getSessionModel, getSubagentModel } from './settings.js';
 import { t } from '../i18n/index.js';
 
@@ -20,6 +21,10 @@ export const getActiveId = () => activeId;
 // Which sessions the list shows: 'active' (default) hides archived, 'archived'
 // shows only archived, 'all' shows everything.
 let currentTab = 'active';
+
+// Compiled query terms for the Archived-tab search bar (empty = no filter). The
+// matching mirrors the explorer's filename search (shared/name-match.js).
+let archivedTerms = [];
 
 // Sessions are scoped to the project folder they were created in: only the open
 // folder's sessions are shown. Switching folders (setSessionsRepo) re-filters the
@@ -40,6 +45,7 @@ export function setSessionDiffBadge(on) {
 
 const listEl = document.getElementById('session-list');
 const sessionTabs = document.getElementById('session-tabs');
+const sessionSearch = document.getElementById('session-search');
 const hostEl = document.getElementById('terminal-host');
 const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
@@ -144,9 +150,18 @@ function sessionInTab(s) {
 // A row is shown only when it both belongs to the open project and matches the
 // active tab. currentRepo is null until restoreSessions resolves the open folder;
 // treat that startup window as "no filter yet" so nothing is hidden prematurely.
+// A session's searchable text: its generated title plus its first prompt — the
+// same identity a sidebar row shows, so a query matches what the user reads.
+function sessionHaystack(s) {
+  return `${s.name || ''} ${s.firstPrompt || ''}`;
+}
+
 function sessionVisible(s) {
   if (currentRepo !== null && s.repo !== currentRepo) return false;
-  return sessionInTab(s);
+  if (!sessionInTab(s)) return false;
+  // The search bar only filters the Archived tab (where it's shown).
+  if (currentTab === 'archived' && archivedTerms.length) return matchesTerms(archivedTerms, sessionHaystack(s));
+  return true;
 }
 
 // Show/hide rows for the current tab + project and keep each row's archived
@@ -177,6 +192,10 @@ function selectFirstVisible() {
 function setTab(tab) {
   currentTab = tab;
   for (const btn of sessionTabs.children) btn.classList.toggle('active', btn.dataset.tab === tab);
+  // The search bar lives on the Archived tab only; leaving it clears the filter.
+  const onArchived = tab === 'archived';
+  sessionSearch.hidden = !onArchived;
+  if (!onArchived && archivedTerms.length) { sessionSearch.value = ''; archivedTerms = []; }
   applyTabFilter();
   // The selected session may not belong to the new tab anymore.
   const s = sessions.get(activeId);
@@ -720,6 +739,18 @@ document.getElementById('session-model-create').onclick = () => {
 };
 
 for (const btn of sessionTabs.children) btn.onclick = () => setTab(btn.dataset.tab);
+
+// Archived-tab search: debounced like the explorer's file search (150ms), then
+// re-run the tab filter so non-matching archived rows hide. Selection is left
+// alone while typing — the filter is transient and non-destructive.
+let sessionSearchTimer;
+sessionSearch.oninput = () => {
+  clearTimeout(sessionSearchTimer);
+  sessionSearchTimer = setTimeout(() => {
+    archivedTerms = compileQuery(sessionSearch.value);
+    applyTabFilter();
+  }, 150);
+};
 
 // Accept file drops into the active session. Two sources:
 //   - the explorer tree, which puts an "@<rel>" mention on text/plain;

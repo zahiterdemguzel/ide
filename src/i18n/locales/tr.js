@@ -10,6 +10,7 @@ export default {
     'sessions.tab.active': 'Etkin',
     'sessions.tab.archived': 'Arşivlenmiş',
     'sessions.tab.all': 'Tümü',
+    'sessions.search': 'Arşivde ara…',
     'sessions.new': 'Yeni oturum',
     'sessions.newWithModel': 'Seçili modelle yeni oturum',
     'sessions.modelDialogTitle': 'Yeni oturum',

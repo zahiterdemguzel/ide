@@ -11,6 +11,7 @@ export default {
     'sessions.tab.active': 'Active',
     'sessions.tab.archived': 'Archived',
     'sessions.tab.all': 'All',
+    'sessions.search': 'Search archived…',
     'sessions.new': 'New session',
     'sessions.newWithModel': 'New session with a chosen model',
     'sessions.modelDialogTitle': 'New session',

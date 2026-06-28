@@ -10,6 +10,7 @@ export default {
     'sessions.tab.active': 'Actives',
     'sessions.tab.archived': 'Archivées',
     'sessions.tab.all': 'Toutes',
+    'sessions.search': 'Rechercher dans les archives…',
     'sessions.new': 'Nouvelle session',
     'sessions.newWithModel': 'Nouvelle session avec un modèle choisi',
     'sessions.modelDialogTitle': 'Nouvelle session',
