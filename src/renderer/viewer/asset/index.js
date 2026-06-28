@@ -1,9 +1,10 @@
-import { AUDIO_EXT } from '../../shared/ext.js';
+import { AUDIO_EXT, MODEL_EXT } from '../../shared/ext.js';
 import { renderAudio } from './audio.js';
 import { renderZoom } from './zoom.js';
 import { renderPixelEditor } from './pixel-editor.js';
+import { assetBtn } from './ui.js';
 
-// --- asset view: image zoom / pixel editor / audio waveform ---
+// --- asset view: image zoom / pixel editor / audio waveform / 3D model ---
 // Dispatches by file type. Peer overlays / session terminals are hidden by the
 // center coordinator before showAsset runs.
 const assetView = document.getElementById('asset-view');
@@ -11,8 +12,9 @@ const assetBody = document.getElementById('asset-body');
 const assetTools = document.getElementById('asset-tools');
 const assetFile = document.getElementById('asset-file');
 
-// A sub-view (the pixel editor) can install a document-level listener; it
-// registers a teardown here so showing another asset / hiding the view removes it.
+// A sub-view (the pixel editor, the 3D viewer) can install a document-level
+// listener or an animation loop; it registers a teardown here so showing another
+// asset / hiding the view removes it.
 let activeCleanup = null;
 function runCleanup() { if (activeCleanup) { activeCleanup(); activeCleanup = null; } }
 const registerCleanup = (fn) => { activeCleanup = fn; };
@@ -27,8 +29,30 @@ export async function showAsset(file, ext) {
   assetBody.innerHTML = '';
   assetView.style.display = 'flex';
 
+  // "Open externally" is useful for every asset type — hand the file to the OS's
+  // default program (a .glb in the system 3D viewer, an image in the photo app).
+  const openExt = assetBtn('Open externally', async () => {
+    const r = await window.api.openAssetExternal(file);
+    if (r && r.ok === false && r.error) { openExt.textContent = 'Open failed'; }
+  });
+  openExt.title = "Open in the OS's default program for this file type";
+  assetTools.appendChild(openExt);
+
   const r = await window.api.readAsset(file);
   if (!r.ok) { assetBody.textContent = r.error || 'Could not read file'; return; }
+
+  if (MODEL_EXT.has(ext)) {
+    // Loaded on demand so three.js (a large dependency) never costs app startup.
+    // Guarded so a load/parse failure shows a message instead of a blank pane.
+    try {
+      const { renderModel } = await import('./model.js');
+      renderModel(r.base64, ext, assetBody, assetTools, registerCleanup);
+    } catch (e) {
+      assetBody.textContent = 'Could not open 3D model: ' + (e && e.message ? e.message : e);
+    }
+    return;
+  }
+
   const dataUrl = `data:${r.mime};base64,${r.base64}`;
 
   if (AUDIO_EXT.has(ext)) { renderAudio(dataUrl, r.base64, assetBody, registerCleanup); return; }

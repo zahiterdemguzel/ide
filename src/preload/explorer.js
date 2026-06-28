@@ -26,6 +26,8 @@ module.exports = {
   renameFile: (oldRel, newRel) => ipcRenderer.invoke('rename-file', oldRel, newRel),
   deleteFile: (rel) => ipcRenderer.invoke('delete-file', rel),
   revealInFolder: (rel) => ipcRenderer.invoke('reveal-in-folder', rel),
+  // Open a repo-relative asset in the OS default program for its file type.
+  openAssetExternal: (rel) => ipcRenderer.invoke('open-asset-external', rel),
   readAsset: (file) => ipcRenderer.invoke('read-asset', file),
   writeAsset: (file, base64) => ipcRenderer.invoke('write-asset', { file, base64 }),
   // Fired (debounced in main) whenever the open repo changes on disk, so the tree

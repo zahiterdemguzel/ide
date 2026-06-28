@@ -3,9 +3,12 @@
 
 export function extOf(file) { const m = /\.([^.]+)$/.exec(file); return m ? m[1].toLowerCase() : ''; }
 
-// Images/audio open the asset viewer; everything else gets the text diff/viewer.
+// Images/audio/3D-models open the asset viewer; everything else gets the text
+// diff/viewer.
 export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg']);
 export const AUDIO_EXT = new Set(['wav', 'ogg', 'mp3']);
+// 3D model formats the three.js viewer can render (one loader per extension).
+export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']);
 
 // Filename color by extension. Languages use GitHub Linguist's colors (the dots
 // on every repo) so they match what people already recognize; a few are bumped
@@ -23,6 +26,8 @@ const FILE_COLORS = {
   png: '#26a69a', jpg: '#26a69a', jpeg: '#26a69a', gif: '#26a69a', bmp: '#26a69a',
   webp: '#26a69a', svg: '#26a69a', ico: '#26a69a',
   wav: '#ba68c8', ogg: '#ba68c8', mp3: '#ba68c8', mp4: '#ba68c8', mov: '#ba68c8',
+  glb: '#ff7043', gltf: '#ff7043', fbx: '#ff7043', obj: '#ff7043',
+  usdz: '#ff7043', stl: '#ff7043', ply: '#ff7043',
   ini: '#9e9e9e', env: '#9e9e9e', conf: '#9e9e9e', cfg: '#9e9e9e',
   zip: '#bcaaa4', tar: '#bcaaa4', gz: '#bcaaa4', rar: '#bcaaa4', '7z': '#bcaaa4',
   txt: '#bdbdbd', pdf: '#e57373', csv: '#66bb6a', sql: '#e8a33d',

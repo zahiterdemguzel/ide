@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extOf, fileColor, IMG_EXT, AUDIO_EXT } from '../src/renderer/shared/ext.js';
+import { extOf, fileColor, IMG_EXT, AUDIO_EXT, MODEL_EXT } from '../src/renderer/shared/ext.js';
 
 test('extOf: returns the lowercased extension after the last dot', () => {
   assert.equal(extOf('index.js'), 'js');
@@ -18,15 +18,24 @@ test('extOf: a leading dot is not treated as an extension', () => {
   assert.equal(extOf('.env'), 'env');
 });
 
-test('IMG_EXT / AUDIO_EXT cover the asset-viewer types', () => {
+test('IMG_EXT / AUDIO_EXT / MODEL_EXT cover the asset-viewer types', () => {
   for (const e of ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg']) assert.ok(IMG_EXT.has(e));
   for (const e of ['wav', 'ogg', 'mp3']) assert.ok(AUDIO_EXT.has(e));
+  for (const e of ['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']) assert.ok(MODEL_EXT.has(e));
+});
+
+test('the asset-viewer extension sets are disjoint (one routing per type)', () => {
+  const sets = [IMG_EXT, AUDIO_EXT, MODEL_EXT];
+  for (let i = 0; i < sets.length; i++)
+    for (let j = i + 1; j < sets.length; j++)
+      for (const e of sets[i]) assert.ok(!sets[j].has(e), `${e} is in two asset sets`);
 });
 
 test('fileColor: known extensions get their mapped colour', () => {
   assert.equal(fileColor('app.js'), '#f1e05a');
   assert.equal(fileColor('main.ts'), '#4a9eff');
   assert.equal(fileColor('logo.png'), '#26a69a');
+  assert.equal(fileColor('robot.glb'), '#ff7043');
 });
 
 test('fileColor: case-insensitive on the extension', () => {

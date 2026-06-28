@@ -1,4 +1,4 @@
-import { IMG_EXT, AUDIO_EXT, extOf } from '../shared/ext.js';
+import { IMG_EXT, AUDIO_EXT, MODEL_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
 import { showDiff, showCommit, showStash } from './diff.js';
 import { showFile } from './file.js';
@@ -30,20 +30,20 @@ function hideSessionViews() {
 
 function clearCenter() { hideAllOverlays(); hideSessionViews(); }
 
-// Route a file opened from the tree/search: images/audio → asset viewer,
-// everything else → read-only text view. `jump` (optional { line, term }).
+// Route a file opened from the tree/search: images/audio/3D-models → asset
+// viewer, everything else → read-only text view. `jump` (optional { line, term }).
 export function openFromTree(file, jump) {
   clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext)) showAsset(file, ext);
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext)) showAsset(file, ext);
   else showFile(file, jump);
 }
 
-// Route a clicked git row: images/audio → asset viewer, everything else → diff.
+// Route a clicked git row: images/audio/3D-models → asset viewer, else → diff.
 export function openGitFile(file, status, staged) {
   clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext)) showAsset(file, ext);
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext)) showAsset(file, ext);
   else showDiff(file, status, staged);
 }
 

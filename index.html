@@ -2,8 +2,13 @@
 <html>
 <head>
   <meta charset="utf-8" />
+  <!-- The 'nonce-…' in script-src whitelists the inline import map below (a strict
+       script-src 'self' would otherwise block it). A nonce (not a content hash) is
+       used on purpose: an editor reformatting the block or a CRLF checkout would
+       change its bytes and silently break a hash; the nonce is content-independent.
+       The matching nonce attribute is on the <script type="importmap"> tag. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self' data:" />
+    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-threejsimportmap'; img-src 'self' data: blob:; media-src 'self' data:; connect-src 'self' data: blob:" />
   <link rel="icon" href="assets/icon.png" />
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
   <link rel="stylesheet" href="node_modules/@highlightjs/cdn-assets/styles/vs2015.min.css" />
@@ -283,6 +288,18 @@
   <!-- dos (cmd/bat) and powershell aren't in the common bundle; self-register onto hljs -->
   <script src="node_modules/@highlightjs/cdn-assets/languages/dos.min.js"></script>
   <script src="node_modules/@highlightjs/cdn-assets/languages/powershell.min.js"></script>
+  <!-- Import map so three.js and its example loaders (the 3D asset viewer) resolve
+       their bare `three` / `three/addons/` specifiers from node_modules. Must come
+       before any module script that (transitively) imports them. The nonce matches
+       the CSP script-src above (see that comment for why a nonce, not a hash). -->
+  <script type="importmap" nonce="threejsimportmap">
+    {
+      "imports": {
+        "three": "./node_modules/three/build/three.module.js",
+        "three/addons/": "./node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
   <script type="module" src="src/renderer/index.js"></script>
   <dialog id="git-error-dialog">
     <h3 id="git-error-title">Push failed</h3>

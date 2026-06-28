@@ -8,11 +8,15 @@ const { shouldSkipDir, GREP_EXCLUDE_PATHSPECS } = require('./search-ignore');
 const { sendToRenderer } = require('./window');
 const { withClipboardRetry } = require('./clipboard-lib');
 
-// Extension → MIME for the asset viewer (image preview / pixel editor / audio).
+// Extension → MIME for the asset viewer (image preview / pixel editor / audio /
+// 3D model). The model MIMEs are only used to label the bytes; the three.js
+// loaders dispatch off the extension, not the MIME.
 const ASSET_MIME = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   bmp: 'image/bmp', webp: 'image/webp', svg: 'image/svg+xml',
   wav: 'audio/wav', ogg: 'audio/ogg', mp3: 'audio/mpeg',
+  glb: 'model/gltf-binary', gltf: 'model/gltf+json', fbx: 'application/octet-stream',
+  obj: 'text/plain', usdz: 'model/vnd.usdz+zip', stl: 'model/stl', ply: 'application/octet-stream',
 };
 
 // List one directory level for the file explorer (lazy: children fetched on
@@ -229,6 +233,21 @@ ipcMain.handle('delete-file', async (_e, rel) => {
     if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
     await shell.trashItem(abs);
     return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Open a repo-relative file in the OS's default program for its type — the asset
+// viewer's "Open externally" button (a .glb in the system 3D viewer, an image in
+// the default image app, …). Resolves the path against repoPath here so the
+// renderer never has to know the absolute path.
+ipcMain.handle('open-asset-external', async (_e, rel) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, rel);
+    const inside = path.relative(repoPath, abs);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
+    const err = await shell.openPath(abs);
+    return { ok: !err, error: err };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
