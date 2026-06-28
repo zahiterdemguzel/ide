@@ -340,6 +340,50 @@
 .branch-item.branch-create::before { content: '+ '; font-weight: 700; }
 .branch-empty { padding: 8px; font-size: 12px; color: var(--fg-dim); text-align: center; }
 .branch-empty[hidden] { display: none; }
+
+/* --- create-repository panel (non-git folder) --- */
+#git-create-repo { padding: 12px; overflow-y: auto; }
+#git-create-repo[hidden] { display: none; }
+.git-create-intro { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 14px; }
+.git-create-intro svg { flex: none; color: var(--accent); margin-top: 1px; }
+.git-create-title { font-size: 13px; font-weight: 600; color: var(--fg); }
+.git-create-sub { font-size: 12px; line-height: 1.45; color: var(--fg-dim); margin-top: 3px; }
+.git-create-label {
+  display: block; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--fg-dim); margin: 12px 0 5px;
+}
+.git-create-optional { font-weight: 400; text-transform: none; letter-spacing: 0; }
+.git-create-input {
+  display: block; width: 100%; box-sizing: border-box; resize: none;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 7px 8px; font-family: inherit; font-size: 13px; line-height: 1.4;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+textarea.git-create-input { font-family: inherit; }
+.git-create-input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+/* Segmented Private/Public toggle, matching the session-diff Unified/Split control. */
+.git-create-visibility { display: inline-flex; gap: 2px; padding: 2px; background: var(--bg-3); border-radius: 6px; }
+.git-create-vis {
+  background: none; color: var(--fg-dim); border: none; border-radius: 4px;
+  padding: 5px 14px; font-size: 12px; font-weight: 500; cursor: pointer;
+  transition: color .12s ease, background .12s ease;
+}
+.git-create-vis:hover { color: var(--fg); }
+.git-create-vis.active { background: var(--accent); color: var(--on-accent); }
+.git-create-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; margin-top: 16px; padding: 8px 10px; cursor: pointer;
+  background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent);
+  border-radius: 5px; font-size: 13px; font-weight: 600;
+  transition: background .12s ease, border-color .12s ease;
+}
+.git-create-btn:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+.git-create-btn:disabled { opacity: .6; cursor: not-allowed; }
+#create-repo-msg { text-align: center; }
+.git-create-note { margin-top: 14px; font-size: 11px; line-height: 1.45; color: var(--fg-dim); }
 #git-console {
   flex: 0 0 var(--console-h, 33%); min-height: 0;
   display: flex; flex-direction: column; border-top: 1px solid var(--border);

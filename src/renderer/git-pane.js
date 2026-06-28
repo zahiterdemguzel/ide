@@ -90,6 +90,15 @@ function gitItem(file, status, staged, action, label) {
 }
 
 export async function refreshGit() {
+  // A non-git folder swaps the whole pane for the create-repository panel; bail
+  // before any porcelain call (they'd all fail with "not a git repository").
+  if (!(await window.api.gitIsRepo())) {
+    const repoPath = await window.api.getRepoPath();
+    window.api.setWindowTitle(repoPath);
+    showCreatePanel(repoPath);
+    return;
+  }
+  hideCreatePanel();
   refreshStashes(); // independent of working-tree status; runs even when not in a repo
   const r = await window.api.gitStatus();
   if (r.repo) window.api.setWindowTitle(r.repo);
@@ -577,4 +586,79 @@ pushBtn.onclick = async () => {
     else showGitErrorDialog(r.stderr || 'Push failed');
   }
   refreshGit();
+};
+
+// --- create-repository panel (shown when the open folder isn't a git repo) ---
+// Init the repo, make the initial commit, and create + push a GitHub repo, all
+// behind one button. The normal Changes/History UI and the branch/sync header
+// buttons are hidden while this is up.
+const createPanel = document.getElementById('git-create-repo');
+const createNameInput = document.getElementById('create-repo-name');
+const createDescInput = document.getElementById('create-repo-desc');
+const createBtn = document.getElementById('create-repo-btn');
+const createMsgEl = document.getElementById('create-repo-msg');
+const visibilityEl = document.getElementById('create-repo-visibility');
+const gitSyncBtn = document.getElementById('git-sync');
+let createVisibility = 'private';
+
+function basename(p) {
+  const parts = (p || '').split(/[\\/]/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : '';
+}
+
+function showCreatePanel(repoPath) {
+  // Prefill the name from the folder the first time the panel opens for it, but
+  // never clobber what the user is typing.
+  if (createPanel.dataset.path !== repoPath) {
+    createPanel.dataset.path = repoPath;
+    createNameInput.value = basename(repoPath);
+  }
+  createPanel.hidden = false;
+  gitTabs.hidden = true;
+  changesView.hidden = true;
+  historyView.hidden = true;
+  branchBtn.hidden = true;
+  gitSyncBtn.hidden = true;
+}
+
+function hideCreatePanel() {
+  if (createPanel.hidden) return;
+  createPanel.hidden = true;
+  delete createPanel.dataset.path;
+  gitTabs.hidden = false;
+  branchBtn.hidden = false;
+  gitSyncBtn.hidden = false;
+  // Restore whichever tab was active (changesView is the default).
+  const onHistory = gitTabs.querySelector('.git-tab.active')?.dataset.tab === 'history';
+  changesView.hidden = onHistory;
+  historyView.hidden = !onHistory;
+}
+
+function showCreateMsg(text, ok) {
+  createMsgEl.textContent = text;
+  createMsgEl.classList.toggle('ok', ok);
+  createMsgEl.classList.toggle('err', !ok);
+  createMsgEl.hidden = false;
+}
+
+visibilityEl.querySelectorAll('.git-create-vis').forEach((btn) => {
+  btn.onclick = () => {
+    createVisibility = btn.dataset.vis;
+    visibilityEl.querySelectorAll('.git-create-vis').forEach((b) => b.classList.toggle('active', b === btn));
+  };
+});
+
+createBtn.onclick = async () => {
+  const name = createNameInput.value.trim();
+  if (!name) { showCreateMsg(t('git.create.nameRequired'), false); createNameInput.focus(); return; }
+  createBtn.disabled = true;
+  showCreateMsg(t('git.create.working'), true);
+  const r = await window.api.createRepo({ name, description: createDescInput.value.trim(), isPrivate: createVisibility === 'private' });
+  createBtn.disabled = false;
+  if (r.ok) {
+    refreshGit();
+    refreshHistory();
+  } else {
+    showCreateMsg(r.error || t('git.create.failed'), false);
+  }
 };

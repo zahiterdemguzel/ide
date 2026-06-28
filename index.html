@@ -296,6 +296,32 @@
         <input id="history-search" type="text" data-i18n-placeholder="git.searchHistory" placeholder="Search commits…" autocomplete="off" spellcheck="false">
         <ul id="history-list" class="git-list"></ul>
       </div>
+      <!-- Shown by refreshGit when the open folder is not a git repo: a panel to
+           init the repo, make the initial commit, and create + push a GitHub repo. -->
+      <div id="git-create-repo" hidden>
+        <div class="git-create-intro">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+          <div>
+            <div class="git-create-title" data-i18n="git.create.title">Create a repository</div>
+            <div class="git-create-sub" data-i18n="git.create.sub">This folder isn't tracked by git yet. Create one, make the first commit, and publish it to GitHub.</div>
+          </div>
+        </div>
+        <label class="git-create-label" for="create-repo-name" data-i18n="git.create.nameLabel">Name</label>
+        <input id="create-repo-name" class="git-create-input" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="git.create.namePlaceholder" placeholder="repository-name">
+        <label class="git-create-label" for="create-repo-desc"><span data-i18n="git.create.descLabel">Description</span> <span class="git-create-optional" data-i18n="git.create.optional">(optional)</span></label>
+        <textarea id="create-repo-desc" class="git-create-input" rows="2" data-i18n-placeholder="git.create.descPlaceholder" placeholder="A short description"></textarea>
+        <label class="git-create-label" data-i18n="git.create.visibilityLabel">Visibility</label>
+        <div id="create-repo-visibility" class="git-create-visibility">
+          <button type="button" class="git-create-vis active" data-vis="private" data-i18n="git.create.private">Private</button>
+          <button type="button" class="git-create-vis" data-vis="public" data-i18n="git.create.public">Public</button>
+        </div>
+        <button id="create-repo-btn" class="git-create-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+          <span data-i18n="git.create.submit">Create repository</span>
+        </button>
+        <div id="create-repo-msg" class="git-msg" hidden></div>
+        <div class="git-create-note" data-i18n="git.create.ghNote">Publishing uses the GitHub CLI (gh). Make sure it's installed and you've run `gh auth login`.</div>
+      </div>
       </div>
 
       <div id="gutter-console" class="gutter gutter-row" title="Drag to resize"></div>

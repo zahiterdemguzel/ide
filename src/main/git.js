@@ -4,6 +4,7 @@ const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
 const { parsePorcelain, parseLog, markPushed, parseStashList, pullNeedsMerge, pushNeedsMerge } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
+const { validateRepoName, ghCreateArgs } = require('./repo-create');
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
@@ -60,7 +61,66 @@ async function behindCount() {
   return parseInt(r.stdout.trim(), 10) || 0;
 }
 
+// Is the open folder inside a git work tree? Drives the git pane's two modes:
+// the normal stage/commit view vs. the "create repository" panel shown for a
+// plain (non-git) folder. `--is-inside-work-tree` prints "true" when it is.
+async function isRepo() {
+  const r = await git(['rev-parse', '--is-inside-work-tree']);
+  return r.ok && r.stdout.trim() === 'true';
+}
+ipcMain.handle('git-is-repo', () => isRepo());
+
 ipcMain.handle('git-status', () => gitStatus());
+
+// Run the GitHub CLI in the open folder. Mirrors git(): never rejects, returns
+// { ok, stdout, stderr }. A missing `gh` (ENOENT) is reported as a clear,
+// actionable message rather than a bare spawn error.
+function gh(args) {
+  return new Promise((resolve) => {
+    const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+    execFile('gh', args, { cwd: getRepoPath(), env, maxBuffer: 16 * 1024 * 1024, timeout: 120000 },
+      (err, stdout, stderr) => {
+        const enoent = err && err.code === 'ENOENT';
+        resolve({
+          ok: !err,
+          stdout: stdout || '',
+          stderr: enoent
+            ? 'GitHub CLI (gh) is not installed or not on PATH. Install it from https://cli.github.com and run `gh auth login`.'
+            : (stderr || (err && (stdout.trim() || err.message)) || ''),
+        });
+      });
+  });
+}
+
+// Turn a plain folder into a git repo, make the initial commit, then create the
+// GitHub repository and push — the whole flow behind the create-repo panel's one
+// button. Default branch is `main` (set via symbolic-ref so it's honoured on git
+// versions predating `init -b`). Returns { ok, step, error } so the renderer can
+// say which stage failed.
+async function createRepo({ name, description, isPrivate } = {}) {
+  const valid = validateRepoName(name);
+  if (!valid.ok) return { ok: false, step: 'name', error: valid.error };
+
+  if (!(await isRepo())) {
+    const init = await git(['init']);
+    if (!init.ok) return { ok: false, step: 'init', error: init.stderr || 'git init failed' };
+    await git(['symbolic-ref', 'HEAD', 'refs/heads/main']);
+  }
+
+  await git(['add', '-A']);
+  let commit = await git(['commit', '-m', 'Initial commit']);
+  // An empty folder has nothing to commit; still seed the repo with one commit so
+  // the push has something to send and `main` exists on the remote.
+  if (!commit.ok && /nothing to commit/i.test(commit.stdout + commit.stderr)) {
+    commit = await git(['commit', '--allow-empty', '-m', 'Initial commit']);
+  }
+  if (!commit.ok) return { ok: false, step: 'commit', error: commit.stderr || 'Commit failed' };
+
+  const created = await gh(ghCreateArgs({ name: valid.name, description, isPrivate }));
+  if (!created.ok) return { ok: false, step: 'github', error: created.stderr || 'GitHub repository creation failed' };
+  return { ok: true };
+}
+ipcMain.handle('create-repo', (_e, opts) => createRepo(opts));
 
 // Local branches for the branch selector, most-recently-committed first (so the
 // branches the user is likely switching to sit at the top of a long list). The
@@ -220,4 +280,4 @@ ipcMain.handle('git-pull', async () => {
   return { ...r, needsMerge: !r.ok && pullNeedsMerge(r.stderr) };
 });
 
-module.exports = { git, gitStatus };
+module.exports = { git, gitStatus, isRepo };
