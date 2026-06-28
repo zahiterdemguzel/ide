@@ -8,6 +8,7 @@ import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude } from './claude-setup.js';
 import { isCompletionTransition, playNotification, isSoundEnabled } from './shared/notify.js';
+import { MODELS, getSessionModel, getSubagentModel } from './settings.js';
 import { t } from '../i18n/index.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -464,12 +465,18 @@ function showSuspendedHint(container, text) {
   container.replaceChildren(hint);
 }
 
-export async function newSession() {
+// `opts.model` / `opts.subagentModel` override the saved settings defaults for
+// this one session (the per-session picker passes them); omitted means use the
+// defaults. The chosen models ride to main, which turns them into the CLI's
+// ANTHROPIC_MODEL / CLAUDE_CODE_SUBAGENT_MODEL env (see src/main/agent-models.js).
+export async function newSession(opts = {}) {
   // Don't spawn a session if the Claude Code CLI is missing — guide the user to
   // install it first (the gate re-checks and shows the setup dialog if needed).
   if (!(await ensureClaude())) return;
+  const model = opts.model || getSessionModel();
+  const subagentModel = opts.subagentModel || getSubagentModel();
   // probe a size from a temporary fit after open
-  const res = await window.api.newSession({ cols: 80, rows: 24 });
+  const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel });
   // A failed spawn already raised a session-error dialog from main; bail rather
   // than build a broken row around a missing id.
   if (!res || !res.id) return;
@@ -683,7 +690,33 @@ document.getElementById('session-diff-close').onclick = closeDiffDialog;
 diffModeUnifiedBtn.onclick = () => setDiffMode('unified');
 diffModeSplitBtn.onclick = () => setDiffMode('split');
 
-document.getElementById('new-session').onclick = newSession;
+document.getElementById('new-session').onclick = () => newSession();
+
+// Per-session model picker: the split-button caret opens a small dialog whose two
+// dropdowns default to the saved settings, then creates a session with that choice.
+const modelDialog = document.getElementById('session-model-dialog');
+const modelMainSel = document.getElementById('session-model-main');
+const modelSubSel = document.getElementById('session-model-subagent');
+function fillModelSelect(select, value) {
+  select.innerHTML = '';
+  for (const m of MODELS) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.name;
+    if (m.id === value) opt.selected = true;
+    select.appendChild(opt);
+  }
+}
+document.getElementById('new-session-opts').onclick = () => {
+  fillModelSelect(modelMainSel, getSessionModel());
+  fillModelSelect(modelSubSel, getSubagentModel());
+  modelDialog.showModal();
+};
+document.getElementById('session-model-close').onclick = () => modelDialog.close();
+document.getElementById('session-model-create').onclick = () => {
+  modelDialog.close();
+  newSession({ model: modelMainSel.value, subagentModel: modelSubSel.value });
+};
 
 for (const btn of sessionTabs.children) btn.onclick = () => setTab(btn.dataset.tab);
 

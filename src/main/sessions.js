@@ -8,6 +8,7 @@ const { getRepoPath } = require('./repo');
 const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
+const { modelEnv } = require('./agent-models');
 const { editOp } = require('./edit-ops');
 const { isBulkVcsCommand } = require('./fs-track');
 const { git } = require('./git');
@@ -306,8 +307,12 @@ function applyFsDiff(s, before, after) {
 // session spawns identically regardless of how the app itself was launched. The same
 // scrub guards the console PTYs (incl. the setup install/auth terminal), which run the
 // same `claude` binary — see src/main/proc-env.js.
-function sessionEnv() {
-  return cleanEnv(process.env);
+// `models` ({ model, subagentModel }) is the session's per-session agent choice:
+// modelEnv turns it into ANTHROPIC_MODEL / CLAUDE_CODE_SUBAGENT_MODEL overrides so
+// the spawned CLI runs the chosen model for the main agent and its subagents (a
+// `default`/empty selection sets nothing and the CLI resolves the model normally).
+function sessionEnv(models) {
+  return { ...cleanEnv(process.env), ...modelEnv(models) };
 }
 
 // Attribute the user's first prompt and any edited files to their session, so
@@ -388,7 +393,9 @@ function spawnPty(id, cols, rows, resume) {
     cols: cols || 80,
     rows: rows || 24,
     cwd: (s && s.repo) || getRepoPath(),
-    env: sessionEnv(),
+    // Re-apply the session's model choice on resume too, so a restored session
+    // keeps running the model it was created with.
+    env: sessionEnv(s),
   });
   p.onData((data) => { sendToRenderer('pty-data', { id, data }); });
   p.onExit(() => {
@@ -429,12 +436,13 @@ ipcMain.handle('get-usage', async () => {
   try { return await readUsage(); } catch { return null; }
 });
 
-ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows }) => {
+ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows, model, subagentModel }) => {
   const id = crypto.randomUUID();
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
-  // own repo.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, _seq: seqCounter++ });
+  // own repo. `model`/`subagentModel` are the per-session agent choice (see
+  // sessionEnv); stored on the record so they survive archive/resume and a restart.
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', _seq: seqCounter++ });
   sessions.get(id).pty = spawnPty(id, cols, rows, false);
   persistSession(id);
   return { id, repo };

@@ -30,6 +30,8 @@ function serializeSession(id, s) {
     name: s.name || '',
     archived: !!s.archived,
     state: persistedState(s.state),
+    model: s.model || '',              // per-session agent model choice (ANTHROPIC_MODEL)
+    subagentModel: s.subagentModel || '', // and the subagent model (CLAUDE_CODE_SUBAGENT_MODEL)
     edits: [...s.edits.entries()],     // [ [absPath, op[]], ... ]
     fileOps: [...s.fileOps.entries()], // [ [absPath, 'add'|'delete'], ... ]
   };
@@ -49,6 +51,8 @@ function deserializeSession(obj) {
     firstPrompt: obj.firstPrompt || '',
     name: obj.name || '',
     archived: !!obj.archived,
+    model: obj.model || '',
+    subagentModel: obj.subagentModel || '',
     // A restored session's process is gone, so an in-flight state on disk reopens as
     // `interrupted`; a snapshot predating this field has no state and reopens idle.
     state: persistedState(obj.state),

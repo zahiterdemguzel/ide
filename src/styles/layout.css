@@ -50,6 +50,12 @@
 .sidebar-actions button .btn-icon { width: 16px; height: 16px; display: block; }
 .sidebar-actions button:hover { background: var(--accent-hi); }
 
+/* Split button: "New session" + a caret that opens the per-session model picker.
+   The two share one pill (1px seam between them), the main action grows. */
+.split-btn { display: flex; gap: 1px; }
+.split-btn > #new-session { flex: 1; border-radius: 5px 0 0 5px; }
+.split-btn .split-btn-caret { flex: 0 0 auto; padding: 7px 8px; border-radius: 0 5px 5px 0; }
+
 /* Open-folder reverse-combobox: the recent-projects menu pops up *above* the
    button (bottom: 100%) and grows downward into place from a collapsed top. */
 /* The wrap is the positioning context for the popup; it must not change the

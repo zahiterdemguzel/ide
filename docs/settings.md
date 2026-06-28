@@ -20,6 +20,45 @@ the app reaches the chosen sound only through `playNotification()` — nothing e
 reads the setting. Add a sound by appending an entry to `SOUNDS` (id + display
 name + oscillator voices); the dropdown and the test pick it up automatically.
 
+## Agent models
+
+The **Agent models** group lets the user pick which model a new Claude session
+runs with — both the **main** session model and the model its **subagents**
+(Explore / Plan / general-purpose / Task) use. There is no env var that picks an
+agent *type*; the lever Claude Code exposes is the model, via two environment
+variables the spawned CLI reads:
+
+- `ANTHROPIC_MODEL` — the main session's model.
+- `CLAUDE_CODE_SUBAGENT_MODEL` — the model used for every subagent.
+
+Two dropdowns in the settings dialog (`#settings-model`, `#settings-subagent-model`)
+set the **defaults** for newly created sessions; `settings.js` owns the registry
+(the `MODELS` array — the source of truth for both dropdowns and the per-session
+picker) and persists each choice to `localStorage` (`ide.sessionModel`,
+`ide.subagentModel`) via `getSessionModel()` / `getSubagentModel()`. The `default`
+option is a sentinel meaning *don't set the env var* — the CLI then resolves the
+model normally (subagents inherit the main model). A stored value no longer in
+`MODELS` falls back to `default`. Add a model by appending `{ id, name }` to
+`MODELS` (the `id` is the alias/model id the CLI gets; labels stay untranslated
+since they're product names).
+
+**Per-session override.** The New session button is a split button: the main
+action creates a session with the saved defaults, and the caret (`#new-session-opts`)
+opens a small picker dialog (`#session-model-dialog`) whose two dropdowns are
+pre-filled from the defaults — choosing models there and clicking **Create
+session** spawns just that one session with the chosen models. `sessions.js`'s
+`newSession(opts)` takes the override (falling back to the defaults when omitted)
+and passes `{ model, subagentModel }` through the `new-session` IPC.
+
+**Where it's applied.** Main stores the choice on the session record and turns it
+into the env at spawn time: `modelEnv()` (the pure, unit-tested
+`src/main/agent-models.js`) builds the `ANTHROPIC_MODEL` /
+`CLAUDE_CODE_SUBAGENT_MODEL` overrides, which `sessionEnv()` merges over the
+cleaned process env. The choice is persisted with the session
+(`session-persist.js`), so a restored/resumed session keeps running the model it
+was created with. Live sessions are never retargeted — the defaults only affect the
+*next* session.
+
 ## General preferences
 
 The **General** group (same frameless switch rows as Panels) holds standalone

@@ -57,6 +57,7 @@
   font-size: 11px; color: var(--fg-dim);
   text-transform: uppercase; letter-spacing: .08em;
 }
+.settings-group-hint { font-size: 11px; color: var(--fg-dim); line-height: 1.4; margin-top: -2px; }
 .panel-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
 }

@@ -3,13 +3,14 @@ const assert = require('node:assert/strict');
 const { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, sessionBytes, enforceLimit } = require('../src/main/session-persist');
 
 // A live in-memory session entry the way sessions.js holds it.
-function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', edits = [], fileOps = [] } = {}) {
-  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, state, edits: new Map(edits), fileOps: new Map(fileOps) };
+function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', model = '', subagentModel = '', edits = [], fileOps = [] } = {}) {
+  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, state, model, subagentModel, edits: new Map(edits), fileOps: new Map(fileOps) };
 }
 
 test('serializeSession: drops runtime-only fields and flattens the Maps', () => {
   const s = liveSession({
     repo: '/projects/app', firstPrompt: 'fix the bug', name: 'Bug fix', archived: true, state: 'completed',
+    model: 'opus', subagentModel: 'haiku',
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });
@@ -21,6 +22,8 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
     name: 'Bug fix',
     archived: true,
     state: 'completed',
+    model: 'opus',
+    subagentModel: 'haiku',
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });
@@ -58,6 +61,16 @@ test('serialize -> deserialize round-trips the tracked-file state, minus the PTY
   assert.equal(restored.name, 'n');
   assert.deepEqual([...restored.edits.entries()], [['/r/a.js', [{ t: 'edit', old: 'a', new: 'b' }]]]);
   assert.deepEqual([...restored.fileOps.entries()], [['/r/x', 'delete']]);
+});
+
+test('serialize -> deserialize round-trips the per-session model choice', () => {
+  const restored = deserializeSession(serializeSession('id', liveSession({ model: 'sonnet', subagentModel: 'haiku' })));
+  assert.equal(restored.model, 'sonnet');
+  assert.equal(restored.subagentModel, 'haiku');
+  // A snapshot predating the feature deserializes to the inherit-everything default.
+  const old = deserializeSession({ id: 'x' });
+  assert.equal(old.model, '');
+  assert.equal(old.subagentModel, '');
 });
 
 test('deserializeSession: tolerates a malformed snapshot', () => {

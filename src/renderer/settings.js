@@ -23,8 +23,37 @@ export const THEMES = [
   { id: 'high-contrast', name: 'High Contrast' },
 ];
 
-const STORE = { theme: 'ide.theme', locale: 'ide.locale' };
+// Selectable agent models. The id is what the `claude` CLI reads from
+// ANTHROPIC_MODEL (main session) / CLAUDE_CODE_SUBAGENT_MODEL (Explore/Plan/
+// general-purpose/Task subagents); `default` is the sentinel that sets no env var
+// (the CLI resolves the model normally, subagents inheriting the main model). The
+// `name` is just shown in the dropdown — labels stay untranslated since they're
+// product/model names. Edit this list to expose more models. The main process
+// builds the env from the chosen id (see src/main/agent-models.js).
+export const MODELS = [
+  { id: 'default', name: 'Default (inherit)' },
+  { id: 'opus', name: 'Opus' },
+  { id: 'sonnet', name: 'Sonnet' },
+  { id: 'haiku', name: 'Haiku' },
+  { id: 'fable', name: 'Fable' },
+];
+const DEFAULT_MODEL = 'default';
+
+const STORE = {
+  theme: 'ide.theme', locale: 'ide.locale',
+  model: 'ide.sessionModel', subagentModel: 'ide.subagentModel',
+};
 const DEFAULT_THEME = 'dark';
+
+// The default model a new session spawns with, read by sessions.js at creation
+// (and pre-filled into the per-session picker). A stored value no longer in MODELS
+// (e.g. a model removed from the list) falls back to the inherit default.
+function readModel(key) {
+  const v = localStorage.getItem(key);
+  return MODELS.some((m) => m.id === v) ? v : DEFAULT_MODEL;
+}
+export function getSessionModel() { return readModel(STORE.model); }
+export function getSubagentModel() { return readModel(STORE.subagentModel); }
 
 function applyTheme(id) {
   const known = THEMES.some((t) => t.id === id) ? id : DEFAULT_THEME;
@@ -77,6 +106,8 @@ export function initSettings() {
   const soundSel = document.getElementById('settings-sound');
   const soundEnabledBox = document.getElementById('settings-sound-enabled');
   const sessionDiffBox = document.getElementById('settings-session-diff');
+  const modelSel = document.getElementById('settings-model');
+  const subagentSel = document.getElementById('settings-subagent-model');
 
   langSel.onchange = () => {
     localStorage.setItem(STORE.locale, langSel.value);
@@ -100,6 +131,10 @@ export function initSettings() {
     if (soundEnabledBox.checked) playNotification();
   };
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
+  // The model defaults apply to the *next* session created (and pre-fill the
+  // per-session picker); live sessions keep the model they spawned with.
+  modelSel.onchange = () => localStorage.setItem(STORE.model, modelSel.value);
+  subagentSel.onchange = () => localStorage.setItem(STORE.subagentModel, subagentSel.value);
 
   const open = () => {
     fillSelect(
@@ -117,6 +152,9 @@ export function initSettings() {
       SOUNDS.map((s) => ({ value: s.id, label: s.name })),
       getSound(),
     );
+    const modelOpts = MODELS.map((m) => ({ value: m.id, label: m.name }));
+    fillSelect(modelSel, modelOpts, getSessionModel());
+    fillSelect(subagentSel, modelOpts, getSubagentModel());
     soundEnabledBox.checked = isSoundEnabled();
     soundSel.disabled = !isSoundEnabled();
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
