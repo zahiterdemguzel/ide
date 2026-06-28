@@ -3,7 +3,9 @@ import { assetBtn } from './ui.js';
 // Image zoom view: an <img> with −/+/reset buttons scaling its width.
 // `body`/`tools` are the asset view's body and toolbar containers.
 // `registerCleanup` removes the document-level pan listeners when the view closes.
-export function renderZoom(img, body, tools, registerCleanup) {
+// `onAdjust`, when given, adds an "Adjust" button that hands off to the image
+// adjustment view (omitted for formats that can't round-trip through a canvas).
+export function renderZoom(img, body, tools, registerCleanup, onAdjust) {
   img.className = 'zoom-img';
   const wrap = document.createElement('div');
   wrap.className = 'zoom-wrap';
@@ -37,6 +39,11 @@ export function renderZoom(img, body, tools, registerCleanup) {
     assetBtn('+', () => { scale = Math.min(32, scale * 1.25); apply(); }),
     assetBtn('Reset', () => { scale = fitScale(); apply(); }),
   );
+  if (onAdjust) {
+    const adjustBtn = assetBtn('Adjust', onAdjust);
+    adjustBtn.title = 'Adjust brightness, contrast, colour…';
+    tools.append(adjustBtn);
+  }
   apply();
 
   // Left-button drag pans the image by scrolling the body — useful once a zoomed

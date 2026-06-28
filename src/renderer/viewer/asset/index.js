@@ -2,6 +2,7 @@ import { AUDIO_EXT, MODEL_EXT } from '../../shared/ext.js';
 import { renderAudio } from './audio.js';
 import { renderZoom } from './zoom.js';
 import { renderPixelEditor } from './pixel-editor.js';
+import { renderImageAdjust, canAdjust } from './image-adjust.js';
 import { assetBtn } from './ui.js';
 
 // --- asset view: image zoom / pixel editor / audio waveform / 3D model ---
@@ -61,8 +62,32 @@ export async function showAsset(file, ext) {
   // PNGs small enough to paint pixel-by-pixel get the editor; the rest, zoom.
   img.onload = () => {
     if (ext === 'png' && img.naturalWidth < 200 && img.naturalHeight < 200) renderPixelEditor(file, img, assetBody, assetTools, registerCleanup);
-    else renderZoom(img, assetBody, assetTools, registerCleanup);
+    else renderImage(file, img, ext, assetBody, assetTools, registerCleanup);
   };
   img.onerror = () => { assetBody.textContent = 'Could not decode image'; };
   img.src = dataUrl;
+}
+
+// The plain image preview, with a switch between the zoom view and the adjustment
+// view over the same decoded <img>. Each sub-view owns the body and its own slot
+// of header buttons (`.asset-view-tools`), kept separate from the shared
+// "Open externally" button so toggling doesn't wipe it. `registerCleanup` tears
+// down whichever sub-view is active when the asset view closes.
+function renderImage(file, img, ext, body, tools, registerCleanup) {
+  const viewTools = document.createElement('span');
+  viewTools.className = 'asset-view-tools';
+  tools.insertBefore(viewTools, tools.firstChild);
+
+  let subCleanup = null;
+  const registerSub = (fn) => { subCleanup = fn; };
+  const clear = () => {
+    if (subCleanup) { subCleanup(); subCleanup = null; }
+    viewTools.innerHTML = '';
+    body.innerHTML = '';
+  };
+  const showZoom = () => { clear(); renderZoom(img, body, viewTools, registerSub, canAdjust(ext) ? showAdjust : null); };
+  const showAdjust = () => { clear(); renderImageAdjust(file, img, ext, body, viewTools, registerSub, showZoom); };
+
+  registerCleanup(() => { if (subCleanup) subCleanup(); });
+  showZoom();
 }

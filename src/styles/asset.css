@@ -17,6 +17,12 @@
 .asset-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .asset-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .asset-pct { font-family: Consolas, monospace; font-size: 12px; color: var(--fg-dim); min-width: 44px; text-align: center; }
+.asset-btn:disabled { opacity: 0.45; cursor: default; }
+.asset-btn:disabled:hover { background: var(--bg-3); border-color: var(--border); color: var(--fg); }
+
+/* the active image sub-view's header buttons (zoom −/+/reset/Adjust, or Done),
+   kept in their own slot so toggling views doesn't disturb "Open externally". */
+.asset-view-tools { display: flex; align-items: center; gap: 6px; }
 
 /* image zoom */
 .zoom-wrap { display: inline-block; }
@@ -56,6 +62,33 @@
 .swatch { width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; padding: 0; }
 .swatch.sel { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
 .asset-picker { width: 28px; height: 24px; padding: 0; background: none; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; }
+
+/* image adjustment view: a fitted live-preview canvas above a panel of sliders,
+   mirroring the pixel editor's viewport-over-panel layout. */
+#asset-body:has(.adjust-editor) { padding: 0; overflow: hidden; }
+.adjust-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.adjust-viewport { flex: 1; min-height: 0; overflow: hidden; padding: 16px; display: grid; place-items: center; }
+.adjust-canvas {
+  max-width: 100%; max-height: 100%;
+  background: var(--bg-2); border: 1px solid var(--border);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+}
+
+.adjust-panel { background: var(--bg-2); border-top: 1px solid var(--border); }
+.adjust-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 7px 20px; padding: 12px;
+}
+.adjust-row { display: grid; grid-template-columns: 84px 1fr 36px; align-items: center; gap: 8px; }
+.adjust-name { font-size: 12px; color: var(--fg-dim); }
+.adjust-slider { width: 100%; accent-color: var(--accent-hi); cursor: pointer; }
+.adjust-val { font-family: Consolas, monospace; font-size: 12px; color: var(--fg-dim); text-align: right; }
+.adjust-val.changed { color: var(--fg); }
+
+.adjust-footer { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--border); }
+.adjust-status { margin-left: auto; min-width: 0; }
+.adjust-apply { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.adjust-apply:disabled:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* 3D model viewer: the WebGL canvas fills the body edge-to-edge (like the pixel
    editor, the surrounding padding is dropped so the scene uses the whole pane). */
