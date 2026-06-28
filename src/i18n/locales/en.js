@@ -159,6 +159,7 @@ export default {
     'settings.general': 'General',
     'settings.soundEnabled': 'Completion sound',
     'settings.sessionDiffBadge': 'Diff stats on sessions',
+    'settings.statusLine': 'Token cost meter',
     'settings.close': 'Close',
     'settings.done': 'Done',
     'settings.panels': 'Panels',

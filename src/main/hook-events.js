@@ -38,15 +38,22 @@ function shouldApplyState(next, current) {
 
 // The `claude --settings <json>` payload that wires every hook event to POST its
 // raw stdin to our local server on `port`. One command for all events keeps this
-// trivial; events Claude Code doesn't recognise simply never fire.
-function hooksSettings(port) {
+// trivial; events Claude Code doesn't recognise simply never fire. When a
+// `statusLineCommand` is given it's injected as the session's statusLine, so the
+// per-session token/cost meter rides on the same settings flag as the hooks —
+// the user's global settings are still never touched.
+function hooksSettings(port, statusLineCommand) {
   const cmd = `curl -s -X POST http://127.0.0.1:${port}/hook -d @-`;
   const entry = [{ matcher: '*', hooks: [{ type: 'command', command: cmd }] }];
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
     'PostToolUse', 'Notification', 'PermissionRequest', 'Stop'];
   const hooks = {};
   for (const e of events) hooks[e] = entry;
-  return JSON.stringify({ hooks });
+  const settings = { hooks };
+  // padding: 0 removes Claude's own side padding so $COLUMNS matches the usable
+  // width and the right-aligned cost reaches the edge without being clipped.
+  if (statusLineCommand) settings.statusLine = { type: 'command', command: statusLineCommand, padding: 0 };
+  return JSON.stringify(settings);
 }
 
 module.exports = { eventToState, shouldApplyState, hooksSettings };

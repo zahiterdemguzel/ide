@@ -4,6 +4,7 @@ const { ipcRenderer } = require('electron');
 module.exports = {
   checkClaude: () => ipcRenderer.invoke('check-claude'),
   getUsage: () => ipcRenderer.invoke('get-usage'),
+  setStatusLineEnabled: (on) => ipcRenderer.send('set-statusline-enabled', on),
   getSessions: () => ipcRenderer.invoke('get-sessions'),
   newSession: (size) => ipcRenderer.invoke('new-session', size),
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),

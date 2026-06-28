@@ -3,6 +3,7 @@ const { sendToRenderer } = require('./window');
 // Pure event->state mapping, resume-downgrade rule, and settings JSON live in the
 // Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
 const { eventToState, shouldApplyState, hooksSettings: buildHooksSettings } = require('./hook-events');
+const { statusLineCommand } = require('./statusline');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
 // circular require is safe. Access via the module object, never destructure at top.
@@ -14,7 +15,7 @@ const getHookPort = () => hookPort;
 // --- hooks injected per session via `claude --settings <json>` ---
 // Every event posts its raw stdin payload to our local server, which derives
 // state from hook_event_name. Bound to the live server port at spawn time.
-const hooksSettings = () => buildHooksSettings(hookPort);
+const hooksSettings = () => buildHooksSettings(hookPort, statusLineCommand());
 
 function startHookServer() {
   const server = http.createServer((req, res) => {

@@ -77,6 +77,18 @@ on/off toggles wired in `src/renderer/settings.js`:
   `setSessionDiffBadge()`; `renderRowDiff(s)` paints each row's `.sess-diff` badge
   from the session's `diffStat` whenever the stat refreshes, and flipping the
   toggle re-renders every row.
+- **Token cost meter** (`#settings-statusline`, default **on**) gates the
+  per-session token/cost status line at the bottom of each session's terminal
+  (see [architecture.md](architecture.md#per-session-token-meter)). Unlike the
+  other two — whose effect is renderer-side — this one is *applied in main* at
+  spawn time, so `settings.js` both persists the flag (`localStorage`
+  `ide.statusLine`, `isStatusLineEnabled()` / `setStatusLineEnabled()`) **and
+  pushes it to main over IPC** (`set-statusline-enabled` → `statusline.setEnabled`).
+  It's pushed on startup (before any session spawns) and on every change; main
+  defaults on until told otherwise, and `statusLineCommand()` returns null when
+  off so the next-spawned session gets no statusLine. A **live session keeps the
+  meter it spawned with** — the toggle affects the next session, like the agent
+  model defaults.
 
 ## Where it lives
 

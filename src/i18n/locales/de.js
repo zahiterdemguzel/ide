@@ -158,6 +158,7 @@ export default {
     'settings.general': 'Allgemein',
     'settings.soundEnabled': 'Abschlusston',
     'settings.sessionDiffBadge': 'Diff-Statistik in Sitzungen',
+    'settings.statusLine': 'Token-Kosten-Anzeige',
     'settings.close': 'Schließen',
     'settings.done': 'Fertig',
     'settings.panels': 'Bereiche',

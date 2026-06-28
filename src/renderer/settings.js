@@ -42,8 +42,20 @@ const DEFAULT_MODEL = 'default';
 const STORE = {
   theme: 'ide.theme', locale: 'ide.locale',
   model: 'ide.sessionModel', subagentModel: 'ide.subagentModel',
+  statusLine: 'ide.statusLine',
 };
 const DEFAULT_THEME = 'dark';
+
+// The per-session token/cost meter (Claude statusLine). Default on; stored here
+// but *applied in main* at spawn time, so the value is pushed over IPC. A live
+// session keeps the meter it spawned with — the toggle affects the next session.
+export function isStatusLineEnabled() {
+  return localStorage.getItem(STORE.statusLine) !== '0';
+}
+export function setStatusLineEnabled(on) {
+  localStorage.setItem(STORE.statusLine, on ? '1' : '0');
+  window.api?.setStatusLineEnabled?.(on);
+}
 
 // The default model a new session spawns with, read by sessions.js at creation
 // (and pre-filled into the per-session picker). A stored value no longer in MODELS
@@ -99,6 +111,9 @@ export function initSettings() {
   applyTheme(savedTheme);
   setLocale(savedLocale);
   applyTranslations();
+  // Push the saved token-meter preference to main before any session spawns, so
+  // the very first session honours it (main defaults on until told otherwise).
+  window.api?.setStatusLineEnabled?.(isStatusLineEnabled());
 
   const dialog = document.getElementById('settings-dialog');
   const langSel = document.getElementById('settings-language');
@@ -106,6 +121,7 @@ export function initSettings() {
   const soundSel = document.getElementById('settings-sound');
   const soundEnabledBox = document.getElementById('settings-sound-enabled');
   const sessionDiffBox = document.getElementById('settings-session-diff');
+  const statusLineBox = document.getElementById('settings-statusline');
   const modelSel = document.getElementById('settings-model');
   const subagentSel = document.getElementById('settings-subagent-model');
 
@@ -131,6 +147,7 @@ export function initSettings() {
     if (soundEnabledBox.checked) playNotification();
   };
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
+  statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
   // The model defaults apply to the *next* session created (and pre-fill the
   // per-session picker); live sessions keep the model they spawned with.
   modelSel.onchange = () => localStorage.setItem(STORE.model, modelSel.value);
@@ -158,6 +175,7 @@ export function initSettings() {
     soundEnabledBox.checked = isSoundEnabled();
     soundSel.disabled = !isSoundEnabled();
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
+    statusLineBox.checked = isStatusLineEnabled();
     dialog.showModal();
   };
 

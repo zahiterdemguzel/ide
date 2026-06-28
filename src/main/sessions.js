@@ -17,6 +17,7 @@ const { serializeSession, deserializeSession, sessionBytes, enforceLimit } = req
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
+const statusline = require('./statusline');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
 //         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
@@ -435,6 +436,11 @@ ipcMain.handle('check-claude', async () => ({ ...await claudeAvailable(), guide:
 ipcMain.handle('get-usage', async () => {
   try { return await readUsage(); } catch { return null; }
 });
+
+// Settings → General → per-session token meter on/off. The renderer pushes the
+// saved value on startup and whenever it changes; it gates whether the next
+// spawned session gets a statusLine (live sessions keep what they spawned with).
+ipcMain.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
 
 ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows, model, subagentModel }) => {
   const id = crypto.randomUUID();

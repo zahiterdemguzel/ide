@@ -86,3 +86,14 @@ test('hooksSettings: wires every tracked event to a curl POST on the given port'
     assert.equal(cfg.hooks[e][0].hooks[0].type, 'command');
   }
 });
+
+test('hooksSettings: no statusLine unless a command is supplied', () => {
+  assert.equal(JSON.parse(hooksSettings(54321)).statusLine, undefined);
+});
+
+test('hooksSettings: injects the given statusLine command with zero padding', () => {
+  const cfg = JSON.parse(hooksSettings(54321, 'node "/x/statusline-script.js"'));
+  assert.deepEqual(cfg.statusLine, {
+    type: 'command', command: 'node "/x/statusline-script.js"', padding: 0,
+  });
+});

@@ -158,6 +158,7 @@ export default {
     'settings.general': 'Genel',
     'settings.soundEnabled': 'Tamamlanma sesi',
     'settings.sessionDiffBadge': 'Oturumlarda fark istatistikleri',
+    'settings.statusLine': 'Token maliyet göstergesi',
     'settings.close': 'Kapat',
     'settings.done': 'Tamam',
     'settings.panels': 'Paneller',
