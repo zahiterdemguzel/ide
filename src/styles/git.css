@@ -156,12 +156,11 @@
 @keyframes git-sync-spin { to { transform: rotate(360deg); } }
 
 .git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--bg-2); }
-/* Native textarea grips only ever sit bottom-end; to put the resize point at
-   the top-right we disable it and drive a custom grip (panes.js) that grows the
-   box upward. */
+/* The box auto-grows to fit its content (panes.js sets the height as you type),
+   so the manual resize handle is disabled. */
 .commit-msg-wrap { position: relative; }
 #commit-msg {
-  display: block; width: 100%; resize: none; background: var(--bg); color: var(--fg);
+  display: block; width: 100%; resize: none; overflow-y: auto; background: var(--bg); color: var(--fg);
   border: 1px solid var(--border); border-radius: 5px; padding: 7px 8px;
   font-family: inherit; font-size: 13px; line-height: 1.4;
   transition: border-color .12s ease, box-shadow .12s ease;
@@ -170,12 +169,6 @@
   outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
 }
-#commit-msg-grip {
-  position: absolute; top: 0; right: 0; width: 14px; height: 14px;
-  cursor: ns-resize;
-  background: linear-gradient(45deg, transparent 50%, var(--border) 50%, var(--border) 70%, transparent 70%);
-}
-#commit-msg-grip:hover { background: linear-gradient(45deg, transparent 50%, var(--fg) 50%, var(--fg) 70%, transparent 70%); }
 /* Git status feedback (Synced / Committed / errors…) shows on its own line below
    the action buttons, where the user is looking after clicking. Hidden when empty. */
 #git-status-line { text-align: center; }

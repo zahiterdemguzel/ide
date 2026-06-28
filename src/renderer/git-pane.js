@@ -551,6 +551,7 @@ commitBtn.onclick = async () => {
   commitBtn.disabled = false;
   if (r.ok) {
     box.value = '';
+    box.dispatchEvent(new Event('input'));
     showGitMsg(msg ? 'Committed' : 'Committed: ' + (r.message || '').split('\n')[0], true);
   } else {
     showGitMsg(r.stderr || 'Commit failed', false);
