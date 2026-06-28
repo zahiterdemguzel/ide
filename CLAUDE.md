@@ -17,7 +17,7 @@ No bundler and no build step for the app itself — vanilla JS loaded directly. 
 
 ## Documentation
 
-Project knowledge lives in `docs/` (not in any external memory). Pick the relevant file from the list below and read it before changing that area — to save tokens, read only the section you need, not whole files:
+Project knowledge lives in `docs/` (not in any external memory). These files are **read on demand, never all upfront** — this index is the only always-loaded part. From the descriptions below, open only the one file whose area your task touches, and read only the section you need (the docs cross-link, so follow a link when one points you elsewhere). Don't pre-read docs "for context."
 
 - [docs/architecture.md](docs/architecture.md) — main/preload/renderer split, the main-process subsystems, IPC surface, and every feature's behavior. It's large; **start at its [Map](docs/architecture.md#map--start-here) section** — the `Files` table maps each `src/` module to the section that explains it, so you can jump straight to one section instead of reading the whole file.
 - [docs/status-detection.md](docs/status-detection.md) — how the colored status dots are driven by Claude Code hooks.
