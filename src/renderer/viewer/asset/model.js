@@ -64,6 +64,7 @@ export function renderModel(base64, ext, body, tools, registerCleanup) {
   const onLoaded = (object) => {
     scene.add(object);
     framed = frameObject(object, camera, controls, grid);
+    buildHierarchy(object, wrap, controls);
     resize();
     tick();
   };
@@ -158,6 +159,104 @@ function frameObject(object, camera, controls, grid) {
   };
   apply();
   return apply;
+}
+
+// Overlay outliner pinned to the viewport's top-left: a collapsible tree of the
+// model's scene graph, mirroring the Object3D hierarchy. Clicking a node parks
+// the orbit pivot on it; the eye toggles that branch's visibility. Lights and
+// cameras the loader injects are skipped — only the model's own nodes show.
+function buildHierarchy(root, wrap, controls) {
+  const panel = document.createElement('div');
+  panel.className = 'model-tree';
+
+  const head = document.createElement('button');
+  head.className = 'model-tree-head';
+  head.title = 'Toggle hierarchy';
+  head.innerHTML = '<span class="model-tree-caret">▾</span>'
+    + '<span class="model-tree-title">Hierarchy</span>';
+  head.addEventListener('click', () => panel.classList.toggle('collapsed'));
+  panel.appendChild(head);
+
+  const list = document.createElement('div');
+  list.className = 'model-tree-body';
+  panel.appendChild(list);
+
+  let selectedRow = null;
+  const select = (row, obj) => {
+    if (selectedRow) selectedRow.classList.remove('sel');
+    selectedRow = row;
+    row.classList.add('sel');
+    const box = new THREE.Box3().setFromObject(obj);
+    if (!box.isEmpty()) {
+      controls.target.copy(box.getCenter(new THREE.Vector3()));
+      controls.update();
+    }
+  };
+
+  const makeNode = (obj, depth) => {
+    const node = document.createElement('div');
+    node.className = 'model-node';
+
+    const row = document.createElement('div');
+    row.className = 'model-row';
+    row.style.paddingLeft = (depth * 14 + 8) + 'px';
+
+    const kids = obj.children.filter((c) => !c.isLight && !c.isCamera);
+
+    const caret = document.createElement('span');
+    caret.className = 'model-row-caret';
+    if (kids.length) {
+      caret.textContent = '▾';
+      caret.addEventListener('click', (e) => { e.stopPropagation(); node.classList.toggle('collapsed'); });
+    }
+    row.appendChild(caret);
+
+    const icon = document.createElement('span');
+    icon.className = 'model-row-icon';
+    icon.textContent = nodeGlyph(obj);
+    row.appendChild(icon);
+
+    const label = document.createElement('span');
+    label.className = 'model-row-label';
+    label.textContent = obj.name || obj.type;
+    label.title = obj.name ? `${obj.name} (${obj.type})` : obj.type;
+    row.appendChild(label);
+
+    const eye = document.createElement('button');
+    eye.className = 'model-row-eye';
+    eye.title = 'Toggle visibility';
+    eye.textContent = '◉';
+    eye.addEventListener('click', (e) => {
+      e.stopPropagation();
+      obj.visible = !obj.visible;
+      row.classList.toggle('hidden', !obj.visible);
+      eye.textContent = obj.visible ? '◉' : '○';
+    });
+    row.appendChild(eye);
+
+    row.addEventListener('click', () => select(row, obj));
+    node.appendChild(row);
+
+    if (kids.length) {
+      const childWrap = document.createElement('div');
+      childWrap.className = 'model-children';
+      for (const kid of kids) childWrap.appendChild(makeNode(kid, depth + 1));
+      node.appendChild(childWrap);
+    }
+    return node;
+  };
+
+  list.appendChild(makeNode(root, 0));
+  wrap.appendChild(panel);
+}
+
+// A short type tag for an outliner row, so a Group reads differently from a Mesh
+// at a glance without bundling an icon set.
+function nodeGlyph(obj) {
+  if (obj.isMesh) return 'M';
+  if (obj.isGroup || obj.type === 'Object3D') return 'G';
+  if (obj.isBone) return 'B';
+  return '•';
 }
 
 function disposeScene(scene) {

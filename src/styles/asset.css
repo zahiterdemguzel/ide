@@ -67,6 +67,75 @@
   color: var(--fg-dim); font-size: 12px; padding: 12px; text-align: center;
 }
 
+/* scene-graph outliner: a translucent panel pinned to the viewport's top-left,
+   floating over the WebGL canvas so the model stays visible behind it. */
+.model-tree {
+  position: absolute; top: 10px; left: 10px; z-index: 2;
+  display: flex; flex-direction: column;
+  min-width: 168px; max-width: 280px; max-height: calc(100% - 20px);
+  font-family: Consolas, monospace; font-size: 12px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg-2) 72%, transparent);
+  border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+}
+
+.model-tree-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; cursor: pointer;
+  background: none; border: none; width: 100%; text-align: left;
+  color: var(--fg-dim); font: inherit;
+  border-bottom: 1px solid var(--border);
+}
+.model-tree-head:hover { color: var(--fg); }
+.model-tree-title { text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px; }
+.model-tree-caret { font-size: 9px; transition: transform 0.12s; }
+.model-tree.collapsed .model-tree-caret { transform: rotate(-90deg); }
+.model-tree.collapsed .model-tree-body { display: none; }
+.model-tree.collapsed { min-width: 0; }
+
+.model-tree-body { overflow: auto; padding: 4px 0; }
+
+/* nested child containers carry the tree's vertical guide line */
+.model-children { border-left: 1px solid var(--border); margin-left: 15px; }
+.model-node.collapsed > .model-children { display: none; }
+
+.model-row {
+  display: flex; align-items: center; gap: 5px;
+  padding: 2px 8px 2px 0; cursor: pointer; white-space: nowrap;
+  border-radius: 3px;
+}
+.model-row:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.model-row.sel { background: var(--accent); color: var(--on-accent); }
+.model-row.hidden .model-row-label { color: var(--fg-dim); font-style: italic; }
+
+.model-row-caret {
+  flex: none; width: 12px; text-align: center; font-size: 9px;
+  color: var(--fg-dim); transition: transform 0.12s;
+}
+.model-node.collapsed > .model-row .model-row-caret { transform: rotate(-90deg); }
+.model-row.sel .model-row-caret { color: inherit; }
+
+.model-row-icon {
+  flex: none; width: 15px; height: 15px; border-radius: 3px;
+  display: grid; place-items: center; font-size: 9px; font-weight: 700;
+  background: var(--bg-3); color: var(--fg-dim);
+}
+.model-row.sel .model-row-icon { background: var(--accent-hi); color: var(--on-accent); }
+
+.model-row-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+
+.model-row-eye {
+  flex: none; background: none; border: none; cursor: pointer; padding: 0;
+  color: var(--fg-dim); font-size: 11px; line-height: 1;
+  opacity: 0; transition: opacity 0.1s;
+}
+.model-row:hover .model-row-eye, .model-row.hidden .model-row-eye { opacity: 1; }
+.model-row-eye:hover { color: var(--fg); }
+.model-row.sel .model-row-eye { color: var(--on-accent); }
+
 /* custom audio player (no native controls) */
 .audio-player {
   display: flex; flex-direction: column; gap: 14px;
