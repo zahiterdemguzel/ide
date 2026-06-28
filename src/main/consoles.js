@@ -1,5 +1,6 @@
 const { ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
@@ -19,8 +20,18 @@ function availableShells() {
       { name: 'cmd', path: process.env.COMSPEC || 'cmd.exe' },
     ];
   }
-  const sh = process.env.SHELL || '/bin/bash';
-  return [{ name: path.basename(sh).replace(/\.exe$/i, ''), path: sh }];
+  // Offer the user's login shell first, then the other common shells that are
+  // actually installed — so a broken/misconfigured zsh isn't the only option.
+  const candidates = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'];
+  const shells = [];
+  const seen = new Set();
+  for (const sh of candidates) {
+    if (!sh || seen.has(sh) || !fs.existsSync(sh)) continue;
+    seen.add(sh);
+    shells.push({ name: path.basename(sh).replace(/\.exe$/i, ''), path: sh });
+  }
+  // Fall back to bash by name if nothing on disk matched (e.g. an exotic $SHELL).
+  return shells.length ? shells : [{ name: 'bash', path: process.env.SHELL || '/bin/bash' }];
 }
 
 // Spawn a shell PTY under `id` (reused across restarts so term-data keeps routing
