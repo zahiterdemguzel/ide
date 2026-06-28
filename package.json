@@ -9,7 +9,7 @@
     "start": "electron .",
     "build": "electron-builder --win portable --publish never",
     "build:mac": "electron-builder --mac --publish never",
-    "test": "node --test",
+    "test": "node --test --test-reporter=./scripts/test-reporter.js",
     "lint": "eslint ."
   },
   "build": {

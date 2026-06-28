@@ -1,10 +1,10 @@
 # Testing & lint
 
-The app has no automated GUI/end-to-end harness, but the **pure, subtle logic** — the parts most likely to break silently under an edit — is split out into Electron-free modules and unit-tested with Node's built-in runner. There is **no test-framework dependency**: `npm test` is `node --test`.
+The app has no automated GUI/end-to-end harness, but the **pure, subtle logic** — the parts most likely to break silently under an edit — is split out into Electron-free modules and unit-tested with Node's built-in runner. There is **no test-framework dependency**: `npm test` is `node --test` with a tiny custom reporter.
 
 ## Running
 
-- `npm test` — runs every file under `test/` (`node --test`'s default glob).
+- `npm test` — runs every file under `test/` (`node --test`'s default glob), through `scripts/test-reporter.js`: a quiet reporter that stays silent for passing tests and prints only failures (name + stack) plus a one-line `N passed, M failed` summary, so a green run is one line and a regression is the only thing you read.
 - `npm run lint` — ESLint (flat config in `eslint.config.js`) over the whole tree.
 
 There is no separate lint/test CI job — run `npm test` and `npm run lint` locally before finishing a change. The only GitHub Actions workflow is `.github/workflows/build.yml`, which packages the Windows and macOS apps on every push to `master` (see below).
