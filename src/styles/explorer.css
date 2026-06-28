@@ -95,3 +95,8 @@
 .qo-dir { color: var(--fg-dim); }
 .qo-row b { color: var(--accent-hi); font-weight: 700; }
 .qo-empty { padding: 12px 14px; color: var(--fg-dim); font-size: 12px; }
+
+/* Command Palette (command-palette.js): same overlay shell as Quick Open, but
+   rows show a single command label rather than a dir/basename path. */
+.cmdp-row { gap: 8px; }
+.cmdp-title { overflow: hidden; text-overflow: ellipsis; }

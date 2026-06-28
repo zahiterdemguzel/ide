@@ -9,10 +9,11 @@ import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
 import './terminal-links.js';
 import { open as openQuickOpen } from './quick-open.js';
+import { registerCommands } from './command-palette.js';
 import { loadToolbar } from './toolbar.js';
 import { initConsoles } from './consoles.js';
 import { initClaudeSetup } from './claude-setup.js';
-import { initSettings } from './settings.js';
+import { initSettings, cycleTheme } from './settings.js';
 import { initUsageMeter } from './usage-meter.js';
 import { initPanels } from './panels.js';
 import { t } from '../i18n/index.js';
@@ -101,6 +102,19 @@ document.addEventListener('click', (e) => {
   if (!recentMenu.hidden && !recentMenu.contains(e.target) && e.target !== openFolderBtn && !openFolderBtn.contains(e.target)) closeRecentMenu();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecentMenu(); });
+
+// Command Palette (Ctrl/Cmd+Shift+P) actions. Registered here because this is
+// where every action function is in scope; titles/keywords are i18n keys so the
+// palette re-localizes them each time it opens.
+registerCommands([
+  { id: 'new-session', titleKey: 'command.newSession', keywordsKey: 'command.newSession.kw', run: newSession },
+  { id: 'go-to-file', titleKey: 'command.goToFile', keywordsKey: 'command.goToFile.kw', run: openQuickOpen },
+  { id: 'open-folder', titleKey: 'command.openFolder', keywordsKey: 'command.openFolder.kw', run: browseForFolder },
+  { id: 'open-settings', titleKey: 'command.openSettings', keywordsKey: 'command.openSettings.kw', run: () => document.getElementById('settings-btn').click() },
+  { id: 'cycle-theme', titleKey: 'command.cycleTheme', keywordsKey: 'command.cycleTheme.kw', run: cycleTheme },
+  { id: 'refresh-git', titleKey: 'command.refreshGit', keywordsKey: 'command.refreshGit.kw', run: refreshGit },
+  { id: 'refresh-tree', titleKey: 'command.refreshTree', keywordsKey: 'command.refreshTree.kw', run: refreshTree },
+]);
 
 initSettings();
 // Toolbar meter for the user's remaining Claude subscription usage (after

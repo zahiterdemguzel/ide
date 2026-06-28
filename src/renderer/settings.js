@@ -34,6 +34,17 @@ function applyTheme(id) {
   refreshTermThemes();
 }
 
+// Advance to the next theme in the registry (wrapping), persisting and applying
+// it. Exposed for the Command Palette's "Color Theme: Next" command so the user
+// can flip themes without opening Settings.
+export function cycleTheme() {
+  const current = document.documentElement.dataset.theme || DEFAULT_THEME;
+  const i = THEMES.findIndex((th) => th.id === current);
+  const next = THEMES[(i + 1) % THEMES.length].id;
+  localStorage.setItem(STORE.theme, next);
+  applyTheme(next);
+}
+
 function fillSelect(select, items, value) {
   select.innerHTML = '';
   for (const it of items) {
