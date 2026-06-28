@@ -60,6 +60,21 @@ function deserializeSession(obj) {
   };
 }
 
+// Whether a session is worth keeping across restarts. A session has something to
+// restore only once it carries a conversation (`firstPrompt`, set on the first
+// prompt) or tracked work (`edits`/`fileOps`). An "empty" session — created but
+// never prompted — has no transcript on disk, so resuming it would run
+// `claude --resume <id>` against a conversation that was never created and surface
+// "No conversation found with session ID: <id>". Such husks are never written and
+// are dropped on load, so they can't resurrect on the next launch. Accepts the live
+// entry (Maps) or a snapshot (arrays) for edits/fileOps.
+function sizeOf(x) {
+  return x instanceof Map ? x.size : (Array.isArray(x) ? x.length : 0);
+}
+function isSessionPersistable(s) {
+  return !!(s && (s.firstPrompt || sizeOf(s.edits) || sizeOf(s.fileOps)));
+}
+
 // Approximate on-disk footprint of one serialized session, in bytes.
 function sessionBytes(serialized) {
   return Buffer.byteLength(JSON.stringify(serialized));
@@ -82,4 +97,4 @@ function enforceLimit(entries, maxBytes = MAX_PERSIST_BYTES) {
   return { evictedIds, totalBytes: total };
 }
 
-module.exports = { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, sessionBytes, enforceLimit };
+module.exports = { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit };

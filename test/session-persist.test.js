@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, sessionBytes, enforceLimit } = require('../src/main/session-persist');
+const { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit } = require('../src/main/session-persist');
 
 // A live in-memory session entry the way sessions.js holds it.
 function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', model = '', subagentModel = '', edits = [], fileOps = [] } = {}) {
@@ -79,6 +79,22 @@ test('deserializeSession: tolerates a malformed snapshot', () => {
   assert.equal(restored.fileOps.size, 0);
   assert.equal(restored.suspended, true);
   assert.equal(restored.state, 'idle');
+});
+
+test('isSessionPersistable: an empty husk (no conversation, no work) is not saved', () => {
+  // Created but never prompted — resuming it would fail with "No conversation found".
+  assert.equal(isSessionPersistable(liveSession()), false);
+  assert.equal(isSessionPersistable(liveSession({ name: 'Untitled', state: 'idle' })), false);
+  assert.equal(isSessionPersistable(undefined), false);
+});
+
+test('isSessionPersistable: a session with a conversation or tracked work is saved', () => {
+  assert.equal(isSessionPersistable(liveSession({ firstPrompt: 'fix the bug' })), true);
+  assert.equal(isSessionPersistable(liveSession({ edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]] })), true);
+  assert.equal(isSessionPersistable(liveSession({ fileOps: [['/r/bin.png', 'add']] })), true);
+  // Also accepts a raw snapshot whose edits/fileOps are still arrays.
+  assert.equal(isSessionPersistable({ firstPrompt: 'p' }), true);
+  assert.equal(isSessionPersistable({ edits: [['/r/a', []]], fileOps: [] }), true);
 });
 
 test('sessionBytes: grows with the tracked content', () => {

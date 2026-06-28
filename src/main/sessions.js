@@ -13,7 +13,7 @@ const { editOp } = require('./edit-ops');
 const { isBulkVcsCommand } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
-const { serializeSession, deserializeSession, sessionBytes, enforceLimit } = require('./session-persist');
+const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit } = require('./session-persist');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
@@ -135,6 +135,10 @@ function loadPersistedSessions() {
   for (const obj of snapshots) {
     try {
       const entry = deserializeSession(obj);
+      // An empty husk (created but never prompted, no tracked work) has no transcript
+      // to resume — it only ever produces the "No conversation found" error. Drop it
+      // and delete its stale file so it can't resurrect on every launch.
+      if (!isSessionPersistable(entry)) { removeSessionFile(obj.id); continue; }
       entry._seq = obj._seq || 0;
       sessions.set(obj.id, entry);
       seqCounter = Math.max(seqCounter, entry._seq + 1);
@@ -170,6 +174,11 @@ function evictOverBudget() {
 function persistSession(id) {
   const s = sessions.get(id);
   if (!s) return;
+  // A session with no conversation and no tracked work isn't worth saving — and
+  // resuming it later fails with "No conversation found" (see isSessionPersistable).
+  // `new-session` persists on create, so this is the no-op that keeps a never-used
+  // session off disk until its first prompt; clear any older file just in case.
+  if (!isSessionPersistable(s)) { removeSessionFile(id); return; }
   try {
     ensureSessionsDir();
     if (s._seq === undefined) s._seq = seqCounter++;
@@ -188,6 +197,7 @@ function persistSessions() {
     evictOverBudget();
     ensureSessionsDir();
     for (const [id, s] of sessions) {
+      if (!isSessionPersistable(s)) { removeSessionFile(id); continue; }
       if (s._seq === undefined) s._seq = seqCounter++;
       fs.writeFileSync(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
     }
@@ -405,6 +415,10 @@ function spawnPty(id, cols, rows, resume) {
     // tracked-file state alive for a later resume — don't tear it down here.
     if (s && s.suspended) return;
     sessions.delete(id);
+    // A non-persistable session that just exited is an empty husk — most often a
+    // `claude --resume <id>` that failed with "No conversation found". Delete its
+    // file so it doesn't come back on the next launch.
+    if (s && !isSessionPersistable(s)) removeSessionFile(id);
     sendToRenderer('status', { id, state: 'completed' });
   });
   return p;
