@@ -4,7 +4,11 @@ const { commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage } = requi
 
 test('commitMessagePrompt: embeds the diff and caps its length', () => {
   const p = commitMessagePrompt('diff --git a/x b/x\n+hello', 12000);
-  assert.match(p, /imperative subject line/);
+  // Carries the two standards it encodes: Conventional Commits + the seven rules.
+  assert.match(p, /Conventional Commits/);
+  assert.match(p, /imperative mood/);
+  assert.match(p, /72 characters/);
+  assert.match(p, /BREAKING CHANGE/);
   assert.match(p, /\+hello/);
   const big = 'x'.repeat(20000);
   const capped = commitMessagePrompt(big, 12000);
@@ -42,6 +46,17 @@ test('cleanCommitMessage: empty reply returns empty string', () => {
 
 test('cleanCommitMessage: caps the length', () => {
   assert.equal(cleanCommitMessage('a'.repeat(2000), 1000).length, 1000);
+  // Default cap leaves room for a full subject + body + footer.
+  assert.equal(cleanCommitMessage('a'.repeat(5000)).length, 4000);
+});
+
+test('cleanCommitMessage: keeps a conventional subject + body + footer intact', () => {
+  const msg = 'feat(git): author per-session commits from the diff\n\n'
+    + 'Generate the message with Haiku from the session\'s own patch instead\n'
+    + 'of reusing the first prompt, so the log describes the actual change.\n\n'
+    + '- snapshot tracking at click\n- fall back to the session title\n\n'
+    + 'BREAKING CHANGE: commit-session now returns the generated message';
+  assert.equal(cleanCommitMessage(msg), msg);
 });
 
 test('fallbackCommitMessage: prefers the session name (title)', () => {
