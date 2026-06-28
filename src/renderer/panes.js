@@ -60,7 +60,14 @@ resizer(document.getElementById('gutter-console'), 'y', -1,
 const commitMsg = document.getElementById('commit-msg');
 const fitCommitMsg = () => {
   commitMsg.style.height = 'auto';
-  commitMsg.style.height = Math.min(400, commitMsg.scrollHeight) + 'px';
+  const cs = getComputedStyle(commitMsg);
+  // scrollHeight omits the border, but border-box height includes it — add the
+  // border back (offsetHeight - clientHeight) so the box isn't a few px short and
+  // doesn't spawn a scrollbar before reaching the cap. Cap at 4 rows, then scroll.
+  const border = commitMsg.offsetHeight - commitMsg.clientHeight;
+  const max = parseFloat(cs.lineHeight) * 4
+    + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + border;
+  commitMsg.style.height = Math.min(max, commitMsg.scrollHeight + border) + 'px';
 };
 commitMsg.addEventListener('input', fitCommitMsg);
 
