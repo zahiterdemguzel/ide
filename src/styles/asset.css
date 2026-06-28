@@ -158,14 +158,18 @@
 
 .model-row-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 
-.model-row-eye {
+.model-row-eye, .model-row-wire {
   flex: none; background: none; border: none; cursor: pointer; padding: 0;
   color: var(--fg-dim); font-size: 11px; line-height: 1;
-  opacity: 0; transition: opacity 0.1s;
+  opacity: 0; transition: opacity 0.1s, color 0.1s;
 }
-.model-row:hover .model-row-eye, .model-row.hidden .model-row-eye { opacity: 1; }
-.model-row-eye:hover { color: var(--fg); }
-.model-row.sel .model-row-eye { color: var(--on-accent); }
+/* keep an action visible once it's "on" (hidden / wireframed) so its state reads
+   even when the row isn't hovered */
+.model-row:hover .model-row-eye, .model-row:hover .model-row-wire,
+.model-row.hidden .model-row-eye, .model-row-wire.on { opacity: 1; }
+.model-row-eye:hover, .model-row-wire:hover { color: var(--fg); }
+.model-row-wire.on { color: var(--accent-hi); }
+.model-row.sel .model-row-eye, .model-row.sel .model-row-wire { color: var(--on-accent); }
 
 /* custom audio player (no native controls) */
 .audio-player {
