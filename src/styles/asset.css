@@ -17,12 +17,6 @@
 .asset-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .asset-btn.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .asset-pct { font-family: Consolas, monospace; font-size: 12px; color: var(--fg-dim); min-width: 44px; text-align: center; }
-.asset-btn:disabled { opacity: 0.45; cursor: default; }
-.asset-btn:disabled:hover { background: var(--bg-3); border-color: var(--border); color: var(--fg); }
-
-/* the active image sub-view's header buttons (zoom −/+/reset/Adjust, or Done),
-   kept in their own slot so toggling views doesn't disturb "Open externally". */
-.asset-view-tools { display: flex; align-items: center; gap: 6px; }
 
 /* image zoom */
 .zoom-wrap { display: inline-block; }
@@ -34,6 +28,7 @@
    so the editor's many controls never crowd the shared top toolbar. */
 #asset-body:has(.pixel-editor) { padding: 0; overflow: hidden; }
 .pixel-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.pixel-main { position: relative; flex: 1; min-height: 0; display: flex; }
 .pixel-viewport { flex: 1; min-height: 0; overflow: auto; padding: 12px; display: grid; place-items: center; }
 .pixel-stage { display: inline-block; position: relative; }
 .pixel-canvas { image-rendering: pixelated; cursor: crosshair; background: var(--bg-2); border: 1px solid var(--border); touch-action: none; }
@@ -58,37 +53,40 @@
 .pixel-spacer { flex: 1; }
 .pixel-save { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
+/* tool rail (pen / eraser / fill) — a floating column pinned to the viewport's
+   left-center edge (Blender-style). The container only forwards pointer events
+   to the buttons, so the gaps between them don't block painting on the canvas. */
+.pixel-toolbar {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  z-index: 2; display: flex; flex-direction: column; gap: 10px;
+  pointer-events: none;
+}
+.pixel-tool {
+  pointer-events: auto;
+  display: grid; place-items: center;
+  width: 46px; height: 46px; padding: 0;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg-2) 80%, transparent);
+  border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(6px);
+  transition: border-color 0.1s, background 0.1s, transform 0.1s;
+}
+.pixel-tool:hover { border-color: var(--accent); transform: scale(1.05); }
+.pixel-tool.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.pixel-tool svg { width: 24px; height: 24px; display: block; }
+
+/* one slider re-labelled per tool: brush size (pen/eraser) or fill threshold */
+.pixel-slider-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--fg-dim); min-width: 62px;
+}
+.pixel-slider { width: 96px; accent-color: var(--accent-hi); cursor: pointer; }
+
 .palette { display: flex; gap: 4px; flex-wrap: wrap; }
 .swatch { width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; padding: 0; }
 .swatch.sel { outline: 2px solid var(--accent-hi); outline-offset: 1px; }
 .asset-picker { width: 28px; height: 24px; padding: 0; background: none; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; }
-
-/* image adjustment view: a fitted live-preview canvas above a panel of sliders,
-   mirroring the pixel editor's viewport-over-panel layout. */
-#asset-body:has(.adjust-editor) { padding: 0; overflow: hidden; }
-.adjust-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.adjust-viewport { flex: 1; min-height: 0; overflow: hidden; padding: 16px; display: grid; place-items: center; }
-.adjust-canvas {
-  max-width: 100%; max-height: 100%;
-  background: var(--bg-2); border: 1px solid var(--border);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
-}
-
-.adjust-panel { background: var(--bg-2); border-top: 1px solid var(--border); }
-.adjust-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 7px 20px; padding: 12px;
-}
-.adjust-row { display: grid; grid-template-columns: 84px 1fr 36px; align-items: center; gap: 8px; }
-.adjust-name { font-size: 12px; color: var(--fg-dim); }
-.adjust-slider { width: 100%; accent-color: var(--accent-hi); cursor: pointer; }
-.adjust-val { font-family: Consolas, monospace; font-size: 12px; color: var(--fg-dim); text-align: right; }
-.adjust-val.changed { color: var(--fg); }
-
-.adjust-footer { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--border); }
-.adjust-status { margin-left: auto; min-width: 0; }
-.adjust-apply { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.adjust-apply:disabled:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* 3D model viewer: the WebGL canvas fills the body edge-to-edge (like the pixel
    editor, the surrounding padding is dropped so the scene uses the whole pane). */

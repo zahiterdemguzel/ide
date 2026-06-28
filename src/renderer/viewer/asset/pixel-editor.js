@@ -1,5 +1,6 @@
 import { assetBtn } from './ui.js';
-import { PALETTE, rgbToHex, shade } from './color.js';
+import { PALETTE, hexToRgb, rgbToHex, shade } from './color.js';
+import { floodFill } from '../../shared/pixel-ops.js';
 import { refreshGit } from '../../git-pane.js';
 
 // Pixel editor for small PNGs. `body` is the asset view's scroll container;
@@ -31,7 +32,12 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   };
 
   let color = PALETTE[0];
-  let erasing = false;
+  // Tool state. The brush-size and fill-threshold sliders are the same widget
+  // re-labelled per tool, but each keeps its own value (switching tools never
+  // bleeds one into the other).
+  let tool = 'pen'; // 'pen' | 'eraser' | 'fill'
+  let brushSize = 1;
+  let fillThreshold = 0;
 
   // ponytail: 50-state ImageData ring — full-frame snapshots, fine for sub-200px art; switch to per-stroke diffs if memory bites.
   const undoStack = [], redoStack = [];
@@ -44,12 +50,31 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
     return [Math.floor((e.clientX - rect.left) / scale), Math.floor((e.clientY - rect.top) / scale)];
   };
   const inBounds = (px, py) => px >= 0 && py >= 0 && px < w && py < h;
-  const paintAt = (e) => {
-    const [px, py] = coords(e);
-    if (!inBounds(px, py)) return;
-    if (erasing) ctx.clearRect(px, py, 1, 1);
-    else { ctx.fillStyle = color; ctx.fillRect(px, py, 1, 1); }
+
+  // Pen left-paints / right-erases; the eraser is the same brush with those
+  // swapped. Returns 'paint' or 'erase' for the brush tools given the button
+  // that started the stroke (0 = left, 2 = right).
+  const brushAction = (button) => {
+    const erase = button === 2;
+    return (tool === 'eraser' ? !erase : erase) ? 'erase' : 'paint';
   };
+
+  // Stamp a brushSize×brushSize block centred on (px, py). fillRect/clearRect
+  // clip to the canvas, so blocks running off an edge need no bounds maths.
+  const stamp = (px, py, action) => {
+    const off = Math.floor((brushSize - 1) / 2);
+    const x = px - off, y = py - off;
+    if (action === 'erase') ctx.clearRect(x, y, brushSize, brushSize);
+    else { ctx.fillStyle = color; ctx.fillRect(x, y, brushSize, brushSize); }
+  };
+
+  const flood = (px, py, action) => {
+    const fill = action === 'erase' ? [0, 0, 0, 0] : [...hexToRgb(color), 255];
+    const frame = ctx.getImageData(0, 0, w, h);
+    floodFill(frame.data, w, h, px, py, fill, fillThreshold);
+    ctx.putImageData(frame, 0, 0);
+  };
+
   const pickAt = (e) => {
     const [px, py] = coords(e);
     if (!inBounds(px, py)) return;
@@ -61,21 +86,38 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   const viewport = document.createElement('div');
   viewport.className = 'pixel-viewport';
 
-  let down = false, panning = false, panX = 0, panY = 0, scrollX = 0, scrollY = 0, panMoved = false;
+  let down = false, strokeAction = 'paint';
+  let panning = false, panX = 0, panY = 0, scrollX = 0, scrollY = 0, panMoved = false;
   canvas.onpointerdown = (e) => {
     canvas.setPointerCapture(e.pointerId);
     if (e.button === 1) { // middle: drag to pan, click (no drag) to eyedrop
       e.preventDefault();
       panning = true; panMoved = false;
       panX = e.clientX; panY = e.clientY; scrollX = viewport.scrollLeft; scrollY = viewport.scrollTop;
-    } else { down = true; pushUndo(); paintAt(e); }
+      return;
+    }
+    if (e.button !== 0 && e.button !== 2) return;
+    const [px, py] = coords(e);
+    if (!inBounds(px, py)) return;
+    if (tool === 'fill') {
+      pushUndo();
+      flood(px, py, e.button === 2 ? 'erase' : 'paint');
+    } else {
+      down = true;
+      strokeAction = brushAction(e.button);
+      pushUndo();
+      stamp(px, py, strokeAction);
+    }
   };
   canvas.onpointermove = (e) => {
     if (panning) {
       const dx = e.clientX - panX, dy = e.clientY - panY;
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panMoved = true;
       viewport.scrollLeft = scrollX - dx; viewport.scrollTop = scrollY - dy;
-    } else if (down) paintAt(e);
+    } else if (down) {
+      const [px, py] = coords(e);
+      if (inBounds(px, py)) stamp(px, py, strokeAction);
+    }
   };
   canvas.onpointerup = (e) => {
     if (panning && !panMoved) pickAt(e); // middle click without dragging = eyedropper
@@ -84,6 +126,7 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   canvas.onpointercancel = () => { down = false; panning = false; };
   canvas.onmousedown = (e) => { if (e.button === 1) e.preventDefault(); }; // block middle-click autoscroll
   canvas.onauxclick = (e) => { if (e.button === 1) e.preventDefault(); };
+  canvas.oncontextmenu = (e) => e.preventDefault(); // right button is the erase/flood-erase stroke, not a menu
 
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -101,11 +144,52 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   registerCleanup(() => document.removeEventListener('keydown', keyHandler));
 
   // --- controls (all live in the bottom panel, grouped into labeled sections) ---
+
+  // Tool rail (left side of the panel): pen, eraser, fill.
+  const penBtn = toolBtn(ICON.pen, 'Pen — left paints, right erases', () => selectTool('pen'));
+  const eraserBtn = toolBtn(ICON.eraser, 'Eraser — left erases, right paints', () => selectTool('eraser'));
+  const fillBtn = toolBtn(ICON.fill, 'Fill — left fills, right flood-erases', () => selectTool('fill'));
+  const toolButtons = { pen: penBtn, eraser: eraserBtn, fill: fillBtn };
+
+  // One slider re-purposed per tool: brush size for pen/eraser, match threshold
+  // for fill. Each tool's value is remembered separately in brushSize/fillThreshold.
+  const sliderLabel = document.createElement('span');
+  sliderLabel.className = 'pixel-slider-label';
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.className = 'pixel-slider';
+  const sliderValue = document.createElement('span');
+  sliderValue.className = 'asset-pct';
+
+  const syncSlider = () => {
+    if (tool === 'fill') {
+      sliderLabel.textContent = 'Threshold';
+      slider.min = 0; slider.max = 100; slider.step = 1; slider.value = fillThreshold;
+      sliderValue.textContent = fillThreshold + '%';
+      slider.title = 'Fill threshold';
+    } else {
+      sliderLabel.textContent = 'Size';
+      slider.min = 1; slider.max = 32; slider.step = 1; slider.value = brushSize;
+      sliderValue.textContent = brushSize + ' px';
+      slider.title = 'Brush size';
+    }
+  };
+  slider.oninput = () => {
+    const v = Number(slider.value);
+    if (tool === 'fill') { fillThreshold = v; sliderValue.textContent = v + '%'; }
+    else { brushSize = v; sliderValue.textContent = v + ' px'; }
+  };
+
+  const selectTool = (t) => {
+    tool = t;
+    for (const name in toolButtons) toolButtons[name].classList.toggle('on', name === t);
+    syncSlider();
+  };
+
   const swatches = document.createElement('div');
   swatches.className = 'palette';
-  const eraseBtn = assetBtn('Erase', () => { erasing = !erasing; eraseBtn.classList.toggle('on', erasing); });
   const selectColor = (c) => {
-    color = c; erasing = false; eraseBtn.classList.remove('on');
+    color = c;
     picker.value = c;
     for (const sw of swatches.children) sw.classList.toggle('sel', sw.dataset.c === c);
   };
@@ -153,26 +237,39 @@ export function renderPixelEditor(file, img, body, tools, registerCleanup) {
   const panel = document.createElement('div');
   panel.className = 'pixel-panel';
   panel.append(
+    group(sliderLabel, slider, sliderValue),
     group(swatches, picker, darkBtn, lightBtn),
-    group(eraseBtn),
     group(zoomOut, zoomLabel, zoomIn),
     group(undoBtn, redoBtn),
     spacer(),
     group(saveBtn, saved),
   );
 
+  // Floating tool rail pinned to the viewport's left-center edge (Blender-style),
+  // so the tools sit next to the art instead of crowding the bottom panel.
+  const toolbar = document.createElement('div');
+  toolbar.className = 'pixel-toolbar';
+  toolbar.append(penBtn, eraserBtn, fillBtn);
+
   const stage = document.createElement('div');
   stage.className = 'pixel-stage';
   stage.append(canvas, grid);
   viewport.appendChild(stage);
 
+  // `main` is the non-scrolling positioning context for the rail; the viewport
+  // scrolls inside it while the rail stays put.
+  const main = document.createElement('div');
+  main.className = 'pixel-main';
+  main.append(viewport, toolbar);
+
   const editor = document.createElement('div');
   editor.className = 'pixel-editor';
-  editor.append(viewport, panel);
+  editor.append(main, panel);
   body.appendChild(editor);
 
   applyScale();
   selectColor(color);
+  selectTool('pen');
 }
 
 // A panel section: a row of related controls bounded by the panel's separators.
@@ -188,3 +285,20 @@ function spacer() {
   s.className = 'pixel-spacer';
   return s;
 }
+
+// An icon-only tool button (pen/eraser/fill). `svg` is inline markup; the icon
+// inherits the button's currentColor so it flips to --on-accent when active.
+function toolBtn(svg, title, onclick) {
+  const b = document.createElement('button');
+  b.className = 'pixel-tool';
+  b.title = title;
+  b.innerHTML = svg;
+  b.onclick = onclick;
+  return b;
+}
+
+const ICON = {
+  pen: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.3 2.2l2.5 2.5L6 12.5l-3.2 1 1-3.2z"/><path d="M10.2 3.3l2.5 2.5"/></svg>',
+  eraser: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8.4 3.1l4.5 4.5-5 5H4.3L1.6 9.9z"/><path d="M2.5 13.5h11"/></svg>',
+  fill: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6.3 1.6l5.6 5.6-5 5L1.3 6.6z"/><path d="M5 2.9L4 1.9"/><path d="M13.5 9.6s1.4 1.7 1.4 2.8a1.4 1.4 0 0 1-2.8 0c0-1.1 1.4-2.8 1.4-2.8z"/></svg>',
+};
