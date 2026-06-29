@@ -34,12 +34,12 @@ On Windows, Chromium spams `Gpu Cache Creation failed: -2` and `Unable to move t
 
 The app is meant to run **many instances side by side**, so a single-instance lock is the wrong fix — it was removed. Instead, two mechanisms keep concurrent instances from contending for the cache:
 
-- `disable-gpu-disk-cache` in `src/main/index.js` removes the GPU shader cache (we don't need it).
+- `disable-gpu-shader-disk-cache` in `src/main/index.js` removes the GPU shader cache (we don't need it). The exact name matters: Chromium silently ignores unknown switches, and the earlier `disable-gpu-disk-cache` was **not a real switch** (a no-op), so the cache stayed on and the `Gpu Cache Creation failed` / `Unable to move the cache` errors kept firing until the name was corrected.
 - `src/main/instance.js` redirects `userData` to a **per-instance profile dir** (`<userData>/instances/<pid>`) before any subsystem reads a path from it, so each instance has its own disposable Chromium cache and singleton lock. The profile is deleted on `quit`. Persistent config (e.g. `last-folder.txt`) stays in the captured `sharedDataDir` so it survives restarts and is common to all instances.
 
 Keep both, and keep `require('./instance')` as the **first** require in `index.js` — it must run before `repo.js` derives its config path from `userData`.
 
-`disable-gpu-disk-cache` is unrelated to the GPU *acceleration* switches below — it disables a flaky on-disk cache, not GPU rendering itself. Keep it.
+`disable-gpu-shader-disk-cache` is unrelated to the GPU *acceleration* switches below — it disables a flaky on-disk cache, not GPU rendering itself. Keep it.
 
 ## GPU acceleration switches
 

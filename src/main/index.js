@@ -23,8 +23,12 @@ installCrashLogging();
 
 // Windows: Chromium's GPU shader disk cache repeatedly fails to initialize
 // ("Gpu Cache Creation failed", "Unable to move the cache: Access is denied")
-// when the userData cache dir is locked. We don't need it — skip it entirely.
-app.commandLine.appendSwitch('disable-gpu-disk-cache');
+// when the per-instance userData cache dir is locked (antivirus scanning the
+// freshly created dir, or another instance). We don't need it — skip it entirely.
+// The switch MUST be exactly `disable-gpu-shader-disk-cache`: Chromium silently
+// ignores unknown switches, and the old `disable-gpu-disk-cache` is not a real
+// switch — it was a no-op, so the cache stayed on and the errors persisted.
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 
 // Windows: Chromium runs its network service in a separate child process that
 // repeatedly crashes ("Network service crashed, restarting service") when
