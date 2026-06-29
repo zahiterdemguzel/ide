@@ -11,7 +11,7 @@ Each session shows a colored dot driven automatically by Claude Code hooks — n
 | Needs input | green (glowing) | `Notification`, `PermissionRequest` |
 | Completed | green | `Stop`, or the PTY exits |
 | Committed / pushed | purple | a successful per-session **Commit changes**, or a `PostToolUse` whose Bash command matches `git push` |
-| Interrupted | red | only on reopen — a session that was mid-flight when the app last closed (see [Persistence](#persistence-across-restarts)) |
+| Interrupted | red | the agent was stopped mid-turn: ESC/Ctrl+C typed while **working**, archiving an actively-running session, or reopening one that was mid-flight when the app closed (see [Interrupting a turn](#interrupting-a-turn) and [Persistence](#persistence-across-restarts)) |
 
 A just-created session stays gray (idle) until the user submits the first prompt; yellow ("working") is reserved for an agent actively responding. Because "working" is the only ongoing state, its dot also **animates**: it turns into a ring spinner (a faint ring with one bright rotating segment) so an in-progress session is distinguishable from a paused one at a glance, not just by hue. A solid dot can't show rotation, so the gap in the ring is what makes the motion visible. It is intentionally **not** gated behind `prefers-reduced-motion` — it's the only liveness cue, and Windows reports "reduce" whenever the OS animation setting is off, which would silently hide it. (See `.dot.working` in `src/styles/sessions.css`.)
 
@@ -30,6 +30,15 @@ The chime is one of four sounds the user picks in **Settings → Notification so
 `hooksSettings()` builds an inline hooks config and passes it to each session via the `claude --settings <json>` flag — so the user's global `~/.claude/settings.json` is **never modified**. (The same inline settings also carry the per-session [token meter](architecture.md#per-session-token-meter)'s `statusLine`.) Every hook is a `command` hook that `curl`s its stdin payload to a local `http` server started in `startHookServer()`. `eventToState()` maps `hook_event_name` → state; the result is pushed to the renderer keyed by `session_id` (which equals the `--session-id` we spawned with).
 
 The same payloads feed `recordSessionActivity()`, which records each session's first prompt (`UserPromptSubmit.prompt`) and its edits — each `PostToolUse` of a file tool is kept as a replayable op (`old_string`/`new_string`/content), not just the path. That op log is what lets the per-session commit reconstruct and commit only that session's hunks. It also diffs `git status` across each non-edit tool call (`PreToolUse` → `PostToolUse`) to attribute binary creates, renames/moves, and deletes — changes no text op can express — to the session (see [Tracking filesystem changes](architecture.md#tracking-filesystem-changes)). Because the `PreToolUse` snapshot must predate the tool's writes, the hook server **awaits** `recordSessionActivity()` before answering the hook (a command hook blocks its tool until `curl` returns). See [architecture.md](architecture.md).
+
+## Interrupting a turn
+
+Stopping an agent mid-response turns the dot **red (interrupted)**. Claude Code emits **no hook** for an interrupt, so unlike every other state this one isn't hook-driven — it's detected in the main process and pushed to the renderer on the same `status` channel (then persisted via `setSessionState`).
+
+- **ESC / Ctrl+C while working.** The `pty-input` handler (`src/main/sessions.js`) runs each keystroke through the pure `interruptState(data, current)` (`hook-events.js`): a bare ESC (`\x1b`) or Ctrl+C (`\x03`) maps to `interrupted` **only when the session is currently `working`** — in any other state those bytes mean other things (closing a menu, etc.), and arrow/function keys arrive as multi-byte sequences (`\x1b[…`) so an exact match never catches them. The next prompt fires `UserPromptSubmit` → `working` again.
+- **Archiving an active session.** Suspending (archiving) a session kills its Claude process, so a session that was `working`/`needs-input` can't keep running. The `suspend-session` handler reuses `persistedState()` (the same rule app-close applies) to collapse those in-flight states to `interrupted`; settled states (`completed`/`pushed`/`idle`) pass through unchanged.
+
+Both paths are unit-tested via the pure helpers (`interruptState` in `test/hook-events.test.js`; `persistedState` in `test/session-persist.test.js`).
 
 ## Persistence across restarts
 

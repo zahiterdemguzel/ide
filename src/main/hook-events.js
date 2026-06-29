@@ -27,6 +27,18 @@ function eventToState(payload) {
   }
 }
 
+// A bare ESC (`\x1b`) or Ctrl+C (`\x03`) typed into a *working* session interrupts
+// the in-flight agent turn. Claude Code emits no hook for this, so we read it off
+// the raw PTY input instead. Only a session that's actually working can be
+// interrupted — the same bytes mean other things (closing a menu, etc.) in any
+// other state — and arrow/function keys arrive as multi-byte escape sequences
+// (`\x1b[…`), so an exact match never catches them. Returns the new state, or null
+// to leave the dot unchanged.
+function interruptState(data, current) {
+  if (current !== 'working') return null;
+  return data === '\x1b' || data === '\x03' ? 'interrupted' : null;
+}
+
 // Whether a derived state should overwrite the current one. Resuming a saved
 // session fires SessionStart -> idle, which must NOT wipe the meaningful colour
 // (completed/pushed/interrupted) it was reopened with — so reject an idle that
@@ -56,4 +68,4 @@ function hooksSettings(port, statusLineCommand) {
   return JSON.stringify(settings);
 }
 
-module.exports = { eventToState, shouldApplyState, hooksSettings };
+module.exports = { eventToState, interruptState, shouldApplyState, hooksSettings };

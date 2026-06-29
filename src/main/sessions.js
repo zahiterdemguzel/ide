@@ -13,7 +13,8 @@ const { editOp } = require('./edit-ops');
 const { isBulkVcsCommand } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
-const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit } = require('./session-persist');
+const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
+const { interruptState } = require('./hook-events');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
@@ -501,6 +502,12 @@ ipcMain.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
   if (!s) return;
   s.suspended = true;
   s.archived = true;
+  // Archiving stops the agent mid-flight: a session that was working/needs-input
+  // can't keep running, so reflect it as interrupted (red) — same rule app-close
+  // uses (persistedState). Settled states (completed/pushed/idle) pass through.
+  const stopped = persistedState(s.state);
+  if (stopped !== s.state) sendToRenderer('status', { id, state: stopped });
+  setSessionState(id, stopped);
   if (s.pty) { try { s.pty.kill(); } catch { /* already gone */ } s.pty = null; }
   persistSession(id);
 }));
@@ -519,7 +526,15 @@ ipcMain.handle('resume-session', guard('restoring a session', (_e, { id, cols, r
 
 ipcMain.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   const s = sessions.get(id);
-  if (s && s.pty) s.pty.write(data);
+  if (!s || !s.pty) return;
+  s.pty.write(data);
+  // ESC/Ctrl+C while the agent is working interrupts the turn (no hook fires for
+  // it, so we read it off the input). Mirror the dot in the renderer and persist.
+  const interrupted = interruptState(data, s.state);
+  if (interrupted) {
+    setSessionState(id, interrupted);
+    sendToRenderer('status', { id, state: interrupted });
+  }
 }));
 ipcMain.on('pty-resize', guardOn('resizing a session', (_e, { id, cols, rows }) => {
   const s = sessions.get(id);

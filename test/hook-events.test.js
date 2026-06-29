@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { eventToState, shouldApplyState, hooksSettings } = require('../src/main/hook-events');
+const { eventToState, interruptState, shouldApplyState, hooksSettings } = require('../src/main/hook-events');
 
 test('eventToState: Stop -> completed', () => {
   assert.equal(eventToState({ hook_event_name: 'Stop' }), 'completed');
@@ -52,6 +52,26 @@ test('eventToState: a non-push command on PostToolUse stays working', () => {
 test('eventToState: unknown / missing events map to null (left unchanged)', () => {
   assert.equal(eventToState({ hook_event_name: 'SomethingElse' }), null);
   assert.equal(eventToState({}), null);
+});
+
+test('interruptState: ESC or Ctrl+C while working -> interrupted', () => {
+  assert.equal(interruptState('\x1b', 'working'), 'interrupted');
+  assert.equal(interruptState('\x03', 'working'), 'interrupted');
+});
+
+test('interruptState: ESC/Ctrl+C only interrupts a working session', () => {
+  for (const state of ['idle', 'needs-input', 'completed', 'pushed', 'interrupted', undefined]) {
+    assert.equal(interruptState('\x1b', state), null);
+    assert.equal(interruptState('\x03', state), null);
+  }
+});
+
+test('interruptState: ordinary input and multi-byte escape sequences leave the dot unchanged', () => {
+  assert.equal(interruptState('a', 'working'), null);
+  assert.equal(interruptState('\r', 'working'), null);
+  // arrow/function keys arrive as multi-byte sequences, not a bare ESC
+  assert.equal(interruptState('\x1b[A', 'working'), null);
+  assert.equal(interruptState('\x1b[1;5C', 'working'), null);
 });
 
 test('shouldApplyState: any non-idle state always applies', () => {
