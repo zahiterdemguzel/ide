@@ -243,8 +243,6 @@ export default {
     'sheet.insertColRight': 'Insérer une colonne à droite',
     'sheet.deleteCol': 'Supprimer la/les colonne(s)',
 
-    'help.title': 'Aide et raccourcis clavier',
-
     'welcome.tour': 'Suivre la visite',
     'welcome.sessionExplainer': 'Une session est un Claude CLI qui travaille dans son propre terminal — lancez-en plusieurs pour mener différentes tâches en parallèle.',
 

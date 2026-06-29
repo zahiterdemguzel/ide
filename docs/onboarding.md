@@ -22,8 +22,8 @@ the parity test guards it.
 ## Activation order
 
 `src/renderer/index.js` calls `initOnboarding()` immediately — that wires the
-always-available help (the `?` button, F1/`?`, and the welcome "Take the tour"
-button) and registers the `guided-tour` / `keyboard-shortcuts` command-palette
+always-available help (the F1/`?` key, the welcome screen's "Keyboard shortcuts"
+and "Take the tour" buttons) and registers the `guided-tour` / `keyboard-shortcuts` command-palette
 entries. The **automatic** tour is deferred: it calls `activateOnboarding()`
 only via `onClaudeReady()` (from `claude-setup.js`), so a brand-new user being
 walked through the Claude Code install isn't onboarded mid-install — the tour
@@ -68,9 +68,9 @@ every locale.
 `openCheatSheet()` fills and `showModal()`s `#cheatsheet-dialog` from the
 `SECTIONS` registry in `cheatsheet.js`. The mod key renders as `⌘` on macOS else
 `Ctrl` (`navigator.platform`, matching `terminal-links.js`). It opens from the
-toolbar help (`?`) button, the welcome screen's **Keyboard shortcuts** action
-(`#welcome-shortcuts`, wired in `index.js`), the `F1` key (anywhere) or `?` (when
-not typing), and the command palette. The listed shortcuts must stay in step with the real
+welcome screen's **Keyboard shortcuts** action (`#welcome-shortcuts`, wired in
+`index.js`), the `F1` key (anywhere) or `?` (when not typing), and the command
+palette. The listed shortcuts must stay in step with the real
 handlers (`quick-open.js`, `command-palette.js`, `viewer/file.js`,
 `viewer/sheet/index.js`, and `sessions.js` for the session shortcuts below); add
 a row by extending `SECTIONS` and adding its `labelKey` to every locale.

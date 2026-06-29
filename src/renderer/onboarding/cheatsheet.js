@@ -97,8 +97,6 @@ export function initCheatSheet() {
     resetOnboarding();
     startTour();
   });
-  document.getElementById('help-btn')?.addEventListener('click', openCheatSheet);
-
   // F1 anywhere, or "?" when not typing into a field, opens the cheat sheet.
   window.addEventListener('keydown', (e) => {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')

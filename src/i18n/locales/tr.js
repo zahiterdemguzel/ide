@@ -243,8 +243,6 @@ export default {
     'sheet.insertColRight': 'Sağa sütun ekle',
     'sheet.deleteCol': 'Sütun(ları) sil',
 
-    'help.title': 'Yardım ve klavye kısayolları',
-
     'welcome.tour': 'Turu başlat',
     'welcome.sessionExplainer': 'Bir oturum, kendi terminalinde çalışan bir Claude CLI’dır — farklı görevleri yan yana yürütmek için birden fazla başlatın.',
 

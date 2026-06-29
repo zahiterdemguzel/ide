@@ -244,8 +244,6 @@ export default {
     'sheet.insertColRight': 'Insert column right',
     'sheet.deleteCol': 'Delete column(s)',
 
-    'help.title': 'Help & keyboard shortcuts',
-
     'welcome.tour': 'Take the tour',
     'welcome.sessionExplainer': 'A session is one Claude CLI working in its own terminal — start several to tackle different tasks side by side.',
 

@@ -243,8 +243,6 @@ export default {
     'sheet.insertColRight': 'Spalte rechts einfügen',
     'sheet.deleteCol': 'Spalte(n) löschen',
 
-    'help.title': 'Hilfe & Tastenkürzel',
-
     'welcome.tour': 'Tour starten',
     'welcome.sessionExplainer': 'Eine Sitzung ist ein Claude-CLI, das in seinem eigenen Terminal arbeitet — starte mehrere, um verschiedene Aufgaben nebeneinander zu erledigen.',
 

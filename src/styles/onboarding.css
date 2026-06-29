@@ -3,18 +3,6 @@
  * Everything draws from the theme's CSS custom properties so all themes work.
  * See src/renderer/onboarding/. */
 
-/* ---- Help (?) button: matches the browser/settings toolbar buttons ---- */
-#help-btn {
-  flex: none;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; padding: 0; margin-right: 6px;
-  background: var(--bg-2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
-  transition: background .12s ease, border-color .12s ease, color .12s ease;
-}
-#help-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-#help-btn svg { display: block; }
-
 /* ---- Guided tour: dim scrim + transparent cutout + coach-mark card ---- */
 .onboarding-overlay {
   position: fixed; inset: 0; z-index: 10000;

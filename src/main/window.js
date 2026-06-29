@@ -34,7 +34,7 @@ let lastReloadAt = 0;
 function createWindow() {
   win = new BrowserWindow({
     width: 1400,
-    height: 900,
+    height: 1008,
     backgroundColor: '#1e1e1e',
     icon: path.join(__dirname, '..', '..', 'assets', 'icon.png'),
     webPreferences: {
