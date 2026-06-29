@@ -131,7 +131,9 @@
   flex: none; width: 44px; padding: 0 8px; text-align: right;
   color: var(--fg-dim); user-select: none; background: var(--bg-2);
 }
-.diff-code { flex: 1; padding: 0 12px; }
+/* Diff text is selectable/copyable; line numbers (.diff-ln) and the +/-/space
+   markers (::before generated content) are not, so a copy yields clean code. */
+.diff-code { flex: 1; padding: 0 12px; user-select: text; }
 .diff-row.add { background: rgba(63, 185, 80, .15); }
 .diff-row.add .diff-code::before { content: '+'; color: var(--green); margin-left: -8px; padding-right: 4px; }
 .diff-row.del { background: rgba(248, 81, 73, .15); }
