@@ -25,6 +25,12 @@ function resultRow(file, lineNo, text, term) {
     snip.textContent = text.trim();
     row.appendChild(snip);
   }
+  // Search hits are always files; mirror the file-tree's drag-to-insert behavior.
+  row.draggable = true;
+  row.addEventListener('dragstart', (ev) => {
+    ev.dataTransfer.setData('text/plain', '@' + file);
+    ev.dataTransfer.effectAllowed = 'copy';
+  });
   row.onclick = () => {
     document.querySelectorAll('.tree-row.sel').forEach((x) => x.classList.remove('sel'));
     row.classList.add('sel');
