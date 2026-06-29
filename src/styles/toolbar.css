@@ -20,9 +20,11 @@
 }
 .tool-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tool-btn.busy { opacity: .55; pointer-events: none; }
-/* Fixed width + centered so swapping the glyph (play ▶ <-> restart ↻, different
+/* Fixed width + centered so swapping the icon (play ▶ <-> restart SVG, different
    advance widths) never widens the button or shifts its label and neighbours. */
 .tool-ico { font-size: 11px; line-height: 1; width: 12px; text-align: center; flex: none; }
+/* the running-state restart glyph is an inline SVG; fit it to the icon slot */
+.tool-ico .ico-svg { display: block; width: 12px; height: 12px; margin: 0 auto; }
 .tool-btn.launch .tool-ico { color: var(--green); }
 /* a launch config whose terminal is still alive: the icon is a restart glyph,
    tinted yellow to read distinctly from the green idle play arrow */

@@ -11,19 +11,27 @@ const toolbarRuns = document.getElementById('toolbar-runs');
 // Each entry: { btn, ico, stop, name, compound, members }.
 let launchButtons = [];
 
+// A bold circular-arrow restart glyph as inline SVG — the Unicode ↻ renders too
+// thin and varies by font, so we draw it with a heavy stroke instead. Uses
+// currentColor so the existing green/yellow/hover tinting still applies.
+const RESTART_SVG = '<svg class="ico-svg" viewBox="0 0 24 24" fill="none" '
+  + 'stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">'
+  + '<path d="M20 11.5a8 8 0 1 1-2.3-5.4"/><path d="M20 3.5v5h-5"/></svg>';
+
 // A launch config "runs" as long as the terminal it started is still open; a
 // compound runs if any of its referenced configs' terminals are alive.
 function launchRunning(entry, live) {
   return entry.compound ? entry.members.some((m) => live.has(m)) : live.has(entry.name);
 }
 
-// Reflect each launch button's live state: restart icon (↻) while running, play
-// (▶) when idle. Driven by console open/close events plus a 10s safety poll.
+// Reflect each launch button's live state: a bold restart glyph while running,
+// play (▶) when idle. Driven by console open/close events plus a 10s safety poll.
 function refreshRunStates() {
   const live = runningConfigNames();
   for (const e of launchButtons) {
     const running = launchRunning(e, live);
-    e.ico.textContent = running ? '↻' : '▶';
+    if (running) e.ico.innerHTML = RESTART_SVG;
+    else e.ico.textContent = '▶';
     e.btn.classList.toggle('running', running);
     e.btn.title = (running ? (e.compound ? 'Restart compound: ' : 'Restart: ')
       : (e.compound ? 'Launch compound: ' : 'Launch: '))
