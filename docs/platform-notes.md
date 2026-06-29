@@ -1,6 +1,10 @@
-# Platform notes (Windows + macOS)
+# Platform notes (Windows + macOS + Linux)
 
 Hard-won gotchas. Do not "fix" these back to the obvious-but-broken form.
+
+The app runs on all three desktop OSes. Platform-specific code is guarded by `process.platform === 'win32'` with a POSIX (macOS/Linux) fallthrough; native bits use the multiarch node-pty fork and Electron's cross-platform `shell.*` APIs, so no per-OS forking lives in app code. Distributables are built for all three: Windows `portable` `.exe`, macOS `.dmg`, Linux `AppImage` (the `build`/`build:mac`/`build:linux` scripts; CI builds and releases all three — see [docs/testing.md](testing.md)). AppImage is chosen because it runs on any distro without a package manager.
+
+The per-instance browser-partition link (`instance.js`) uses `fs.symlinkSync(target, link, 'junction')`: the `'junction'` type is honored on Windows and **ignored on macOS/Linux**, where Node creates an ordinary symlink — so the shared, persistent inline-browser profile works identically on every OS.
 
 ## macOS: Electron bundle re-signing (postinstall)
 

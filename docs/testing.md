@@ -7,14 +7,14 @@ The app has no automated GUI/end-to-end harness, but the **pure, subtle logic** 
 - `npm test` — runs every file under `test/` (`node --test`'s default glob), through `scripts/test-reporter.js`: a quiet reporter that stays silent for passing tests and prints only failures (name + stack) plus a one-line `N passed, M failed` summary, so a green run is one line and a regression is the only thing you read.
 - `npm run lint` — ESLint (flat config in `eslint.config.js`) over the whole tree.
 
-There is no separate lint/test CI job — run `npm test` and `npm run lint` locally before finishing a change. The only GitHub Actions workflow is `.github/workflows/build.yml`, which packages the Windows and macOS apps on every push to `master` (see below).
+There is no separate lint/test CI job — run `npm test` and `npm run lint` locally before finishing a change. The only GitHub Actions workflow is `.github/workflows/build.yml`, which packages the Windows, macOS, and Linux apps on every push to `master` (see below).
 
 ## Build workflow
 
 `.github/workflows/build.yml` runs on every push to `master` (and manual `workflow_dispatch`). It has two jobs:
 
-- **`build`** — a two-OS matrix that packages the app with electron-builder: `windows-latest` runs `npm run build` (portable `.exe`) and `macos-latest` runs `npm run build:mac` (`.dmg`). Each job uploads its installer as a workflow artifact (`windows` / `macos`). `CSC_IDENTITY_AUTO_DISCOVERY=false` keeps electron-builder from attempting code-signing/notarization, since CI has no certificates. `fail-fast: false` lets one OS finish even if the other breaks.
-- **`release`** — runs after both builds, downloads their artifacts, and publishes them to a single rolling GitHub Release tagged `latest` (via `softprops/action-gh-release`). Each push refreshes that release, so the newest `.exe` + `.dmg` are always one click from the repo's front page under **Releases**. It needs `contents: write` permission and is gated on `github.event_name == 'push'` (a `workflow_dispatch` dry run skips it, since there's no commit to tag). The release is marked `prerelease` because the binaries are unsigned.
+- **`build`** — a three-OS matrix that packages the app with electron-builder: `windows-latest` runs `npm run build` (portable `.exe`), `macos-latest` runs `npm run build:mac` (`.dmg`), and `ubuntu-latest` runs `npm run build:linux` (`.AppImage` — runs on any distro without a package manager). Each job uploads its installer as a workflow artifact (`windows` / `macos` / `linux`). `CSC_IDENTITY_AUTO_DISCOVERY=false` keeps electron-builder from attempting code-signing/notarization, since CI has no certificates. `fail-fast: false` lets each OS finish even if another breaks.
+- **`release`** — runs after all builds, downloads their artifacts, and publishes them to a single rolling GitHub Release tagged `latest` (via `softprops/action-gh-release`). Each push refreshes that release, so the newest `.exe` + `.dmg` + `.AppImage` are always one click from the repo's front page under **Releases**. It needs `contents: write` permission and is gated on `github.event_name == 'push'` (a `workflow_dispatch` dry run skips it, since there's no commit to tag). The release is marked `prerelease` because the binaries are unsigned.
 
 `package-lock.json` is gitignored, so the repo has no lockfile in it. That means the workflow uses `npm install` (not `npm ci`) and omits setup-node's `cache: npm` — both of those require a committed lockfile and would fail with "Dependencies lock file is not found."
 

@@ -22,7 +22,15 @@ function availableShells() {
   }
   // Offer the user's login shell first, then the other common shells that are
   // actually installed — so a broken/misconfigured zsh isn't the only option.
-  const candidates = [process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'];
+  // $SHELL can be unset for a GUI-launched .app (Finder/Dock don't export it), so
+  // we also probe the standard system paths plus Homebrew prefixes (Apple Silicon
+  // /opt/homebrew, Intel /usr/local) where macOS users install modern shells.
+  const candidates = [
+    process.env.SHELL,
+    '/bin/zsh', '/bin/bash', '/bin/sh',
+    '/opt/homebrew/bin/zsh', '/opt/homebrew/bin/bash', '/opt/homebrew/bin/fish',
+    '/usr/local/bin/zsh', '/usr/local/bin/bash', '/usr/local/bin/fish',
+  ];
   const shells = [];
   const seen = new Set();
   for (const sh of candidates) {

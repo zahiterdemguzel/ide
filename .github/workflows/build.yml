@@ -19,6 +19,10 @@ jobs:
             name: macos
             build: npm run build:mac
             artifact: dist/*.dmg
+          - os: ubuntu-latest
+            name: linux
+            build: npm run build:linux
+            artifact: dist/*.AppImage
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +54,8 @@ jobs:
         with:
           path: artifacts
       # One rolling "latest" release, refreshed on every push to master, so the
-      # newest Windows .exe and macOS .dmg are always one click from the repo page.
+      # newest Windows .exe, macOS .dmg, and Linux .AppImage are always one click
+      # from the repo page.
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: latest

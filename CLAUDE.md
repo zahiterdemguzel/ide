@@ -13,7 +13,7 @@ An Electron desktop app for running and monitoring multiple interactive `claude`
 - `npm test` — run the unit tests (Node's built-in runner, zero test deps).
 - `npm run lint` — ESLint over the whole tree.
 
-No bundler and no build step for the app itself — vanilla JS loaded directly. The tests and lint cover the pure, Electron-free logic (config/JSONC translation, git porcelain parsing, per-session edit replay, i18n); run `npm run lint` + `npm test` locally before finishing a change. The only GitHub Actions workflow packages the Windows + macOS apps on every push to `master`. See [docs/testing.md](docs/testing.md).
+No bundler and no build step for the app itself — vanilla JS loaded directly. The tests and lint cover the pure, Electron-free logic (config/JSONC translation, git porcelain parsing, per-session edit replay, i18n); run `npm run lint` + `npm test` locally before finishing a change. The only GitHub Actions workflow packages the Windows + macOS + Linux apps on every push to `master`. See [docs/testing.md](docs/testing.md).
 
 ## Documentation
 
@@ -23,7 +23,7 @@ Project knowledge lives in `docs/` (not in any external memory). These files are
 - [docs/status-detection.md](docs/status-detection.md) — how the colored status dots are driven by Claude Code hooks.
 - [docs/platform-notes.md](docs/platform-notes.md) — Windows gotchas (node-pty fork, PTY path resolution, sandbox flag). **Do not revert these.**
 - [docs/settings.md](docs/settings.md) — the theme + language settings system (gear button), CSS-variable theming, and the i18n engine. How to add a theme, a language, or a translatable string.
-- [docs/testing.md](docs/testing.md) — the test + lint setup and the macOS/Windows build workflow: what's covered, the pure-logic split that makes it testable, and how to add a test or a lint rule.
+- [docs/testing.md](docs/testing.md) — the test + lint setup and the Windows/macOS/Linux build workflow: what's covered, the pure-logic split that makes it testable, and how to add a test or a lint rule.
 
 ## Working rules for agents
 
