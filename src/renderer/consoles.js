@@ -9,6 +9,21 @@ const consoles = new Map(); // id -> { term, fit, host, tab, label, name, kind }
 let activeConsole = null;
 let shellList = [];
 
+// Listeners notified whenever a console is opened or closed, so the run toolbar
+// can flip a launch button between play (idle) and restart (its terminal alive).
+const consolesChangedCbs = new Set();
+export function onConsolesChanged(cb) { consolesChangedCbs.add(cb); return () => consolesChangedCbs.delete(cb); }
+function notifyConsolesChanged() { for (const cb of consolesChangedCbs) cb(); }
+
+// Names of the .vscode config terminals (kind 'config') still alive — a launch
+// config "runs" exactly as long as the terminal it started is open (the user's
+// definition). The toolbar reads this to decide play vs restart per button.
+export function runningConfigNames() {
+  const names = new Set();
+  for (const c of consoles.values()) if (c.kind === 'config') names.add(c.name);
+  return names;
+}
+
 const consoleHosts = document.getElementById('console-hosts');
 const termTabs = document.getElementById('term-tabs');
 
@@ -54,6 +69,7 @@ function closeConsole(id) {
   c.host.remove();
   c.tab.remove();
   consoles.delete(id);
+  notifyConsolesChanged();
   if (activeConsole === id) {
     activeConsole = null;
     const next = [...consoles.keys()].pop();
@@ -101,6 +117,7 @@ async function createConsole(opts = {}) {
   termTabs.appendChild(tab);
 
   consoles.set(id, { term, fit, host, tab, label, name, kind: opts.kind || 'shell' });
+  notifyConsolesChanged();
   selectConsole(id);
   return id;
 }

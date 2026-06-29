@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
 const { sendToRenderer } = require('./window');
-const { parseJsonc, parseEnvFile, makeRunConfigLib } = require('./run-configs-lib');
+const { parseJsonc, parseEnvFile, compoundMembers, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
 // We don't run a real debugger; each launch config / task is translated into a
@@ -23,7 +23,7 @@ ipcMain.handle('get-run-configs', () => {
   const launchList = [];
   if (launch) {
     for (const c of (launch.configurations || [])) if (c && c.name) launchList.push({ name: c.name });
-    for (const c of (launch.compounds || [])) if (c && c.name) launchList.push({ name: c.name, compound: true });
+    for (const c of (launch.compounds || [])) if (c && c.name) launchList.push({ name: c.name, compound: true, members: compoundMembers(c) });
   }
   const taskList = [];
   if (tasks) for (const t of (tasks.tasks || [])) { const n = t && (t.label || t.taskName); if (n) taskList.push({ name: n }); }

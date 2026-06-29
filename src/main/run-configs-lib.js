@@ -73,6 +73,15 @@ function parseEnvFile(text) {
 
 // Build the command/spec translators bound to one repo path + platform. Created
 // fresh per IPC call so it always sees the current open folder.
+// Member config names of a launch.json compound (`configurations` entries may be
+// plain names or { name } objects). The run toolbar uses these to tell whether a
+// compound is "running" — i.e. any of its referenced configs' terminals is alive.
+function compoundMembers(compound) {
+  return ((compound && compound.configurations) || [])
+    .map((ref) => (ref && typeof ref === 'object') ? ref.name : ref)
+    .filter(Boolean);
+}
+
 function makeRunConfigLib(repoPath, platform = process.platform) {
   // Resolve the VS Code variables we can without a live editor context. Unknown
   // ${...} placeholders (e.g. ${file}) are left untouched — best effort.
@@ -224,4 +233,4 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
   return { substVars, envMap, winExe, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec };
 }
 
-module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, makeRunConfigLib };
+module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, compoundMembers, makeRunConfigLib };

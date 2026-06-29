@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseJsonc, parseEnvFile, makeRunConfigLib } = require('../src/main/run-configs-lib');
+const { parseJsonc, parseEnvFile, compoundMembers, makeRunConfigLib } = require('../src/main/run-configs-lib');
 
 const REPO = '/repo';
 const lin = makeRunConfigLib(REPO, 'linux');
@@ -36,6 +36,22 @@ test('parseJsonc: respects escaped quotes inside strings', () => {
   const r = parseJsonc('{ "s": "a \\" // still in string", "n": 1 }');
   assert.equal(r.s, 'a " // still in string');
   assert.equal(r.n, 1);
+});
+
+// --- compoundMembers ---
+
+test('compoundMembers: plain string members', () => {
+  assert.deepEqual(compoundMembers({ configurations: ['Server', 'Client'] }), ['Server', 'Client']);
+});
+
+test('compoundMembers: { name } object members and a mix', () => {
+  assert.deepEqual(compoundMembers({ configurations: [{ name: 'Server' }, 'Client'] }), ['Server', 'Client']);
+});
+
+test('compoundMembers: missing/empty configurations and falsy entries', () => {
+  assert.deepEqual(compoundMembers({}), []);
+  assert.deepEqual(compoundMembers(null), []);
+  assert.deepEqual(compoundMembers({ configurations: [null, '', 'Real', { foo: 1 }] }), ['Real']);
 });
 
 // --- substVars ---

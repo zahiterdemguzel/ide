@@ -22,6 +22,9 @@
 .tool-btn.busy { opacity: .55; pointer-events: none; }
 .tool-ico { font-size: 11px; line-height: 1; }
 .tool-btn.launch .tool-ico { color: var(--green); }
+/* a launch config whose terminal is still alive: the icon is a restart glyph,
+   tinted yellow to read distinctly from the green idle play arrow */
+.tool-btn.launch.running .tool-ico { color: var(--yellow); }
 .tool-btn.task .tool-ico { color: var(--fg-dim); }
 .tool-btn:hover .tool-ico { color: var(--on-accent); }
 .tool-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex: none; }
