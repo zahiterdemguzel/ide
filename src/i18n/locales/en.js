@@ -265,6 +265,10 @@ export default {
     'tour.git.body': 'Stage, commit, and push changes for the shared repository — no command line needed.',
     'tour.console.title': 'Terminal',
     'tour.console.body': 'A plain terminal for ad-hoc commands, separate from the Claude sessions.',
+    'tour.usage.title': 'Usage limits',
+    'tour.usage.body': 'Track how much of your Claude subscription is left against the 5-hour and weekly limits, with a countdown to each reset. It hides itself when no usage data is available.',
+    'tour.browser.title': 'Built-in browser',
+    'tour.browser.body': 'Open an in-app browser to preview a local dev server or any web page, with an inspect-element tool — no need to leave the app.',
     'tour.settings.title': 'Settings & help',
     'tour.settings.body': 'Change the theme and language in Settings, and reopen this tour or the shortcut list anytime from Help.',
 

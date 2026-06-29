@@ -264,6 +264,10 @@ export default {
     'tour.git.body': 'Änderungen für das gemeinsame Repository vormerken, committen und pushen — ohne Befehlszeile.',
     'tour.console.title': 'Terminal',
     'tour.console.body': 'Ein einfaches Terminal für Ad-hoc-Befehle, getrennt von den Claude-Sitzungen.',
+    'tour.usage.title': 'Nutzungslimits',
+    'tour.usage.body': 'Verfolge, wie viel von deinem Claude-Abo gegenüber dem 5-Stunden- und dem Wochenlimit übrig ist, mit einem Countdown bis zur jeweiligen Zurücksetzung. Es blendet sich aus, wenn keine Nutzungsdaten verfügbar sind.',
+    'tour.browser.title': 'Integrierter Browser',
+    'tour.browser.body': 'Öffne einen In-App-Browser, um einen lokalen Entwicklungsserver oder eine beliebige Webseite anzusehen — mit einem Element-Inspektor und ohne die App zu verlassen.',
     'tour.settings.title': 'Einstellungen & Hilfe',
     'tour.settings.body': 'Ändere Design und Sprache in den Einstellungen und öffne diese Tour oder die Kürzelliste jederzeit über die Hilfe.',
 

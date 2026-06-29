@@ -264,6 +264,10 @@ export default {
     'tour.git.body': 'Paylaşılan depo için değişiklikleri hazırlayın, işleyin ve gönderin — komut satırı gerekmez.',
     'tour.console.title': 'Terminal',
     'tour.console.body': 'Claude oturumlarından ayrı, anlık komutlar için düz bir terminal.',
+    'tour.usage.title': 'Kullanım sınırları',
+    'tour.usage.body': 'Claude aboneliğinizden 5 saatlik ve haftalık sınırlara göre ne kadar kaldığını, her sıfırlamaya kalan süreyle birlikte takip edin. Kullanım verisi olmadığında kendini gizler.',
+    'tour.browser.title': 'Yerleşik tarayıcı',
+    'tour.browser.body': 'Yerel bir geliştirme sunucusunu veya herhangi bir web sayfasını önizlemek için uygulama içi tarayıcıyı açın; öğe inceleme aracıyla birlikte — uygulamadan çıkmanıza gerek yok.',
     'tour.settings.title': 'Ayarlar ve yardım',
     'tour.settings.body': 'Ayarlar’dan tema ve dili değiştirin; bu turu veya kısayol listesini istediğiniz zaman Yardım’dan yeniden açın.',
 

@@ -264,6 +264,10 @@ export default {
     'tour.git.body': 'Indexez, validez et poussez les modifications du dépôt partagé — sans ligne de commande.',
     'tour.console.title': 'Terminal',
     'tour.console.body': 'Un terminal simple pour des commandes ponctuelles, distinct des sessions Claude.',
+    'tour.usage.title': 'Limites d’utilisation',
+    'tour.usage.body': 'Suivez ce qu’il vous reste de votre abonnement Claude par rapport aux limites de 5 heures et hebdomadaire, avec un compte à rebours jusqu’à chaque réinitialisation. Il se masque quand aucune donnée d’utilisation n’est disponible.',
+    'tour.browser.title': 'Navigateur intégré',
+    'tour.browser.body': 'Ouvrez un navigateur intégré pour prévisualiser un serveur de développement local ou n’importe quelle page web, avec un outil d’inspection d’éléments — sans quitter l’application.',
     'tour.settings.title': 'Paramètres et aide',
     'tour.settings.body': 'Changez le thème et la langue dans les Paramètres, et rouvrez cette visite ou la liste des raccourcis à tout moment depuis l’Aide.',
 

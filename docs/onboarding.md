@@ -50,8 +50,9 @@ on-screen beside the target.
 
 Steps come from `TOUR_STEPS` (each `{ id, target, titleKey, bodyKey }`, `target`
 a CSS selector). A step whose target is missing or hidden — e.g. a panel toggled
-off in [Settings](settings.md) — is filtered out at start, so the counter and
-walkthrough only cover visible regions.
+off in [Settings](settings.md), or the usage meter (`#usage-meter`, the second-to-last
+step) when the user has no remaining usage data so it hides itself — is filtered
+out at start, so the counter and walkthrough only cover visible regions.
 
 **First-run trigger:** `activateOnboarding` auto-starts the tour once — gated on
 `hasRepo` and `!isTourDone()` (and run only after Claude Code is installed; see

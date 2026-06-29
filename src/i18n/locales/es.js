@@ -264,6 +264,10 @@ export default {
     'tour.git.body': 'Prepara, confirma y envía los cambios del repositorio compartido, sin línea de comandos.',
     'tour.console.title': 'Terminal',
     'tour.console.body': 'Una terminal sencilla para comandos puntuales, aparte de las sesiones de Claude.',
+    'tour.usage.title': 'Límites de uso',
+    'tour.usage.body': 'Controla cuánto te queda de tu suscripción de Claude frente a los límites de 5 horas y semanal, con una cuenta atrás hasta cada reinicio. Se oculta cuando no hay datos de uso disponibles.',
+    'tour.browser.title': 'Navegador integrado',
+    'tour.browser.body': 'Abre un navegador dentro de la app para previsualizar un servidor de desarrollo local o cualquier página web, con una herramienta de inspección de elementos, sin salir de la app.',
     'tour.settings.title': 'Ajustes y ayuda',
     'tour.settings.body': 'Cambia el tema y el idioma en Ajustes, y vuelve a abrir este recorrido o la lista de atajos cuando quieras desde Ayuda.',
 

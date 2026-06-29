@@ -6,12 +6,14 @@
 // The guided tour, in order. `target` is a CSS selector resolved at run time; a
 // step whose target is missing or hidden (e.g. a panel toggled off) is skipped.
 export const TOUR_STEPS = [
-  { id: 'toolbar', target: '#toolbar', titleKey: 'tour.toolbar.title', bodyKey: 'tour.toolbar.body' },
   { id: 'sessions', target: '#sessions-pane', titleKey: 'tour.sessions.title', bodyKey: 'tour.sessions.body' },
-  { id: 'explorer', target: '#files-pane', titleKey: 'tour.explorer.title', bodyKey: 'tour.explorer.body' },
   { id: 'terminal', target: '#center', titleKey: 'tour.terminal.title', bodyKey: 'tour.terminal.body' },
+  { id: 'explorer', target: '#files-pane', titleKey: 'tour.explorer.title', bodyKey: 'tour.explorer.body' },
   { id: 'git', target: '#git-main', titleKey: 'tour.git.title', bodyKey: 'tour.git.body' },
   { id: 'console', target: '#git-console', titleKey: 'tour.console.title', bodyKey: 'tour.console.body' },
+  { id: 'toolbar', target: '#toolbar', titleKey: 'tour.toolbar.title', bodyKey: 'tour.toolbar.body' },
+  { id: 'usage', target: '#usage-meter', titleKey: 'tour.usage.title', bodyKey: 'tour.usage.body' },
+  { id: 'browser', target: '#browser-btn', titleKey: 'tour.browser.title', bodyKey: 'tour.browser.body' },
   { id: 'settings', target: '#settings-btn', titleKey: 'tour.settings.title', bodyKey: 'tour.settings.body' },
 ];
 
