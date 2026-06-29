@@ -13,6 +13,7 @@ module.exports = {
   gitBranches: () => ipcRenderer.invoke('git-branches'),
   gitCheckout: (branch) => ipcRenderer.invoke('git-checkout', branch),
   gitCreateBranch: (branch) => ipcRenderer.invoke('git-create-branch', branch),
+  gitDeleteBranch: (branch) => ipcRenderer.invoke('git-delete-branch', branch),
   gitStage: (file) => ipcRenderer.invoke('git-stage', file),
   gitUnstage: (file) => ipcRenderer.invoke('git-unstage', file),
   gitDiff: (args) => ipcRenderer.invoke('git-diff', args),

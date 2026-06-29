@@ -66,6 +66,7 @@ export default {
     'git.searchHistory': 'Search commits…',
     'git.noBranches': 'No branches',
     'git.createBranch': 'Create branch',
+    'git.deleteBranchTitle': 'Delete this branch',
     'git.resolveWithClaude': 'Let Claude resolve',
     'git.resolveWithClaudeTitle': 'Start a Claude session to resolve these conflicts',
     'git.letClaude': 'Let Claude handle it',
@@ -112,6 +113,7 @@ export default {
     'armHint.terminate': 'Click again to close this browser',
     'armHint.deleteSession': 'Click again to delete this session permanently',
     'armHint.dropStash': 'Click again to drop this stash',
+    'armHint.deleteBranch': 'Click again to delete this branch',
 
     'session.revert': 'Revert',
     'session.revertTitle': "Revert only this session's changes",

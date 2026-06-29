@@ -65,6 +65,7 @@ export default {
     'git.searchHistory': 'Rechercher des commits…',
     'git.noBranches': 'Aucune branche',
     'git.createBranch': 'Créer une branche',
+    'git.deleteBranchTitle': 'Supprimer cette branche',
     'git.resolveWithClaude': 'Laisser Claude résoudre',
     'git.resolveWithClaudeTitle': 'Démarrer une session Claude pour résoudre ces conflits',
     'git.letClaude': 'Laisser Claude s’en charger',
@@ -111,6 +112,7 @@ export default {
     'armHint.terminate': 'Cliquez à nouveau pour fermer ce navigateur',
     'armHint.deleteSession': 'Cliquez à nouveau pour supprimer définitivement cette session',
     'armHint.dropStash': 'Cliquez à nouveau pour supprimer cette remise',
+    'armHint.deleteBranch': 'Cliquez à nouveau pour supprimer cette branche',
 
     'session.revert': 'Rétablir',
     'session.revertTitle': 'Rétablir uniquement les modifications de cette session',

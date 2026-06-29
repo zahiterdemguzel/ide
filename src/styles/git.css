@@ -329,15 +329,23 @@
   max-height: 390px;
 }
 .branch-item {
+  display: flex; align-items: center; gap: 6px;
   padding: 6px 9px; border-radius: 5px; cursor: pointer; font-size: 12px;
-  font-family: Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: Consolas, monospace; overflow: hidden; white-space: nowrap;
   transition: background .1s ease;
 }
+.branch-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .branch-item:hover { background: var(--bg-3); }
 .branch-item.current { color: var(--accent); font-weight: 700; }
 .branch-item.current::before { content: '● '; font-size: 9px; }
 .branch-item.branch-create { color: var(--accent); }
 .branch-item.branch-create::before { content: '+ '; font-weight: 700; }
+/* The per-row delete trash button reveals on row hover (or while armed red),
+   mirroring how the git-list row buttons appear only on hover. */
+.branch-item .branch-del { visibility: hidden; }
+.branch-item:hover .branch-del,
+.branch-item .branch-del.armed { visibility: visible; }
+.branch-del:hover { background: var(--red); border-color: var(--red); color: #fff; }
 .branch-empty { padding: 8px; font-size: 12px; color: var(--fg-dim); text-align: center; }
 .branch-empty[hidden] { display: none; }
 

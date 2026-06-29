@@ -140,6 +140,12 @@ ipcMain.handle('git-checkout', (_e, branch) => git(['checkout', branch]));
 // Create a new branch off the current HEAD and switch to it. Git rejects names
 // that break ref rules (spaces, '..', leading '-', etc.), reported to the renderer.
 ipcMain.handle('git-create-branch', (_e, branch) => git(['checkout', '-b', branch]));
+
+// Delete a local branch. Force (`-D`) rather than `-d` because the renderer
+// already gates this behind a two-click confirm — the guard is the approval,
+// not git's merged-only check, so the button reliably removes the branch the
+// user approved (git still refuses to delete the branch that's checked out).
+ipcMain.handle('git-delete-branch', (_e, branch) => git(['branch', '-D', branch]));
 ipcMain.handle('git-stage', (_e, file) => git(['add', '--', file]));
 ipcMain.handle('git-unstage', async (_e, file) => {
   const r = await git(['reset', '-q', 'HEAD', '--', file]);

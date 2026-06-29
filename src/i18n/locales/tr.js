@@ -65,6 +65,7 @@ export default {
     'git.searchHistory': 'Commit ara…',
     'git.noBranches': 'Dal yok',
     'git.createBranch': 'Dal oluştur',
+    'git.deleteBranchTitle': 'Bu dalı sil',
     'git.resolveWithClaude': 'Claude çözsün',
     'git.resolveWithClaudeTitle': 'Bu çakışmaları çözmek için bir Claude oturumu başlat',
     'git.letClaude': 'Claude halletsin',
@@ -111,6 +112,7 @@ export default {
     'armHint.terminate': 'Bu tarayıcıyı kapatmak için tekrar tıkla',
     'armHint.deleteSession': 'Bu oturumu kalıcı olarak silmek için tekrar tıkla',
     'armHint.dropStash': 'Bu zulayı silmek için tekrar tıkla',
+    'armHint.deleteBranch': 'Bu dalı silmek için tekrar tıkla',
 
     'session.revert': 'Geri al',
     'session.revertTitle': 'Yalnızca bu oturumun değişikliklerini geri al',

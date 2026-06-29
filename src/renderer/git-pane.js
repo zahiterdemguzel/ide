@@ -451,10 +451,35 @@ function renderBranchList() {
   }
   for (const b of matches) {
     const li = document.createElement('li');
-    li.className = 'branch-item' + (b === currentBranch ? ' current' : '');
-    li.textContent = b;
-    li.title = b;
+    const isCurrent = b === currentBranch;
+    li.className = 'branch-item' + (isCurrent ? ' current' : '');
+    const name = document.createElement('span');
+    name.className = 'branch-name';
+    name.textContent = b;
+    name.title = b;
+    li.appendChild(name);
     li.onclick = () => switchBranch(b);
+    // The checked-out branch can't be deleted (git refuses), so only the other
+    // rows get a trash button. Deleting a branch is destructive, so it uses the
+    // same two-click arm-then-confirm as the stash-drop / discard buttons.
+    if (!isCurrent) {
+      const del = document.createElement('button');
+      del.className = 'git-btn git-revert branch-del';
+      del.innerHTML = STASH_DROP_SVG;
+      del.title = t('git.deleteBranchTitle');
+      del.onclick = (e) => {
+        e.stopPropagation();
+        if (!del.classList.contains('armed')) {
+          del.classList.add('armed');
+          del.title = t('armHint.deleteBranch');
+          showArmHint(del);
+          return;
+        }
+        hideArmHint();
+        deleteBranch(b);
+      };
+      li.appendChild(del);
+    }
     branchListEl.appendChild(li);
   }
 }
@@ -465,6 +490,17 @@ async function createBranch(branch) {
   if (!r.ok) { showGitErrorDialog(r.stderr || 'Create branch failed', 'Create branch failed'); return; }
   refreshGit();
   refreshHistory();
+}
+
+async function deleteBranch(branch) {
+  const r = await window.api.gitDeleteBranch(branch);
+  if (!r.ok) { showGitErrorDialog(r.stderr || 'Delete branch failed', 'Delete branch failed'); return; }
+  // Keep the menu open so several branches can be removed in a row; re-fetch so
+  // the deleted branch drops out of the list and re-render with the same filter.
+  const list = await window.api.gitBranches();
+  if (list.ok) { allBranches = list.branches; currentBranch = list.current; }
+  renderBranchList();
+  refreshGit();
 }
 
 async function switchBranch(branch) {
