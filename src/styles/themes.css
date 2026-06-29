@@ -92,3 +92,25 @@
   --term-cursor: #ffffff;
   --term-sel: #0e4f6b;
 }
+
+[data-theme="blender"] {
+  --bg: #393939;
+  --bg-2: #303030;
+  --bg-3: #4b4b4b;
+  --border: #232323;
+  --fg: #e6e6e6;
+  --fg-dim: #9b9b9b;
+  --accent: #ea7600;
+  --accent-hi: #ff9b3d;
+  --on-accent: #1a1a1a;
+  --green: #5ab552;
+  --red: #e5484d;
+  --purple: #a378d9;
+  --gray: #808080;
+  --yellow: #ddb625;
+  --list-sel: #5b4226;
+  --term-bg: #303030;
+  --term-fg: #e6e6e6;
+  --term-cursor: #ea7600;
+  --term-sel: #5b4226;
+}
