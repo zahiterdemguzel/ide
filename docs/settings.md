@@ -220,7 +220,8 @@ falls back to English at runtime, but `npm test` enforces **full key parity** â€
 every locale must carry exactly the `en` key set (see [testing.md](testing.md)),
 so adding a key to `en` alone fails `npm test`. Dynamic strings built in JS (e.g. the
 commit-count button label) are not yet routed through `t()`; do that in the
-owning module when needed.
+owning module when needed. The [first-time onboarding](onboarding.md) (guided
+tour, cheat sheet, hints) follows these same i18n and `localStorage` patterns.
 
 > The i18n engine is loaded as an ES module by both the browser and Node's test
 > runner; `src/i18n/package.json` (`{"type":"module"}`) marks the folder ESM for

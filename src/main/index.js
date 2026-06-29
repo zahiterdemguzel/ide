@@ -16,6 +16,7 @@ require('./explorer');
 require('./run-configs');
 require('./runners');
 require('./consoles');
+require('./onboarding-store');
 
 // Log every crash (uncaught exception, unhandled rejection, renderer/child-process
 // death) to a file under crashlogs/ — without exiting, so the app stays usable.

@@ -16,6 +16,8 @@ import { initClaudeSetup } from './claude-setup.js';
 import { initSettings, cycleTheme } from './settings.js';
 import { initUsageMeter } from './usage-meter.js';
 import { initPanels } from './panels.js';
+import { initOnboarding, activateOnboarding, startTour, openCheatSheet } from './onboarding/index.js';
+import { onClaudeReady } from './claude-setup.js';
 import { t } from '../i18n/index.js';
 import './panes.js';
 
@@ -114,6 +116,8 @@ registerCommands([
   { id: 'cycle-theme', titleKey: 'command.cycleTheme', keywordsKey: 'command.cycleTheme.kw', run: cycleTheme },
   { id: 'refresh-git', titleKey: 'command.refreshGit', keywordsKey: 'command.refreshGit.kw', run: refreshGit },
   { id: 'refresh-tree', titleKey: 'command.refreshTree', keywordsKey: 'command.refreshTree.kw', run: refreshTree },
+  { id: 'guided-tour', titleKey: 'command.guidedTour', keywordsKey: 'command.guidedTour.kw', run: startTour },
+  { id: 'keyboard-shortcuts', titleKey: 'command.keyboardShortcuts', keywordsKey: 'command.keyboardShortcuts.kw', run: openCheatSheet },
 ]);
 
 initSettings();
@@ -130,6 +134,16 @@ restoreSessions();
 refreshGit();
 refreshTree();
 loadToolbar();
+// First-time onboarding. The help/cheat sheet wires up immediately; the
+// automatic guided tour and contextual hints wait until Claude Code is confirmed
+// installed (past the setup gate) so a new user isn't onboarded mid-install, and
+// the tour only auto-runs when a project is open so its steps point at real UI.
+initOnboarding();
+onClaudeReady(() => {
+  window.api.getRepoPath()
+    .then((repo) => activateOnboarding({ hasRepo: !!repo }))
+    .catch(() => activateOnboarding({}));
+});
 // ponytail: poll while focused; a file watcher would be more code for no real gain
 setInterval(() => { if (document.hasFocus()) refreshGit(); }, 3000);
 // Refresh the moment the window regains focus too, so changes made while the app

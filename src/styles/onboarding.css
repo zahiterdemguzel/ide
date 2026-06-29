@@ -1,0 +1,149 @@
+/* First-time-user onboarding: the spotlight guided tour, its coach-mark card,
+ * the keyboard cheat-sheet dialog, and the contextual hint bubble variant.
+ * Everything draws from the theme's CSS custom properties so all themes work.
+ * See src/renderer/onboarding/. */
+
+/* ---- Help (?) button: matches the browser/settings toolbar buttons ---- */
+#help-btn {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0; margin-right: 6px;
+  background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+#help-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#help-btn svg { display: block; }
+
+/* ---- Guided tour: dim scrim + transparent cutout + coach-mark card ---- */
+.onboarding-overlay {
+  position: fixed; inset: 0; z-index: 10000;
+  /* The scrim itself is transparent; the spotlight's box-shadow paints the dim
+   * everywhere except its cutout, so the highlighted region reads clearly. */
+}
+.onboarding-spotlight {
+  position: fixed;
+  border-radius: 6px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease;
+  pointer-events: none;
+}
+
+.onboarding-card {
+  position: fixed; z-index: 10001;
+  width: 300px; max-width: 90vw;
+  background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  padding: 14px 16px;
+  --onboarding-tail: 50%;
+}
+/* Tail: two stacked triangles (border + fill) so it keeps the 1px outline,
+ * mirroring the arm-hint bubble. The tail edge and the meaning of
+ * --onboarding-tail depend on the placement: horizontal offset for top/bottom,
+ * vertical offset for left/right. */
+.onboarding-card::before,
+.onboarding-card::after { content: ""; position: absolute; width: 0; height: 0; }
+
+/* top: card above the target, tail points down from the bottom edge */
+.onboarding-card-top::before,
+.onboarding-card-top::after,
+.onboarding-card-bottom::before,
+.onboarding-card-bottom::after {
+  left: var(--onboarding-tail); transform: translateX(-50%);
+  border-left: 7px solid transparent; border-right: 7px solid transparent;
+}
+.onboarding-card-top::before { top: 100%; border-top: 7px solid var(--border); }
+.onboarding-card-top::after { top: calc(100% - 1px); border-top: 7px solid var(--bg-2); }
+/* bottom: card below the target, tail points up from the top edge */
+.onboarding-card-bottom::before { bottom: 100%; border-bottom: 7px solid var(--border); }
+.onboarding-card-bottom::after { bottom: calc(100% - 1px); border-bottom: 7px solid var(--bg-2); }
+
+/* left/right: card beside the target, tail points horizontally at it */
+.onboarding-card-left::before,
+.onboarding-card-left::after,
+.onboarding-card-right::before,
+.onboarding-card-right::after {
+  top: var(--onboarding-tail); transform: translateY(-50%);
+  border-top: 7px solid transparent; border-bottom: 7px solid transparent;
+}
+.onboarding-card-left::before { left: 100%; border-left: 7px solid var(--border); }
+.onboarding-card-left::after { left: calc(100% - 1px); border-left: 7px solid var(--bg-2); }
+.onboarding-card-right::before { right: 100%; border-right: 7px solid var(--border); }
+.onboarding-card-right::after { right: calc(100% - 1px); border-right: 7px solid var(--bg-2); }
+
+.onboarding-counter { font-size: 11px; color: var(--fg-dim); margin-bottom: 6px; }
+.onboarding-title { margin: 0 0 6px; font-size: 14px; }
+.onboarding-body { margin: 0 0 14px; font-size: 12.5px; line-height: 1.45; color: var(--fg); }
+
+.onboarding-actions { display: flex; align-items: center; gap: 6px; }
+.onboarding-spacer { flex: 1; }
+.onboarding-btn {
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 5px 10px; font-size: 12px; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.onboarding-btn:hover:not(:disabled) { border-color: var(--accent); }
+.onboarding-btn:disabled { opacity: .45; cursor: default; }
+.onboarding-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.onboarding-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+.onboarding-skip { background: none; border-color: transparent; color: var(--fg-dim); }
+.onboarding-skip:hover { color: var(--fg); border-color: transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-spotlight { transition: none; }
+}
+
+/* ---- Cheat-sheet dialog ---- */
+#cheatsheet-dialog {
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-2); color: var(--fg);
+  padding: 0; width: 420px; max-width: 92vw;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+#cheatsheet-dialog::backdrop { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
+
+.cheatsheet-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.cheatsheet-head h3 { margin: 0; font-size: 14px; }
+#cheatsheet-close {
+  background: none; border: none; color: var(--fg-dim);
+  font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px;
+  border-radius: 4px; transition: color .12s ease;
+}
+#cheatsheet-close:hover { color: var(--fg); }
+
+#cheatsheet-body { padding: 12px 16px; max-height: 60vh; overflow-y: auto; }
+.cheatsheet-section {
+  margin: 12px 0 6px; font-size: 11px; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .08em;
+}
+.cheatsheet-section:first-child { margin-top: 0; }
+.cheatsheet-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 4px 0; font-size: 12.5px;
+}
+.cheatsheet-keys { flex: none; display: inline-flex; gap: 4px; min-width: 120px; }
+.cheatsheet-keys kbd {
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+  padding: 1px 6px; font-size: 11px; font-family: inherit; line-height: 1.5;
+}
+.cheatsheet-label { color: var(--fg); }
+
+.cheatsheet-foot {
+  display: flex; justify-content: flex-end;
+  padding: 12px 16px; border-top: 1px solid var(--border);
+}
+#cheatsheet-replay {
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 12px; font-size: 12px; cursor: pointer;
+  transition: border-color .12s ease;
+}
+#cheatsheet-replay:hover { border-color: var(--accent); }

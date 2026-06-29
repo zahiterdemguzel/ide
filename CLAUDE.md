@@ -23,6 +23,7 @@ Project knowledge lives in `docs/` (not in any external memory). These files are
 - [docs/status-detection.md](docs/status-detection.md) — how the colored status dots are driven by Claude Code hooks.
 - [docs/platform-notes.md](docs/platform-notes.md) — Windows gotchas (node-pty fork, PTY path resolution, sandbox flag). **Do not revert these.**
 - [docs/settings.md](docs/settings.md) — the theme + language settings system (gear button), CSS-variable theming, and the i18n engine. How to add a theme, a language, or a translatable string.
+- [docs/onboarding.md](docs/onboarding.md) — the first-time-user aids: the spotlight guided tour, keyboard cheat sheet, welcome screen, and contextual hints. How to add a tour step, a hint, or a shortcut row.
 - [docs/testing.md](docs/testing.md) — the test + lint setup and the Windows/macOS/Linux build workflow: what's covered, the pure-logic split that makes it testable, and how to add a test or a lint rule.
 
 ## Working rules for agents

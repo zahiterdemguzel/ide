@@ -20,6 +20,7 @@ import {
 import { registerTerminalLinks } from './terminal-links.js';
 
 let claudeReady = false;   // unknown until the first check; gates newSession
+const readyListeners = []; // fired once, when Claude Code first becomes available
 let guide = null;          // { platform, installArgs, authArgs, installOk, installFail, docsUrl, run }
 let step = 0;              // 0 intro, 1 installing, 2 sign in
 let installDone = false;   // install command finished (its marker was seen)
@@ -178,13 +179,23 @@ function openSetup() {
   if (!dialog.open) dialog.showModal();
 }
 
+// Run `fn` once Claude Code is confirmed installed — immediately if it already is,
+// otherwise when the next probe (setup wizard finish, or a newSession re-check)
+// first finds it. Lets onboarding hold off until the user is past the install gate.
+export function onClaudeReady(fn) {
+  if (claudeReady) fn();
+  else readyListeners.push(fn);
+}
+
 // Ask main whether Claude Code is installed; cache the result + guide.
 async function probe() {
   let res;
   try { res = await window.api.checkClaude(); }
   catch { return false; }
+  const was = claudeReady;
   claudeReady = !!res.installed;
   if (res.guide) guide = res.guide;
+  if (claudeReady && !was) readyListeners.splice(0).forEach((fn) => fn());
   return claudeReady;
 }
 
