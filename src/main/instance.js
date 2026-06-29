@@ -1,6 +1,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { staleInstanceDirs } = require('./instance-lib');
 
 // Multiple instances must be able to run side by side. Two instances sharing one
 // userData dir fight over the Chromium disk cache / singleton lock ("Unable to
@@ -14,7 +15,39 @@ const fs = require('fs');
 // the disposable Chromium cache.
 const sharedDataDir = app.getPath('userData');
 
-const instanceDir = path.join(sharedDataDir, 'instances', String(process.pid));
+const instancesRoot = path.join(sharedDataDir, 'instances');
+const instanceDir = path.join(instancesRoot, String(process.pid));
+
+// Windows reuses pids, and the on-quit cleanup below can't fire on a crash/kill
+// (and even on a clean quit rmSync fails on a cache file something still holds),
+// so leftover `instances/<pid>` dirs accumulate. When a new instance is handed a
+// pid whose stale dir is still on disk, Chromium finds an old, version-mismatched
+// cache there and tries to move it aside to recreate it — which fails with
+// "Unable to move the cache: Access is denied" if anything still has a handle on
+// it. This is most likely when the app is launched from inside the app itself,
+// where the parent has just churned through many pids spawning PTYs and the
+// `claude` CLI, so a fresh Electron pid is far more likely to hit a leftover dir.
+//
+// Two best-effort defenses run before the userData redirect:
+// 1. Drop our own pid's leftover dir, so we always start from a clean cache. The
+//    predecessor that created it is gone (we hold its pid now), so nothing should
+//    still be locking it.
+try { fs.rmSync(instanceDir, { recursive: true, force: true }); } catch {}
+
+// 2. Sweep every other leftover dir whose pid no longer belongs to a running
+//    process — self-healing the pile-up. A dir owned by a live sibling instance
+//    has an alive pid (and locked files), so it's skipped: the sweep never
+//    disturbs a running instance. A pid reused by some unrelated process reads as
+//    alive too, so we simply leave that dir for the next run rather than risk it.
+const isAlive = (pid) => {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }
+};
+try {
+  for (const name of staleInstanceDirs(fs.readdirSync(instancesRoot), isAlive)) {
+    try { fs.rmSync(path.join(instancesRoot, name), { recursive: true, force: true }); } catch {}
+  }
+} catch {}
+
 app.setPath('userData', instanceDir);
 
 // The inline browser must stay logged in across restarts, but its cookies /

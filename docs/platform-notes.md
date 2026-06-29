@@ -43,6 +43,12 @@ The app is meant to run **many instances side by side**, so a single-instance lo
 
 Keep both, and keep `require('./instance')` as the **first** require in `index.js` — it must run before `repo.js` derives its config path from `userData`.
 
+### PID reuse → stale-cache collisions
+
+The `quit` cleanup can't fire on a crash or kill, and even on a clean quit `rmSync` fails on a cache file something still holds — so `instances/<pid>` dirs **pile up**. Windows reuses pids, so a new instance eventually gets a pid whose stale dir is still on disk; Chromium finds an old, version-mismatched cache there and tries to move it aside to recreate it, which fails with `Unable to move the cache: Access is denied` when anything still holds a handle. This is most likely when the app is **launched from inside the app** (the parent has just churned through many pids spawning PTYs and the `claude` CLI, so a fresh Electron pid is far more likely to land on a leftover dir).
+
+`instance.js` defends in two best-effort steps **before** the `setPath` redirect: (1) delete our own pid's leftover dir so we always start from a clean cache (its creator is dead — we hold its pid now), and (2) sweep every other leftover dir whose pid no longer belongs to a running process (`process.kill(pid, 0)` liveness probe; `EPERM` counts as alive). A dir owned by a live sibling instance has an alive pid, so it's skipped — the sweep never disturbs a running instance; a pid reused by an unrelated process also reads as alive, so that dir is left for the next run rather than risk a false delete. The numeric-pid-filter + liveness decision is the pure, unit-tested `staleInstanceDirs` in `instance-lib.js`.
+
 `disable-gpu-shader-disk-cache` is unrelated to the GPU *acceleration* switches below — it disables a flaky on-disk cache, not GPU rendering itself. Keep it.
 
 ## GPU acceleration switches
