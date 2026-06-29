@@ -220,8 +220,11 @@ gitTabs.querySelectorAll('.git-tab').forEach((tab) => {
   };
 });
 
-// rotate-ccw icon (same glyph the discard buttons use)
+// rotate-ccw icon (same glyph the discard buttons use), for reverting pushed commits
 const REVERT_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+// undo-2 icon (straight-then-curve arrow) — distinct from REVERT_SVG so dropping an
+// unpushed commit doesn't look identical to reverting a pushed one.
+const UNDO_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg>';
 
 function commitItem(c) {
   // Unpushed commits aren't on the remote yet, so they're tagged (green pill +
@@ -256,7 +259,7 @@ function commitItem(c) {
   const armKey = unpushed ? 'armHint.undoCommit' : 'armHint.revertCommit';
   const revert = document.createElement('button');
   revert.className = 'git-btn git-revert';
-  revert.innerHTML = REVERT_SVG;
+  revert.innerHTML = unpushed ? UNDO_SVG : REVERT_SVG;
   revert.title = unpushed ? t('git.undoCommitTitle') : t('git.revertCommitTitle');
   revert.onclick = async (e) => {
     e.stopPropagation();
