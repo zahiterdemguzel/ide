@@ -20,7 +20,9 @@
 }
 .tool-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .tool-btn.busy { opacity: .55; pointer-events: none; }
-.tool-ico { font-size: 11px; line-height: 1; }
+/* Fixed width + centered so swapping the glyph (play ▶ <-> restart ↻, different
+   advance widths) never widens the button or shifts its label and neighbours. */
+.tool-ico { font-size: 11px; line-height: 1; width: 12px; text-align: center; flex: none; }
 .tool-btn.launch .tool-ico { color: var(--green); }
 /* a launch config whose terminal is still alive: the icon is a restart glyph,
    tinted yellow to read distinctly from the green idle play arrow */
@@ -28,15 +30,16 @@
 .tool-btn.task .tool-ico { color: var(--fg-dim); }
 .tool-btn:hover .tool-ico { color: var(--on-accent); }
 
-/* A launch config + its Stop button. The Stop button's slot is always reserved
-   (it keeps its width even when hidden), so revealing it never shifts the launch
-   button or the buttons after it. */
-.launch-group { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+/* A launch config + its Stop button, read as one control. The Stop button's slot
+   is always reserved (fixed width, kept even when hidden), so revealing it animates
+   in place and never shifts the launch button, its label, or the buttons after it.
+   It stretches to the launch button's height so the pair looks joined. */
+.launch-group { display: inline-flex; align-items: center; gap: 3px; flex: none; }
 .launch-stop {
-  flex: none; width: 16px; height: 16px; padding: 0;
+  flex: none; width: 12px; height: 12px; box-sizing: border-box; padding: 0;
   background: var(--red); border: 1px solid var(--red); border-radius: 3px;
-  cursor: pointer; opacity: 0; transform: scale(.3); pointer-events: none;
-  transition: opacity .18s ease, transform .18s ease;
+  cursor: pointer; opacity: 0; transform: scale(.2); transform-origin: center;
+  pointer-events: none; transition: opacity .18s ease, transform .18s ease;
 }
 .launch-stop.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
 .launch-stop:hover { filter: brightness(1.2); }
