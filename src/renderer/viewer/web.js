@@ -6,8 +6,9 @@
 // There is exactly one webview, reused for every open — opening the browser never
 // spawns a second instance. The page stays **loaded in the background** when the
 // overlay is hidden (e.g. on session switch): hideWeb() only hides the view, it
-// does not unload the page. The only thing that unloads the page is the explicit
-// two-click Terminate button (terminateWeb()). The toolbar browser button lights
+// does not unload the page. The only thing that tears the page down is the
+// explicit two-click Terminate button (terminateWeb()), which destroys the live
+// webview and its renderer process outright. The toolbar browser button lights
 // up (`.active`) whenever a real page is loaded, so the user can tell the browser
 // is alive in the background, and it toggles the overlay: clicking it while the
 // browser is showing closes (hides) it without terminating. Peer overlays /
@@ -17,7 +18,9 @@ import { confirmDialog } from '../shared/confirm.js';
 import { hideArmHint } from '../shared/arm-hint.js';
 
 const webView = document.getElementById('web-view');
-const webFrame = document.getElementById('web-frame');
+// Reassigned by terminateWeb(), which destroys the live webview and swaps in a
+// fresh one — so this can't be `const`.
+let webFrame = document.getElementById('web-frame');
 const webUrlEl = document.getElementById('web-url');
 const suggestEl = document.getElementById('web-suggest');
 const menuBtn = document.getElementById('web-menu');
@@ -90,13 +93,32 @@ export function openWeb() {
 // style.display is '' — reading it directly would misreport the overlay as open.
 export function isWebOpen() { return getComputedStyle(webView).display !== 'none'; }
 
-// Unload the page — the only thing that resets the browser. Called by the
-// two-click Terminate button (wired in the center coordinator).
+// Shut the browser down completely — the only thing that resets it. Called by
+// the two-click Terminate button (wired in the center coordinator). Navigating
+// to about:blank would leave the webview's renderer process alive in the
+// background (media kept playing, timers kept firing), so instead we destroy the
+// live webview element — removing it from the DOM kills its process — and swap in
+// a fresh blank one for the next open.
 export function terminateWeb() {
-  try { webFrame.src = 'about:blank'; } catch {}
+  if (inspecting) stopInspect();
+  const fresh = createFrame();
+  webFrame.replaceWith(fresh);
+  webFrame = fresh;
   webUrlEl.value = '';
   webUrlEl.title = '';
   setActive(false);
+}
+
+// Build a pristine webview matching index.html's (same id, blank page, and the
+// persistent cookie partition) with the navigation listeners attached.
+function createFrame() {
+  const frame = document.createElement('webview');
+  frame.id = 'web-frame';
+  frame.setAttribute('src', 'about:blank');
+  frame.setAttribute('partition', 'persist:browser');
+  frame.addEventListener('did-navigate', onNav);
+  frame.addEventListener('did-navigate-in-page', onNav);
+  return frame;
 }
 
 // --- address bar ---
