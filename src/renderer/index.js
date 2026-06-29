@@ -106,6 +106,17 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecentMenu(); });
 
+// Ctrl/⌘+O (with or without Shift) opens the folder picker from anywhere.
+// Capture phase so a focused xterm terminal can't swallow it first, mirroring
+// quick-open's Ctrl+P.
+window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'o' || e.key === 'O')) {
+    e.preventDefault();
+    e.stopPropagation();
+    browseForFolder();
+  }
+}, true);
+
 // Command Palette (Ctrl/Cmd+Shift+P) actions. Registered here because this is
 // where every action function is in scope; titles/keywords are i18n keys so the
 // palette re-localizes them each time it opens.

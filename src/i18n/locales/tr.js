@@ -276,6 +276,7 @@ export default {
     'cheatsheet.goToFile': 'Dosyaya git',
     'cheatsheet.commandPalette': 'Komut paleti',
     'cheatsheet.newSession': 'Yeni oturum',
+    'cheatsheet.openFolder': 'Klasör aç',
     'cheatsheet.nextSession': 'Sonraki oturuma geç',
     'cheatsheet.prevSession': 'Önceki oturuma geç',
     'cheatsheet.terminalLink': 'Terminalde bir yolu veya bağlantıyı aç',

@@ -276,6 +276,7 @@ export default {
     'cheatsheet.goToFile': 'Ir al archivo',
     'cheatsheet.commandPalette': 'Paleta de comandos',
     'cheatsheet.newSession': 'Nueva sesión',
+    'cheatsheet.openFolder': 'Abrir carpeta',
     'cheatsheet.nextSession': 'Cambiar a la siguiente sesión',
     'cheatsheet.prevSession': 'Cambiar a la sesión anterior',
     'cheatsheet.terminalLink': 'Abrir una ruta o enlace en la terminal',
