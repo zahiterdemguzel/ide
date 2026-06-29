@@ -67,8 +67,9 @@ every locale.
 `openCheatSheet()` fills and `showModal()`s `#cheatsheet-dialog` from the
 `SECTIONS` registry in `cheatsheet.js`. The mod key renders as `⌘` on macOS else
 `Ctrl` (`navigator.platform`, matching `terminal-links.js`). It opens from the
-toolbar help (`?`) button, the `F1` key (anywhere) or `?` (when not typing), and
-the command palette. The listed shortcuts must stay in step with the real
+toolbar help (`?`) button, the welcome screen's **Keyboard shortcuts** action
+(`#welcome-shortcuts`, wired in `index.js`), the `F1` key (anywhere) or `?` (when
+not typing), and the command palette. The listed shortcuts must stay in step with the real
 handlers (`quick-open.js`, `command-palette.js`, `viewer/file.js`,
 `viewer/sheet/index.js`, and `sessions.js` for the session shortcuts below); add
 a row by extending `SECTIONS` and adding its `labelKey` to every locale.

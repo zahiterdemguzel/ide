@@ -95,6 +95,7 @@ async function openRecentMenu() {
 document.getElementById('welcome-new').onclick = newSession;
 document.getElementById('welcome-goto').onclick = openQuickOpen;
 document.getElementById('welcome-open').onclick = browseForFolder;
+document.getElementById('welcome-shortcuts').onclick = openCheatSheet;
 
 openFolderBtn.onclick = (e) => {
   e.stopPropagation();
