@@ -1,9 +1,9 @@
-/* console head: a scrollable tab strip on the left, Clear/+ tools on the right */
-#console-head { display: flex; align-items: center; padding: 4px 6px; gap: 6px; }
-.pane-head-label { flex: none; }
+/* console-head: a scrollable tab strip. The Clear/+ tools live up in the
+   #console-title pane-head row instead (right-aligned by its space-between). */
+#console-head { display: flex; align-items: center; padding: 4px 6px; }
 #term-tabs { display: flex; gap: 4px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; }
 #term-tabs::-webkit-scrollbar { display: none; }
-#term-tools { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+#term-tools { display: inline-flex; align-items: center; gap: 4px; flex: none; text-transform: none; letter-spacing: 0; }
 
 .term-tab {
   display: inline-flex; align-items: center; gap: 4px; flex: none;
