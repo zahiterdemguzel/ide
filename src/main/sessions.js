@@ -263,6 +263,26 @@ function trackedFiles(s) {
   return [...new Set([...s.edits.keys(), ...s.fileOps.keys()])];
 }
 
+// True when a session OTHER than `self` already owns this absolute path. Text
+// edits (`edits`) are an EXACT, per-session-attributed signal — the hook payload
+// carries the session id and file path. The working-tree diff that fills
+// `fileOps` is GLOBAL and can't tell sessions apart, so when two sessions run
+// concurrently (one editing code, one running a Bash/MCP command) the diff would
+// otherwise attribute the editor's file to the other session. This predicate is
+// how that change is kept out of the wrong session. `kinds` selects which maps to
+// consult — fileOp attribution checks both (text-edit authority + first-recorder-
+// wins for two fs-only sessions); the commit/diff read path checks only `edits`,
+// since a path another session edited precisely must never be swept into this
+// session's whole-file blob.
+function pathClaimedByOther(self, abs, { edits = true, fileOps = true } = {}) {
+  for (const [, o] of sessions) {
+    if (o === self) continue;
+    if (edits && o.edits.has(abs)) return true;
+    if (fileOps && o.fileOps.has(abs)) return true;
+  }
+  return false;
+}
+
 // True when `absPath` is excluded by .gitignore. `git check-ignore` reports
 // nothing (exit 1) for a tracked file even if it matches an ignore rule, so this
 // is exactly "untracked AND ignored" — the files we must never track or commit.
@@ -296,6 +316,12 @@ function applyFsDiff(s, before, after) {
   for (const rel of new Set([...before.keys(), ...after.keys()])) {
     if (before.get(rel) === after.get(rel)) continue; // untouched by this tool
     const abs = path.resolve(repoPath, rel);
+    // The status snapshot is global, so a file ANOTHER session changed during
+    // this tool's window shows up here too. If that session already owns the path
+    // (its exact text edits, or a filesystem change it recorded first), the change
+    // is theirs — don't attribute it to this Bash/MCP tool. See per-session commit
+    // "Known ceilings".
+    if (pathClaimedByOther(s, abs)) continue;
     if (fs.existsSync(abs)) {
       if (s.edits.has(abs)) continue; // a text-edit tool already covers this file
       s.fileOps.set(abs, 'add');
@@ -512,4 +538,4 @@ function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, killAllSessions, persistSession, persistSessions, reportSessionError, guard };
+module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, guard };

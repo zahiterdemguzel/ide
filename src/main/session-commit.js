@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { git } = require('./git');
-const { sessions, trackedFiles, setSessionState, persistSession, guard } = require('./sessions');
+const { sessions, trackedFiles, pathClaimedByOther, setSessionState, persistSession, guard } = require('./sessions');
 const { commitContent, inverseEdits } = require('./edit-ops');
 const { sumNumstat } = require('./git-parse');
 const { runHaiku } = require('./claude');
@@ -104,6 +104,13 @@ async function sessionEntries(s, repoPath) {
   for (const [abs, kind] of s.fileOps) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     if (!rel || rel.startsWith('..') || seen.has(rel)) continue; // outside the repo / already an edit
+    // A fileOp is filled by a GLOBAL working-tree diff, so a file ANOTHER session
+    // edited (via the exact, per-session text-edit signal) while this session's
+    // Bash/MCP tool ran can be mis-recorded here. That file is the other session's
+    // work; committing it as a whole-file blob would sweep in their edits. Drop it
+    // and forget it from tracking — text-edit ownership wins. This also self-heals a
+    // fileOp recorded before the fix (or before the other session's edit landed).
+    if (pathClaimedByOther(s, abs, { edits: true, fileOps: false })) { emptyFileOps.push(abs); continue; }
     if (kind === 'delete') {
       // Nothing committed at HEAD means there is nothing to delete — a phantom op.
       if (!(await git(['cat-file', '-e', `HEAD:${rel}`])).ok) { emptyFileOps.push(abs); continue; }
