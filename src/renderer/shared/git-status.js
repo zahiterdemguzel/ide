@@ -16,3 +16,10 @@ export function statusLabel(status, staged) {
   if (status === 'D') return 'Deleted on disk — not staged (use Discard to restore the file)';
   return `Unstaged ${word}`;
 }
+
+// Git branch names can't contain spaces, so when the user types a name with
+// spaces in the create-branch box we silently turn each run of spaces into a
+// single hyphen (and trim leading/trailing space) rather than rejecting it.
+export function normalizeBranchName(name) {
+  return (name || '').trim().replace(/\s+/g, '-');
+}

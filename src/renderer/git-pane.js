@@ -1,5 +1,5 @@
 import { openGitFile, openCommit, openStash } from './viewer/center.js';
-import { statusLabel } from './shared/git-status.js';
+import { statusLabel, normalizeBranchName } from './shared/git-status.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { confirmDialog } from './shared/confirm.js';
 import { newSessionWithPrompt, refreshAllDiffStats } from './sessions.js';
@@ -435,15 +435,18 @@ function renderBranchList() {
   const q = raw.toLowerCase();
   const matches = allBranches.filter((b) => b.toLowerCase().includes(q));
   branchListEl.innerHTML = '';
-  // Offer creation whenever the typed name isn't already an exact branch.
-  const canCreate = raw && !allBranches.some((b) => b === raw);
+  // Offer creation whenever the typed name (after turning spaces into hyphens)
+  // isn't already an exact branch. The row shows the normalized name so the
+  // user sees exactly what will be created.
+  const newName = normalizeBranchName(raw);
+  const canCreate = newName && !allBranches.some((b) => b === newName);
   branchEmptyEl.hidden = matches.length > 0 || canCreate;
   if (canCreate) {
     const li = document.createElement('li');
     li.className = 'branch-item branch-create';
-    li.textContent = `${t('git.createBranch')} “${raw}”`;
+    li.textContent = `${t('git.createBranch')} “${newName}”`;
     li.title = li.textContent;
-    li.onclick = () => createBranch(raw);
+    li.onclick = () => createBranch(newName);
     branchListEl.appendChild(li);
   }
   for (const b of matches) {
@@ -496,7 +499,9 @@ branchSearch.onkeydown = (e) => {
   if (e.key === 'Enter') {
     const raw = branchSearch.value.trim();
     if (!raw) return;
-    if (allBranches.includes(raw)) switchBranch(raw); else createBranch(raw);
+    if (allBranches.includes(raw)) { switchBranch(raw); return; }
+    const newName = normalizeBranchName(raw);
+    if (allBranches.includes(newName)) switchBranch(newName); else createBranch(newName);
   }
 };
 // Dismiss on any click outside the popover (but not the toggle button itself).
