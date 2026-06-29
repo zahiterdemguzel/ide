@@ -1,4 +1,4 @@
-import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme } from './shared/terminal.js';
+import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
 import { registerTerminalLinks } from './terminal-links.js';
 
 // --- git-pane consoles: multiple interactive shell terminals as tabs ---
@@ -51,10 +51,14 @@ export function fitConsole() {
 function selectConsole(id) {
   if (!consoles.has(id)) return;
   activeConsole = id;
+  // Only the visible console keeps a GPU renderer; release the others so live
+  // WebGL contexts stay well under Chromium's cap (see attachRenderer).
   for (const [cid, cc] of consoles) {
     const on = cid === id;
     cc.host.style.display = on ? 'block' : 'none';
     cc.tab.classList.toggle('active', on);
+    if (on) { if (!cc.renderer) cc.renderer = attachRenderer(cc.term); }
+    else if (cc.renderer) { cc.renderer.dispose(); cc.renderer = null; }
   }
   fitConsole();
   // A hidden xterm keeps a stale scroll position until new output forces a
@@ -70,6 +74,7 @@ function closeConsole(id) {
   const c = consoles.get(id);
   if (!c) return;
   window.api.termKill(id);
+  if (c.renderer) c.renderer.dispose();
   untrackTermTheme(c.term);
   c.term.dispose();
   c.host.remove();
@@ -122,9 +127,9 @@ async function createConsole(opts = {}) {
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); closeConsole(id); } };
   termTabs.appendChild(tab);
 
-  consoles.set(id, { term, fit, host, tab, label, name, kind: opts.kind || 'shell' });
+  consoles.set(id, { term, fit, host, tab, label, name, kind: opts.kind || 'shell', renderer: null });
   notifyConsolesChanged();
-  selectConsole(id);
+  selectConsole(id); // attaches the GPU renderer to this now-visible console
   return id;
 }
 

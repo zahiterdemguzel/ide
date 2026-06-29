@@ -1,4 +1,4 @@
-import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme } from './shared/terminal.js';
+import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
 import { hideAllOverlays } from './viewer/center.js';
 import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
@@ -119,7 +119,12 @@ export function selectSession(id) {
   activeId = id;
   hideAllOverlays();
   emptyHint.style.display = 'none';
-  for (const [, o] of sessions) o.container.style.display = o === s ? 'block' : 'none';
+  // Only the visible terminal keeps a GPU renderer (see attachRenderer): release
+  // every other session's so live WebGL contexts stay well under Chromium's cap.
+  for (const [, o] of sessions) {
+    o.container.style.display = o === s ? 'block' : 'none';
+    if (o !== s && o.renderer) { o.renderer.dispose(); o.renderer = null; }
+  }
   for (const o of listEl.children) o.classList.toggle('active', o.dataset.id === id);
   updateSessionBar();
   if (!s.term) {
@@ -131,6 +136,7 @@ export function selectSession(id) {
     return;
   }
   fit(s);
+  if (!s.renderer) s.renderer = attachRenderer(s.term);
   // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
   // position until new output forces a refresh. Snap to the bottom so the latest
   // output is visible immediately rather than only after the first keystroke.
@@ -396,6 +402,7 @@ function suspendSessionUI(s) {
   s.suspended = true;
   window.api.suspendSession(s.id);
   if (s.term) {
+    if (s.renderer) { s.renderer.dispose(); s.renderer = null; }
     untrackTermTheme(s.term);
     s.term.dispose();
     s.term = null;
@@ -416,6 +423,7 @@ async function resumeSessionUI(s) {
   const { term, fit } = attachTerminal(s.id, s.container);
   s.term = term;
   s.fit = fit;
+  s.renderer = null; // re-attached by selectSession when this session is shown
   await window.api.resumeSession(s.id, { cols: term.cols || 80, rows: term.rows || 24 });
 }
 
@@ -570,7 +578,7 @@ export async function restoreSessions() {
 function removeSessionUI(id) {
   const s = sessions.get(id);
   if (!s) return;
-  if (s.term) { untrackTermTheme(s.term); s.term.dispose(); }
+  if (s.term) { if (s.renderer) s.renderer.dispose(); untrackTermTheme(s.term); s.term.dispose(); }
   s.container.remove();
   s.li.remove();
   sessions.delete(id);

@@ -345,6 +345,10 @@
 
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <!-- GPU renderers for xterm: WebGL (fastest) with a Canvas fallback. Loaded
+       before the module graph so window.WebglAddon / window.CanvasAddon exist. -->
+  <script src="node_modules/@xterm/addon-webgl/lib/addon-webgl.js"></script>
+  <script src="node_modules/@xterm/addon-canvas/lib/addon-canvas.js"></script>
   <script src="node_modules/@highlightjs/cdn-assets/highlight.min.js"></script>
   <!-- dos (cmd/bat) and powershell aren't in the common bundle; self-register onto hljs -->
   <script src="node_modules/@highlightjs/cdn-assets/languages/dos.min.js"></script>

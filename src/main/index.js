@@ -37,6 +37,14 @@ app.commandLine.appendSwitch('disable-gpu-disk-cache');
 app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess');
 app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
 
+// Offload web-content rasterization to the GPU and skip the CPU copy of tiles
+// into the GPU (zero-copy), so panel scrolling and the terminal canvas composite
+// smoothly. Deliberately moderate: we do NOT pass ignore-gpu-blocklist, so a
+// machine whose GPU/driver Chromium has blocklisted still falls back to software
+// rather than risking the instability that forcing past the blocklist can cause.
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('enable-zero-copy');
+
 // No single-instance lock: each instance runs on its own per-instance profile
 // dir (see ./instance), so multiple windows can run side by side without
 // fighting over the disk cache.

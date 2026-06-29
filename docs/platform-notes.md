@@ -39,6 +39,12 @@ The app is meant to run **many instances side by side**, so a single-instance lo
 
 Keep both, and keep `require('./instance')` as the **first** require in `index.js` — it must run before `repo.js` derives its config path from `userData`.
 
+`disable-gpu-disk-cache` is unrelated to the GPU *acceleration* switches below — it disables a flaky on-disk cache, not GPU rendering itself. Keep it.
+
+## GPU acceleration switches
+
+`src/main/index.js` enables `enable-gpu-rasterization` and `enable-zero-copy` so Chromium rasterizes web content on the GPU and skips the CPU→GPU tile copy — smoother panel scrolling and terminal compositing. These are deliberately **moderate**: we do **not** pass `ignore-gpu-blocklist`, so a machine whose GPU/driver Chromium has blocklisted falls back to software rendering rather than risking the instability that forcing past the blocklist can cause (this box has a history of GPU-cache trouble — see above). The terminals' own GPU rendering (WebGL/Canvas xterm addons) is a separate, renderer-side concern — see [docs/architecture.md](architecture.md#renderer) "GPU terminal rendering". Don't add `ignore-gpu-blocklist` without a clear reason.
+
 ### Inline browser stays logged in across restarts
 
 The disposable per-instance profile would also wipe the inline browser's `persist:browser` partition (its cookies / localStorage) on every quit — so the user gets logged out of every site each launch. `instance.js` carves out *just that one partition*: it junctions `<instanceDir>/Partitions/browser` to a shared, persistent `<sharedDataDir>/browser-profile` dir before Chromium first touches it, so the browser profile lives in the shared dir and survives. The `quit` cleanup `rmdir`s the junction **before** the recursive delete of `instanceDir` — a recursive delete that followed the junction into the shared profile would wipe the very logins it protects. The rest of the profile (cache, default session) stays per-instance and disposable. Trade-off: concurrent instances share this one partition's storage (rarely an issue, since the inline browser is seldom driven from two windows at once). The ⋮ menu's "Reset cookies" still clears it via `clearStorageData` on the `persist:browser` partition.

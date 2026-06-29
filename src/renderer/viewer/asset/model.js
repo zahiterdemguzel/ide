@@ -29,7 +29,9 @@ export function renderModel(base64, ext, body, tools, registerCleanup) {
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 10000);
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  // powerPreference asks a multi-GPU machine to drive the 3D viewer with the
+  // discrete GPU rather than integrated graphics.
+  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   wrap.appendChild(renderer.domElement);

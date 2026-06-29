@@ -15,7 +15,7 @@
 // See docs/architecture.md "Claude Code setup gate".
 import { t } from '../i18n/index.js';
 import {
-  Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme,
+  Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer,
 } from './shared/terminal.js';
 import { registerTerminalLinks } from './terminal-links.js';
 
@@ -30,6 +30,7 @@ let outBuf = '';           // rolling buffer of terminal output, scanned for the
 let term = null;
 let termFit = null;
 let termId = null;
+let termRenderer = null;
 
 const dialog = document.getElementById('claude-setup-dialog');
 const stepsEl = document.getElementById('setup-steps');
@@ -100,6 +101,7 @@ function buildTerminal() {
   termFit = new FitAddon();
   term.loadAddon(termFit);
   term.open(termHost);
+  termRenderer = attachRenderer(term); // the setup terminal is always visible while shown
   attachClipboard(term);
   registerTerminalLinks(term);
 }
@@ -113,7 +115,7 @@ function teardownTerminal() {
   watchInstall = false;
   outBuf = '';
   if (termId) { window.api.termKill(termId); termId = null; }
-  if (term) { untrackTermTheme(term); term.dispose(); term = null; termFit = null; }
+  if (term) { if (termRenderer) { termRenderer.dispose(); termRenderer = null; } untrackTermTheme(term); term.dispose(); term = null; termFit = null; }
   termView.hidden = true;
   termHost.replaceChildren();
 }

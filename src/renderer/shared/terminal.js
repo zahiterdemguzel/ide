@@ -5,6 +5,56 @@ import { decodeOsc52 } from './osc52.js';
 
 export const Terminal = window.Terminal;
 export const FitAddon = window.FitAddon.FitAddon;
+// GPU renderer addons (loaded as classic scripts in index.html). Optional: if a
+// build ever ships without them, attachRenderer degrades to the DOM renderer.
+const WebglAddon = window.WebglAddon && window.WebglAddon.WebglAddon;
+const CanvasAddon = window.CanvasAddon && window.CanvasAddon.CanvasAddon;
+
+// Attach a GPU renderer to a *visible* terminal and return a handle whose
+// dispose() detaches it. xterm's default renderer is the DOM (one node per
+// cell) — the slowest path; WebGL paints the whole grid on the GPU. We attach
+// only to the terminal currently on screen and dispose on hide, so the number
+// of live WebGL contexts stays tiny (Chromium caps them at ~16, and this app
+// can hold many terminals at once).
+//
+// WebGL contexts can be lost (driver reset, GPU process recycle, the window
+// being backgrounded). When that happens the addon would render nothing, so we
+// dispose it and fall back to the Canvas renderer (GPU-composited 2D, no WebGL
+// context consumed) for the rest of that terminal's visible life. If WebGL is
+// unavailable outright we use Canvas from the start; if neither addon loaded we
+// leave the DOM renderer in place. None of this touches input, selection, or
+// clipboard — those live on the terminal itself, not the renderer.
+export function attachRenderer(term) {
+  let addon = null;
+
+  const useCanvas = () => {
+    if (!CanvasAddon) return;
+    try {
+      addon = new CanvasAddon();
+      term.loadAddon(addon);
+    } catch { addon = null; }
+  };
+
+  if (WebglAddon) {
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => { try { webgl.dispose(); } catch { /* already gone */ } useCanvas(); });
+      term.loadAddon(webgl);
+      addon = webgl;
+    } catch {
+      // WebGL construction can throw on machines with no/blocklisted GPU.
+      useCanvas();
+    }
+  } else {
+    useCanvas();
+  }
+
+  return {
+    dispose() {
+      if (addon) { try { addon.dispose(); } catch { /* already disposed */ } addon = null; }
+    },
+  };
+}
 
 // xterm renders to a canvas, so it can't read CSS variables itself. We bridge
 // the active theme into an xterm theme object by reading the --term-* custom
