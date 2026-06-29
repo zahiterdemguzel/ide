@@ -57,7 +57,13 @@ function selectConsole(id) {
     cc.tab.classList.toggle('active', on);
   }
   fitConsole();
-  consoles.get(id).term.focus();
+  // A hidden xterm keeps a stale scroll position until new output forces a
+  // refresh; on reveal, snap to the bottom so the latest output is visible
+  // immediately. The reveal + fit only take effect next frame, so snap there too.
+  const { term } = consoles.get(id);
+  term.scrollToBottom();
+  requestAnimationFrame(() => { const c = consoles.get(id); if (c) c.term.scrollToBottom(); });
+  term.focus();
 }
 
 function closeConsole(id) {
