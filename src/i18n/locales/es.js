@@ -120,6 +120,7 @@ export default {
 
     'session.revert': 'Revertir',
     'session.revertTitle': 'Revertir solo los cambios de esta sesión',
+    'session.commitHint': 'Confirma solo los archivos que cambió esta sesión, con un mensaje que Claude escribe por ti.',
     'session.archiveTitle': 'Archivar esta sesión',
     'session.diff': 'Diff',
     'session.diffTitle': 'Ver los cambios de esta sesión',

@@ -120,6 +120,7 @@ export default {
 
     'session.revert': 'Zurücksetzen',
     'session.revertTitle': 'Nur die Änderungen dieser Sitzung zurücksetzen',
+    'session.commitHint': 'Committe nur die von dieser Sitzung geänderten Dateien, mit einer Nachricht, die Claude für dich schreibt.',
     'session.archiveTitle': 'Diese Sitzung archivieren',
     'session.diff': 'Diff',
     'session.diffTitle': 'Änderungen dieser Sitzung anzeigen',

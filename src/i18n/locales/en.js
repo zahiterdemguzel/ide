@@ -121,6 +121,7 @@ export default {
 
     'session.revert': 'Revert',
     'session.revertTitle': "Revert only this session's changes",
+    'session.commitHint': "Commit only the files this session changed, with a message Claude writes for you.",
     'session.archiveTitle': 'Archive this session',
     'session.diff': 'Diff',
     'session.diffTitle': "View this session's diff",

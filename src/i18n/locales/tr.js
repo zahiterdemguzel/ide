@@ -120,6 +120,7 @@ export default {
 
     'session.revert': 'Geri al',
     'session.revertTitle': 'Yalnızca bu oturumun değişikliklerini geri al',
+    'session.commitHint': 'Yalnızca bu oturumun değiştirdiği dosyaları, Claude’un sizin için yazdığı bir mesajla işle.',
     'session.archiveTitle': 'Bu oturumu arşivle',
     'session.diff': 'Diff',
     'session.diffTitle': 'Bu oturumun değişikliklerini görüntüle',

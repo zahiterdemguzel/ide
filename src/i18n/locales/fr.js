@@ -120,6 +120,7 @@ export default {
 
     'session.revert': 'Rétablir',
     'session.revertTitle': 'Rétablir uniquement les modifications de cette session',
+    'session.commitHint': 'Valide uniquement les fichiers modifiés par cette session, avec un message rédigé par Claude.',
     'session.archiveTitle': 'Archiver cette session',
     'session.diff': 'Diff',
     'session.diffTitle': 'Voir les modifications de cette session',
