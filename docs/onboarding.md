@@ -70,8 +70,18 @@ every locale.
 toolbar help (`?`) button, the `F1` key (anywhere) or `?` (when not typing), and
 the command palette. The listed shortcuts must stay in step with the real
 handlers (`quick-open.js`, `command-palette.js`, `viewer/file.js`,
-`viewer/sheet/index.js`); add a row by extending `SECTIONS` and adding its
-`labelKey` to every locale.
+`viewer/sheet/index.js`, and `sessions.js` for the session shortcuts below); add
+a row by extending `SECTIONS` and adding its `labelKey` to every locale.
+
+`sessions.js` registers two session shortcuts in the capture phase so they win
+over the focused terminal: **Shift+↓ / Shift+↑** cycle to the next/previous
+**visible** session row (wrapping at both ends), and **`{MOD}`+N** opens a new
+session. The cycling handler reads the list order straight off the DOM and
+delegates the wrap-around math to the pure, unit-tested `shared/session-cycle.js`
+(`nextSessionId`). The terminal's input is an xterm `<textarea>`, so the handler
+allows the shortcuts from there (the common case) and only bails when focus is in
+another editable surface (the file editor, a search box); on a hit it
+`preventDefault`s so the keystroke never reaches the terminal.
 
 ## Persistence (why not localStorage)
 

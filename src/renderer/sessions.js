@@ -9,6 +9,7 @@ import { showWarning } from './shared/warn.js';
 import { ensureClaude } from './claude-setup.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
+import { nextSessionId } from './shared/session-cycle.js';
 import { MODELS, getSessionModel, getSubagentModel } from './settings.js';
 import { t } from '../i18n/index.js';
 
@@ -747,6 +748,35 @@ document.getElementById('session-model-create').onclick = () => {
 };
 
 for (const btn of sessionTabs.children) btn.onclick = () => setTab(btn.dataset.tab);
+
+// Session keyboard shortcuts, in the capture phase so they win over the focused
+// terminal: Shift+↓/↑ cycle to the next/previous visible session (list order,
+// wrapping at both ends), and Ctrl/⌘+N opens a new session. The terminal's input
+// is an xterm <textarea>, so allow the shortcuts from there (the common case);
+// only bail when focus is in a real editable surface (file editor, search box).
+window.addEventListener('keydown', (e) => {
+  const ae = document.activeElement;
+  const inTerminal = ae?.classList.contains('xterm-helper-textarea');
+  const typing = !inTerminal && (/^(INPUT|TEXTAREA|SELECT)$/.test(ae?.tagName || '')
+    || ae?.isContentEditable);
+  if (typing) return;
+
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key === 'n' || e.key === 'N')) {
+    e.preventDefault();
+    newSession();
+    return;
+  }
+  if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey
+    && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    const visibleIds = [...listEl.children]
+      .filter((o) => o.style.display !== 'none')
+      .map((o) => o.dataset.id);
+    const next = nextSessionId(visibleIds, activeId, e.key === 'ArrowDown' ? 1 : -1);
+    if (!next) return;
+    e.preventDefault();
+    selectSession(next);
+  }
+}, true);
 
 // Archived-tab search: debounced like the explorer's file search (150ms), then
 // re-run the tab filter so non-matching archived rows hide. Selection is left
