@@ -78,42 +78,27 @@
 }
 .git-list li:hover { background: var(--bg-3); }
 .git-list li.warn { background: color-mix(in srgb, var(--red) 14%, transparent); }
-/* Status glyph badge: a fixed monospace column tinted by change type. The faint
-   tinted background turns the bare M/A/D letter into a legible chip. */
+/* Status glyph: a fixed monospace column showing the bare M/A/D/! letter. The
+   only color in the lists lives on this letter — no chip background, no row stripe
+   — tinted by change type while the filename and headers stay neutral. */
 .git-status {
-  flex: none; width: 18px; height: 18px; border-radius: 4px;
-  display: inline-flex; align-items: center; justify-content: center;
+  flex: none; width: 14px; text-align: center;
   font-family: Consolas, monospace; font-weight: 700; font-size: 11px;
+  color: var(--fg-dim);
 }
-.g-M { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 16%, transparent); }
-.g-A { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
-.g-D { color: var(--red); background: color-mix(in srgb, var(--red) 16%, transparent); }
-.g-u { color: var(--green); background: color-mix(in srgb, var(--green) 16%, transparent); }
-.g-conflict { color: var(--red); background: color-mix(in srgb, var(--red) 18%, transparent); }
-/* Color-coded section bars: a faint wash of each section's signal color over the
-   darker header bar, plus a matching left stripe, so Staged / Changes / Conflicts
-   are distinguishable at a glance. */
+.git-list li.g-M .git-status { color: var(--yellow); }
+.git-list li.g-A .git-status,
+.git-list li.g-u .git-status { color: var(--green); }
+.git-list li.g-D .git-status,
+.git-list li.g-conflict .git-status { color: var(--red); }
+/* Staged and Changes — the everyday sections — keep the plain neutral header bar
+   (see .git-section-title); their rows are told apart by the left-edge stripe, so
+   the headers add no extra color. Conflicts is a rare alert state, so it alone
+   keeps a red header to stand out when it appears. */
 .git-conflicts-title {
   color: var(--red); font-weight: 700;
   background: color-mix(in srgb, var(--red) 12%, var(--bg));
   box-shadow: inset 2px 0 0 var(--red);
-}
-.git-staged-title {
-  color: var(--green);
-  background: color-mix(in srgb, var(--green) 12%, var(--bg));
-  box-shadow: inset 2px 0 0 var(--green);
-}
-.git-changes-title {
-  color: var(--yellow);
-  background: color-mix(in srgb, var(--yellow) 12%, var(--bg));
-  box-shadow: inset 2px 0 0 var(--yellow);
-}
-/* Stashes: a fourth signal color (purple) so set-aside work reads as its own
-   category, distinct from staged/changed/conflicted. */
-.git-stashes-title {
-  color: var(--purple);
-  background: color-mix(in srgb, var(--purple) 12%, var(--bg));
-  box-shadow: inset 2px 0 0 var(--purple);
 }
 .git-file { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; font-size: 12px; }
 .git-btn {

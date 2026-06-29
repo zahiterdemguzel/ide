@@ -45,9 +45,12 @@ function shortenPath(file) {
 
 function gitItem(file, status, staged, action, label) {
   const li = document.createElement('li');
+  // The change-type class drives the one bit of color in the list: the tinted
+  // status letter (see .git-status in git.css). Everything else stays neutral.
+  li.className = 'g-' + (status === '?' ? 'u' : status);
   li.onclick = () => openGitFile(file, status, staged);
   const st = document.createElement('span');
-  st.className = 'git-status g-' + (status === '?' ? 'u' : status);
+  st.className = 'git-status';
   st.textContent = status;
   st.title = statusLabel(status, staged);
   const name = document.createElement('span');
@@ -156,9 +159,10 @@ document.getElementById('conflicts-resolve').onclick = () =>
 // the markers are sorted out. No discard here — resolving is a deliberate edit.
 function conflictItem(file, status) {
   const li = document.createElement('li');
+  li.className = 'g-conflict';
   li.onclick = () => openGitFile(file, status, false);
   const st = document.createElement('span');
-  st.className = 'git-status g-conflict';
+  st.className = 'git-status';
   st.textContent = '!';
   st.title = 'Conflict (' + status + ')';
   const name = document.createElement('span');
