@@ -299,14 +299,16 @@
         </div>
         <ul id="stash-list" class="git-list"></ul>
       </div>
-      <div class="git-commit">
-        <div class="commit-msg-wrap"><textarea id="commit-msg" rows="2" data-i18n-placeholder="git.commitPlaceholder" placeholder="Commit message"></textarea></div>
-        <div class="git-commit-actions">
-          <button id="git-commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg> <span data-i18n="git.commit">Commit</span></button>
-          <button id="git-undo" data-i18n-title="git.undoTitle" title="Undo last commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg> <span data-i18n="git.undo">Undo</span></button>
-          <button id="git-push"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg> <span data-i18n="git.push">Push</span><span id="git-ahead" class="git-ahead-badge" hidden></span></button>
-        </div>
+      <div class="git-commit-area">
         <div id="git-status-line" class="git-msg" hidden></div>
+        <div class="git-commit">
+          <div class="commit-msg-wrap"><textarea id="commit-msg" rows="2" data-i18n-placeholder="git.commitPlaceholder" placeholder="Commit message"></textarea></div>
+          <div class="git-commit-actions">
+            <button id="git-commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg> <span data-i18n="git.commit">Commit</span></button>
+            <button id="git-undo" data-i18n-title="git.undoTitle" title="Undo last commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg> <span data-i18n="git.undo">Undo</span></button>
+            <button id="git-push"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg> <span data-i18n="git.push">Push</span><span id="git-ahead" class="git-ahead-badge" hidden></span></button>
+          </div>
+        </div>
       </div>
       </div>
       <div id="git-history-view" hidden>

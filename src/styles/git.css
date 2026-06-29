@@ -140,7 +140,10 @@
 #git-sync.loading svg { animation: git-sync-spin .8s linear infinite; }
 @keyframes git-sync-spin { to { transform: rotate(360deg); } }
 
-.git-commit { margin-top: auto; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--bg-2); }
+/* The commit area is pinned to the bottom of the changes view; the status line
+   rides just above the commit box's separator, at the bottom of the list space. */
+.git-commit-area { margin-top: auto; }
+.git-commit { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--bg-2); }
 /* The box auto-grows to fit its content (panes.js sets the height as you type),
    so the manual resize handle is disabled. */
 .commit-msg-wrap { position: relative; }
@@ -154,9 +157,9 @@
   outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
 }
-/* Git status feedback (Synced / Committed / errors…) shows on its own line below
-   the action buttons, where the user is looking after clicking. Hidden when empty. */
-#git-status-line { text-align: center; }
+/* Git status feedback (Synced / Committed / errors…) sits at the bottom of the
+   changes list space, just above the commit box's separator. Hidden when empty. */
+#git-status-line { text-align: center; padding: 0 12px 6px; }
 .git-commit-actions { display: flex; gap: 6px; margin-top: 8px; }
 .git-commit-actions button {
   background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
