@@ -35,13 +35,14 @@ test('persistedState: only an actively-running session reopens interrupted', () 
   assert.equal(persistedState('completed'), 'completed'); // finished agent stays green
   assert.equal(persistedState('pushed'), 'pushed');       // committed work stays purple
   assert.equal(persistedState('idle'), 'idle');           // untouched session stays gray
-  assert.equal(persistedState('working'), 'interrupted');
-  assert.equal(persistedState('needs-input'), 'interrupted');
+  assert.equal(persistedState('working'), 'interrupted'); // only actively-running work reopens red
+  assert.equal(persistedState('needs-input'), 'completed'); // paused-for-input reads green, not red
   assert.equal(persistedState(undefined), 'idle');        // a pre-state snapshot
 });
 
 test('serializeSession: an in-flight session is persisted as interrupted', () => {
   assert.equal(serializeSession('id', liveSession({ state: 'working' })).state, 'interrupted');
+  assert.equal(serializeSession('id', liveSession({ state: 'needs-input' })).state, 'completed');
   assert.equal(serializeSession('id', liveSession({ state: 'pushed' })).state, 'pushed');
 });
 

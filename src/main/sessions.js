@@ -218,9 +218,10 @@ function schedulePersist(id) {
 
 // Record a session's current status-dot state so it survives a restart (the hook
 // server drives this from the live event stream; commit-session marks 'pushed').
-// Only `completed`/`pushed` are kept verbatim on disk — everything else reopens as
-// `interrupted` (see persistedState) — but we store the live value so a later
-// transition to a settled state is captured. No-op for an unknown/evicted id.
+// Only a `working` session reopens as `interrupted` on disk; the settled states
+// (`completed`/`pushed`/`idle`, and `needs-input` collapsed to green) are kept (see
+// persistedState) — but we store the live value so a later transition to a settled
+// state is captured. No-op for an unknown/evicted id.
 function setSessionState(id, state) {
   const s = sessions.get(id);
   if (!s || s.state === state) return;
@@ -502,9 +503,10 @@ ipcMain.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
   if (!s) return;
   s.suspended = true;
   s.archived = true;
-  // Archiving stops the agent mid-flight: a session that was working/needs-input
-  // can't keep running, so reflect it as interrupted (red) — same rule app-close
-  // uses (persistedState). Settled states (completed/pushed/idle) pass through.
+  // Archiving stops the agent: a session that was actively working can't keep
+  // running, so reflect it as interrupted (red) — same rule app-close uses
+  // (persistedState). A session merely paused for input, and the settled states
+  // (completed/pushed/idle), pass through as their green/settled colour.
   const stopped = persistedState(s.state);
   if (stopped !== s.state) sendToRenderer('status', { id, state: stopped });
   setSessionState(id, stopped);

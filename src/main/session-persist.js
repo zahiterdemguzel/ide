@@ -8,13 +8,20 @@
 // enforceLimit) until it fits.
 const MAX_PERSIST_BYTES = 100 * 1024 * 1024; // 100 MB
 
-// The status-dot state we record on disk. A session whose agent was actively
-// running when the app closed (`working` or `needs-input`) reopens as
-// `interrupted` (red) — its Claude process can't outlive the app, so the in-flight
-// state isn't real anymore. Every settled state is kept verbatim: `completed`
-// (green), `pushed` (purple), and `idle` (gray — a session created but never used).
+// The status-dot state we record on disk. Only a session whose agent was actively
+// running — `working` (the yellow spinner) — when the app closed reopens as
+// `interrupted` (red): that work was cut off and its Claude process can't outlive
+// the app, so the in-flight state isn't real anymore. A `needs-input` session was
+// *paused waiting for the user*, not crunching — it reads as green ("wants your
+// attention"), same as a finished one, so it reopens `completed` rather than red;
+// the live input prompt is gone after a restart, so we drop the glowing
+// needs-input cue and keep the plain settled green. Every other state is kept
+// verbatim: `completed` (green), `pushed` (purple), and `idle` (gray — a session
+// created but never used).
 function persistedState(state) {
-  return state === 'working' || state === 'needs-input' ? 'interrupted' : (state || 'idle');
+  if (state === 'working') return 'interrupted';
+  if (state === 'needs-input') return 'completed';
+  return state || 'idle';
 }
 
 // Snapshot one live session entry to a plain object. The PTY and the transient
@@ -53,7 +60,7 @@ function deserializeSession(obj) {
     archived: !!obj.archived,
     model: obj.model || '',
     subagentModel: obj.subagentModel || '',
-    // A restored session's process is gone, so an in-flight state on disk reopens as
+    // A restored session's process is gone, so a `working` state on disk reopens as
     // `interrupted`; a snapshot predating this field has no state and reopens idle.
     state: persistedState(obj.state),
     suspended: true,
