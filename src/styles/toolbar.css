@@ -27,6 +27,20 @@
 .tool-btn.launch.running .tool-ico { color: var(--yellow); }
 .tool-btn.task .tool-ico { color: var(--fg-dim); }
 .tool-btn:hover .tool-ico { color: var(--on-accent); }
+
+/* A launch config + its Stop button. The Stop button's slot is always reserved
+   (it keeps its width even when hidden), so revealing it never shifts the launch
+   button or the buttons after it. */
+.launch-group { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.launch-stop {
+  flex: none; width: 16px; height: 16px; padding: 0;
+  background: var(--red); border: 1px solid var(--red); border-radius: 3px;
+  cursor: pointer; opacity: 0; transform: scale(.3); pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.launch-stop.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+.launch-stop:hover { filter: brightness(1.2); }
+
 .tool-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; flex: none; }
 .toolbar-hint { color: var(--fg-dim); font-size: 12px; padding: 0 4px; }
 

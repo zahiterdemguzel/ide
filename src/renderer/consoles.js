@@ -24,6 +24,15 @@ export function runningConfigNames() {
   return names;
 }
 
+// Stop the launch config's terminal(s): close every still-open config terminal
+// named `name`. Killing the shell is what ends the "running" state the toolbar's
+// Stop button reflects. (A compound stops each of its member config names.)
+export function stopConfig(name) {
+  for (const [id, c] of [...consoles]) {
+    if (c.kind === 'config' && c.name === name) closeConsole(id);
+  }
+}
+
 const consoleHosts = document.getElementById('console-hosts');
 const termTabs = document.getElementById('term-tabs');
 

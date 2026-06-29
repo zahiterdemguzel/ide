@@ -1,4 +1,4 @@
-import { runSpecInConsole, runningConfigNames, onConsolesChanged } from './consoles.js';
+import { runSpecInConsole, runningConfigNames, stopConfig, onConsolesChanged } from './consoles.js';
 import { isPanelEnabled, onPanelsChanged } from './panels.js';
 
 // --- top run toolbar (.vscode/launch.json + tasks.json) ---
@@ -8,7 +8,7 @@ import { isPanelEnabled, onPanelsChanged } from './panels.js';
 const toolbarRuns = document.getElementById('toolbar-runs');
 
 // Launch buttons whose icon flips play -> restart while their terminal is alive.
-// Each entry: { btn, ico, name, compound, members }.
+// Each entry: { btn, ico, stop, name, compound, members }.
 let launchButtons = [];
 
 // A launch config "runs" as long as the terminal it started is still open; a
@@ -28,6 +28,9 @@ function refreshRunStates() {
     e.btn.title = (running ? (e.compound ? 'Restart compound: ' : 'Restart: ')
       : (e.compound ? 'Launch compound: ' : 'Launch: '))
       + e.name + (running ? ' — restarts its terminal' : ' — runs in a terminal panel');
+    // The Stop button only appears (animating in over its reserved space) while
+    // the config's terminal is alive; idle it stays hidden but keeps its slot.
+    e.stop.classList.toggle('visible', running);
   }
 }
 
@@ -47,9 +50,23 @@ function runButton(kind, name, compound, members) {
     if (!r || !r.ok) { showRunError((r && r.error) || 'Unknown error while resolving this config.'); return; }
     for (const spec of (r.runs || [])) await runSpecInConsole(spec);
   };
-  if (kind === 'launch') launchButtons.push({ btn: b, ico, name, compound: !!compound, members: members || [] });
-  else b.title = 'Task: ' + name + ' — runs in a terminal panel';
-  return b;
+  if (kind !== 'launch') { b.title = 'Task: ' + name + ' — runs in a terminal panel'; return b; }
+
+  // A launch config carries a Stop button to its left. Its space is always
+  // reserved in the group (fixed width), so it can animate in/out as the config
+  // starts/stops without shifting the launch button or anything after it. A
+  // compound stops each of its referenced configs' terminals.
+  const group = document.createElement('span');
+  group.className = 'launch-group';
+  const stop = document.createElement('button');
+  stop.className = 'launch-stop';
+  stop.title = 'Stop: ' + name;
+  stop.setAttribute('aria-label', 'Stop ' + name);
+  const stopNames = compound ? (members || []) : [name];
+  stop.onclick = (e) => { e.stopPropagation(); for (const n of stopNames) stopConfig(n); };
+  group.append(stop, b);
+  launchButtons.push({ btn: b, ico, stop, name, compound: !!compound, members: members || [] });
+  return group;
 }
 
 // A config the app can't translate into a terminal command (e.g. a browser/attach
