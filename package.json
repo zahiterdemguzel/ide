@@ -7,7 +7,7 @@
   "scripts": {
     "postinstall": "node scripts/fix-electron-signature.js",
     "start": "electron .",
-    "build": "electron-builder --win portable --publish never",
+    "build": "electron-builder --win nsis --publish never",
     "build:mac": "electron-builder --mac --publish never",
     "build:linux": "electron-builder --linux AppImage --publish never",
     "test": "node --test --test-reporter=./scripts/test-reporter.js",
@@ -28,8 +28,17 @@
       "output": "dist"
     },
     "win": {
-      "target": "portable",
+      "target": "nsis",
       "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
     },
     "mac": {
       "target": "dmg",
