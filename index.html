@@ -48,9 +48,12 @@
         <input id="session-search" type="search" hidden data-i18n-placeholder="sessions.search" placeholder="Search archived…" />
         <ul id="session-list"></ul>
         <div class="sidebar-actions">
-          <div class="split-btn">
-            <button id="new-session"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span data-i18n="sessions.new">New session</span></button>
-            <button id="new-session-opts" class="split-btn-caret" data-i18n-title="sessions.newWithModel" title="New session with a chosen model"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+          <div class="new-session-wrap">
+            <div class="split-btn">
+              <button id="new-session"><svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span data-i18n="sessions.new">New session</span></button>
+              <button id="new-session-opts" class="split-btn-caret" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="sessions.newWithModel" title="New session with a chosen model"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            </div>
+            <div id="session-model-menu" class="model-menu" hidden></div>
           </div>
         </div>
       </div>
@@ -401,26 +404,6 @@
   <!-- Per-session model picker, opened by the New session split-button caret.
        Pre-filled from the settings defaults; the choice applies to just this one
        new session (see src/renderer/sessions.js). -->
-  <dialog id="session-model-dialog">
-    <div class="settings-head">
-      <h3 data-i18n="sessions.modelDialogTitle">New session</h3>
-      <button id="session-model-close" data-i18n-title="settings.close" title="Close">×</button>
-    </div>
-    <div class="settings-body">
-      <div class="settings-group-hint" data-i18n="sessions.modelDialogHint">Choose the models this session runs with.</div>
-      <label class="settings-row">
-        <span data-i18n="settings.model">Session model</span>
-        <select id="session-model-main"></select>
-      </label>
-      <label class="settings-row">
-        <span data-i18n="settings.subagentModel">Subagent model</span>
-        <select id="session-model-subagent"></select>
-      </label>
-    </div>
-    <div class="settings-actions">
-      <button id="session-model-create" class="settings-primary" data-i18n="sessions.createSession">Create session</button>
-    </div>
-  </dialog>
   <dialog id="cheatsheet-dialog">
     <div class="cheatsheet-head">
       <h3 data-i18n="cheatsheet.title">Keyboard shortcuts</h3>

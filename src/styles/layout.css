@@ -55,6 +55,29 @@
 .split-btn { display: flex; gap: 1px; }
 .split-btn > #new-session { flex: 1; border-radius: 5px 0 0 5px; }
 .split-btn .split-btn-caret { flex: 0 0 auto; padding: 7px 8px; border-radius: 0 5px 5px 0; }
+/* Point the caret up — the model menu opens above the button. */
+.split-btn .split-btn-caret svg { transform: rotate(180deg); }
+
+/* The caret's model dropdown pops up *above* the split button (the sidebar actions
+   sit at the bottom of the pane), mirroring the recent-folders menu's chrome. */
+.new-session-wrap { position: relative; }
+.model-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 4px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 2px;
+  transform-origin: bottom center;
+  opacity: 0; transform: translateY(8px) scaleY(0.85);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.model-menu[hidden] { display: none; }
+.model-menu.open { opacity: 1; transform: translateY(0) scaleY(1); }
+.model-menu-item {
+  background: none; color: var(--fg); border: none; border-radius: 4px;
+  padding: 6px 8px; cursor: pointer; font-size: 12px; text-align: left; width: 100%;
+}
+.model-menu-item:hover { background: var(--bg-3); }
+.model-menu-item.current { color: var(--fg); font-weight: 600; }
 
 /* Open-folder reverse-combobox: the recent-projects menu pops up *above* the
    button (bottom: 100%) and grows downward into place from a collapsed top. */

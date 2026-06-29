@@ -13,9 +13,6 @@ export default {
     'sessions.search': 'Arşivde ara…',
     'sessions.new': 'Yeni oturum',
     'sessions.newWithModel': 'Seçili modelle yeni oturum',
-    'sessions.modelDialogTitle': 'Yeni oturum',
-    'sessions.modelDialogHint': 'Bu oturumun çalışacağı modelleri seçin.',
-    'sessions.createSession': 'Oturum oluştur',
 
     'explorer.search': 'Dosyalarda ara…',
     'explorer.openFolder': 'Klasör aç',

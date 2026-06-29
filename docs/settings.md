@@ -54,9 +54,10 @@ since they're product names).
 
 **Per-session override.** The New session button is a split button: the main
 action creates a session with the saved defaults, and the caret (`#new-session-opts`)
-opens a small picker dialog (`#session-model-dialog`) whose two dropdowns are
-pre-filled from the defaults — choosing models there and clicking **Create
-session** spawns just that one session with the chosen models. `sessions.js`'s
+opens a dropdown (`#session-model-menu`, one entry per `MODELS` item except the
+inherit `default` — the plain button already covers that — with the saved default
+highlighted) — clicking a model spawns just that one session with it as the
+session model (the subagent model keeps the saved default). `sessions.js`'s
 `newSession(opts)` takes the override (falling back to the defaults when omitted)
 and passes `{ model, subagentModel }` through the `new-session` IPC.
 

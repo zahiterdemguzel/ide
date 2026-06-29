@@ -14,9 +14,6 @@ export default {
     'sessions.search': 'Search archived…',
     'sessions.new': 'New session',
     'sessions.newWithModel': 'New session with a chosen model',
-    'sessions.modelDialogTitle': 'New session',
-    'sessions.modelDialogHint': 'Choose the models this session runs with.',
-    'sessions.createSession': 'Create session',
 
     'explorer.search': 'Search files…',
     'explorer.openFolder': 'Open folder',

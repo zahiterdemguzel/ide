@@ -13,9 +13,6 @@ export default {
     'sessions.search': 'Buscar en archivadas…',
     'sessions.new': 'Nueva sesión',
     'sessions.newWithModel': 'Nueva sesión con un modelo elegido',
-    'sessions.modelDialogTitle': 'Nueva sesión',
-    'sessions.modelDialogHint': 'Elige los modelos con los que se ejecuta esta sesión.',
-    'sessions.createSession': 'Crear sesión',
 
     'explorer.search': 'Buscar archivos…',
     'explorer.openFolder': 'Abrir carpeta',

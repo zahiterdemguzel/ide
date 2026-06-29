@@ -721,31 +721,44 @@ diffModeSplitBtn.onclick = () => setDiffMode('split');
 
 document.getElementById('new-session').onclick = () => newSession();
 
-// Per-session model picker: the split-button caret opens a small dialog whose two
-// dropdowns default to the saved settings, then creates a session with that choice.
-const modelDialog = document.getElementById('session-model-dialog');
-const modelMainSel = document.getElementById('session-model-main');
-const modelSubSel = document.getElementById('session-model-subagent');
-function fillModelSelect(select, value) {
-  select.innerHTML = '';
-  for (const m of MODELS) {
-    const opt = document.createElement('option');
-    opt.value = m.id;
-    opt.textContent = m.name;
-    if (m.id === value) opt.selected = true;
-    select.appendChild(opt);
-  }
+// Per-session model picker: the split-button caret opens a dropdown listing the
+// available models; choosing one spawns a session with that model (the subagent
+// model keeps the saved default). The menu pops up above the button and mirrors
+// the recent-folders menu's open/close handling.
+const modelMenu = document.getElementById('session-model-menu');
+const newSessionOptsBtn = document.getElementById('new-session-opts');
+function closeModelMenu() {
+  if (modelMenu.hidden) return;
+  modelMenu.classList.remove('open');
+  newSessionOptsBtn.setAttribute('aria-expanded', 'false');
+  // Wait for the collapse animation before hiding so it actually plays.
+  modelMenu.addEventListener('transitionend', () => { modelMenu.hidden = true; }, { once: true });
 }
-document.getElementById('new-session-opts').onclick = () => {
-  fillModelSelect(modelMainSel, getSessionModel());
-  fillModelSelect(modelSubSel, getSubagentModel());
-  modelDialog.showModal();
+function openModelMenu() {
+  const current = getSessionModel();
+  modelMenu.replaceChildren();
+  // Skip the inherit/default model — the plain New session button already uses it.
+  for (const m of MODELS) {
+    if (m.id === 'default') continue;
+    const item = document.createElement('button');
+    item.className = 'model-menu-item' + (m.id === current ? ' current' : '');
+    item.textContent = m.name;
+    item.onclick = () => { closeModelMenu(); newSession({ model: m.id }); };
+    modelMenu.appendChild(item);
+  }
+  modelMenu.hidden = false;
+  newSessionOptsBtn.setAttribute('aria-expanded', 'true');
+  // Next frame so the un-hidden element transitions from the collapsed state.
+  requestAnimationFrame(() => modelMenu.classList.add('open'));
+}
+newSessionOptsBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (modelMenu.hidden) openModelMenu(); else closeModelMenu();
 };
-document.getElementById('session-model-close').onclick = () => modelDialog.close();
-document.getElementById('session-model-create').onclick = () => {
-  modelDialog.close();
-  newSession({ model: modelMainSel.value, subagentModel: modelSubSel.value });
-};
+document.addEventListener('click', (e) => {
+  if (!modelMenu.hidden && !modelMenu.contains(e.target) && !newSessionOptsBtn.contains(e.target)) closeModelMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModelMenu(); });
 
 for (const btn of sessionTabs.children) btn.onclick = () => setTab(btn.dataset.tab);
 
