@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
-const { parsePorcelain, parseLog, markPushed, parseStashList, pullNeedsMerge, pushNeedsMerge } = require('./git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, parseStashList, pullNeedsMerge, pushNeedsMerge } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
 
@@ -216,16 +216,30 @@ async function unpushedHashes(commits) {
   return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
+// Commits on the upstream not yet on HEAD — what a pull would bring in. Same
+// fields/format as gitLog so the History tab can render them with the regular
+// commit row (tagged `incoming`). Newest first, capped at 100. Empty when there is
+// no upstream, nothing is incoming, or the rev-list fails. Reflects the last
+// fetch's view of the remote, mirroring behindCount(); the fetched objects are
+// local, so the diff viewer can already `git show` each one before pulling.
+async function incomingCommits() {
+  const fmt = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f');
+  const r = await git(['log', '-n', '100', '--pretty=format:' + fmt, 'HEAD..@{u}']);
+  if (!r.ok) return [];
+  return markIncoming(parseLog(r.stdout));
+}
+
 // Recent commits for the History tab. Fields are unit-separator (\x1f) delimited,
 // one commit per line — subjects never contain newlines, so splitting on \n is safe.
-// Each commit is tagged pushed/unpushed so the tab can show the split and pick the
-// right "undo" action (history rewrite vs. revert commit).
+// Each local commit is tagged pushed/unpushed so the tab can show the split and pick
+// the right "undo" action (history rewrite vs. revert commit); `incoming` carries the
+// not-yet-pulled commits the tab previews above the local log.
 async function gitLog() {
   const fmt = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f');
   const r = await git(['log', '-n', '100', '--pretty=format:' + fmt]);
-  if (!r.ok) return { ok: false, error: r.stderr, commits: [] };
+  if (!r.ok) return { ok: false, error: r.stderr, commits: [], incoming: [] };
   const commits = parseLog(r.stdout);
-  return { ok: true, commits: markPushed(commits, await unpushedHashes(commits)) };
+  return { ok: true, commits: markPushed(commits, await unpushedHashes(commits)), incoming: await incomingCommits() };
 }
 ipcMain.handle('git-log', () => gitLog());
 

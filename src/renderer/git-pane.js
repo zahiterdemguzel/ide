@@ -159,7 +159,9 @@ function gitStateSignature(r) {
 export async function autoFetch() {
   try {
     const r = await window.api.gitFetch();
-    if (r && r.ok) refreshGit();
+    // A successful fetch can surface newly incoming commits; refresh the History
+    // view too when it's open so its preview reflects them right away.
+    if (r && r.ok) { refreshGit(); if (!historyView.hidden) refreshHistory(); }
   } catch {}
 }
 
@@ -242,16 +244,27 @@ const REVERT_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" 
 // undo-2 icon (straight-then-curve arrow) — distinct from REVERT_SVG so dropping an
 // unpushed commit doesn't look identical to reverting a pushed one.
 const UNDO_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg>';
+// Lucide `upload` / `download` — the leading direction icon on a history row: an
+// unpushed (outgoing) commit is going up to the remote, an incoming one is coming
+// down on the next pull. Colour-matched to the row's left stripe via .commit-dir.
+const UPLOAD_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>';
+const DOWNLOAD_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>';
 
 function commitItem(c) {
-  // Unpushed commits aren't on the remote yet, so they're tagged (green pill +
-  // accent stripe, mirroring the green "ahead" push badge) and their button drops
-  // the commit from history. Pushed commits can't be safely rewritten, so theirs
-  // reverts (a new undo commit) instead.
-  const unpushed = !c.pushed;
+  // A commit's direction drives both its look and its action. A leading direction
+  // icon (download = incoming, upload = unpushed) sits left of the subject, colour-
+  // matched to the row's left stripe; pushed commits get an empty slot so subjects
+  // stay aligned.
+  // • incoming — on the upstream but not yet local; a pull will bring it in. NO action
+  //   button (it isn't in our history yet) — clicking the row previews its diff.
+  // • unpushed — local, not on the remote yet; its button DROPS it from history.
+  // • pushed — on the remote; can't be safely rewritten, so its button REVERTS it
+  //   (a new undo commit on top) instead.
   const li = document.createElement('li');
-  li.className = unpushed ? 'commit-item unpushed' : 'commit-item';
   li.onclick = () => openCommit(c.hash, c.subject);
+
+  const dir = document.createElement('span');
+  dir.className = 'commit-dir';
 
   const main = document.createElement('div');
   main.className = 'commit-main';
@@ -262,14 +275,24 @@ function commitItem(c) {
   const meta = document.createElement('div');
   meta.className = 'commit-meta';
   meta.textContent = `${c.short} · ${c.author} · ${c.relDate}`;
-  if (unpushed) {
-    const tag = document.createElement('span');
-    tag.className = 'commit-tag-unpushed';
-    tag.textContent = t('git.unpushed');
-    tag.title = t('git.unpushedTitle');
-    meta.append(' ', tag);
-  }
   main.append(subject, meta);
+
+  if (c.incoming) {
+    li.className = 'commit-item incoming';
+    dir.classList.add('incoming');
+    dir.innerHTML = DOWNLOAD_SVG;
+    dir.title = t('git.incomingTitle');
+    li.append(dir, main); // no action — the commit isn't in local history yet
+    return li;
+  }
+
+  const unpushed = !c.pushed;
+  li.className = unpushed ? 'commit-item unpushed' : 'commit-item';
+  if (unpushed) {
+    dir.classList.add('unpushed');
+    dir.innerHTML = UPLOAD_SVG;
+    dir.title = t('git.unpushedTitle');
+  }
 
   // Two-click confirm, same as the file discard buttons: first click arms (red),
   // second runs it — undo (drop) for unpushed, revert (new commit) for pushed.
@@ -297,7 +320,7 @@ function commitItem(c) {
     refreshGit();
   };
 
-  li.append(main, revert);
+  li.append(dir, main, revert);
   return li;
 }
 
@@ -306,15 +329,20 @@ function commitItem(c) {
 // whitespace-split term must appear in subject, author, or hash — kept in sync
 // with that unit-tested function.
 let allCommits = [];
+let incomingCommits = [];
 const historySearch = document.getElementById('history-search');
 
 function renderHistory() {
   const terms = historySearch.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  historyEl.innerHTML = '';
-  for (const c of allCommits) {
+  const matches = (c) => {
     const hay = `${c.subject} ${c.author} ${c.hash} ${c.short}`.toLowerCase();
-    if (terms.every((term) => hay.includes(term))) historyEl.appendChild(commitItem(c));
-  }
+    return terms.every((term) => hay.includes(term));
+  };
+  historyEl.innerHTML = '';
+  // Incoming commits (what a pull will bring in) sit above the local log so the
+  // user can preview them — and their diffs — before syncing.
+  for (const c of incomingCommits) if (matches(c)) historyEl.appendChild(commitItem(c));
+  for (const c of allCommits) if (matches(c)) historyEl.appendChild(commitItem(c));
 }
 
 historySearch.oninput = renderHistory;
@@ -322,6 +350,7 @@ historySearch.oninput = renderHistory;
 export async function refreshHistory() {
   const r = await window.api.gitLog();
   allCommits = r.ok ? r.commits : [];
+  incomingCommits = r.ok ? (r.incoming || []) : [];
   renderHistory();
 }
 
@@ -608,6 +637,8 @@ syncBtn.onclick = async () => {
   syncBtn.disabled = false;
   showGitMsg(r.ok ? 'Synced' : (r.stderr || 'Sync failed'), r.ok);
   refreshGit();
+  // The pull moved incoming commits into local history; keep the History preview in sync.
+  if (!historyView.hidden) refreshHistory();
   if (r.needsMerge) offerClaudeMerge(t('git.pullMergeTitle'), t('git.pullMergeMsg'), r.stderr);
 };
 const commitBtn = document.getElementById('git-commit');

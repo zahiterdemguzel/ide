@@ -50,6 +50,15 @@ function markPushed(commits, unpushedHashes) {
   return commits.map((c) => ({ ...c, pushed: !unpushed.has(c.hash) }));
 }
 
+// Tag each parsed commit with `incoming: true`. These are commits on the upstream
+// that HEAD doesn't have yet — what a pull would bring in (`git log HEAD..@{u}`).
+// The History tab renders them distinctly (download icon + accent stripe) above the
+// local log so the user can preview what Sync will pull before pulling. Pure mirror
+// of markPushed: it never mutates the input commits.
+function markIncoming(commits) {
+  return commits.map((c) => ({ ...c, incoming: true }));
+}
+
 // Filter parsed commits by a free-text query, matching across subject, author,
 // and hash (full or short). Whitespace splits the query into terms that must ALL
 // match (in any field), so "fix ada" finds Ada's fix commits. Case-insensitive;
@@ -112,4 +121,4 @@ function pushNeedsMerge(stderr) {
   return /fetch first|updates were rejected|non-fast-forward|behind its remote|tip of your current branch is behind/i.test(stderr || '');
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge };
+module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge };

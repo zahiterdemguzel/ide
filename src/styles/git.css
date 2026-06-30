@@ -46,16 +46,19 @@
   font-size: 10.5px; color: var(--fg-dim); font-family: Consolas, monospace;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-/* Unpushed commits: an accent stripe + green pill, matching the green "ahead"
-   push badge so "not on the remote yet" reads the same everywhere. The 2px stripe
-   replaces 2px of the row's left padding so subjects stay aligned with pushed rows. */
+/* Direction stripes on history rows. The 2px stripe replaces 2px of the row's left
+   padding so subjects stay aligned with the unmarked (pushed) rows. Unpushed
+   (outgoing) is green — matching the green "ahead" push badge, the same set of
+   commits. Incoming (a pull will bring it in) is the accent colour, distinct from
+   green so the two directions never read alike. */
 .commit-item.unpushed { border-left: 2px solid var(--green); padding-left: 10px; }
-.commit-tag-unpushed {
-  display: inline-block; vertical-align: middle; padding: 1px 6px;
-  border-radius: 7px; background: var(--green); color: #fff;
-  font-family: inherit; font-size: 9px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .03em;
-}
+.commit-item.incoming { border-left: 2px solid var(--accent); padding-left: 10px; }
+/* Leading direction-icon slot, left of the subject. A fixed width is reserved on
+   every row (empty for pushed commits) so subjects line up regardless of icon. The
+   icon colour matches the row's left stripe. */
+.commit-dir { flex: none; width: 14px; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+.commit-dir.unpushed { color: var(--green); }
+.commit-dir.incoming { color: var(--accent); }
 
 /* Stash rows share the commit-row layout (message over a muted ref · date line);
    the list scrolls within a capped height so a deep stash stack stays contained. */

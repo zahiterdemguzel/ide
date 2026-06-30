@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -146,6 +146,22 @@ test('markPushed: does not mutate the input commits', () => {
   const input = [{ hash: 'x', short: 'x', subject: 's', author: 'a', relDate: 'now' }];
   markPushed(input, ['x']);
   assert.equal('pushed' in input[0], false);
+});
+
+test('markIncoming: tags every commit incoming:true, preserving fields', () => {
+  const r = markIncoming(COMMITS);
+  assert.deepEqual(r.map((c) => c.incoming), [true, true, true]);
+  assert.equal(r[0].subject, 'Fix the login bug');
+});
+
+test('markIncoming: empty input yields no commits', () => {
+  assert.deepEqual(markIncoming([]), []);
+});
+
+test('markIncoming: does not mutate the input commits', () => {
+  const input = [{ hash: 'x', short: 'x', subject: 's', author: 'a', relDate: 'now' }];
+  markIncoming(input);
+  assert.equal('incoming' in input[0], false);
 });
 
 test('filterCommits: blank query returns the list unchanged', () => {
