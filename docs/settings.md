@@ -116,10 +116,12 @@ on/off toggles wired in `src/renderer/settings.js`:
   `celebrateFinish()`. When on, it sends the already-translated title/body to main
   over the `notify-session-finished` IPC channel (main never loads i18n, so the
   renderer composes the strings); `src/main/window.js` builds an Electron
-  `Notification` and shows it. Clicking it raises and focuses the window
-  (restoring it first if minimized) and pushes `select-session` back to the
-  renderer, which calls `selectSession(id)` to open the session the notification
-  was about.
+  `Notification` and shows it — unless the app window is already focused, in
+  which case it's skipped (`win.isFocused()`), since there's no point pulling
+  attention to a window the user is already looking at. Clicking it raises and
+  focuses the window (restoring it first if minimized) and pushes
+  `select-session` back to the renderer, which calls `selectSession(id)` to
+  open the session the notification was about.
 
 ## Where it lives
 

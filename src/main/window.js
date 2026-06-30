@@ -45,6 +45,7 @@ function focusWindow() {
 // raises the window and tells the renderer which session to select.
 ipcMain.on('notify-session-finished', (_e, { id, title, body }) => {
   if (!Notification.isSupported()) return;
+  if (win && !win.isDestroyed() && win.isFocused()) return;
   const notification = new Notification({ title, body });
   notification.on('click', () => {
     focusWindow();
