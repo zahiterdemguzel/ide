@@ -294,8 +294,12 @@
 #git-branch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; }
 
 .branch-menu {
-  position: absolute; top: 34px; left: 50%; transform: translateX(-50%); z-index: 20;
-  width: 240px; max-width: calc(100% - 24px);
+  /* Anchored to the pane's right edge (the git pane is the rightmost column) so
+     it grows leftward into the wider terminal area rather than spilling off the
+     window — branch names, especially remote ones like `origin/feature/…`, are
+     long. Capped to the viewport so a narrow window shrinks it instead. */
+  position: absolute; top: 34px; right: 8px; z-index: 20;
+  width: 380px; max-width: calc(100vw - 16px);
   background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 12px 32px rgba(0,0,0,0.55); padding: 6px; box-sizing: border-box;
 }
@@ -331,6 +335,10 @@
 .branch-item.current::before { content: '● '; font-size: 9px; }
 .branch-item.branch-create { color: var(--accent); }
 .branch-item.branch-create::before { content: '+ '; font-weight: 700; }
+/* Remote-only branches (no local copy yet) read muted, with a small cloud-ish
+   prefix, so they're distinguishable from local branches in the same list. */
+.branch-item.remote .branch-name { color: var(--fg-dim); }
+.branch-item.remote .branch-name::before { content: '☁ '; opacity: .7; }
 /* The per-row delete trash button reveals on row hover (or while armed red),
    mirroring how the git-list row buttons appear only on hover. */
 .branch-item .branch-del { visibility: hidden; }

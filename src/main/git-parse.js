@@ -121,4 +121,29 @@ function pushNeedsMerge(stderr) {
   return /fetch first|updates were rejected|non-fast-forward|behind its remote|tip of your current branch is behind/i.test(stderr || '');
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge };
+// Build the branch selector's list from two `git for-each-ref` runs: `localOut`
+// over refs/heads and `remoteOut` over refs/remotes. Local branches keep git's
+// order (most-recent commit first); remote-tracking branches whose name has no
+// local counterpart follow, so the selector can offer branches that only exist
+// on the remote — checking one out makes a local tracking branch. `origin/HEAD`
+// symbolic pointers are dropped, and two remotes carrying the same branch name
+// collapse to one row. Each entry is { name, remote }: `remote:true` flags a
+// remote-only branch (the full `origin/foo` name), which the renderer checks out
+// by its short name and never offers to delete locally.
+function parseBranches(localOut, remoteOut) {
+  const split = (s) => (s || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const local = split(localOut);
+  const localSet = new Set(local);
+  const branches = local.map((name) => ({ name, remote: false }));
+  const seenRemote = new Set();
+  for (const ref of split(remoteOut)) {
+    if (ref.endsWith('/HEAD')) continue;
+    const short = ref.slice(ref.indexOf('/') + 1);
+    if (localSet.has(short) || seenRemote.has(short)) continue;
+    seenRemote.add(short);
+    branches.push({ name: ref, remote: true });
+  }
+  return branches;
+}
+
+module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches };

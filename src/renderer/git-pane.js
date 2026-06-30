@@ -476,16 +476,23 @@ function setBranchName(branch) {
   branchBtn.title = currentBranch ? `On ${currentBranch} — click to switch` : 'Switch branch';
 }
 
+// A remote-only branch is checked out by its short name (the part after the
+// remote, e.g. `origin/feature/x` → `feature/x`) so git's DWIM creates a local
+// tracking branch instead of detaching HEAD at the remote ref.
+function branchCheckoutName(b) {
+  return b.remote ? b.name.slice(b.name.indexOf('/') + 1) : b.name;
+}
+
 function renderBranchList() {
   const raw = branchSearch.value.trim();
   const q = raw.toLowerCase();
-  const matches = allBranches.filter((b) => b.toLowerCase().includes(q));
+  const matches = allBranches.filter((b) => b.name.toLowerCase().includes(q));
   branchListEl.innerHTML = '';
   // Offer creation whenever the typed name (after turning spaces into hyphens)
   // isn't already an exact branch. The row shows the normalized name so the
   // user sees exactly what will be created.
   const newName = normalizeBranchName(raw);
-  const canCreate = newName && !allBranches.some((b) => b === newName);
+  const canCreate = newName && !allBranches.some((b) => b.name === newName);
   branchEmptyEl.hidden = matches.length > 0 || canCreate;
   if (canCreate) {
     const li = document.createElement('li');
@@ -497,18 +504,19 @@ function renderBranchList() {
   }
   for (const b of matches) {
     const li = document.createElement('li');
-    const isCurrent = b === currentBranch;
-    li.className = 'branch-item' + (isCurrent ? ' current' : '');
+    const isCurrent = b.name === currentBranch;
+    li.className = 'branch-item' + (isCurrent ? ' current' : '') + (b.remote ? ' remote' : '');
     const name = document.createElement('span');
     name.className = 'branch-name';
-    name.textContent = b;
-    name.title = b;
+    name.textContent = b.name;
+    name.title = b.remote ? `${b.name} — checkout creates local ${branchCheckoutName(b)}` : b.name;
     li.appendChild(name);
     li.onclick = () => switchBranch(b);
-    // The checked-out branch can't be deleted (git refuses), so only the other
-    // rows get a trash button. Deleting a branch is destructive, so it uses the
-    // same two-click arm-then-confirm as the stash-drop / discard buttons.
-    if (!isCurrent) {
+    // The checked-out branch can't be deleted (git refuses) and a remote-tracking
+    // branch isn't ours to delete locally, so only the other local rows get a
+    // trash button. Deleting a branch is destructive, so it uses the same
+    // two-click arm-then-confirm as the stash-drop / discard buttons.
+    if (!isCurrent && !b.remote) {
       const del = document.createElement('button');
       del.className = 'git-btn git-revert branch-del';
       del.innerHTML = STASH_DROP_SVG;
@@ -522,7 +530,7 @@ function renderBranchList() {
           return;
         }
         hideArmHint();
-        deleteBranch(b);
+        deleteBranch(b.name);
       };
       li.appendChild(del);
     }
@@ -549,10 +557,11 @@ async function deleteBranch(branch) {
   refreshGit();
 }
 
-async function switchBranch(branch) {
-  if (branch === currentBranch) { closeBranchMenu(); return; }
+async function switchBranch(b) {
+  const target = branchCheckoutName(b);
+  if (target === currentBranch) { closeBranchMenu(); return; }
   closeBranchMenu();
-  const r = await window.api.gitCheckout(branch);
+  const r = await window.api.gitCheckout(target);
   if (!r.ok) { showGitErrorDialog(r.stderr || 'Checkout failed', 'Checkout failed'); return; }
   refreshGit();
   refreshHistory();
@@ -582,9 +591,11 @@ branchSearch.onkeydown = (e) => {
   if (e.key === 'Enter') {
     const raw = branchSearch.value.trim();
     if (!raw) return;
-    if (allBranches.includes(raw)) { switchBranch(raw); return; }
+    const exact = allBranches.find((b) => b.name === raw);
+    if (exact) { switchBranch(exact); return; }
     const newName = normalizeBranchName(raw);
-    if (allBranches.includes(newName)) switchBranch(newName); else createBranch(newName);
+    const norm = allBranches.find((b) => b.name === newName);
+    if (norm) switchBranch(norm); else createBranch(newName);
   }
 };
 // Dismiss on any click outside the popover (but not the toggle button itself).

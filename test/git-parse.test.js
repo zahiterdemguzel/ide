@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -207,4 +207,24 @@ test('sumNumstat: blank lines and trailing newline are ignored', () => {
 
 test('sumNumstat: empty input is no change', () => {
   assert.deepEqual(sumNumstat(''), { additions: 0, deletions: 0, files: 0 });
+});
+
+test('parseBranches: locals first, remotes-without-a-local appended', () => {
+  const local = 'main\nfeature/x';
+  const remote = 'origin/main\norigin/feature/y\norigin/HEAD';
+  assert.deepEqual(parseBranches(local, remote), [
+    { name: 'main', remote: false },
+    { name: 'feature/x', remote: false },
+    { name: 'origin/feature/y', remote: true }, // origin/main dedupes vs local, origin/HEAD dropped
+  ]);
+});
+
+test('parseBranches: the same remote branch on two remotes collapses to one row', () => {
+  const remote = 'origin/feat\nupstream/feat';
+  assert.deepEqual(parseBranches('', remote), [{ name: 'origin/feat', remote: true }]);
+});
+
+test('parseBranches: blank/whitespace lines and missing remote output are ignored', () => {
+  assert.deepEqual(parseBranches('\n  main  \n\n', ''), [{ name: 'main', remote: false }]);
+  assert.deepEqual(parseBranches('main', undefined), [{ name: 'main', remote: false }]);
 });
