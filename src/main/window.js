@@ -1,4 +1,4 @@
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, ipcMain, Notification } = require('electron');
 const path = require('path');
 
 let win = null;
@@ -28,6 +28,30 @@ function sendToRenderer(channel, payload) {
 function setWindowTitle(folderPath) {
   if (win && folderPath) win.setTitle(`IDE / ${path.basename(folderPath)}`);
 }
+
+// Pull the window back to the foreground — used when the user clicks the
+// opt-in "session finished" OS notification (see settings.osNotifications).
+// Restoring before show/focus matters on Windows: a minimized window ignores
+// focus() until it's un-minimized.
+function focusWindow() {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+// The renderer composes the (already-translated) title/body, since main never
+// loads i18n; it just renders whatever it's given. Clicking the notification
+// raises the window and tells the renderer which session to select.
+ipcMain.on('notify-session-finished', (_e, { id, title, body }) => {
+  if (!Notification.isSupported()) return;
+  const notification = new Notification({ title, body });
+  notification.on('click', () => {
+    focusWindow();
+    sendToRenderer('select-session', id);
+  });
+  notification.show();
+});
 
 let lastReloadAt = 0;
 

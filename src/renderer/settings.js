@@ -9,7 +9,10 @@ import { refreshTermThemes } from './shared/terminal.js';
 import {
   SOUNDS, getSound, setSound, playNotification, getVolume, setVolume,
 } from './shared/notify.js';
-import { isSessionDiffBadgeEnabled, setSessionDiffBadge } from './sessions.js';
+import {
+  isSessionDiffBadgeEnabled, setSessionDiffBadge,
+  isOsNotificationsEnabled, setOsNotificationsEnabled,
+} from './sessions.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -122,6 +125,7 @@ export function initSettings() {
   const volumeInput = document.getElementById('settings-volume');
   const sessionDiffBox = document.getElementById('settings-session-diff');
   const statusLineBox = document.getElementById('settings-statusline');
+  const osNotifyBox = document.getElementById('settings-notifications');
   const modelSel = document.getElementById('settings-model');
   const subagentSel = document.getElementById('settings-subagent-model');
 
@@ -149,6 +153,7 @@ export function initSettings() {
   };
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
   statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
+  osNotifyBox.onchange = () => setOsNotificationsEnabled(osNotifyBox.checked);
   // The model defaults apply to the *next* session created (and pre-fill the
   // per-session picker); live sessions keep the model they spawned with.
   modelSel.onchange = () => localStorage.setItem(STORE.model, modelSel.value);
@@ -179,6 +184,7 @@ export function initSettings() {
     fillSelect(subagentSel, modelOpts, getSubagentModel());
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
+    osNotifyBox.checked = isOsNotificationsEnabled();
     dialog.showModal();
   };
 

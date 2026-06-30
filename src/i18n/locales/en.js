@@ -137,6 +137,8 @@ export default {
     'session.stateCommitted': 'Committed',
     'session.stateInterrupted': 'Interrupted',
 
+    'notify.sessionFinishedTitle': 'Session finished',
+
     'warn.title': 'Something went wrong',
     'warn.session': 'Session error',
     'warn.unknown': 'Unknown error',
@@ -186,6 +188,7 @@ export default {
     'settings.general': 'General',
     'settings.sessionDiffBadge': 'Diff stats on sessions',
     'settings.statusLine': 'Token cost meter',
+    'settings.osNotifications': 'Desktop notifications',
     'settings.close': 'Close',
     'settings.done': 'Done',
     'settings.panels': 'Panels',

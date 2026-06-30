@@ -136,6 +136,8 @@ export default {
     'session.stateCommitted': 'İşlendi',
     'session.stateInterrupted': 'Kesildi',
 
+    'notify.sessionFinishedTitle': 'Oturum tamamlandı',
+
     'warn.title': 'Bir şeyler ters gitti',
     'warn.session': 'Oturum hatası',
     'warn.unknown': 'Bilinmeyen hata',
@@ -185,6 +187,7 @@ export default {
     'settings.general': 'Genel',
     'settings.sessionDiffBadge': 'Oturumlarda fark istatistikleri',
     'settings.statusLine': 'Token maliyet göstergesi',
+    'settings.osNotifications': 'Masaüstü bildirimleri',
     'settings.close': 'Kapat',
     'settings.done': 'Tamam',
     'settings.panels': 'Paneller',

@@ -107,6 +107,19 @@ on/off toggles wired in `src/renderer/settings.js`:
   off so the next-spawned session gets no statusLine. A **live session keeps the
   meter it spawned with** — the toggle affects the next session, like the agent
   model defaults.
+- **Desktop notifications** (`#settings-notifications`, default **off**) sends an
+  OS-level notification on the same working → completed transition that triggers
+  the chime (see [Finish notification](status-detection.md#finish-notification)).
+  Off by default since, unlike the chime, it can pull focus away from whatever the
+  user is doing. `sessions.js` owns the flag (`localStorage` `ide.osNotifications`)
+  via `isOsNotificationsEnabled()` / `setOsNotificationsEnabled()`, checked inside
+  `celebrateFinish()`. When on, it sends the already-translated title/body to main
+  over the `notify-session-finished` IPC channel (main never loads i18n, so the
+  renderer composes the strings); `src/main/window.js` builds an Electron
+  `Notification` and shows it. Clicking it raises and focuses the window
+  (restoring it first if minimized) and pushes `select-session` back to the
+  renderer, which calls `selectSession(id)` to open the session the notification
+  was about.
 
 ## Where it lives
 

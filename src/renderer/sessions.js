@@ -44,6 +44,18 @@ export function setSessionDiffBadge(on) {
   for (const [, s] of sessions) renderRowDiff(s);
 }
 
+// Optional OS-level desktop notification on the same working -> completed
+// transition that triggers the chime (see celebrateFinish). Off by default —
+// stealing window focus is more intrusive than a chime, so it's opt-in.
+const OS_NOTIFY_STORE = 'ide.osNotifications';
+let osNotifyEnabled = localStorage.getItem(OS_NOTIFY_STORE) === 'true';
+
+export function isOsNotificationsEnabled() { return osNotifyEnabled; }
+export function setOsNotificationsEnabled(on) {
+  osNotifyEnabled = !!on;
+  localStorage.setItem(OS_NOTIFY_STORE, osNotifyEnabled ? 'true' : 'false');
+}
+
 const listEl = document.getElementById('session-list');
 const sessionTabs = document.getElementById('session-tabs');
 const sessionSearch = document.getElementById('session-search');
@@ -111,6 +123,12 @@ function celebrateFinish(s) {
   // The animation always plays; the chime is the user's chosen sound, and is
   // silent when they've picked "None" in settings.
   playNotification();
+  // The OS notification is opt-in (it can pull focus away from whatever the user
+  // is doing) and asks main to show it, since only main can raise/focus the window.
+  if (osNotifyEnabled) {
+    const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || t('session.unnamed');
+    window.api.notifySessionFinished({ id: s.id, title: t('notify.sessionFinishedTitle'), body: name });
+  }
 }
 
 export function selectSession(id) {
@@ -834,6 +852,9 @@ window.api.onPtyData(({ id, data }) => {
   }
 });
 window.api.onStatus(({ id, state }) => setState(id, state));
+// Clicking the OS notification asks main to raise the window; this is main
+// telling the renderer which session that notification was about.
+window.api.onSelectSession((id) => selectSession(id));
 window.api.onSessionMeta(({ id, firstPrompt, files }) => {
   const s = sessions.get(id);
   if (!s) return;
