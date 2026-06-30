@@ -111,6 +111,11 @@ test('hooksSettings: no statusLine unless a command is supplied', () => {
   assert.equal(JSON.parse(hooksSettings(54321)).statusLine, undefined);
 });
 
+test('hooksSettings: disables agent view in every spawned session', () => {
+  assert.equal(JSON.parse(hooksSettings(54321)).disableAgentView, true);
+  assert.equal(JSON.parse(hooksSettings(54321, 'node "/x/statusline-script.js"')).disableAgentView, true);
+});
+
 test('hooksSettings: injects the given statusLine command with zero padding', () => {
   const cfg = JSON.parse(hooksSettings(54321, 'node "/x/statusline-script.js"'));
   assert.deepEqual(cfg.statusLine, {

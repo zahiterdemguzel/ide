@@ -61,7 +61,13 @@ function hooksSettings(port, statusLineCommand) {
     'PostToolUse', 'Notification', 'PermissionRequest', 'Stop'];
   const hooks = {};
   for (const e of events) hooks[e] = entry;
-  const settings = { hooks };
+  // Turn off agent view in every spawned session: this app already manages
+  // sessions side by side, so Claude Code's own background-agent screen (opened
+  // with `claude agents`) is redundant here. There is no CLI flag for it — the
+  // only toggles are the `disableAgentView` setting and the
+  // CLAUDE_CODE_DISABLE_AGENT_VIEW env var — so we set it on the same per-session
+  // settings blob, leaving the user's global settings untouched.
+  const settings = { hooks, disableAgentView: true };
   // padding: 0 removes Claude's own side padding so $COLUMNS matches the usable
   // width and the right-aligned cost reaches the edge without being clipped.
   if (statusLineCommand) settings.statusLine = { type: 'command', command: statusLineCommand, padding: 0 };
