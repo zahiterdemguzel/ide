@@ -45,6 +45,9 @@ async function openRecentFolder(dir) {
   catch (err) { console.error('open-folder-path failed:', err); }
 }
 
+// The macOS Dock menu switches the folder in main directly; reload the UI to match.
+window.api.onFolderChanged((msg) => applyRepoChange({ canceled: false, repo: msg.repo }));
+
 function baseName(p) {
   const parts = p.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] || p;

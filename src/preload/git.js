@@ -6,6 +6,7 @@ module.exports = {
   openFolder: () => ipcRenderer.invoke('open-folder'),
   openFolderPath: (dir) => ipcRenderer.invoke('open-folder-path', dir),
   getRecentFolders: () => ipcRenderer.invoke('get-recent-folders'),
+  onFolderChanged: (cb) => ipcRenderer.on('folder-changed', (_e, msg) => cb(msg)),
   setWindowTitle: (repoPath) => ipcRenderer.invoke('set-window-title', repoPath),
   gitIsRepo: () => ipcRenderer.invoke('git-is-repo'),
   createRepo: (opts) => ipcRenderer.invoke('create-repo', opts),

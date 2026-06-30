@@ -2,10 +2,11 @@ const { ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
-const { getWin, setWindowTitle } = require('./window');
+const { getWin, setWindowTitle, sendToRenderer } = require('./window');
 const { sharedDataDir } = require('./instance');
 const { addRecent } = require('./recent-folders');
 const { parseFolderArg } = require('./cli-args');
+const { refreshNativeRecent } = require('./native-recent');
 
 // Restore the last opened folder; fall back to cwd on first run / bad path.
 // Kept in the shared data dir (not the per-instance profile) so it persists
@@ -48,8 +49,11 @@ function cliFolder() {
 let repoPath = cliFolder() || loadLastFolder();
 const getRepoPath = () => repoPath;
 
-// Make sure the restored folder shows up in the recent list on first run.
+// Make sure the restored folder shows up in the recent list on first run, then
+// seed the OS-native recent menus (Windows Jump List / macOS Dock menu). The
+// refresh is ready-gated, so this pre-`ready` call is safely deferred.
 recentFolders = addRecent(recentFolders, repoPath);
+refreshNativeRecent(recentFolders, openRecentInPlace);
 
 // Subsystems that derive state from the open folder (e.g. the run-config watcher)
 // register here so they re-point when the user opens a different repo.
@@ -61,6 +65,7 @@ function setRepoPath(p) {
   recentFolders = addRecent(recentFolders, repoPath);
   try { fs.writeFileSync(lastFolderFile, repoPath); } catch {}
   try { fs.writeFileSync(recentFoldersFile, JSON.stringify(recentFolders)); } catch {}
+  refreshNativeRecent(recentFolders, openRecentInPlace);
   for (const fn of repoChangeListeners) { try { fn(repoPath); } catch (err) { console.error('[repo-change listener]', err); } }
 }
 
@@ -88,22 +93,35 @@ ipcMain.handle('open-folder', async () => {
   }
 });
 
-// Open a folder chosen from the recent list. Drop it from the list if it no
-// longer exists so stale entries don't linger.
-ipcMain.handle('open-folder-path', (_e, dir) => {
+// Switch to a folder chosen from a recent list. Drop it from the list if it no
+// longer exists so stale entries don't linger. Shared by the renderer's recent
+// menu (via IPC) and the macOS Dock menu (in place).
+function switchToFolder(dir) {
   try {
     if (typeof dir !== 'string' || !fs.existsSync(dir)) {
       recentFolders = recentFolders.filter((p) => p !== dir);
       try { fs.writeFileSync(recentFoldersFile, JSON.stringify(recentFolders)); } catch {}
+      refreshNativeRecent(recentFolders, openRecentInPlace);
       return { canceled: true, error: 'missing' };
     }
     setRepoPath(repoRoot(dir));
     return { canceled: false, repo: repoPath };
   } catch (err) {
-    console.error('[open-folder-path failed]', err);
+    console.error('[switch folder failed]', err);
     return { canceled: true, error: String(err) };
   }
-});
+}
+
+ipcMain.handle('open-folder-path', (_e, dir) => switchToFolder(dir));
+
+// macOS Dock menu pick: switch the running app's folder and tell the renderer to
+// reload everything that depends on it, mirroring the in-app Open-folder flow.
+// (The Windows Jump List can't message a running instance, so it relaunches the
+// exe with `--folder` instead — see native-recent.js.)
+function openRecentInPlace(dir) {
+  const r = switchToFolder(dir);
+  if (!r.canceled) sendToRenderer('folder-changed', { repo: r.repo });
+}
 
 // The renderer drives the title (on startup via refreshGit, and on Open folder)
 // since it already has the repo path in hand.
