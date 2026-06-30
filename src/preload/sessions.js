@@ -7,8 +7,6 @@ module.exports = {
   setStatusLineEnabled: (on) => ipcRenderer.send('set-statusline-enabled', on),
   notifySessionFinished: (payload) => ipcRenderer.send('notify-session-finished', payload),
   onSelectSession: (cb) => ipcRenderer.on('select-session', (_e, id) => cb(id)),
-  notifySessionFinished: (payload) => ipcRenderer.send('notify-session-finished', payload),
-  onSelectSession: (cb) => ipcRenderer.on('select-session', (_e, id) => cb(id)),
   getSessions: () => ipcRenderer.invoke('get-sessions'),
   newSession: (size) => ipcRenderer.invoke('new-session', size),
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),

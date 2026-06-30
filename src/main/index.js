@@ -1,4 +1,11 @@
 const { app, BrowserWindow, Menu } = require('electron');
+// Windows ties a toast notification's click activation to the AppUserModelID of
+// the process that posted it. Without this, Windows has no reliable way to route
+// a notification click back to this (especially unpackaged/dev) process, so
+// Notification's 'click' handler (src/main/window.js) silently never fires. Must
+// be set before any Notification is constructed — doing it up front is simplest.
+// Matches the installed app's identity (package.json build.appId).
+if (process.platform === 'win32') app.setAppUserModelId('com.claude.session-editor');
 // Redirect userData to a per-instance profile dir before any subsystem reads a
 // path from it (repo.js derives its config path on load). Must come first.
 require('./instance');

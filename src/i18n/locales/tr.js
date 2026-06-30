@@ -138,8 +138,6 @@ export default {
 
     'notify.sessionFinishedTitle': 'Oturum tamamlandı',
 
-    'notify.sessionFinishedTitle': 'Oturum tamamlandı',
-
     'warn.title': 'Bir şeyler ters gitti',
     'warn.session': 'Oturum hatası',
     'warn.unknown': 'Bilinmeyen hata',
@@ -189,7 +187,6 @@ export default {
     'settings.general': 'Genel',
     'settings.sessionDiffBadge': 'Oturumlarda fark istatistikleri',
     'settings.statusLine': 'Token maliyet göstergesi',
-    'settings.osNotifications': 'Masaüstü bildirimleri',
     'settings.osNotifications': 'Masaüstü bildirimleri',
     'settings.close': 'Kapat',
     'settings.done': 'Tamam',
