@@ -8,6 +8,7 @@ const { getRepoPath } = require('./repo');
 const { git } = require('./git');
 const { sessions, trackedFiles, pathClaimedByOther, setSessionState, persistSession, guard } = require('./sessions');
 const { commitContent, inverseEdits } = require('./edit-ops');
+const { companionPaths } = require('./companion-files');
 const { sumNumstat } = require('./git-parse');
 const { runHaiku } = require('./claude');
 const { commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage } = require('./commit-msg');
@@ -127,6 +128,40 @@ async function sessionEntries(s, repoPath) {
       if (curSha.ok && curSha.stdout.trim() === headSha.stdout.trim()) { emptyFileOps.push(abs); continue; }
     }
     entries.push({ path: rel, content: buf }); committedFileOps.push(abs);
+  }
+  // Fold in Godot sidecars (`<file>.uid`, `<file>.import`) for every resource we're
+  // committing. The editor writes these next to the file — the agent's edit tools
+  // never touch them, so they're absent from s.edits/s.fileOps and would otherwise
+  // be left behind, breaking the import. They're recomputed from disk each time (not
+  // tracked in s.edits/s.fileOps), so there's nothing to forget after a commit.
+  // Iterate a snapshot of entries so the companions we append don't recurse.
+  const present = new Set(entries.map((e) => e.path));
+  for (const e of [...entries]) {
+    for (const comp of companionPaths(e.path)) {
+      if (present.has(comp)) continue;
+      const compAbs = path.join(repoPath, comp.split('/').join(path.sep));
+      // Never sweep in a sidecar another live session is editing/creating.
+      if (pathClaimedByOther(s, compAbs, { edits: true, fileOps: true })) continue;
+      let buf = null;
+      try { buf = fs.readFileSync(compAbs); } catch { /* missing on disk */ }
+      if (e.delete) {
+        // The resource is being deleted; drop its committed sidecar if the editor
+        // removed it from disk too (a sidecar that survives at HEAD is orphaned).
+        if (buf == null && (await git(['cat-file', '-e', `HEAD:${comp}`])).ok) {
+          entries.push({ path: comp, delete: true }); present.add(comp);
+        }
+        continue;
+      }
+      if (buf == null) continue; // no sidecar on disk to add
+      // Skip an unchanged sidecar (current bytes already match HEAD) so it doesn't
+      // inflate the commit with a diff-less blob — same blob-hash check as binary adds.
+      const headSha = await git(['rev-parse', '-q', '--verify', `HEAD:${comp}`]);
+      if (headSha.ok) {
+        const curSha = await git(['hash-object', '--path', comp, '--stdin'], { input: buf });
+        if (curSha.ok && curSha.stdout.trim() === headSha.stdout.trim()) continue;
+      }
+      entries.push({ path: comp, content: buf }); present.add(comp);
+    }
   }
   return { entries, committedAbs, committedFileOps, emptyAbs, emptyFileOps };
 }
