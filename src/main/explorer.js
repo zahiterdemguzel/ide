@@ -1,5 +1,6 @@
 const { ipcMain, shell, clipboard, session } = require('electron');
 const path = require('path');
+const { pathToFileURL } = require('url');
 const fs = require('fs');
 const os = require('os');
 const { getRepoPath, onRepoChange } = require('./repo');
@@ -194,6 +195,19 @@ ipcMain.handle('open-external', async (_e, target) => {
     if (/^https?:\/\//i.test(target)) { await shell.openExternal(target); return { ok: true }; }
     const err = await shell.openPath(target);
     return { ok: !err, error: err };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Resolve a repo-relative path to a file:// URL for the editor's HTML preview
+// webview. pathToFileURL handles the drive letter and percent-encodes spaces and
+// non-ASCII characters, so the webview loads it verbatim. Guarded to stay in-repo.
+ipcMain.handle('file-url', (_e, file) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, file);
+    const inside = path.relative(repoPath, abs);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
+    return { ok: true, url: pathToFileURL(abs).href };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 

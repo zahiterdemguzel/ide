@@ -143,6 +143,12 @@
         <div id="diff-view">
           <div id="diff-head">
             <span id="diff-file"></span>
+            <div id="diff-preview" class="seg-toggle" role="switch" aria-checked="false" tabindex="0"
+                 data-i18n-title="editor.previewTitle" title="Preview" hidden>
+              <button type="button" class="seg-opt active" data-mode="code" data-i18n="editor.code">Code</button>
+              <button type="button" class="seg-opt" data-mode="preview" data-i18n="editor.preview">Preview</button>
+              <span class="seg-thumb" aria-hidden="true"></span>
+            </div>
             <div id="diff-actions">
               <div id="run-split" hidden>
                 <button id="run-btn" title="Run file" aria-label="Run file">

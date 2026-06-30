@@ -149,6 +149,10 @@ export default {
     'editor.findNext': 'Sonraki (Enter)',
     'editor.findClose': 'Kapat (Esc)',
     'editor.findNoResults': 'Sonuç yok',
+    'editor.preview': 'Önizleme',
+    'editor.previewTitle': 'İşlenmiş sayfayı önizle',
+    'editor.code': 'Kod',
+    'editor.codeTitle': 'Düzenleyiciye dön',
 
     'run.runFile': 'Bu {lang} dosyasını çalıştır',
     'run.runBtn': 'Çalıştır',

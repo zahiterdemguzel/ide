@@ -149,6 +149,10 @@ export default {
     'editor.findNext': 'Siguiente (Enter)',
     'editor.findClose': 'Cerrar (Esc)',
     'editor.findNoResults': 'Sin resultados',
+    'editor.preview': 'Vista previa',
+    'editor.previewTitle': 'Previsualizar la página renderizada',
+    'editor.code': 'Código',
+    'editor.codeTitle': 'Volver al editor',
 
     'run.runFile': 'Ejecutar este archivo {lang}',
     'run.runBtn': 'Ejecutar',

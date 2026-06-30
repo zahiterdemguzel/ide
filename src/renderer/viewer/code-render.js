@@ -5,6 +5,7 @@ export const diffView = document.getElementById('diff-view');
 export const diffBody = document.getElementById('diff-body');
 const diffFile = document.getElementById('diff-file');
 const saveBtn = document.getElementById('diff-save');
+const previewBtn = document.getElementById('diff-preview');
 const findBar = document.getElementById('editor-find');
 const runSplit = document.getElementById('run-split');
 
@@ -18,6 +19,7 @@ export function setDiffTitle(file) { diffFile.textContent = file; }
 export function hideDiff() {
   diffView.style.display = 'none';
   saveBtn.hidden = true;
+  previewBtn.hidden = true;
   findBar.hidden = true;
   runSplit.hidden = true;
 }

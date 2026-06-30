@@ -15,6 +15,9 @@ export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'p
 export const EDITABLE_MODEL_EXT = new Set(['glb', 'gltf']);
 // Tabular formats the spreadsheet viewer opens (CSV + the Excel workbook formats).
 export const SHEET_EXT = new Set(['csv', 'tsv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods']);
+// HTML files the editor offers a Preview/Code toggle for: Preview swaps the text
+// editor for the page rendered in a webview, Code switches back. Both spellings.
+export const HTML_EXT = new Set(['html', 'htm']);
 
 // Filename color by extension. Languages use GitHub Linguist's colors (the dots
 // on every repo) so they match what people already recognize; a few are bumped

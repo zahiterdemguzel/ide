@@ -150,6 +150,10 @@ export default {
     'editor.findNext': 'Next (Enter)',
     'editor.findClose': 'Close (Esc)',
     'editor.findNoResults': 'No results',
+    'editor.preview': 'Preview',
+    'editor.previewTitle': 'Preview the rendered page',
+    'editor.code': 'Code',
+    'editor.codeTitle': 'Back to the editor',
 
     'run.runFile': 'Run this {lang} file',
     'run.runBtn': 'Run',
