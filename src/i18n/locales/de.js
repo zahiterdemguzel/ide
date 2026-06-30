@@ -177,6 +177,7 @@ export default {
     'settings.theme': 'Design',
     'settings.sound': 'Benachrichtigungston',
     'settings.soundNone': 'Keiner',
+    'settings.soundVolume': 'Lautstärke',
     'settings.agents': 'Agent-Modelle',
     'settings.agentsHint': 'Gilt für neue Sitzungen. Wählen Sie beim Erstellen ein Modell pro Sitzung.',
     'settings.model': 'Sitzungsmodell',

@@ -30,6 +30,19 @@ maps the old mute flag (`localStorage` `ide.notifySoundEnabled === 'false'`, fro
 the former Completion-sound toggle) to `none`; `setSound()` clears that stale flag
 once the user picks anything.
 
+**Volume.** The slider below it (`#settings-volume`, 0–100 in steps of 5) scales
+every note's peak gain. `getVolume()`/`setVolume()` persist it as a 0..1
+multiplier (`localStorage` `ide.notifyVolume`, default `1`); the pure
+`normalizeVolume()` clamps any stored or UI value into that range and is what's
+unit-tested, since `localStorage` isn't available under the Node test runner (see
+[testing.md](testing.md)). `settings.js` persists and previews on the slider's
+`change` event (not `input`), so dragging it doesn't replay the chime on every
+tick. `playNotification(id, volume)` defaults both args to the saved choices, so
+the sound dropdown's own preview automatically plays at the current volume. A
+volume of `0` short-circuits `playTones()` before scheduling any oscillator
+(same silent path as picking "None") rather than ramping to a zero gain, which
+the Web Audio API rejects for an exponential ramp target.
+
 ## Agent models
 
 The **Agent models** group lets the user pick which model a new Claude session

@@ -178,6 +178,7 @@ export default {
     'settings.theme': 'Theme',
     'settings.sound': 'Notification sound',
     'settings.soundNone': 'None',
+    'settings.soundVolume': 'Volume',
     'settings.agents': 'Agent models',
     'settings.agentsHint': 'Applies to new sessions. Pick a model per session when creating one.',
     'settings.model': 'Session model',

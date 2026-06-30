@@ -177,6 +177,7 @@ export default {
     'settings.theme': 'Tema',
     'settings.sound': 'Sonido de notificación',
     'settings.soundNone': 'Ninguno',
+    'settings.soundVolume': 'Volumen',
     'settings.agents': 'Modelos de agente',
     'settings.agentsHint': 'Se aplica a las nuevas sesiones. Elige un modelo por sesión al crearla.',
     'settings.model': 'Modelo de sesión',

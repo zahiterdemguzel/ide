@@ -7,7 +7,7 @@ import {
 } from '../i18n/index.js';
 import { refreshTermThemes } from './shared/terminal.js';
 import {
-  SOUNDS, getSound, setSound, playNotification,
+  SOUNDS, getSound, setSound, playNotification, getVolume, setVolume,
 } from './shared/notify.js';
 import { isSessionDiffBadgeEnabled, setSessionDiffBadge } from './sessions.js';
 
@@ -119,6 +119,7 @@ export function initSettings() {
   const langSel = document.getElementById('settings-language');
   const themeSel = document.getElementById('settings-theme');
   const soundSel = document.getElementById('settings-sound');
+  const volumeInput = document.getElementById('settings-volume');
   const sessionDiffBox = document.getElementById('settings-session-diff');
   const statusLineBox = document.getElementById('settings-statusline');
   const modelSel = document.getElementById('settings-model');
@@ -137,6 +138,13 @@ export function initSettings() {
   // "None" persists too and previews as silence (its empty notes play nothing).
   soundSel.onchange = () => {
     setSound(soundSel.value);
+    playNotification(soundSel.value);
+  };
+  // Same persist-then-preview pattern as the sound picker, fired on `change`
+  // (handle release) rather than `input` so dragging the slider doesn't replay
+  // the chime on every tick.
+  volumeInput.onchange = () => {
+    setVolume(Number(volumeInput.value) / 100);
     playNotification(soundSel.value);
   };
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
@@ -165,6 +173,7 @@ export function initSettings() {
       })),
       getSound(),
     );
+    volumeInput.value = String(Math.round(getVolume() * 100));
     const modelOpts = MODELS.map((m) => ({ value: m.id, label: m.name }));
     fillSelect(modelSel, modelOpts, getSessionModel());
     fillSelect(subagentSel, modelOpts, getSubagentModel());

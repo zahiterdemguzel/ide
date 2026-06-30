@@ -177,6 +177,7 @@ export default {
     'settings.theme': 'Tema',
     'settings.sound': 'Bildirim sesi',
     'settings.soundNone': 'Yok',
+    'settings.soundVolume': 'Ses düzeyi',
     'settings.agents': 'Ajan modelleri',
     'settings.agentsHint': 'Yeni oturumlara uygulanır. Oturum oluştururken oturum başına model seçin.',
     'settings.model': 'Oturum modeli',

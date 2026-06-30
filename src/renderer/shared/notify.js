@@ -3,7 +3,7 @@
 // few short chimes plays to pull the user's eye back. The sounds are synthesized
 // with the Web Audio API rather than shipped as audio files — no binary asset, works
 // offline under file://, and matches the app's pure-CSS/synth approach (the welcome
-// watermark, the status dots). The chosen sound persists in localStorage.
+// watermark, the status dots). The chosen sound and volume persist in localStorage.
 
 const STORE_SOUND = 'ide.notifySound';
 // Legacy on/off flag. The completion sound used to have a separate toggle; it's
@@ -71,6 +71,25 @@ export function setSound(id) {
   localStorage.removeItem(STORE_SOUND_ENABLED);
 }
 
+const STORE_VOLUME = 'ide.notifyVolume';
+const DEFAULT_VOLUME = 1;
+
+// Pure clamp, unit-tested: a gain multiplier always lands in 0..1, with any
+// unparseable/missing stored value falling back to full volume.
+export function normalizeVolume(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DEFAULT_VOLUME;
+  return Math.min(1, Math.max(0, n));
+}
+
+export function getVolume() {
+  return normalizeVolume(localStorage.getItem(STORE_VOLUME) ?? DEFAULT_VOLUME);
+}
+
+export function setVolume(v) {
+  localStorage.setItem(STORE_VOLUME, String(normalizeVolume(v)));
+}
+
 // Pure trigger test, unit-tested: the chime+animation fire only when a session that
 // was actively working settles into "completed" (a finished response / PTY exit) —
 // not on needs-input, and not on any state that was already settled.
@@ -83,8 +102,11 @@ export function isCompletionTransition(prev, next) {
 // the browser autoplay policy.
 let audioCtx = null;
 
-function playTones(notes) {
-  if (typeof AudioContext === 'undefined') return;
+function playTones(notes, volume) {
+  // A volume of 0 is silence, same as the "None" sound: skip scheduling
+  // entirely rather than ramping to a zero gain (which the Web Audio API
+  // rejects for an exponential ramp target).
+  if (typeof AudioContext === 'undefined' || volume <= 0) return;
   if (!audioCtx) audioCtx = new AudioContext();
   if (audioCtx.state === 'suspended') audioCtx.resume();
 
@@ -97,7 +119,7 @@ function playTones(notes) {
     const start = now + n.t;
     // Fast attack, exponential decay to (near) silence — a pluck/bell envelope.
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(n.g, start + 0.012);
+    gain.gain.exponentialRampToValueAtTime(n.g * volume, start + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + n.d);
     osc.connect(gain).connect(audioCtx.destination);
     osc.start(start);
@@ -105,8 +127,8 @@ function playTones(notes) {
   }
 }
 
-// Play a sound by id, defaulting to the user's saved choice.
-export function playNotification(id = getSound()) {
+// Play a sound by id, defaulting to the user's saved choice and volume.
+export function playNotification(id = getSound(), volume = getVolume()) {
   const sound = SOUNDS.find((s) => s.id === id);
-  if (sound) playTones(sound.notes);
+  if (sound) playTones(sound.notes, volume);
 }

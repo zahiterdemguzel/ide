@@ -50,6 +50,7 @@
   transition: border-color .12s ease, box-shadow .12s ease;
 }
 .settings-row select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.settings-row input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
 
 /* Panel-visibility toggles: a titled group of switch cards in a 2-up grid. */
 .settings-group { display: flex; flex-direction: column; gap: 8px; }

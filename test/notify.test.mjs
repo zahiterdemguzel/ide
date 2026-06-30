@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isCompletionTransition, SOUNDS } from '../src/renderer/shared/notify.js';
+import { isCompletionTransition, SOUNDS, normalizeVolume } from '../src/renderer/shared/notify.js';
 
 test('fires only on working → completed', () => {
   assert.equal(isCompletionTransition('working', 'completed'), true);
@@ -40,4 +40,18 @@ test('every audible sound has at least one note', () => {
   for (const s of SOUNDS.filter((x) => x.id !== 'none')) {
     assert.ok(s.notes.length >= 1, `${s.id} has notes`);
   }
+});
+
+test('normalizeVolume clamps to 0..1', () => {
+  assert.equal(normalizeVolume(0.5), 0.5);
+  assert.equal(normalizeVolume(-1), 0);
+  assert.equal(normalizeVolume(2), 1);
+  assert.equal(normalizeVolume(0), 0);
+  assert.equal(normalizeVolume(1), 1);
+});
+
+test('normalizeVolume falls back to full volume for unparseable input', () => {
+  assert.equal(normalizeVolume(undefined), 1);
+  assert.equal(normalizeVolume('nope'), 1);
+  assert.equal(normalizeVolume(NaN), 1);
 });
