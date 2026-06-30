@@ -4,7 +4,7 @@
 import './shared/bootstrap.js';
 import { onClose } from './viewer/center.js';
 import { showActiveSession, restoreSessions, setSessionsRepo, newSession } from './sessions.js';
-import { refreshGit } from './git-pane.js';
+import { refreshGit, autoFetch } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
 import './terminal-links.js';
@@ -32,7 +32,7 @@ const recentMenu = document.getElementById('recent-folders-menu');
 
 function applyRepoChange(r) {
   if (r.error) { console.error('open-folder:', r.error); return; }
-  if (!r.canceled) { window.api.setWindowTitle(r.repo); setSessionsRepo(r.repo); refreshGit(); refreshTree(); loadToolbar(); }
+  if (!r.canceled) { window.api.setWindowTitle(r.repo); setSessionsRepo(r.repo); refreshGit(); refreshTree(); loadToolbar(); autoFetch(); }
 }
 
 async function browseForFolder() {
@@ -149,6 +149,9 @@ restoreSessions();
 refreshGit();
 refreshTree();
 loadToolbar();
+// Refresh the remote-tracking refs once on launch so the ahead/behind badges
+// reflect the remote without the user reaching for Sync.
+autoFetch();
 // First-time onboarding. The help/cheat sheet wires up immediately; the
 // automatic guided tour and contextual hints wait until Claude Code is confirmed
 // installed (past the setup gate) so a new user isn't onboarded mid-install, and

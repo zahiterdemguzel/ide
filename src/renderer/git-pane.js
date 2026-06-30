@@ -150,6 +150,19 @@ function gitStateSignature(r) {
   return [r.branch, r.ahead, r.behind, files(r.staged), files(r.unstaged), files(r.conflicts)].join('|');
 }
 
+// Background `git fetch` to refresh the remote-tracking refs — and so the
+// ahead/behind badges — without blocking the UI. Fired on startup, on opening
+// another folder, and on switching branches. It's a convenience, not a
+// user-requested action, so a failure (no remote, offline, non-git folder) is
+// swallowed; only a successful fetch re-renders, surfacing a freshly discovered
+// "behind" count right away.
+export async function autoFetch() {
+  try {
+    const r = await window.api.gitFetch();
+    if (r && r.ok) refreshGit();
+  } catch {}
+}
+
 const conflictsSection = document.getElementById('conflicts-section');
 const conflictsEl = document.getElementById('conflicts-list');
 document.getElementById('conflicts-resolve').onclick = () =>
@@ -514,6 +527,7 @@ async function switchBranch(branch) {
   if (!r.ok) { showGitErrorDialog(r.stderr || 'Checkout failed', 'Checkout failed'); return; }
   refreshGit();
   refreshHistory();
+  autoFetch();
 }
 
 async function openBranchMenu() {
