@@ -1,4 +1,5 @@
 import { fileColor } from '../shared/ext.js';
+import { fileIcon } from '../shared/file-icon-img.js';
 import { openFromTree } from '../viewer/center.js';
 import { showTreeContextMenu } from './tree.js';
 
@@ -18,7 +19,7 @@ function resultRow(file, lineNo, text, term) {
   name.style.color = fileColor(file);
   name.textContent = lineNo ? `${file}:${lineNo}` : file;
   name.title = file;
-  row.appendChild(name);
+  row.append(fileIcon(file), name);
   if (text) {
     const snip = document.createElement('span');
     snip.className = 'search-snippet';

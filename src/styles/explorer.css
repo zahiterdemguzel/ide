@@ -45,6 +45,8 @@
 .tree-row:hover { background: var(--bg-3); }
 .tree-row.sel { background: var(--list-sel); }
 .tree-twist { flex: none; width: 17px; text-align: center; font-size: 20px; line-height: 1; color: var(--fg-dim); }
+/* per-extension file/folder glyph (src/renderer/file-icons/*.svg) */
+.tree-icon { flex: none; width: 14px; height: 14px; object-fit: contain; }
 .tree-name { overflow: hidden; text-overflow: ellipsis; }
 
 /* right-click context menu */

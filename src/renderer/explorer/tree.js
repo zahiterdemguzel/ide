@@ -1,4 +1,5 @@
 import { fileColor } from '../shared/ext.js';
+import { fileIcon, folderIcon, setFolderIcon } from '../shared/file-icon-img.js';
 import { openFromTree } from '../viewer/center.js';
 import { promptText } from '../shared/prompt.js';
 import { confirmDialog } from '../shared/confirm.js';
@@ -126,12 +127,13 @@ async function loadDir(rel, container, depth, expandedSet = null) {
     const twist = document.createElement('span');
     twist.className = 'tree-twist';
     twist.textContent = e.dir ? '▸' : '';
+    const icon = e.dir ? folderIcon(false) : fileIcon(e.name);
     const name = document.createElement('span');
     name.className = 'tree-name';
     name.textContent = e.name;
     name.title = e.name;
     if (!e.dir) name.style.color = fileColor(e.name);
-    row.append(twist, name);
+    row.append(twist, icon, name);
     container.appendChild(row);
 
     row.addEventListener('contextmenu', (ev) => {
@@ -151,12 +153,14 @@ async function loadDir(rel, container, depth, expandedSet = null) {
         const open = kids.style.display === 'none';
         kids.style.display = open ? 'block' : 'none';
         twist.textContent = open ? '▾' : '▸';
+        setFolderIcon(icon, open);
         if (open && !loaded) { loaded = true; await loadDir(childRel, kids, depth + 1); }
       };
       // Restore previously-expanded state after a tree rebuild.
       if (expandedSet && expandedSet.has(childRel)) {
         kids.style.display = 'block';
         twist.textContent = '▾';
+        setFolderIcon(icon, true);
         loaded = true;
         await loadDir(childRel, kids, depth + 1, expandedSet);
       }
@@ -258,6 +262,8 @@ function collapseAll() {
     const twist = row.querySelector('.tree-twist');
     if (twist && twist.textContent === '▾') {
       twist.textContent = '▸';
+      const icon = row.querySelector('.tree-icon');
+      if (icon) setFolderIcon(icon, false);
       if (row.nextElementSibling) row.nextElementSibling.style.display = 'none';
     }
   }
