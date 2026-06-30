@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extOf, fileColor, IMG_EXT, AUDIO_EXT, MODEL_EXT } from '../src/renderer/shared/ext.js';
+import { extOf, fileColor, IMG_EXT, AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT } from '../src/renderer/shared/ext.js';
 
 test('extOf: returns the lowercased extension after the last dot', () => {
   assert.equal(extOf('index.js'), 'js');
@@ -22,6 +22,12 @@ test('IMG_EXT / AUDIO_EXT / MODEL_EXT cover the asset-viewer types', () => {
   for (const e of ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg']) assert.ok(IMG_EXT.has(e));
   for (const e of ['wav', 'ogg', 'mp3']) assert.ok(AUDIO_EXT.has(e));
   for (const e of ['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']) assert.ok(MODEL_EXT.has(e));
+});
+
+test('EDITABLE_MODEL_EXT is the glTF subset of MODEL_EXT', () => {
+  for (const e of EDITABLE_MODEL_EXT) assert.ok(MODEL_EXT.has(e), `${e} must be a model ext`);
+  assert.deepEqual([...EDITABLE_MODEL_EXT].sort(), ['glb', 'gltf']);
+  for (const e of ['fbx', 'obj', 'usdz', 'stl', 'ply']) assert.ok(!EDITABLE_MODEL_EXT.has(e));
 });
 
 test('the asset-viewer extension sets are disjoint (one routing per type)', () => {

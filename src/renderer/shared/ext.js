@@ -9,6 +9,10 @@ export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg
 export const AUDIO_EXT = new Set(['wav', 'ogg', 'mp3']);
 // 3D model formats the three.js viewer can render (one loader per extension).
 export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']);
+// Subset of MODEL_EXT the 3D editor can write back: only the glTF family round-trips
+// through three.js's GLTFExporter (embedded textures + node transforms). The other
+// formats have no exporter, so they stay view-only.
+export const EDITABLE_MODEL_EXT = new Set(['glb', 'gltf']);
 // Tabular formats the spreadsheet viewer opens (CSV + the Excel workbook formats).
 export const SHEET_EXT = new Set(['csv', 'tsv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods']);
 

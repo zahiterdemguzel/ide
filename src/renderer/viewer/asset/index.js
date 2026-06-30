@@ -1,4 +1,4 @@
-import { AUDIO_EXT, MODEL_EXT } from '../../shared/ext.js';
+import { AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT } from '../../shared/ext.js';
 import { renderAudio } from './audio.js';
 import { renderZoom } from './zoom.js';
 import { renderPixelEditor } from './pixel-editor.js';
@@ -43,14 +43,7 @@ export async function showAsset(file, ext) {
   if (!r.ok) { assetBody.textContent = r.error || 'Could not read file'; return; }
 
   if (MODEL_EXT.has(ext)) {
-    // Loaded on demand so three.js (a large dependency) never costs app startup.
-    // Guarded so a load/parse failure shows a message instead of a blank pane.
-    try {
-      const { renderModel } = await import('./model.js');
-      renderModel(r.base64, ext, assetBody, assetTools, registerCleanup);
-    } catch (e) {
-      assetBody.textContent = 'Could not open 3D model: ' + (e && e.message ? e.message : e);
-    }
+    renderModelCoordinator(file, r.base64, ext, assetBody, assetTools, registerCleanup);
     return;
   }
 
@@ -90,4 +83,53 @@ function renderImage(file, img, ext, body, tools, registerCleanup) {
 
   registerCleanup(() => { if (subCleanup) subCleanup(); });
   showZoom();
+}
+
+// 3D model coordinator: switches between the read-only viewer and the editor over
+// the same loaded bytes, mirroring renderImage's zoom↔adjust switch. The Edit
+// button (read-only viewer) calls showEdit; entering edit mode tags #asset-tools
+// with `asset-edit-mode` so the CSS hides "Open externally", leaving only the
+// editor's Save button in the header. Each sub-view owns its own header-button
+// slot (`viewTools`) and cleanup (`registerSub`); switching re-parses from the
+// same base64 so each mode gets a clean scene. Editing is offered for glTF/GLB
+// only (EDITABLE_MODEL_EXT) — the formats GLTFExporter can write back.
+function renderModelCoordinator(file, base64, ext, body, tools, registerCleanup) {
+  const viewTools = document.createElement('span');
+  viewTools.className = 'asset-view-tools';
+  tools.insertBefore(viewTools, tools.firstChild);
+
+  let subCleanup = null;
+  const registerSub = (fn) => { subCleanup = fn; };
+  const clear = () => {
+    if (subCleanup) { subCleanup(); subCleanup = null; }
+    viewTools.innerHTML = '';
+    body.innerHTML = '';
+  };
+
+  const editable = EDITABLE_MODEL_EXT.has(ext);
+  // Loaded on demand so three.js (a large dependency) never costs app startup;
+  // guarded so a load/parse failure shows a message instead of a blank pane.
+  const showView = async () => {
+    clear();
+    tools.classList.remove('asset-edit-mode');
+    try {
+      const { renderModel } = await import('./model.js');
+      renderModel(base64, ext, body, viewTools, registerSub, editable ? showEdit : null);
+    } catch (e) {
+      body.textContent = 'Could not open 3D model: ' + (e && e.message ? e.message : e);
+    }
+  };
+  const showEdit = async () => {
+    clear();
+    tools.classList.add('asset-edit-mode');
+    try {
+      const { renderModelEditor } = await import('./model-editor.js');
+      renderModelEditor(file, base64, ext, body, viewTools, registerSub);
+    } catch (e) {
+      body.textContent = 'Could not open 3D editor: ' + (e && e.message ? e.message : e);
+    }
+  };
+
+  registerCleanup(() => { if (subCleanup) subCleanup(); tools.classList.remove('asset-edit-mode'); });
+  showView();
 }
