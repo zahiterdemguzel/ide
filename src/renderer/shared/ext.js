@@ -15,6 +15,16 @@ export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'p
 export const EDITABLE_MODEL_EXT = new Set(['glb', 'gltf']);
 // Tabular formats the spreadsheet viewer opens (CSV + the Excel workbook formats).
 export const SHEET_EXT = new Set(['csv', 'tsv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods']);
+// Single-file database formats the database viewer opens. The SQLite family is
+// fully editable; the rest are recognized so the viewer can name them and explain
+// in-app editing isn't available (it sniffs the file header, not the extension).
+// Kept in sync with DB_ENGINES in src/main/db-sql.js. `.sql` is deliberately
+// absent — it's DDL text, handled by the code editor.
+export const DB_EXT = new Set([
+  'sqlite', 'sqlite3', 'db', 'db3', 's3db', 'sl3', 'gpkg', 'mbtiles',
+  'duckdb', 'ddb', 'mdb', 'accdb', 'mdf', 'ndf', 'ldf',
+  'myd', 'myi', 'frm', 'ibd', 'fdb', 'gdb', 'dbf', 'realm', 'bdb', 'nsf', 'odb',
+]);
 // HTML files the editor offers a Preview/Code toggle for: Preview swaps the text
 // editor for the page rendered in a webview, Code switches back. Both spellings.
 export const HTML_EXT = new Set(['html', 'htm']);
@@ -42,5 +52,10 @@ const FILE_COLORS = {
   txt: '#bdbdbd', pdf: '#e57373', sql: '#e8a33d',
   csv: '#66bb6a', tsv: '#66bb6a', xlsx: '#3fa873', xls: '#3fa873',
   xlsm: '#3fa873', xlsb: '#3fa873', ods: '#3fa873',
+  // database files — one shared blue so they read as a family in the tree
+  sqlite: '#5a9fd4', sqlite3: '#5a9fd4', db: '#5a9fd4', db3: '#5a9fd4',
+  s3db: '#5a9fd4', sl3: '#5a9fd4', gpkg: '#5a9fd4', mbtiles: '#5a9fd4',
+  duckdb: '#5a9fd4', ddb: '#5a9fd4', mdb: '#5a9fd4', accdb: '#5a9fd4',
+  mdf: '#5a9fd4', dbf: '#5a9fd4', realm: '#5a9fd4', fdb: '#5a9fd4',
 };
 export function fileColor(name) { return FILE_COLORS[extOf(name)] || 'var(--fg)'; }

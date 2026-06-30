@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="src/styles/diff.css" />
   <link rel="stylesheet" href="src/styles/asset.css" />
   <link rel="stylesheet" href="src/styles/sheet.css" />
+  <link rel="stylesheet" href="src/styles/db.css" />
   <link rel="stylesheet" href="src/styles/web.css" />
   <link rel="stylesheet" href="src/styles/git.css" />
   <link rel="stylesheet" href="src/styles/console.css" />
@@ -211,6 +212,36 @@
           </div>
           <div id="sheet-body"></div>
           <div id="sheet-tabs"></div>
+        </div>
+        <div id="db-view">
+          <div id="db-head">
+            <span id="db-file"></span>
+            <span id="db-engine"></span>
+            <div id="db-tools">
+              <button id="db-sql-toggle" data-i18n-title="db.sqlConsole" title="SQL console" hidden>SQL</button>
+              <button id="db-save" data-i18n-title="db.save" title="Save (Ctrl+S)" hidden>Save</button>
+              <button id="db-open-ext" data-i18n-title="db.openExternal" title="Open externally">↗</button>
+            </div>
+            <button id="db-close" title="Close">×</button>
+          </div>
+          <div id="db-body">
+            <div id="db-sidebar"></div>
+            <div id="db-content">
+              <div id="db-grid"></div>
+              <div id="db-footer"></div>
+              <div id="db-sql-panel" hidden>
+                <div id="db-sql-bar">
+                  <textarea id="db-sql-input" spellcheck="false" autocomplete="off"
+                            data-i18n-placeholder="db.sqlPlaceholder"
+                            placeholder="SELECT * FROM … — Ctrl+Enter to run"></textarea>
+                  <button id="db-sql-run" data-i18n="db.run">Run</button>
+                </div>
+                <div id="db-sql-status"></div>
+                <div id="db-sql-result"></div>
+              </div>
+            </div>
+          </div>
+          <div id="db-info" hidden></div>
         </div>
         <div id="web-view">
           <div id="web-head">

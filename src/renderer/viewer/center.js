@@ -1,9 +1,10 @@
-import { IMG_EXT, AUDIO_EXT, MODEL_EXT, SHEET_EXT, extOf } from '../shared/ext.js';
+import { IMG_EXT, AUDIO_EXT, MODEL_EXT, VECTOR_EXT, SHEET_EXT, DB_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
 import { showDiff, showCommit, showStash } from './diff.js';
 import { showFile } from './file.js';
 import { showAsset, hideAsset } from './asset/index.js';
 import { showSheet, hideSheet } from './sheet/index.js';
+import { showDb, hideDb } from './db/index.js';
 import { showWeb as showWebView, openWeb as openWebView, hideWeb, terminateWeb, isWebOpen } from './web.js';
 import { showArmHint, hideArmHint } from '../shared/arm-hint.js';
 
@@ -18,7 +19,7 @@ import { showArmHint, hideArmHint } from '../shared/arm-hint.js';
 const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
 
-export function hideAllOverlays() { hideDiff(); hideAsset(); hideSheet(); hideWeb(); }
+export function hideAllOverlays() { hideDiff(); hideAsset(); hideSheet(); hideDb(); hideWeb(); }
 
 // Hide the per-session terminal containers via the DOM (no import of sessions).
 // The session bar (commit/revert) belongs to the terminal view, so hide it too —
@@ -31,21 +32,24 @@ function hideSessionViews() {
 
 function clearCenter() { hideAllOverlays(); hideSessionViews(); }
 
-// Route a file opened from the tree/search: images/audio/3D-models → asset
+// Route a file opened from the tree/search: images/audio/3D-models/vector → asset
 // viewer, everything else → read-only text view. `jump` (optional { line, term }).
 export function openFromTree(file, jump) {
   clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext)) showAsset(file, ext);
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext)) showAsset(file, ext);
   else if (SHEET_EXT.has(ext)) showSheet(file, ext);
+  else if (DB_EXT.has(ext)) showDb(file, ext);
   else showFile(file, jump);
 }
 
-// Route a clicked git row: images/audio/3D-models → asset viewer, else → diff.
+// Route a clicked git row: images/audio/3D-models/vector → asset viewer,
+// database files → the database viewer, else → diff.
 export function openGitFile(file, status, staged) {
   clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext)) showAsset(file, ext);
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext)) showAsset(file, ext);
+  else if (DB_EXT.has(ext)) showDb(file, ext);
   else showDiff(file, status, staged);
 }
 
@@ -80,6 +84,7 @@ export function closeOverlay() {
 document.getElementById('diff-close').onclick = closeOverlay;
 document.getElementById('asset-close').onclick = closeOverlay;
 document.getElementById('sheet-close').onclick = closeOverlay;
+document.getElementById('db-close').onclick = closeOverlay;
 document.getElementById('web-close').onclick = closeOverlay;
 document.getElementById('browser-btn').onclick = toggleWeb;
 

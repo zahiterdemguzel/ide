@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api', {
   ...require('./sessions'),
   ...require('./git'),
   ...require('./explorer'),
+  ...require('./db'),
   ...require('./run-configs'),
   ...require('./runners'),
   ...require('./consoles'),

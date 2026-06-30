@@ -55,6 +55,10 @@ const EXT_ICON = {
   csv: 'csv', tsv: 'csv',
   xlsx: 'sheet', xls: 'sheet', xlsm: 'sheet', xlsb: 'sheet', ods: 'sheet',
   sql: 'database', db: 'database', sqlite: 'database', sqlite3: 'database',
+  db3: 'database', s3db: 'database', sl3: 'database', gpkg: 'database', mbtiles: 'database',
+  duckdb: 'database', ddb: 'database', mdb: 'database', accdb: 'database',
+  mdf: 'database', ndf: 'database', ldf: 'database', dbf: 'database',
+  realm: 'database', fdb: 'database', gdb: 'database', odb: 'database',
   lock: 'lock',
   key: 'key', pem: 'key', crt: 'key', cert: 'key', p12: 'key',
 

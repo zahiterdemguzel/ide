@@ -13,6 +13,7 @@ require('./git');
 require('./sessions');
 require('./session-commit');
 require('./explorer');
+require('./db');
 require('./run-configs');
 require('./runners');
 require('./consoles');

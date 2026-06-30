@@ -1,0 +1,136 @@
+/* database viewer/editor (SQLite & co.): a head toolbar, a sidebar of tables/
+   views, a paged editable row grid, and a collapsible SQL console — mirrors the
+   sheet/asset/diff overlay layout (absolute inset:0, themed with CSS vars). */
+#db-view { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); }
+/* These carry an explicit display, so the UA `[hidden]{display:none}` (lower
+   specificity than an ID) can't hide them — re-assert it at ID+attr specificity. */
+#db-body[hidden], #db-sql-panel[hidden], #db-info[hidden] { display: none; }
+
+#db-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+}
+#db-file { font-family: Consolas, monospace; font-size: 12px; color: var(--fg); flex: none; max-width: 32%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#db-engine { font-size: 11px; color: var(--fg-dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#db-tools { display: flex; align-items: center; gap: 6px; flex: none; }
+#db-tools button {
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 3px; padding: 3px 8px; cursor: pointer; font-size: 12px; line-height: 1.4;
+}
+#db-tools button:hover { border-color: var(--accent); }
+#db-sql-toggle.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#db-save.dirty { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#db-save:disabled { opacity: 0.45; cursor: default; }
+#db-close { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1; flex: none; }
+#db-close:hover { color: var(--fg); }
+
+#db-body { flex: 1; min-height: 0; display: flex; }
+
+/* sidebar: tables then views */
+#db-sidebar {
+  flex: none; width: 184px; overflow: auto; padding: 4px;
+  background: var(--bg-2); border-right: 1px solid var(--border);
+}
+.db-obj {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  background: none; border: none; color: var(--fg); cursor: pointer;
+  font-size: 12px; padding: 4px 6px; border-radius: 3px; text-align: left;
+}
+.db-obj:hover { background: var(--bg-3); }
+.db-obj.active { background: var(--accent); color: var(--on-accent); }
+.db-obj-icon { flex: none; color: var(--fg-dim); }
+.db-obj.active .db-obj-icon { color: var(--on-accent); }
+.db-obj-view .db-obj-name { font-style: italic; }
+.db-obj-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+#db-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#db-grid { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.db-loading, .db-empty, .db-error { padding: 16px; font-size: 12px; color: var(--fg-dim); }
+.db-error { color: var(--red, #e06c75); white-space: pre-wrap; }
+
+/* the row grid */
+.db-table { border-collapse: separate; border-spacing: 0; font-size: 12px; font-family: Consolas, monospace; }
+.db-table th, .db-table td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.db-colhead {
+  position: sticky; top: 0; z-index: 1; background: var(--bg-2); color: var(--fg);
+  text-align: left; font-weight: normal; padding: 3px 8px; white-space: nowrap; vertical-align: top;
+}
+.db-col-name { display: block; }
+.db-col-type { display: block; color: var(--fg-dim); font-size: 10px; }
+.db-rowhead {
+  position: sticky; left: 0; z-index: 1; background: var(--bg-2); color: var(--fg-dim);
+  text-align: right; font-weight: normal; padding: 2px 6px; min-width: 36px; user-select: none;
+}
+.db-colhead:first-of-type, thead .db-rowhead { z-index: 2; }
+.db-cell {
+  padding: 2px 8px; color: var(--fg); background: var(--bg);
+  white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; cursor: cell;
+}
+.db-cell.db-null { color: var(--fg-dim); font-style: italic; }
+.db-cell.db-blob { color: var(--fg-dim); cursor: default; }
+.db-cell-editor {
+  width: 100%; box-sizing: border-box; border: none; outline: none;
+  font-family: Consolas, monospace; font-size: 12px; padding: 0;
+  background: var(--bg); color: var(--fg);
+}
+
+/* footer: row range, paging, add-row / read-only note */
+#db-footer {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 4px 10px; background: var(--bg-2); border-top: 1px solid var(--border); font-size: 11px; color: var(--fg-dim);
+}
+.db-foot-nav { display: flex; gap: 4px; }
+.db-foot-btn {
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 3px; padding: 2px 8px; cursor: pointer; font-size: 11px;
+}
+.db-foot-btn:hover:not(:disabled) { border-color: var(--accent); }
+.db-foot-btn:disabled { opacity: 0.4; cursor: default; }
+.db-foot-page { min-width: 24px; }
+.db-foot-readonly { color: var(--fg-dim); font-style: italic; }
+
+/* SQL console */
+#db-sql-panel {
+  flex: none; display: flex; flex-direction: column; max-height: 45%;
+  border-top: 1px solid var(--border); background: var(--bg);
+}
+#db-sql-bar { display: flex; gap: 6px; padding: 6px; align-items: stretch; }
+#db-sql-input {
+  flex: 1; min-height: 44px; resize: vertical; font-family: Consolas, monospace; font-size: 12px;
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; padding: 5px 6px;
+}
+#db-sql-input:focus { outline: none; border-color: var(--accent); }
+#db-sql-run {
+  flex: none; align-self: flex-start; background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent);
+  border-radius: 3px; padding: 5px 14px; cursor: pointer; font-size: 12px;
+}
+#db-sql-status { padding: 0 8px 4px; font-size: 11px; color: var(--fg-dim); min-height: 14px; }
+#db-sql-result { overflow: auto; min-height: 0; }
+.db-result-table { width: max-content; }
+.db-result-note { padding: 4px 8px; font-size: 11px; color: var(--fg-dim); }
+
+/* info panel for recognized-but-non-editable engines (Access, DuckDB, …) */
+#db-info {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 24px; text-align: center;
+}
+.db-info-engine { font-size: 18px; color: var(--fg); }
+.db-info-msg { font-size: 13px; color: var(--fg-dim); max-width: 420px; line-height: 1.5; }
+.db-info-error { font-size: 13px; color: var(--red, #e06c75); white-space: pre-wrap; }
+.db-info-open {
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; padding: 6px 16px; cursor: pointer; font-size: 12px;
+}
+.db-info-open:hover { border-color: var(--accent); }
+
+/* right-click context menu (delete row) */
+.db-menu {
+  position: fixed; z-index: 50; min-width: 140px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); padding: 4px 0;
+}
+.db-menu button {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  color: var(--fg); font-size: 12px; padding: 5px 12px; cursor: pointer;
+}
+.db-menu button:hover { background: var(--accent); color: var(--on-accent); }
