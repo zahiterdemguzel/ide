@@ -72,12 +72,12 @@
 }
 .model-menu[hidden] { display: none; }
 .model-menu.open { opacity: 1; transform: translateY(0) scaleY(1); }
-.model-menu-item {
-  background: none; color: var(--fg); border: none; border-radius: 4px;
+.model-menu .model-menu-item {
+  background: none; color: var(--fg-dim); border: none; border-radius: 4px;
   padding: 6px 8px; cursor: pointer; font-size: 12px; text-align: left; width: 100%;
 }
-.model-menu-item:hover { background: var(--bg-3); }
-.model-menu-item.current { color: var(--fg); font-weight: 600; }
+.model-menu .model-menu-item:hover { background: var(--bg-3); color: var(--fg); }
+.model-menu .model-menu-item.current { color: var(--fg); font-weight: 600; }
 
 /* Open-folder reverse-combobox: the recent-projects menu pops up *above* the
    button (bottom: 100%) and grows downward into place from a collapsed top. */
