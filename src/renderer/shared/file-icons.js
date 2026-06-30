@@ -40,7 +40,7 @@ const EXT_ICON = {
   ex: 'elixir', exs: 'elixir',
   clj: 'clojure', cljs: 'clojure', cljc: 'clojure', edn: 'clojure',
   hs: 'haskell',
-  md: 'markdown', markdown: 'markdown', mdx: 'markdown',
+  md: 'brain', markdown: 'brain', mdx: 'brain',
   gradle: 'gradle',
 
   // data / config

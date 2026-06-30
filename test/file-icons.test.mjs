@@ -16,6 +16,7 @@ test('iconForFile: code files map to their language logo', () => {
   assert.equal(iconForFile('lib.rs'), 'rust');
   assert.equal(iconForFile('Main.java'), 'java');
   assert.equal(iconForFile('style.scss'), 'sass');
+  assert.equal(iconForFile('README.md'), 'brain'); // markdown shows a brain glyph
 });
 
 test('iconForFile: less reuses the css glyph (no standalone less icon)', () => {
