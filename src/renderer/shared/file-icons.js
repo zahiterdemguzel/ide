@@ -3,7 +3,7 @@
 // against the actual icon files on disk — see test/file-icons.test.mjs.
 //
 // The icons are real artwork pulled from the internet, not hand-drawn:
-//  - programming languages -> Devicon brand logos (keep their own colors)
+//  - programming languages -> Simple Icons brand glyphs, single-color (one fill, no gradients)
 //  - everything else        -> Lucide glyphs, recolored to read on the dark tree
 // Each id below is the basename of a `<id>.svg` file in that folder.
 
