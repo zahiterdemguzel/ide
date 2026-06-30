@@ -138,6 +138,8 @@ export default {
 
     'notify.sessionFinishedTitle': 'Session terminée',
 
+    'notify.sessionFinishedTitle': 'Session terminée',
+
     'warn.title': 'Une erreur est survenue',
     'warn.session': 'Erreur de session',
     'warn.unknown': 'Erreur inconnue',
@@ -187,6 +189,7 @@ export default {
     'settings.general': 'Général',
     'settings.sessionDiffBadge': 'Statistiques de diff sur les sessions',
     'settings.statusLine': 'Indicateur de coût des tokens',
+    'settings.osNotifications': 'Notifications de bureau',
     'settings.osNotifications': 'Notifications de bureau',
     'settings.close': 'Fermer',
     'settings.done': 'Terminé',

@@ -27,6 +27,8 @@ The chime is one of four sounds the user picks in **Settings → Notification so
 
 The same transition can also raise an OS-level desktop notification — opt-in via **Settings → Desktop notifications** (off by default, since unlike the chime it can steal window focus). See [docs/settings.md](settings.md#general-preferences).
 
+The same transition can also raise an OS-level desktop notification — opt-in via **Settings → Desktop notifications** (off by default, since unlike the chime it can steal window focus). See [docs/settings.md](settings.md#general-preferences).
+
 ## How it works
 
 `hooksSettings()` builds an inline hooks config and passes it to each session via the `claude --settings <json>` flag — so the user's global `~/.claude/settings.json` is **never modified**. (The same inline settings also carry the per-session [token meter](architecture.md#per-session-token-meter)'s `statusLine`, and `disableAgentView: true` — this app already lists sessions side by side, so Claude Code's own `claude agents` background-agent screen is turned off in every spawned session. There's no CLI flag for it; the setting and the `CLAUDE_CODE_DISABLE_AGENT_VIEW` env var are the only toggles.) Every hook is a `command` hook that `curl`s its stdin payload to a local `http` server started in `startHookServer()`. `eventToState()` maps `hook_event_name` → state; the result is pushed to the renderer keyed by `session_id` (which equals the `--session-id` we spawned with).
