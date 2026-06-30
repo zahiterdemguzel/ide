@@ -146,4 +146,26 @@ function parseBranches(localOut, remoteOut) {
   return branches;
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches };
+// Re-order the (committerdate-sorted) branch list by *most recently used* — the
+// order branches were last checked out — from the HEAD reflog, so a branch you
+// switch to often but rarely commit on (e.g. `main`) still surfaces near the top
+// of the empty-search list. Reflog subjects (`%gs`) read
+// "checkout: moving from <a> to <b>"; the `<b>`s in reflog order (newest first)
+// give the recency ranking. Branches never checked out — or aged out of the
+// reflog, and any remote-tracking rows — keep their incoming committerdate order
+// behind the used ones (a stable sort on the original index). So the result is
+// "latest used, then latest edited".
+function orderBranchesByUsage(branches, reflogStdout) {
+  const rank = new Map();
+  for (const line of (reflogStdout || '').split('\n')) {
+    const m = /^checkout: moving from .+ to (.+)$/.exec(line.trim());
+    if (m && !rank.has(m[1])) rank.set(m[1], rank.size);
+  }
+  const rankOf = (b) => (rank.has(b.name) ? rank.get(b.name) : Infinity);
+  return branches
+    .map((b, i) => ({ b, i }))
+    .sort((x, y) => (rankOf(x.b) - rankOf(y.b)) || (x.i - y.i))
+    .map((e) => e.b);
+}
+
+module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage };

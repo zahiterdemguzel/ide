@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -227,4 +227,22 @@ test('parseBranches: the same remote branch on two remotes collapses to one row'
 test('parseBranches: blank/whitespace lines and missing remote output are ignored', () => {
   assert.deepEqual(parseBranches('\n  main  \n\n', ''), [{ name: 'main', remote: false }]);
   assert.deepEqual(parseBranches('main', undefined), [{ name: 'main', remote: false }]);
+});
+
+test('orderBranchesByUsage: ranks by last-checked-out, newest first', () => {
+  const branches = ['main', 'feature/a', 'feature/b', 'old'].map((name) => ({ name, remote: false }));
+  // Reflog is newest-first: last switched to feature/b, before that feature/a.
+  const reflog = [
+    'checkout: moving from feature/a to feature/b',
+    'commit: some work',
+    'checkout: moving from main to feature/a',
+  ].join('\n');
+  assert.deepEqual(orderBranchesByUsage(branches, reflog).map((b) => b.name),
+    ['feature/b', 'feature/a', 'main', 'old']); // used ones first by recency, unused keep input order
+});
+
+test('orderBranchesByUsage: empty/absent reflog leaves the order untouched', () => {
+  const branches = [{ name: 'main', remote: false }, { name: 'dev', remote: false }];
+  assert.deepEqual(orderBranchesByUsage(branches, ''), branches);
+  assert.deepEqual(orderBranchesByUsage(branches, undefined), branches);
 });

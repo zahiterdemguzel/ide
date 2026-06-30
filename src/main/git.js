@@ -2,7 +2,7 @@ const { ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
-const { parsePorcelain, parseLog, markPushed, markIncoming, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches } = require('./git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
 
@@ -122,19 +122,23 @@ async function createRepo({ name, description, isPrivate } = {}) {
 }
 ipcMain.handle('create-repo', (_e, opts) => createRepo(opts));
 
-// Branches for the branch selector, most-recently-committed first (so the
-// branches the user is likely switching to sit at the top of a long list). Both
-// local (refs/heads) and remote-tracking (refs/remotes) branches are returned so
-// the search covers everything; parseBranches drops remotes that duplicate a
-// local name and the `origin/HEAD` pointer. The current branch is flagged so the
-// renderer can mark/skip it.
+// Branches for the branch selector. Both local (refs/heads) and remote-tracking
+// (refs/remotes) branches are returned so the search covers everything;
+// parseBranches drops remotes that duplicate a local name and the `origin/HEAD`
+// pointer. The for-each-ref `--sort=-committerdate` gives a latest-*edited* order,
+// then orderBranchesByUsage re-ranks by latest-*used* (last checkout) from the
+// HEAD reflog — so with an empty search the branches the user is most likely to
+// switch to sit at the top. The current branch is flagged so the renderer can
+// mark/skip it.
 ipcMain.handle('git-branches', async () => {
   const local = await git(['for-each-ref', '--sort=-committerdate',
     '--format=%(refname:short)', 'refs/heads']);
   if (!local.ok) return { ok: false, error: local.stderr, branches: [], current: '' };
   const remote = await git(['for-each-ref', '--sort=-committerdate',
     '--format=%(refname:short)', 'refs/remotes']);
-  const branches = parseBranches(local.stdout, remote.ok ? remote.stdout : '');
+  const reflog = await git(['reflog', '--pretty=%gs']);
+  let branches = parseBranches(local.stdout, remote.ok ? remote.stdout : '');
+  if (reflog.ok) branches = orderBranchesByUsage(branches, reflog.stdout);
   return { ok: true, branches, current: await currentBranch() };
 });
 

@@ -568,8 +568,20 @@ async function switchBranch(b) {
   autoFetch();
 }
 
+// The menu is position:fixed (so the pane's overflow:hidden can't clip it), so
+// JS places it: right edge aligned just inside the git pane's right edge, top
+// just below the branch button. It then grows leftward over the terminal area.
+function positionBranchMenu() {
+  const pane = document.getElementById('git').getBoundingClientRect();
+  const btn = branchBtn.getBoundingClientRect();
+  branchMenu.style.top = `${Math.round(btn.bottom + 6)}px`;
+  branchMenu.style.right = `${Math.round(window.innerWidth - pane.right + 8)}px`;
+  branchMenu.style.left = 'auto';
+}
+
 async function openBranchMenu() {
   branchMenu.hidden = false;
+  positionBranchMenu();
   branchSearch.value = '';
   branchListEl.innerHTML = '';
   branchEmptyEl.hidden = true;
@@ -602,6 +614,8 @@ branchSearch.onkeydown = (e) => {
 document.addEventListener('click', (e) => {
   if (!branchMenu.hidden && !branchMenu.contains(e.target) && e.target !== branchBtn) closeBranchMenu();
 });
+// A window/pane resize moves the pane's right edge; keep the open menu aligned to it.
+window.addEventListener('resize', () => { if (!branchMenu.hidden) positionBranchMenu(); });
 
 // --- commit / undo / push ---
 // Git status feedback (Fetched / Committed / errors…) is surfaced as the commit
