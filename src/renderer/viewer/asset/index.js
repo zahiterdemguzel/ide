@@ -1,4 +1,4 @@
-import { AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT } from '../../shared/ext.js';
+import { AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT } from '../../shared/ext.js';
 import { renderAudio } from './audio.js';
 import { renderZoom } from './zoom.js';
 import { renderPixelEditor } from './pixel-editor.js';
@@ -44,6 +44,11 @@ export async function showAsset(file, ext) {
 
   if (MODEL_EXT.has(ext)) {
     renderModelCoordinator(file, r.base64, ext, assetBody, assetTools, registerCleanup);
+    return;
+  }
+
+  if (VECTOR_EXT.has(ext)) {
+    renderVectorCoordinator(file, r.base64, ext, assetBody, assetTools, registerCleanup);
     return;
   }
 
@@ -127,6 +132,50 @@ function renderModelCoordinator(file, base64, ext, body, tools, registerCleanup)
       renderModelEditor(file, base64, ext, body, viewTools, registerSub);
     } catch (e) {
       body.textContent = 'Could not open 3D editor: ' + (e && e.message ? e.message : e);
+    }
+  };
+
+  registerCleanup(() => { if (subCleanup) subCleanup(); tools.classList.remove('asset-edit-mode'); });
+  showView();
+}
+
+// Vector coordinator: mirrors renderModelCoordinator for .svg/.ai. The view is a
+// pan/zoom preview (read-only); for SVG (EDITABLE_VECTOR_EXT) an Edit button hands
+// off to the full paper.js editor. .ai is view-only (a PDF/PostScript wrapper with
+// no pure-JS write-back), so it shows an info card and no Edit button. paper.js is
+// loaded lazily by the editor module, so it costs nothing until Edit is pressed.
+function renderVectorCoordinator(file, base64, ext, body, tools, registerCleanup) {
+  const viewTools = document.createElement('span');
+  viewTools.className = 'asset-view-tools';
+  tools.insertBefore(viewTools, tools.firstChild);
+
+  let subCleanup = null;
+  const registerSub = (fn) => { subCleanup = fn; };
+  const clear = () => {
+    if (subCleanup) { subCleanup(); subCleanup = null; }
+    viewTools.innerHTML = '';
+    body.innerHTML = '';
+  };
+
+  const editable = EDITABLE_VECTOR_EXT.has(ext);
+  const showView = async () => {
+    clear();
+    tools.classList.remove('asset-edit-mode');
+    try {
+      const { renderVectorView } = await import('./vector-view.js');
+      renderVectorView(file, base64, ext, body, viewTools, registerSub, editable ? showEdit : null);
+    } catch (e) {
+      body.textContent = 'Could not open vector file: ' + (e && e.message ? e.message : e);
+    }
+  };
+  const showEdit = async () => {
+    clear();
+    tools.classList.add('asset-edit-mode');
+    try {
+      const { renderVectorEditor } = await import('./vector-editor.js');
+      renderVectorEditor(file, base64, ext, body, viewTools, registerSub);
+    } catch (e) {
+      body.textContent = 'Could not open vector editor: ' + (e && e.message ? e.message : e);
     }
   };
 

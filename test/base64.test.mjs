@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { base64ToArrayBuffer, arrayBufferToBase64 } from '../src/renderer/shared/base64.js';
+import { base64ToArrayBuffer, arrayBufferToBase64, base64ToText, textToBase64 } from '../src/renderer/shared/base64.js';
 
 // node provides atob/btoa globally (used by the helpers); assert that here so a
 // failure points at the environment, not the round-trip logic.
@@ -35,4 +35,24 @@ test('round-trips a multi-chunk buffer without a stack overflow', () => {
 test('empty buffer round-trips to an empty buffer', () => {
   assert.equal(arrayBufferToBase64(new Uint8Array(0)), '');
   assert.equal(base64ToArrayBuffer('').byteLength, 0);
+});
+
+// textToBase64/base64ToText back the SVG save/load round-trip. The point of
+// going via UTF-8 bytes (not btoa) is that non-Latin1 text survives.
+test('textToBase64 ↔ base64ToText round-trips ASCII, multibyte, and empty', () => {
+  for (const s of ['', 'hello', 'şçöü ğıİ', 'palette 🎨 vector', '<svg><text>café</text></svg>']) {
+    assert.equal(base64ToText(textToBase64(s)), s);
+  }
+});
+
+test('textToBase64 encodes UTF-8 bytes (not a btoa of the raw string)', () => {
+  // "é" is U+00E9 -> UTF-8 0xC3 0xA9; assert the bytes, so a regression to btoa
+  // (which would emit a single 0xE9 or throw) is caught.
+  const bytes = new Uint8Array(base64ToArrayBuffer(textToBase64('é')));
+  assert.deepEqual([...bytes], [0xc3, 0xa9]);
+});
+
+test('a real SVG string with non-ASCII content round-trips byte-for-byte', () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text x="1" y="9">Görüş 🎨</text></svg>';
+  assert.equal(base64ToText(textToBase64(svg)), svg);
 });

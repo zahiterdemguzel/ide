@@ -3,9 +3,10 @@
 
 export function extOf(file) { const m = /\.([^.]+)$/.exec(file); return m ? m[1].toLowerCase() : ''; }
 
-// Images/audio/3D-models open the asset viewer; everything else gets the text
-// diff/viewer.
-export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg']);
+// Images/audio/3D-models/vector open the asset viewer; everything else gets the
+// text diff/viewer. SVG is NOT here — it routes through VECTOR_EXT to the vector
+// editor (a raster <img> can't be edited as paths).
+export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']);
 export const AUDIO_EXT = new Set(['wav', 'ogg', 'mp3']);
 // 3D model formats the three.js viewer can render (one loader per extension).
 export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']);
@@ -13,6 +14,12 @@ export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'p
 // through three.js's GLTFExporter (embedded textures + node transforms). The other
 // formats have no exporter, so they stay view-only.
 export const EDITABLE_MODEL_EXT = new Set(['glb', 'gltf']);
+// Vector formats the paper.js viewer/editor opens: SVG (full editor) and Adobe
+// Illustrator (view-only — modern .ai is a PDF wrapper with no pure-JS write-back).
+export const VECTOR_EXT = new Set(['svg', 'ai']);
+// Subset of VECTOR_EXT the vector editor can write back: only SVG round-trips
+// through paper.js's exportSVG. .ai stays a view-only preview.
+export const EDITABLE_VECTOR_EXT = new Set(['svg']);
 // Tabular formats the spreadsheet viewer opens (CSV + the Excel workbook formats).
 export const SHEET_EXT = new Set(['csv', 'tsv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods']);
 // Single-file database formats the database viewer opens. The SQLite family is
@@ -43,7 +50,7 @@ const FILE_COLORS = {
   md: '#7aa6da', json: '#f1e05a', yml: '#cb9a52', yaml: '#cb9a52', toml: '#cb9a52',
   // made-up family colors (no Linguist standard):
   png: '#26a69a', jpg: '#26a69a', jpeg: '#26a69a', gif: '#26a69a', bmp: '#26a69a',
-  webp: '#26a69a', svg: '#26a69a', ico: '#26a69a',
+  webp: '#26a69a', svg: '#26a69a', ico: '#26a69a', ai: '#ff9a3c',
   wav: '#ba68c8', ogg: '#ba68c8', mp3: '#ba68c8', mp4: '#ba68c8', mov: '#ba68c8',
   glb: '#ff7043', gltf: '#ff7043', fbx: '#ff7043', obj: '#ff7043',
   usdz: '#ff7043', stl: '#ff7043', ply: '#ff7043',

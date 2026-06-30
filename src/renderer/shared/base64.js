@@ -23,3 +23,16 @@ export function arrayBufferToBase64(buffer) {
   }
   return btoa(binary);
 }
+
+// Text ↔ base64 for the vector editor, which round-trips SVG (text) through the
+// same base64 `read-asset`/`write-asset` channel the binary asset views use.
+// Goes via UTF-8 bytes — a plain `btoa(svgString)` throws on any non-Latin1
+// character (an SVG <text> with é/ş, an emoji), so the encode must widen to
+// UTF-8 first and the decode must narrow back.
+export function base64ToText(base64) {
+  return new TextDecoder().decode(new Uint8Array(base64ToArrayBuffer(base64)));
+}
+
+export function textToBase64(text) {
+  return arrayBufferToBase64(new TextEncoder().encode(text));
+}
