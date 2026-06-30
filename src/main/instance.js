@@ -68,13 +68,29 @@ try {
   fs.symlinkSync(browserProfileDir, browserPartitionLink, 'junction');
 } catch {}
 
+// The renderer's app settings (theme, locale, panel visibility, agent-model
+// defaults, etc. — see docs/settings.md) are plain `localStorage`, which
+// Chromium backs with a `Local Storage` folder in the *default* session, i.e.
+// directly under userData. Same problem as the browser partition above: left
+// alone, every setting would reset on each restart. Junction that folder to a
+// shared, persistent location too. Concurrent instances sharing this storage is
+// the same accepted trade-off as the browser profile.
+const localStorageLink = path.join(instanceDir, 'Local Storage');
+const localStorageDir = path.join(sharedDataDir, 'local-storage');
+try {
+  fs.mkdirSync(localStorageDir, { recursive: true });
+  fs.mkdirSync(instanceDir, { recursive: true });
+  fs.symlinkSync(localStorageDir, localStorageLink, 'junction');
+} catch {}
+
 // The per-instance profile is disposable — drop it when this instance exits so
-// the dirs don't pile up across runs. Remove the browser-partition junction
-// first: a recursive delete that followed it into the shared profile would wipe
-// the persisted logins it exists to protect. rmdir removes the junction's
-// reparse point only, never the target's contents.
+// the dirs don't pile up across runs. Remove the junctions first: a recursive
+// delete that followed them into the shared dirs would wipe the persisted
+// settings/logins they exist to protect. rmdir removes the junction's reparse
+// point only, never the target's contents.
 app.on('quit', () => {
   try { fs.rmdirSync(browserPartitionLink); } catch {}
+  try { fs.rmdirSync(localStorageLink); } catch {}
   try { fs.rmSync(instanceDir, { recursive: true, force: true }); } catch {}
 });
 
