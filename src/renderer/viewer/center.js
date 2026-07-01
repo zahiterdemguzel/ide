@@ -2,10 +2,6 @@ import { IMG_EXT, AUDIO_EXT, MODEL_EXT, VECTOR_EXT, SHEET_EXT, DB_EXT, extOf } f
 import { hideDiff } from './code-render.js';
 import { showDiff, showCommit, showStash } from './diff.js';
 import { showFile } from './file.js';
-import { showAsset, hideAsset } from './asset/index.js';
-import { showSheet, hideSheet } from './sheet/index.js';
-import { showDb, hideDb } from './db/index.js';
-import { showWeb as showWebView, openWeb as openWebView, hideWeb, terminateWeb, isWebOpen } from './web.js';
 import { showArmHint, hideArmHint } from '../shared/arm-hint.js';
 
 // --- center coordinator ---
@@ -16,10 +12,37 @@ import { showArmHint, hideArmHint } from '../shared/arm-hint.js';
 // imports the views but never imports sessions (the close-to-session hand-off is
 // a callback registered via onClose()).
 
+// Lazy viewer modules. The asset (image/pixel/audio/3D/vector), spreadsheet,
+// database, and browser views each carry their own DOM wiring and pull in large
+// libraries (three.js / paper.js / SheetJS). None is needed until the user opens
+// a file of that type or the browser, so each is imported on first use rather
+// than at startup — the diff and text editor stay eager since they're on the
+// common path. `mod.<key>` caches the resolved module so the synchronous hide*
+// paths can no-op when a viewer was never opened (its overlay is already hidden,
+// so there's nothing to tear down).
+const mod = { asset: null, sheet: null, db: null, web: null };
+const importers = {
+  asset: () => import('./asset/index.js'),
+  sheet: () => import('./sheet/index.js'),
+  db: () => import('./db/index.js'),
+  web: () => import('./web.js'),
+};
+const pending = {};
+async function load(key) {
+  if (!mod[key]) mod[key] = await (pending[key] ||= importers[key]());
+  return mod[key];
+}
+
 const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
 
-export function hideAllOverlays() { hideDiff(); hideAsset(); hideSheet(); hideDb(); hideWeb(); }
+export function hideAllOverlays() {
+  hideDiff();
+  if (mod.asset) mod.asset.hideAsset();
+  if (mod.sheet) mod.sheet.hideSheet();
+  if (mod.db) mod.db.hideDb();
+  if (mod.web) mod.web.hideWeb();
+}
 
 // Hide the per-session terminal containers via the DOM (no import of sessions).
 // The session bar (commit/revert) belongs to the terminal view, so hide it too —
@@ -34,22 +57,22 @@ function clearCenter() { hideAllOverlays(); hideSessionViews(); }
 
 // Route a file opened from the tree/search: images/audio/3D-models/vector → asset
 // viewer, everything else → read-only text view. `jump` (optional { line, term }).
-export function openFromTree(file, jump) {
+export async function openFromTree(file, jump) {
   clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext)) showAsset(file, ext);
-  else if (SHEET_EXT.has(ext)) showSheet(file, ext);
-  else if (DB_EXT.has(ext)) showDb(file, ext);
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext)) (await load('asset')).showAsset(file, ext);
+  else if (SHEET_EXT.has(ext)) (await load('sheet')).showSheet(file, ext);
+  else if (DB_EXT.has(ext)) (await load('db')).showDb(file, ext);
   else showFile(file, jump);
 }
 
 // Route a clicked git row: images/audio/3D-models/vector → asset viewer,
 // database files → the database viewer, else → diff.
-export function openGitFile(file, status, staged) {
+export async function openGitFile(file, status, staged) {
   clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext)) showAsset(file, ext);
-  else if (DB_EXT.has(ext)) showDb(file, ext);
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext)) (await load('asset')).showAsset(file, ext);
+  else if (DB_EXT.has(ext)) (await load('db')).showDb(file, ext);
   else showDiff(file, status, staged);
 }
 
@@ -59,15 +82,15 @@ export function openCommit(hash, subject) { clearCenter(); showCommit(hash, subj
 // Open a stash's patch (Stashes section) in the diff overlay.
 export function openStash(ref, message) { clearCenter(); showStash(ref, message); }
 
-export function showWeb(url) { clearCenter(); showWebView(url); }
+export async function showWeb(url) { clearCenter(); (await load('web')).showWeb(url); }
 
 // Toolbar browser button: toggle the (persistent) browser overlay. If it's
 // already showing, close it (back to the active session); the page keeps running
 // in the background — closing is not terminating. Otherwise reveal it.
-export function toggleWeb() {
-  if (isWebOpen()) { closeOverlay(); return; }
+export async function toggleWeb() {
+  if (mod.web && mod.web.isWebOpen()) { closeOverlay(); return; }
   clearCenter();
-  openWebView();
+  (await load('web')).openWeb();
 }
 
 // Closing any overlay returns to the active session, or the empty hint if none.
@@ -100,6 +123,8 @@ webTerminate.onclick = () => {
   }
   hideArmHint();
   webTerminate.classList.remove('armed');
-  terminateWeb();
+  // The terminate button is only reachable while the browser overlay is open, so
+  // the web module is already loaded; guard anyway to stay side-effect-free.
+  if (mod.web) mod.web.terminateWeb();
   closeOverlay();
 };
