@@ -114,3 +114,25 @@
   --term-cursor: #ea7600;
   --term-sel: #5b4226;
 }
+
+[data-theme="dracula"] {
+  --bg: #282a36;
+  --bg-2: #21222c;
+  --bg-3: #343746;
+  --border: #191a21;
+  --fg: #f8f8f2;
+  --fg-dim: #9ea0b0;
+  --accent: #bd93f9;
+  --accent-hi: #caa9fa;
+  --on-accent: #282a36;
+  --green: #50fa7b;
+  --red: #ff5555;
+  --purple: #ff79c6;
+  --gray: #6272a4;
+  --yellow: #f1fa8c;
+  --list-sel: #44475a;
+  --term-bg: #282a36;
+  --term-fg: #f8f8f2;
+  --term-cursor: #f8f8f2;
+  --term-sel: #44475a;
+}
