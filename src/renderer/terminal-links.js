@@ -35,18 +35,24 @@ window.addEventListener('keydown', (e) => { if (e.key === (onMac ? 'Meta' : 'Con
 window.addEventListener('keyup', (e) => { if (e.key === (onMac ? 'Meta' : 'Control')) setLinkMod(false); }, true);
 window.addEventListener('blur', () => setLinkMod(false));
 
-async function openTerminalLink(kind, raw) {
+async function openTerminalLink(kind, raw, baseDir) {
   if (kind === 'url') { showWeb(raw); return; }
   const m = /^(.*?):(\d+)(?::\d+)?$/.exec(raw); // split a trailing :line[:col]
   const p = m ? m[1] : raw;
   const line = m ? Number(m[2]) : null;
-  const r = await window.api.resolveLinkPath(p);
-  if (!r || !r.ok || !r.isFile) return;
+  const r = await window.api.resolveLinkPath(p, baseDir);
+  if (!r || !r.ok) return;
+  if (r.isDir) { window.api.openExternal(r.abs); return; } // OS file browser
+  if (!r.isFile) return;
   if (r.inRepo) openFromTree(r.rel, line ? { line, term: null } : null);
   else window.api.openExternal(r.abs);
 }
 
-export function registerTerminalLinks(term) {
+// `baseDir` is the directory relative paths in this terminal actually resolve
+// against (a session's own repo, or a console's cwd) — it can differ from the
+// currently open folder, so it must ride along per-terminal rather than
+// falling back to the global repo path.
+export function registerTerminalLinks(term, baseDir) {
   term.registerLinkProvider({
     provideLinks(y, callback) {
       const bufLine = term.buffer.active.getLine(y - 1);
@@ -64,7 +70,7 @@ export function registerTerminalLinks(term) {
           activate: (event) => {
             if (!(onMac ? event.metaKey : event.ctrlKey)) return; // plain clicks pass through
             event.preventDefault();
-            openTerminalLink(f.kind, f.raw);
+            openTerminalLink(f.kind, f.raw, baseDir);
           },
         };
         link.hover = () => { hoveredLink = link; };

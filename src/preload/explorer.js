@@ -21,7 +21,7 @@ module.exports = {
   writeText: (file, text) => ipcRenderer.invoke('write-text', { file, text }),
   // Resolve a repo-relative path to a file:// URL (the editor's HTML preview).
   fileUrl: (file) => ipcRenderer.invoke('file-url', file),
-  resolveLinkPath: (raw) => ipcRenderer.invoke('resolve-link-path', raw),
+  resolveLinkPath: (raw, baseDir) => ipcRenderer.invoke('resolve-link-path', raw, baseDir),
   openExternal: (target) => ipcRenderer.invoke('open-external', target),
   // Clear the inline browser's persistent cookies (the persist:browser partition).
   clearWebData: () => ipcRenderer.invoke('clear-web-data'),

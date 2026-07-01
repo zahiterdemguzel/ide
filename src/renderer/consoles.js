@@ -109,7 +109,7 @@ async function createConsole(opts = {}) {
   consoleHosts.appendChild(host);
   term.open(host);
   attachClipboard(term);
-  registerTerminalLinks(term);
+  registerTerminalLinks(term, opts.cwd);
   try { fit.fit(); } catch { /* pane hidden */ }
 
   const { id } = await window.api.termCreate({

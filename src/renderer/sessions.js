@@ -389,7 +389,7 @@ export function sendToActiveSession(text) {
 // Create an xterm.js terminal inside an existing container and wire its
 // input/links. Split out from buildTerminal so a suspended session can rebuild
 // its terminal into the same container on restore.
-function attachTerminal(id, container) {
+function attachTerminal(id, container, repo) {
   const term = new Terminal({ fontSize: 11, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
   trackTermTheme(term);
   const fitAddon = new FitAddon();
@@ -397,18 +397,18 @@ function attachTerminal(id, container) {
   term.open(container);
   attachClipboard(term, { formatImagePath: (p) => `@${p} ` });
   term.onData((data) => window.api.sendInput(id, data));
-  registerTerminalLinks(term);
+  registerTerminalLinks(term, repo);
   return { term, fit: fitAddon };
 }
 
 // Build the xterm.js terminal (in its own hidden container) for a session id.
 // Used for a fresh session; resuming a suspended one reuses the container via
 // attachTerminal — the row, dot, and tracked-file state outlive the terminal.
-function buildTerminal(id) {
+function buildTerminal(id, repo) {
   const container = document.createElement('div');
   container.className = 'term-container';
   hostEl.appendChild(container);
-  const { term, fit } = attachTerminal(id, container);
+  const { term, fit } = attachTerminal(id, container, repo);
   return { container, term, fit };
 }
 
@@ -439,7 +439,7 @@ async function resumeSessionUI(s) {
   s.suspended = false;
   s.container.classList.remove('suspended');
   s.container.replaceChildren();
-  const { term, fit } = attachTerminal(s.id, s.container);
+  const { term, fit } = attachTerminal(s.id, s.container, s.repo);
   s.term = term;
   s.fit = fit;
   s.renderer = null; // re-attached by selectSession when this session is shown
@@ -529,11 +529,12 @@ export async function newSession(opts = {}) {
   if (!res || !res.id) return;
   const id = res.id;
   if (res.repo) currentRepo = res.repo;
+  const repo = res.repo || currentRepo;
 
-  const { container, term, fit: fitAddon } = buildTerminal(id);
+  const { container, term, fit: fitAddon } = buildTerminal(id, repo);
   const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
 
-  sessions.set(id, { id, repo: res.repo || currentRepo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
+  sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
   setTab('active');
   selectSession(id);
 }

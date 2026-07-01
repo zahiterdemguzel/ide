@@ -173,15 +173,21 @@ ipcMain.handle('write-text', (_e, { file, text }) => {
 });
 
 // Resolve a path the user Ctrl+clicked in the terminal. Absolute paths are used
-// as-is; bare ones resolve against the session cwd (= repoPath). Reports whether
-// it exists, is a file, and sits inside the repo — the renderer routes in-repo
-// files to the explorer's viewer and anything else to the OS via open-external.
-ipcMain.handle('resolve-link-path', (_e, raw) => {
+// as-is; bare ones resolve against `baseDir` — the *originating* terminal's own
+// directory (a session's repo, or a console's cwd), which the renderer passes
+// per-terminal since it can differ from whichever folder is currently open in
+// the explorer. Falls back to the open folder when no baseDir is given (e.g.
+// the onboarding terminal, before any repo is open). Reports whether the
+// resolved path exists, is a file or dir, and sits inside the *open* repo —
+// the renderer routes in-repo files to the explorer's viewer, directories to
+// the OS file browser, and anything else to the OS via open-external.
+ipcMain.handle('resolve-link-path', (_e, raw, baseDir) => {
   try {
     const p = String(raw || '').trim();
     if (!p) return { ok: false };
     const repoPath = getRepoPath();
-    const abs = path.isAbsolute(p) ? path.normalize(p) : path.resolve(repoPath, p);
+    const base = baseDir || repoPath;
+    const abs = path.isAbsolute(p) ? path.normalize(p) : path.resolve(base, p);
     const st = fs.statSync(abs); // throws if it doesn't exist
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     const inRepo = !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
