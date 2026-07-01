@@ -12,7 +12,7 @@
 // Finish verifies with a real `claude` probe before closing. newSession() also routes
 // through ensureClaude(), so any attempt to open a session re-runs the check and
 // re-shows the wizard until Claude Code is present.
-// See docs/architecture.md "Claude Code setup gate".
+// See .claude/memory/architecture.md "Claude Code setup gate".
 import { t } from '../i18n/index.js';
 import {
   Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer,

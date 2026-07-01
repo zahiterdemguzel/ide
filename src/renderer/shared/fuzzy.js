@@ -1,6 +1,6 @@
 // Pure, DOM-free fuzzy subsequence matcher for the Quick Open palette
 // (renderer/quick-open.js). Kept Electron- and DOM-free so it can be unit-tested
-// (see docs/testing.md) the same way as git-status.js.
+// (see .claude/memory/testing.md) the same way as git-status.js.
 //
 // A candidate matches only when every query character appears in order (a
 // subsequence). The score rewards the things that make a guess feel "right" in a

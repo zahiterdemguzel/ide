@@ -1,5 +1,5 @@
 // Electron-free install guidance for the Claude Code CLI, used by the setup gate
-// (see docs/architecture.md "Claude Code setup gate"). Only the non-translatable
+// (see .claude/memory/architecture.md "Claude Code setup gate"). Only the non-translatable
 // shell commands and URLs live here; all the surrounding prose stays in the
 // renderer's i18n strings. Pure, so it is unit-tested (test/claude-install.test.js).
 

@@ -1,5 +1,5 @@
 // Pure, DOM-free matcher for the Command Palette (renderer/command-palette.js).
-// Kept Electron- and DOM-free so it can be unit-tested (see docs/testing.md) the
+// Kept Electron- and DOM-free so it can be unit-tested (see .claude/memory/testing.md) the
 // same way as fuzzy.js / git-status.js.
 //
 // A command is { id, title, keywords } (title and keywords already localized by

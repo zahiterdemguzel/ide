@@ -62,6 +62,6 @@ jobs:
           name: Latest build
           body: >-
             Automated build from the latest commit on `master`
-            (${{ github.sha }}). Unsigned — see docs/platform-notes.md.
+            (${{ github.sha }}). Unsigned — see .claude/memory/platform-notes.md.
           prerelease: true
           files: artifacts/**/*

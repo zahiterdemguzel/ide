@@ -23,9 +23,9 @@ The moment a session goes from **working** (yellow) to **completed** (green) —
 
 Only **working → completed** fires it — not `needs-input` (also green) and not any already-settled state moving to `completed` (e.g. a restored session). The trigger is the pure, unit-tested `isCompletionTransition` in `src/renderer/shared/notify.js` (`test/notify.test.mjs`). Like the working spinner, the animation is **not** gated behind `prefers-reduced-motion` — it's a functional attention cue and Windows reports "reduce" whenever OS animations are off, which would silently kill it; it's a single short pulse, not sustained motion.
 
-The chime is one of four sounds the user picks in **Settings → Notification sound** (see [docs/settings.md](settings.md#notification-sound)). The sounds are **synthesized with the Web Audio API**, not shipped as audio files — no binary asset, works offline under `file://`, matching the app's pure-CSS/synth approach. `notify.js` owns the `SOUNDS` registry (each a list of oscillator voices with a pluck/bell envelope), the persisted choice (`localStorage` `ide.notifySound`, default `chime`), and a shared lazily-created `AudioContext` (resumed on each play to survive the autoplay policy).
+The chime is one of four sounds the user picks in **Settings → Notification sound** (see [settings.md](settings.md#notification-sound)). The sounds are **synthesized with the Web Audio API**, not shipped as audio files — no binary asset, works offline under `file://`, matching the app's pure-CSS/synth approach. `notify.js` owns the `SOUNDS` registry (each a list of oscillator voices with a pluck/bell envelope), the persisted choice (`localStorage` `ide.notifySound`, default `chime`), and a shared lazily-created `AudioContext` (resumed on each play to survive the autoplay policy).
 
-The same transition can also raise an OS-level desktop notification — opt-in via **Settings → Desktop notifications** (off by default, since unlike the chime it can steal window focus). See [docs/settings.md](settings.md#general-preferences).
+The same transition can also raise an OS-level desktop notification — opt-in via **Settings → Desktop notifications** (off by default, since unlike the chime it can steal window focus). See [settings.md](settings.md#general-preferences).
 
 ## How it works
 

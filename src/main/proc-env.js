@@ -5,7 +5,7 @@
 // `process.env` carries `ELECTRON_RUN_AS_NODE`, `VSCODE_INSPECTOR_OPTIONS`, and a
 // `NODE_OPTIONS=--require <js-debug bootloader> --inspect…` that make any spawned Node
 // child boot as a debug-attached target and fail — which is why the install could die
-// in our terminal yet succeed in a clean Terminal. See docs/platform-notes.md.
+// in our terminal yet succeed in a clean Terminal. See .claude/memory/platform-notes.md.
 //
 // Pure (takes/returns an env object), so it's unit-tested (test/proc-env.test.js).
 function cleanEnv(base = process.env) {

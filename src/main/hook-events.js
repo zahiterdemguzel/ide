@@ -1,7 +1,7 @@
 // Pure (Electron-free) hook logic for the status dots: the event -> state mapping,
 // the resume-downgrade rule, and the per-session settings JSON. The http server,
 // sessions/IPC glue, and the live hookPort live in hook-server.js. Kept here so
-// this — the heart of docs/status-detection.md — stays unit-tested
+// this — the heart of .claude/memory/status-detection.md — stays unit-tested
 // (test/hook-events.test.js).
 
 // Map a Claude Code hook payload to a session status, or null to leave it
