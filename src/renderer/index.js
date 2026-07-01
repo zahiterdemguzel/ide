@@ -109,11 +109,11 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecentMenu(); });
 
-// Ctrl/⌘+O (with or without Shift) opens the folder picker from anywhere.
+// Ctrl/⌘+Shift+O opens the folder picker from anywhere.
 // Capture phase so a focused xterm terminal can't swallow it first, mirroring
 // quick-open's Ctrl+P.
 window.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'o' || e.key === 'O')) {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key === 'o' || e.key === 'O')) {
     e.preventDefault();
     e.stopPropagation();
     browseForFolder();

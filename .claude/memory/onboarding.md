@@ -85,10 +85,10 @@ allows the shortcuts from there (the common case) and only bails when focus is i
 another editable surface (the file editor, a search box); on a hit it
 `preventDefault`s so the keystroke never reaches the terminal.
 
-`index.js` registers **`{MOD}`+O** (with or without Shift) the same way (capture
-phase) to open the folder picker (`browseForFolder`), mirroring quick-open's
-`{MOD}`+P. The welcome screen's New session and Open folder actions show their
-`Ctrl N` / `Ctrl O` badges as static `wa-kbd` hints next to the `{MOD}`+P / `F1`
+`index.js` registers **`{MOD}`+Shift+O** the same way (capture phase) to open
+the folder picker (`browseForFolder`), mirroring quick-open's `{MOD}`+P. The
+welcome screen's New session and Open folder actions show their `Ctrl N` /
+`Ctrl Shift O` badges as static `wa-kbd` hints next to the `{MOD}`+P / `F1`
 ones.
 
 ## Persistence (why not localStorage)

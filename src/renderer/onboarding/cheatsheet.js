@@ -18,7 +18,7 @@ const SECTIONS = [
       { keys: ['{MOD}', 'P'], labelKey: 'cheatsheet.goToFile' },
       { keys: ['{MOD}', 'Shift', 'P'], labelKey: 'cheatsheet.commandPalette' },
       { keys: ['{MOD}', 'N'], labelKey: 'cheatsheet.newSession' },
-      { keys: ['{MOD}', 'O'], labelKey: 'cheatsheet.openFolder' },
+      { keys: ['{MOD}', 'Shift', 'O'], labelKey: 'cheatsheet.openFolder' },
       { keys: ['Shift', '↓'], labelKey: 'cheatsheet.nextSession' },
       { keys: ['Shift', '↑'], labelKey: 'cheatsheet.prevSession' },
       { keys: ['{MOD}', 'Click'], labelKey: 'cheatsheet.terminalLink' },
