@@ -1,0 +1,1 @@
+- [Icon style preference](icon-style-preference.md) — wants simple/minimal brand glyphs (Simple Icons), not busy Devicon logos, for file icons
