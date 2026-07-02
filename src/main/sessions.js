@@ -53,6 +53,17 @@ function ensureSessionsDir() {
   fs.mkdirSync(sessionsDir, { recursive: true });
 }
 
+// Write a session file atomically: a full write to a sibling temp file followed by a
+// rename (atomic on the same filesystem). A plain writeFileSync can leave an empty or
+// truncated file if the app is killed or crashes mid-write (e.g. during quit), which
+// then fails to parse on the next launch. The rename guarantees a reader only ever
+// sees the old complete file or the new complete one, never a half-written one.
+function writeSessionFileAtomic(filePath, data) {
+  const tmp = filePath + '.tmp';
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, filePath);
+}
+
 // Delete one session's file (on kill or eviction). A missing file is fine — the
 // session may never have been written yet.
 function removeSessionFile(id) {
@@ -75,7 +86,7 @@ function migrateLegacyStore() {
     let seq = 0;
     for (const obj of list) {
       if (!obj || typeof obj.id !== 'string') continue;
-      try { fs.writeFileSync(sessionFilePath(obj.id), JSON.stringify({ ...obj, _seq: seq++ })); }
+      try { writeSessionFileAtomic(sessionFilePath(obj.id), JSON.stringify({ ...obj, _seq: seq++ })); }
       catch (err) { reportSessionError('saving a session', err); }
     }
   }
@@ -125,10 +136,20 @@ function loadPersistedSessions() {
   catch (err) { if (err.code !== 'ENOENT') reportSessionError('reading saved sessions', err); return; }
   const snapshots = [];
   for (const file of files) {
+    // Leftover temp files from an interrupted atomic write are stale, not sessions.
+    if (file.endsWith('.json.tmp')) { try { fs.unlinkSync(path.join(sessionsDir, file)); } catch { /* best-effort */ } continue; }
     if (!file.endsWith('.json')) continue;
+    const filePath = path.join(sessionsDir, file);
     let obj;
-    try { obj = JSON.parse(fs.readFileSync(path.join(sessionsDir, file), 'utf8')); }
-    catch (err) { reportSessionError('reading saved sessions', err); continue; }
+    // A file that can't be parsed (e.g. empty/truncated by a crash mid-write) is
+    // unrecoverable. Report it once, then delete it so the same error doesn't resurface
+    // on every launch.
+    try { obj = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+    catch (err) {
+      reportSessionError('reading saved sessions', err);
+      try { fs.unlinkSync(filePath); } catch { /* best-effort */ }
+      continue;
+    }
     if (!obj || typeof obj.id !== 'string') continue;
     snapshots.push(obj);
   }
@@ -183,7 +204,7 @@ function persistSession(id) {
   try {
     ensureSessionsDir();
     if (s._seq === undefined) s._seq = seqCounter++;
-    fs.writeFileSync(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+    writeSessionFileAtomic(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
     evictOverBudget();
   } catch (err) {
     reportSessionError('saving a session', err);
@@ -200,7 +221,7 @@ function persistSessions() {
     for (const [id, s] of sessions) {
       if (!isSessionPersistable(s)) { removeSessionFile(id); continue; }
       if (s._seq === undefined) s._seq = seqCounter++;
-      fs.writeFileSync(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+      writeSessionFileAtomic(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
     }
   } catch (err) {
     reportSessionError('saving sessions', err);
