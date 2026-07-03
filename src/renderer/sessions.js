@@ -958,6 +958,15 @@ window.api.onSessionName(({ id, name }) => {
   s.label.textContent = name;
   if (id === activeId) updateSessionBar();
 });
+// The user typed `/effort <level>` straight into a session's chat; mirror it on the
+// badge (and remember it as the default, like the badge dropdown does).
+window.api.onSessionEffort(({ id, effort }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  s.effort = effort;
+  setSessionEffort(effort);
+  if (id === activeId) renderEffortBadge(s);
+});
 // Main evicted the oldest sessions to stay under the persisted-storage budget;
 // drop their rows so the UI matches what survives on disk.
 window.api.onSessionEvicted(({ ids }) => { for (const id of ids) removeSessionUI(id); });

@@ -108,6 +108,17 @@ command by writing it to the session's PTY (`set-session-effort` IPC → `s.pty.
 so the live session switches immediately (`auto` → `/effort auto`). The dropdown
 mirrors the New-session model menu's open/close chrome but opens downward.
 
+**In-chat sync (the reverse direction).** The user can also run `/effort <level>`
+by typing it straight into the session — the badge tracks that too. Main's
+`pty-input` handler feeds every input chunk through `feedEffortInput()` (the pure,
+unit-tested `effort-parse.js`), which keeps a per-session line buffer and, when Enter
+closes an exact `/effort <level>` line, returns the level; main updates the record,
+persists, and pushes a **`session-effort`** event that the renderer uses to repaint
+the badge (and remember the new default). The badge's own dropdown writes via
+`set-session-effort`, which bypasses `pty-input`, so there's no echo to double-count.
+Only a level-bearing command is detected — `/effort` with no argument opens an
+interactive slider whose result isn't in the input stream, so it's left untracked.
+
 ## General preferences
 
 The **General** group (same frameless switch rows as Panels) holds standalone

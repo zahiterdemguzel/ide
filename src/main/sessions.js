@@ -9,6 +9,7 @@ const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claud
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
+const { feedEffortInput } = require('./effort-parse');
 const { editOp } = require('./edit-ops');
 const { isBulkVcsCommand } = require('./fs-track');
 const { git } = require('./git');
@@ -568,6 +569,16 @@ ipcMain.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   const s = sessions.get(id);
   if (!s || !s.pty) return;
   s.pty.write(data);
+  // Track a `/effort <level>` the user typed straight into the chat so the bar
+  // badge reflects it (the badge's own dropdown writes via set-session-effort, which
+  // bypasses this handler, so there's no echo to double-count).
+  const eff = feedEffortInput(s.inputBuf || '', data);
+  s.inputBuf = eff.buf;
+  if (eff.effort && eff.effort !== s.effort) {
+    s.effort = eff.effort;
+    persistSession(id);
+    sendToRenderer('session-effort', { id, effort: eff.effort });
+  }
   // ESC/Ctrl+C while the agent is working interrupts the turn (no hook fires for
   // it, so we read it off the input). Mirror the dot in the renderer and persist.
   const interrupted = interruptState(data, s.state);
