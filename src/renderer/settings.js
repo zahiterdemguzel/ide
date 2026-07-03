@@ -37,10 +37,10 @@ export const THEMES = [
 // builds the env from the chosen id (see src/main/agent-models.js).
 export const MODELS = [
   { id: 'default', name: 'Default (inherit)' },
+  { id: 'fable', name: 'Fable' },
   { id: 'opus', name: 'Opus' },
   { id: 'sonnet', name: 'Sonnet' },
   { id: 'haiku', name: 'Haiku' },
-  { id: 'fable', name: 'Fable' },
 ];
 const DEFAULT_MODEL = 'default';
 
