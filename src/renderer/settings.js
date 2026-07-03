@@ -44,10 +44,26 @@ export const MODELS = [
 ];
 const DEFAULT_MODEL = 'default';
 
+// Selectable reasoning-effort levels for a session, ordered low→high. The id is
+// what the `claude` CLI reads from CLAUDE_CODE_EFFORT_LEVEL at spawn (and what the
+// live `/effort <id>` command takes); `auto` is the sentinel that sets no env var,
+// so the CLI/model resolves its own default effort. Names stay untranslated — they
+// read the same in every locale, like the model/theme names. The main process
+// turns the chosen id into the env (see src/main/agent-models.js).
+export const EFFORTS = [
+  { id: 'auto', name: 'Auto' },
+  { id: 'low', name: 'Low' },
+  { id: 'medium', name: 'Medium' },
+  { id: 'high', name: 'High' },
+  { id: 'xhigh', name: 'X-High' },
+  { id: 'max', name: 'Max' },
+];
+const DEFAULT_EFFORT = 'auto';
+
 const STORE = {
   theme: 'ide.theme', locale: 'ide.locale',
   model: 'ide.sessionModel', subagentModel: 'ide.subagentModel',
-  statusLine: 'ide.statusLine',
+  statusLine: 'ide.statusLine', effort: 'ide.sessionEffort',
 };
 const DEFAULT_THEME = 'dark';
 
@@ -71,6 +87,17 @@ function readModel(key) {
 }
 export function getSessionModel() { return readModel(STORE.model); }
 export function getSubagentModel() { return readModel(STORE.subagentModel); }
+
+// The effort level a new session spawns with, and the last one chosen from the
+// per-session picker (so a change sticks as the default for the next session). A
+// stored value no longer in EFFORTS falls back to `auto`.
+export function getSessionEffort() {
+  const v = localStorage.getItem(STORE.effort);
+  return EFFORTS.some((e) => e.id === v) ? v : DEFAULT_EFFORT;
+}
+export function setSessionEffort(id) {
+  localStorage.setItem(STORE.effort, EFFORTS.some((e) => e.id === id) ? id : DEFAULT_EFFORT);
+}
 
 function applyTheme(id) {
   const known = THEMES.some((t) => t.id === id) ? id : DEFAULT_THEME;

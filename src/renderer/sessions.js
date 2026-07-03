@@ -10,7 +10,7 @@ import { ensureClaude } from './claude-setup.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
-import { MODELS, getSessionModel, getSubagentModel } from './settings.js';
+import { MODELS, EFFORTS, getSessionModel, getSubagentModel, getSessionEffort, setSessionEffort } from './settings.js';
 import { t } from '../i18n/index.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -67,6 +67,9 @@ const sessionCommitBtn = document.getElementById('session-commit');
 const sessionRevertBtn = document.getElementById('session-revert');
 const sessionArchiveBtn = document.getElementById('session-archive');
 const sessionCommitMsg = document.getElementById('session-commit-msg');
+const sessionEffortBtn = document.getElementById('session-effort');
+const sessionEffortLabel = document.getElementById('session-effort-label');
+const sessionEffortMenu = document.getElementById('session-effort-menu');
 const sessionDiffBtn = document.getElementById('session-diff');
 const sessionDiffAdd = document.getElementById('session-diff-add');
 const sessionDiffDel = document.getElementById('session-diff-del');
@@ -266,6 +269,7 @@ function updateSessionBar() {
   const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || t('session.unnamed');
   sessionTitle.textContent = name;
   sessionTitle.title = name;
+  renderEffortBadge(s);
   renderCommitButton(s);
   renderDiffButton(s);
   // The notice is now only for failures / revert results, kept per-session so
@@ -273,6 +277,73 @@ function updateSessionBar() {
   sessionCommitMsg.textContent = s.commitMsg || '';
   sessionCommitMsg.className = 'git-msg ' + (s.commitMsgClass || '');
 }
+
+// --- per-session reasoning effort: badge in the session bar + level dropdown ---
+// A session's effort is stored on its record (persisted, re-applied on resume) and
+// can be changed live: choosing a level drives the CLI's `/effort` command in the
+// running session (see main's set-session-effort). An empty/absent value means the
+// model's own default, shown as "Auto".
+const EFFORT_NAME = new Map(EFFORTS.map((e) => [e.id, e.name]));
+function effortId(s) {
+  const v = s && s.effort;
+  return EFFORT_NAME.has(v) ? v : 'auto';
+}
+
+// Paint the active session's effort badge (label + colour via the data-effort attr
+// the stylesheet keys its --ec off).
+function renderEffortBadge(s) {
+  const id = effortId(s);
+  sessionEffortBtn.dataset.effort = id;
+  sessionEffortLabel.textContent = EFFORT_NAME.get(id) || id;
+}
+
+function closeEffortMenu() {
+  if (sessionEffortMenu.hidden) return;
+  sessionEffortMenu.classList.remove('open');
+  sessionEffortBtn.setAttribute('aria-expanded', 'false');
+  sessionEffortMenu.addEventListener('transitionend', () => { sessionEffortMenu.hidden = true; }, { once: true });
+}
+function openEffortMenu() {
+  const s = sessions.get(activeId);
+  if (!s) return;
+  const current = effortId(s);
+  sessionEffortMenu.replaceChildren();
+  for (const e of EFFORTS) {
+    const item = document.createElement('button');
+    item.className = 'effort-menu-item' + (e.id === current ? ' current' : '');
+    item.dataset.effort = e.id;
+    const dot = document.createElement('span');
+    dot.className = 'effort-dot';
+    const label = document.createElement('span');
+    label.textContent = e.name;
+    item.append(dot, label);
+    item.onclick = () => { closeEffortMenu(); chooseEffort(e.id); };
+    sessionEffortMenu.appendChild(item);
+  }
+  sessionEffortMenu.hidden = false;
+  sessionEffortBtn.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => sessionEffortMenu.classList.add('open'));
+}
+
+// Apply a chosen level to the active session: update its record + badge, remember
+// it as the default for the next session, and tell main to switch the live session.
+function chooseEffort(level) {
+  const s = sessions.get(activeId);
+  if (!s) return;
+  s.effort = level;
+  renderEffortBadge(s);
+  setSessionEffort(level);
+  window.api.setSessionEffort(activeId, level);
+}
+
+sessionEffortBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (sessionEffortMenu.hidden) openEffortMenu(); else closeEffortMenu();
+};
+document.addEventListener('click', (e) => {
+  if (!sessionEffortMenu.hidden && !sessionEffortMenu.contains(e.target) && !sessionEffortBtn.contains(e.target)) closeEffortMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEffortMenu(); });
 
 // The commit button reports commit state: live "Commit N files" while edits
 // remain, disabled "Nothing to commit" once empty. A successful commit forgets
@@ -522,8 +593,9 @@ export async function newSession(opts = {}) {
   if (!(await ensureClaude())) return;
   const model = opts.model || getSessionModel();
   const subagentModel = opts.subagentModel || getSubagentModel();
+  const effort = opts.effort || getSessionEffort();
   // probe a size from a temporary fit after open
-  const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel });
+  const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel, effort });
   // A failed spawn already raised a session-error dialog from main; bail rather
   // than build a broken row around a missing id.
   if (!res || !res.id) return;
@@ -534,7 +606,7 @@ export async function newSession(opts = {}) {
   const { container, term, fit: fitAddon } = buildTerminal(id, repo);
   const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
 
-  sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false });
+  sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, effort });
   setTab('active');
   selectSession(id);
 }
@@ -556,7 +628,7 @@ export async function newSessionWithPrompt(text) {
 // the user to resume it, which selectSession does on demand. Its tracked-file list
 // is intact, so the commit button works against it before it's even resumed.
 function restoreSessionRow(meta) {
-  const { id, repo, firstPrompt, name, archived, files, state } = meta;
+  const { id, repo, firstPrompt, name, archived, files, state, effort } = meta;
   const container = document.createElement('div');
   container.className = 'term-container';
   hostEl.appendChild(container);
@@ -573,7 +645,7 @@ function restoreSessionRow(meta) {
   const st = state || 'idle';
   dot.className = 'dot ' + st;
   dot.title = STATE_LABEL[st] || st;
-  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true });
+  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, effort: effort || '' });
 }
 
 // On startup, pull the persisted sessions from main and rebuild the list, then

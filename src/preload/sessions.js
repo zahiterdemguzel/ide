@@ -9,6 +9,7 @@ module.exports = {
   onSelectSession: (cb) => ipcRenderer.on('select-session', (_e, id) => cb(id)),
   getSessions: () => ipcRenderer.invoke('get-sessions'),
   newSession: (size) => ipcRenderer.invoke('new-session', size),
+  setSessionEffort: (id, effort) => ipcRenderer.send('set-session-effort', { id, effort }),
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),
   resumeSession: (id, { cols, rows }) => ipcRenderer.invoke('resume-session', { id, cols, rows }),
   killSession: (id) => ipcRenderer.send('kill-session', { id }),

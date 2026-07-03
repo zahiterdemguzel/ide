@@ -125,6 +125,7 @@ export default {
     'session.archiveTitle': 'Archiver cette session',
     'session.diff': 'Diff',
     'session.diffTitle': 'Voir les modifications de cette session',
+    'session.effortTitle': 'Effort de raisonnement pour cette session — cliquez pour le modifier',
     'session.diffDialogTitle': 'Diff de la session',
     'session.diffClose': 'Fermer',
     'session.diffUnified': 'Unifié',

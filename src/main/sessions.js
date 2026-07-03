@@ -483,6 +483,7 @@ ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
   return [...sessions].map(([id, s]) => ({
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
+    effort: s.effort || '',
   }));
 }, []));
 
@@ -505,13 +506,13 @@ ipcMain.handle('get-usage', async () => {
 // spawned session gets a statusLine (live sessions keep what they spawned with).
 ipcMain.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
 
-ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows, model, subagentModel }) => {
+ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows, model, subagentModel, effort }) => {
   const id = crypto.randomUUID();
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
-  // own repo. `model`/`subagentModel` are the per-session agent choice (see
+  // own repo. `model`/`subagentModel`/`effort` are the per-session agent choice (see
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', _seq: seqCounter++ });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: effort || '', _seq: seqCounter++ });
   sessions.get(id).pty = spawnPty(id, cols, rows, false);
   persistSession(id);
   return { id, repo };
@@ -546,6 +547,22 @@ ipcMain.handle('resume-session', guard('restoring a session', (_e, { id, cols, r
   persistSession(id);
   return { ok: true, repo: getRepoPath() };
 }, { ok: false }));
+
+// Change a session's reasoning effort. Unlike the model (fixed at spawn), effort
+// can be retargeted live: the record is updated so it survives archive/resume and
+// a restart (spawnPty re-applies it as CLAUDE_CODE_EFFORT_LEVEL via sessionEnv),
+// and if the PTY is live we drive the CLI's own `/effort <level>` slash command so
+// the running session switches immediately. `auto` maps to `/effort auto` (reset to
+// the model default). The renderer owns the list of valid levels.
+ipcMain.on('set-session-effort', guardOn('changing session effort', (_e, { id, effort }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  const level = typeof effort === 'string' ? effort.trim() : '';
+  if (!level) return;
+  s.effort = level;
+  persistSession(id);
+  if (s.pty) s.pty.write(`/effort ${level}\r`);
+}));
 
 ipcMain.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   const s = sessions.get(id);

@@ -83,6 +83,31 @@ cleaned process env. The choice is persisted with the session
 was created with. Live sessions are never retargeted — the defaults only affect the
 *next* session.
 
+## Reasoning effort (per-session)
+
+Distinct from the model, each session also carries a **reasoning-effort level** the
+CLI reads from `CLAUDE_CODE_EFFORT_LEVEL` (`low`/`medium`/`high`/`xhigh`/`max`). The
+levels are the `EFFORTS` registry in `settings.js` (`auto`/`low`/`medium`/`high`/
+`xhigh`/`max`); `auto` is the sentinel that sets **no** env var (the model resolves
+its own default effort), mirroring the model `default` sentinel. The same
+`modelEnv()` in `agent-models.js` turns a non-`auto` selection into the
+`CLAUDE_CODE_EFFORT_LEVEL` override (`clean()` treats `auto`/`default`/empty as
+unset), and it's persisted on the record (`session-persist.js`) so a resumed session
+re-applies it at spawn. A new session starts at the **last chosen** level
+(`getSessionEffort()` / `setSessionEffort()`, `localStorage` `ide.sessionEffort`,
+default `auto`), so a change sticks as the default for the next session.
+
+**Session-bar indicator.** Unlike the model (fixed at spawn), effort is shown and
+changeable **live** from a colour-coded pill next to the session name in
+`#session-bar` (`#session-effort` + its `#session-effort-menu` dropdown, wired in
+`sessions.js`). Each level maps to an `--ec` colour via a `data-effort` attribute
+(`sessions.css`) on a low→high heat ramp (`Max` is a distinct purple). Choosing a
+level updates the record + badge, remembers it as the new default, and — because the
+env can't change a running process — drives the CLI's own **`/effort <level>`** slash
+command by writing it to the session's PTY (`set-session-effort` IPC → `s.pty.write`),
+so the live session switches immediately (`auto` → `/effort auto`). The dropdown
+mirrors the New-session model menu's open/close chrome but opens downward.
+
 ## General preferences
 
 The **General** group (same frameless switch rows as Panels) holds standalone

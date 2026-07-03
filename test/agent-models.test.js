@@ -29,3 +29,17 @@ test('modelEnv: trims and ignores empty / missing selections', () => {
 test('modelEnv: passes a full model id through verbatim', () => {
   assert.deepEqual(modelEnv({ model: 'claude-opus-4-8' }), { ANTHROPIC_MODEL: 'claude-opus-4-8' });
 });
+
+test('modelEnv: sets CLAUDE_CODE_EFFORT_LEVEL for an explicit effort', () => {
+  assert.deepEqual(modelEnv({ effort: 'high' }), { CLAUDE_CODE_EFFORT_LEVEL: 'high' });
+  assert.deepEqual(
+    modelEnv({ model: 'opus', effort: 'max' }),
+    { ANTHROPIC_MODEL: 'opus', CLAUDE_CODE_EFFORT_LEVEL: 'max' },
+  );
+});
+
+test('modelEnv: the "auto" (and empty) effort sentinel sets no var', () => {
+  assert.deepEqual(modelEnv({ effort: 'auto' }), {});
+  assert.deepEqual(modelEnv({ effort: '  ' }), {});
+  assert.deepEqual(modelEnv({ model: 'opus', effort: 'auto' }), { ANTHROPIC_MODEL: 'opus' });
+});
