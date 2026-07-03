@@ -10,7 +10,7 @@ import { ensureClaude } from './claude-setup.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
-import { MODELS, EFFORTS, getSessionModel, getSubagentModel, getSessionEffort, setSessionEffort } from './settings.js';
+import { MODELS, EFFORTS, getSessionModel, getSubagentModel, getSessionEffort, setSessionEffort, setSessionModel } from './settings.js';
 import { t } from '../i18n/index.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -70,6 +70,9 @@ const sessionCommitMsg = document.getElementById('session-commit-msg');
 const sessionEffortBtn = document.getElementById('session-effort');
 const sessionEffortLabel = document.getElementById('session-effort-label');
 const sessionEffortMenu = document.getElementById('session-effort-menu');
+const sessionModelBtn = document.getElementById('session-model');
+const sessionModelLabel = document.getElementById('session-model-label');
+const sessionModelMenu = document.getElementById('session-model-badge-menu');
 const sessionDiffBtn = document.getElementById('session-diff');
 const sessionDiffAdd = document.getElementById('session-diff-add');
 const sessionDiffDel = document.getElementById('session-diff-del');
@@ -270,6 +273,7 @@ function updateSessionBar() {
   sessionTitle.textContent = name;
   sessionTitle.title = name;
   renderEffortBadge(s);
+  renderModelBadge(s);
   renderCommitButton(s);
   renderDiffButton(s);
   // The notice is now only for failures / revert results, kept per-session so
@@ -344,6 +348,71 @@ document.addEventListener('click', (e) => {
   if (!sessionEffortMenu.hidden && !sessionEffortMenu.contains(e.target) && !sessionEffortBtn.contains(e.target)) closeEffortMenu();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEffortMenu(); });
+
+// --- per-session model: badge in the session bar + model dropdown ---
+// A session's model is stored on its record (persisted, re-applied on resume) and
+// can be changed live: choosing one drives the CLI's `/model` command in the running
+// session (see main's set-session-model), and a `/model <id>` typed straight into the
+// terminal is mirrored back onto the badge (see onSessionModel). An empty/absent
+// value means the CLI default, shown as "Default".
+const MODEL_NAME = new Map(MODELS.map((m) => [m.id, m.name]));
+function modelId(s) {
+  const v = s && s.model;
+  return MODEL_NAME.has(v) ? v : 'default';
+}
+// The pill keeps the "Default (inherit)" wording short — it's just "Default" here.
+function modelBadgeText(id) {
+  return id === 'default' ? 'Default' : (MODEL_NAME.get(id) || id);
+}
+
+function renderModelBadge(s) {
+  sessionModelLabel.textContent = modelBadgeText(modelId(s));
+}
+
+function closeModelBadgeMenu() {
+  if (sessionModelMenu.hidden) return;
+  sessionModelMenu.classList.remove('open');
+  sessionModelBtn.setAttribute('aria-expanded', 'false');
+  sessionModelMenu.addEventListener('transitionend', () => { sessionModelMenu.hidden = true; }, { once: true });
+}
+function openModelBadgeMenu() {
+  const s = sessions.get(activeId);
+  if (!s) return;
+  const current = modelId(s);
+  sessionModelMenu.replaceChildren();
+  for (const m of MODELS) {
+    const item = document.createElement('button');
+    item.className = 'effort-menu-item model-item' + (m.id === current ? ' current' : '');
+    const label = document.createElement('span');
+    label.textContent = m.name;
+    item.append(label);
+    item.onclick = () => { closeModelBadgeMenu(); chooseModel(m.id); };
+    sessionModelMenu.appendChild(item);
+  }
+  sessionModelMenu.hidden = false;
+  sessionModelBtn.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => sessionModelMenu.classList.add('open'));
+}
+
+// Apply a chosen model to the active session: update its record + badge, remember it
+// as the default for the next session, and tell main to switch the live session.
+function chooseModel(model) {
+  const s = sessions.get(activeId);
+  if (!s) return;
+  s.model = model;
+  renderModelBadge(s);
+  setSessionModel(model);
+  window.api.setSessionModel(activeId, model);
+}
+
+sessionModelBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (sessionModelMenu.hidden) openModelBadgeMenu(); else closeModelBadgeMenu();
+};
+document.addEventListener('click', (e) => {
+  if (!sessionModelMenu.hidden && !sessionModelMenu.contains(e.target) && !sessionModelBtn.contains(e.target)) closeModelBadgeMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModelBadgeMenu(); });
 
 // The commit button reports commit state: live "Commit N files" while edits
 // remain, disabled "Nothing to commit" once empty. A successful commit forgets
@@ -606,7 +675,7 @@ export async function newSession(opts = {}) {
   const { container, term, fit: fitAddon } = buildTerminal(id, repo);
   const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
 
-  sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, effort });
+  sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, effort, model });
   setTab('active');
   selectSession(id);
 }
@@ -628,7 +697,7 @@ export async function newSessionWithPrompt(text) {
 // the user to resume it, which selectSession does on demand. Its tracked-file list
 // is intact, so the commit button works against it before it's even resumed.
 function restoreSessionRow(meta) {
-  const { id, repo, firstPrompt, name, archived, files, state, effort } = meta;
+  const { id, repo, firstPrompt, name, archived, files, state, effort, model } = meta;
   const container = document.createElement('div');
   container.className = 'term-container';
   hostEl.appendChild(container);
@@ -645,7 +714,7 @@ function restoreSessionRow(meta) {
   const st = state || 'idle';
   dot.className = 'dot ' + st;
   dot.title = STATE_LABEL[st] || st;
-  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, effort: effort || '' });
+  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, effort: effort || '', model: model || '' });
 }
 
 // On startup, pull the persisted sessions from main and rebuild the list, then
@@ -966,6 +1035,15 @@ window.api.onSessionEffort(({ id, effort }) => {
   s.effort = effort;
   setSessionEffort(effort);
   if (id === activeId) renderEffortBadge(s);
+});
+// A `/model <id>` the user typed straight into the terminal — mirror it onto the
+// badge and remember it as the default for the next session.
+window.api.onSessionModel(({ id, model }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  s.model = model;
+  setSessionModel(model);
+  if (id === activeId) renderModelBadge(s);
 });
 // Main evicted the oldest sessions to stay under the persisted-storage budget;
 // drop their rows so the UI matches what survives on disk.

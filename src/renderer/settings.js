@@ -88,6 +88,13 @@ function readModel(key) {
 export function getSessionModel() { return readModel(STORE.model); }
 export function getSubagentModel() { return readModel(STORE.subagentModel); }
 
+// Remember the last model chosen from the per-session picker so it sticks as the
+// default for the next session (mirrors setSessionEffort). Unknown ids fall back to
+// the inherit default.
+export function setSessionModel(id) {
+  localStorage.setItem(STORE.model, MODELS.some((m) => m.id === id) ? id : DEFAULT_MODEL);
+}
+
 // The effort level a new session spawns with, and the last one chosen from the
 // per-session picker (so a change sticks as the default for the next session). A
 // stored value no longer in EFFORTS falls back to `auto`.

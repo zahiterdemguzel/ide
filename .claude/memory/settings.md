@@ -80,8 +80,25 @@ into the env at spawn time: `modelEnv()` (the pure, unit-tested
 `CLAUDE_CODE_SUBAGENT_MODEL` overrides, which `sessionEnv()` merges over the
 cleaned process env. The choice is persisted with the session
 (`session-persist.js`), so a restored/resumed session keeps running the model it
-was created with. Live sessions are never retargeted — the defaults only affect the
-*next* session.
+was created with. The settings-panel defaults only affect the *next* session; a live
+session is retargeted only from the session-bar model badge (below).
+
+**Session-bar indicator.** Like effort, the active session's model is shown and
+changeable **live** from a pill next to the effort badge in `#session-bar`
+(`#session-model` + its `#session-model-badge-menu` dropdown, wired in `sessions.js`;
+it reuses the effort-menu chrome, and its badge is a flat accent-tinted `.model-badge`
+since models aren't a heat ramp). Choosing a model updates the record + badge,
+remembers it as the new default (`setSessionModel()`), and drives the CLI's own
+**`/model <id>`** slash command by writing it to the session's PTY (`set-session-model`
+IPC → `s.pty.write`), so the live session switches immediately (`default` → `/model
+default`). The same in-chat reverse-sync as effort applies: a `/model <id>` typed
+straight into the session is caught by `feedModelInput()` (the pure, unit-tested
+`model-parse.js`, which shares the line-buffer engine `slash-parse.js` with
+`effort-parse.js`) in `pty-input`, which pushes a **`session-model`** event the
+renderer repaints from. Only the direct-argument form is detected — a bare `/model`
+opens an interactive picker whose result isn't in the input stream, so it's untracked.
+The badge label maps model ids to their `MODELS` names (the `default` inherit id shows
+the short "Default").
 
 ## Reasoning effort (per-session)
 

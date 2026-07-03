@@ -213,6 +213,22 @@
 .effort-menu .effort-menu-item .effort-dot { background: var(--ec); }
 .effort-menu .effort-menu-item:hover { background: color-mix(in srgb, var(--bg-3) 70%, var(--fg)); }
 .effort-menu .effort-menu-item.current { font-weight: 600; color: var(--ec); }
+
+/* Model indicator: a neutral pill next to the effort badge showing the session's
+   agent model. Click to open the same-chrome dropdown and switch models (applied
+   live via the CLI's /model command). Reuses the effort menu chrome; the badge is
+   a flat accent-tinted pill (models aren't a heat ramp, so no per-model colour). */
+.model-wrap { position: relative; flex: none; }
+.model-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--fg); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 999px; padding: 3px 8px; cursor: pointer;
+  font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease;
+}
+.model-badge:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+.effort-menu .effort-menu-item.model-item.current { color: var(--accent); }
 #session-commit-msg { margin: 0; white-space: nowrap; }
 #session-commit {
   background: var(--accent); color: var(--on-accent); border: none; border-radius: 5px;

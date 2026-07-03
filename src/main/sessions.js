@@ -10,6 +10,7 @@ const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
 const { feedEffortInput } = require('./effort-parse');
+const { feedModelInput } = require('./model-parse');
 const { editOp } = require('./edit-ops');
 const { isBulkVcsCommand } = require('./fs-track');
 const { git } = require('./git');
@@ -484,7 +485,7 @@ ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
   return [...sessions].map(([id, s]) => ({
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
-    effort: s.effort || '',
+    effort: s.effort || '', model: s.model || '',
   }));
 }, []));
 
@@ -565,6 +566,22 @@ ipcMain.on('set-session-effort', guardOn('changing session effort', (_e, { id, e
   if (s.pty) s.pty.write(`/effort ${level}\r`);
 }));
 
+// Change a session's model. Mirrors set-session-effort: originally fixed at spawn
+// (ANTHROPIC_MODEL via sessionEnv), the model can now be retargeted live — the
+// record is updated so it survives archive/resume and a restart (spawnPty re-applies
+// it), and if the PTY is live we drive the CLI's own `/model <id>` slash command so
+// the running session switches immediately. `default` maps to `/model default` (reset
+// to the CLI default). The renderer owns the list of valid ids.
+ipcMain.on('set-session-model', guardOn('changing session model', (_e, { id, model }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  const chosen = typeof model === 'string' ? model.trim() : '';
+  if (!chosen) return;
+  s.model = chosen;
+  persistSession(id);
+  if (s.pty) s.pty.write(`/model ${chosen}\r`);
+}));
+
 ipcMain.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   const s = sessions.get(id);
   if (!s || !s.pty) return;
@@ -578,6 +595,16 @@ ipcMain.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
     s.effort = eff.effort;
     persistSession(id);
     sendToRenderer('session-effort', { id, effort: eff.effort });
+  }
+  // Same for a `/model <id>` typed into the chat (the badge's own dropdown writes
+  // via set-session-model, which bypasses this handler, so there's no echo to
+  // double-count).
+  const mdl = feedModelInput(s.modelInputBuf || '', data);
+  s.modelInputBuf = mdl.buf;
+  if (mdl.model && mdl.model !== s.model) {
+    s.model = mdl.model;
+    persistSession(id);
+    sendToRenderer('session-model', { id, model: mdl.model });
   }
   // ESC/Ctrl+C while the agent is working interrupts the turn (no hook fires for
   // it, so we read it off the input). Mirror the dot in the renderer and persist.

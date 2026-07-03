@@ -126,6 +126,7 @@ export default {
     'session.diff': 'Diff',
     'session.diffTitle': 'Änderungen dieser Sitzung anzeigen',
     'session.effortTitle': 'Denkaufwand für diese Sitzung – zum Ändern klicken',
+    'session.modelTitle': 'Modell für diese Sitzung – zum Ändern klicken',
     'session.diffDialogTitle': 'Sitzungs-Diff',
     'session.diffClose': 'Schließen',
     'session.diffUnified': 'Vereinheitlicht',

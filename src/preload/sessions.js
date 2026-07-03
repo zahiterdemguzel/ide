@@ -10,6 +10,7 @@ module.exports = {
   getSessions: () => ipcRenderer.invoke('get-sessions'),
   newSession: (size) => ipcRenderer.invoke('new-session', size),
   setSessionEffort: (id, effort) => ipcRenderer.send('set-session-effort', { id, effort }),
+  setSessionModel: (id, model) => ipcRenderer.send('set-session-model', { id, model }),
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),
   resumeSession: (id, { cols, rows }) => ipcRenderer.invoke('resume-session', { id, cols, rows }),
   killSession: (id) => ipcRenderer.send('kill-session', { id }),
@@ -24,6 +25,7 @@ module.exports = {
   onSessionMeta: (cb) => ipcRenderer.on('session-meta', (_e, msg) => cb(msg)),
   onSessionName: (cb) => ipcRenderer.on('session-name', (_e, msg) => cb(msg)),
   onSessionEffort: (cb) => ipcRenderer.on('session-effort', (_e, msg) => cb(msg)),
+  onSessionModel: (cb) => ipcRenderer.on('session-model', (_e, msg) => cb(msg)),
   onSessionEvicted: (cb) => ipcRenderer.on('session-evicted', (_e, msg) => cb(msg)),
   onSessionError: (cb) => ipcRenderer.on('session-error', (_e, msg) => cb(msg)),
 };
