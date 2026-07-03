@@ -2,7 +2,7 @@ const http = require('http');
 const { sendToRenderer } = require('./window');
 // Pure event->state mapping, resume-downgrade rule, and settings JSON live in the
 // Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
-const { eventToState, shouldApplyState, hooksSettings: buildHooksSettings } = require('./hook-events');
+const { deriveStatus, shouldApplyState, hooksSettings: buildHooksSettings } = require('./hook-events');
 const { statusLineCommand } = require('./statusline');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
@@ -11,6 +11,12 @@ const sessions = require('./sessions');
 
 let hookPort = 0;
 const getHookPort = () => hookPort;
+
+// Per-session subagent bookkeeping for deriveStatus: { subagents, mainStopped }.
+// In-memory only — nothing is running across a restart, so there's nothing to
+// persist. Keyed by session_id; reset each turn by deriveStatus itself.
+const subagentTracking = new Map();
+const getTracking = (id) => subagentTracking.get(id) || { subagents: 0, mainStopped: false };
 
 // --- hooks injected per session via `claude --settings <json>` ---
 // Every event posts its raw stdin payload to our local server, which derives
@@ -25,7 +31,15 @@ function startHookServer() {
       let payload;
       try { payload = JSON.parse(body); } catch { res.end('ok'); return; } // ignore malformed
       try {
-        const state = eventToState(payload);
+        let state = null;
+        if (payload.session_id) {
+          // Subagent-aware gating: a session with background subagents still in
+          // flight stays "working" through the main agent's Stop, so the finish
+          // chime waits for the last agent (see deriveStatus).
+          const { state: derived, tracking } = deriveStatus(payload, getTracking(payload.session_id));
+          subagentTracking.set(payload.session_id, tracking);
+          state = derived;
+        }
         if (state && payload.session_id) {
           // Don't let a resume's SessionStart → idle wipe the meaningful colour a
           // session was reopened with (completed/pushed/interrupted); shouldApplyState
