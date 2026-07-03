@@ -156,6 +156,11 @@ async function runHaiku(prompt, { cwd } = {}) {
 // the smallest possible call (max_tokens: 1 ≈ one output token) once a minute and
 // read the 5h + weekly windows off the headers. OAuth tokens only answer when the
 // first system block is the Claude Code identity string — same gate as runApi.
+//
+// The rate-limit headers ride on the 429 you get once you're out of usage too, so
+// we parse them regardless of status code — that's exactly when the meter matters
+// most. usageView returns null when the headers are absent (a bad/expired token or
+// a transport error), so a non-usage failure still hides the meter.
 function fetchUsage(token) {
   return new Promise((resolve) => {
     const payload = JSON.stringify({
@@ -175,7 +180,7 @@ function fetchUsage(token) {
       },
     }, (res) => {
       res.on('data', () => {}); // drain so the socket can be reused/closed
-      res.on('end', () => resolve(res.statusCode === 200 ? usageView(res.headers, Date.now()) : null));
+      res.on('end', () => resolve(usageView(res.headers, Date.now())));
     });
     req.on('error', () => resolve(null));
     req.end(payload);
