@@ -86,8 +86,10 @@ session is retargeted only from the session-bar model badge (below).
 **Session-bar indicator.** Like effort, the active session's model is shown and
 changeable **live** from a pill next to the effort badge in `#session-bar`
 (`#session-model` + its `#session-model-badge-menu` dropdown, wired in `sessions.js`;
-it reuses the effort-menu chrome, and its badge is a flat accent-tinted `.model-badge`
-since models aren't a heat ramp). Choosing a model updates the record + badge,
+it reuses the `.effort-badge`/effort-menu chrome verbatim for an identical size/look,
+with the neutral default `--ec` since models aren't a heat ramp, and the dropdown
+omits the `default` inherit sentinel — only the concrete models are pickable).
+Choosing a model updates the record + badge,
 remembers it as the new default (`setSessionModel()`), and drives the CLI's own
 **`/model <id>`** slash command by writing it to the session's PTY (`set-session-model`
 IPC → `s.pty.write`), so the live session switches immediately (`default` → `/model

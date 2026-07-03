@@ -381,6 +381,7 @@ function openModelBadgeMenu() {
   const current = modelId(s);
   sessionModelMenu.replaceChildren();
   for (const m of MODELS) {
+    if (m.id === 'default') continue; // inherit sentinel isn't a picker choice
     const item = document.createElement('button');
     item.className = 'effort-menu-item model-item' + (m.id === current ? ' current' : '');
     const label = document.createElement('span');
