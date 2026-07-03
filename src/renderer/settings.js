@@ -40,6 +40,7 @@ export const MODELS = [
   { id: 'opus', name: 'Opus' },
   { id: 'sonnet', name: 'Sonnet' },
   { id: 'haiku', name: 'Haiku' },
+  { id: 'fable', name: 'Fable' },
 ];
 const DEFAULT_MODEL = 'default';
 
