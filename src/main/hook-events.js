@@ -8,6 +8,15 @@
 // unchanged. PostToolUse sniffs the command for a `git push` so the dot can flip
 // to "pushed"; everything else maps by event name.
 function eventToState(payload) {
+  // `agent_id` is present only when the hook fires inside a Task-tool subagent's
+  // own context (Claude Code docs: "Use this to distinguish subagent hook calls
+  // from main-thread calls"). A subagent's own Stop/UserPromptSubmit/etc. must
+  // never drive the session dot or the completion chime — the wrapping Task
+  // tool call already keeps the session "working" via its own PreToolUse/
+  // PostToolUse, which fire without agent_id since the main thread invokes them.
+  // This also guards against CLI versions where a subagent's stop is mis-routed
+  // as `Stop` instead of `SubagentStop`.
+  if (payload.agent_id) return null;
   switch (payload.hook_event_name) {
     case 'Stop': return 'completed';
     case 'Notification':

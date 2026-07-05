@@ -54,6 +54,18 @@ test('eventToState: unknown / missing events map to null (left unchanged)', () =
   assert.equal(eventToState({}), null);
 });
 
+test('eventToState: any event carrying agent_id (a Task-tool subagent context) is ignored', () => {
+  // agent_id is only present when the hook fires inside a subagent's own
+  // context, never for the main thread's Task tool call itself.
+  assert.equal(eventToState({ hook_event_name: 'Stop', agent_id: 'sub-1' }), null);
+  assert.equal(eventToState({ hook_event_name: 'UserPromptSubmit', agent_id: 'sub-1' }), null);
+  assert.equal(eventToState({ hook_event_name: 'PreToolUse', agent_id: 'sub-1' }), null);
+  assert.equal(
+    eventToState({ hook_event_name: 'PostToolUse', agent_id: 'sub-1', tool_input: { command: 'git push' } }),
+    null,
+  );
+});
+
 test('interruptState: ESC or Ctrl+C while working -> interrupted', () => {
   assert.equal(interruptState('\x1b', 'working'), 'interrupted');
   assert.equal(interruptState('\x03', 'working'), 'interrupted');
