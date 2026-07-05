@@ -5,6 +5,7 @@ const { parseJsonc, parseEnvFile, compoundMembers, makeRunConfigLib } = require(
 const REPO = '/repo';
 const lin = makeRunConfigLib(REPO, 'linux');
 const win = makeRunConfigLib(REPO, 'win32');
+const mac = makeRunConfigLib(REPO, 'darwin');
 
 // --- parseJsonc ---
 
@@ -200,6 +201,32 @@ test('buildTaskCommand: returns null with no command', () => {
   assert.equal(lin.buildTaskCommand({ args: ['x'] }), null);
 });
 
+// The co-op LAN test task: a `bash foo.sh` process task with a `windows` override
+// running `cmd.exe /c foo.bat`. Windows must use the override; macOS/Linux the base.
+const coop = {
+  label: 'Co-op test (host + client)',
+  type: 'process',
+  command: 'bash',
+  args: ['${workspaceFolder}/tools/run_coop_lan_test.sh'],
+  windows: { command: 'cmd.exe', args: ['/c', '${workspaceFolder}\\tools\\run_coop_lan_test.bat'] },
+};
+
+test('buildTaskCommand: applies the windows override on win32', () => {
+  assert.equal(win.buildTaskCommand(coop), 'cmd.exe /c /repo\\tools\\run_coop_lan_test.bat');
+});
+
+test('buildTaskCommand: keeps the base command on macOS and Linux', () => {
+  assert.equal(mac.buildTaskCommand(coop), 'bash /repo/tools/run_coop_lan_test.sh');
+  assert.equal(lin.buildTaskCommand(coop), 'bash /repo/tools/run_coop_lan_test.sh');
+});
+
+test('buildTaskCommand: osx key wins on macOS, linux key on linux', () => {
+  const t = { type: 'shell', command: 'base', osx: { command: 'mac' }, linux: { command: 'nix' } };
+  assert.equal(mac.buildTaskCommand(t), 'mac');
+  assert.equal(lin.buildTaskCommand(t), 'nix');
+  assert.equal(win.buildTaskCommand(t), 'base'); // no windows key: falls back to base
+});
+
 // --- chainCommands (platform-specific) ---
 
 test('chainCommands: posix joins with &&', () => {
@@ -221,6 +248,21 @@ test('resolveTask: a plain task yields one spec at the repo root', () => {
   const t = { label: 'build', type: 'shell', command: 'make' };
   assert.deepEqual(lin.resolveTask([t], t), [
     { command: 'make', cwd: '/repo', env: {}, name: 'build' },
+  ]);
+});
+
+test('resolveTask: platform override reaches the resolved spec (command + options)', () => {
+  const t = {
+    label: 'run', type: 'process', command: 'bash', args: ['x.sh'],
+    options: { cwd: '${workspaceFolder}', env: { MODE: 'base' } },
+    windows: { command: 'cmd.exe', args: ['/c', 'x.bat'], options: { env: { MODE: 'win' } } },
+  };
+  assert.deepEqual(win.resolveTask([t], t), [
+    { command: 'cmd.exe /c x.bat', cwd: '/repo', env: { MODE: 'win' }, name: 'run' },
+  ]);
+  // macOS keeps the base command and env, override untouched.
+  assert.deepEqual(mac.resolveTask([t], t), [
+    { command: 'bash x.sh', cwd: '/repo', env: { MODE: 'base' }, name: 'run' },
   ]);
 });
 

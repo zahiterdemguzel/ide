@@ -83,6 +83,23 @@ function compoundMembers(compound) {
 }
 
 function makeRunConfigLib(repoPath, platform = process.platform) {
+  // VS Code lets a task or launch config override `command`/`args`/`options`
+  // (and program/runtimeExecutable/env/…) under a platform key — `windows` on
+  // win32, `osx` on macOS, `linux` elsewhere — with the override winning per
+  // property. `mergePlatform` folds the active platform's block onto the base so
+  // the rest of the translator only ever sees resolved fields. This is what lets
+  // a task run `cmd.exe /c foo.bat` on Windows but `bash foo.sh` on macOS/Linux.
+  const PLATFORM_KEY = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'osx' : 'linux';
+  function mergePlatform(obj) {
+    const over = obj && obj[PLATFORM_KEY];
+    if (!over || typeof over !== 'object') return obj;
+    const merged = { ...obj, ...over };
+    // options is itself an object (cwd/env): shallow-merge so a platform override
+    // of one key (e.g. env) doesn't drop the base's cwd, and vice versa.
+    if (obj.options || over.options) merged.options = { ...obj.options, ...over.options };
+    return merged;
+  }
+
   // Resolve the VS Code variables we can without a live editor context. Unknown
   // ${...} placeholders (e.g. ${file}) are left untouched — best effort.
   function substVars(str) {
@@ -116,6 +133,7 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
   // runtimeExecutable/program fallback; returns null when there's nothing
   // executable to derive (e.g. a browser/attach config with no program).
   function buildLaunchCommand(cfg) {
+    cfg = mergePlatform(cfg);
     const program = cfg.program ? substVars(cfg.program) : '';
     const args = (cfg.args || []).map(substVars);
     const runExe = cfg.runtimeExecutable ? winExe(substVars(cfg.runtimeExecutable)) : '';
@@ -147,6 +165,7 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
   // Turn a task into a command line: `command` (verbatim for shell tasks, which may
   // be a full line) followed by its quoted args. Returns null with no command.
   function buildTaskCommand(task) {
+    task = mergePlatform(task);
     let command = task.command;
     if (command && typeof command === 'object') command = command.value;
     command = substVars(command || '');
@@ -197,7 +216,7 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
     if (!deps.length) {
       const cmd = buildTaskCommand(task);
       if (!cmd) return [];
-      const opt = task.options || {};
+      const opt = mergePlatform(task).options || {};
       return [{ command: cmd, cwd: opt.cwd ? substVars(opt.cwd) : repoPath, env: envMap(opt.env), name: label }];
     }
 
@@ -227,10 +246,11 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
   function launchSpec(cfg) {
     const cmd = buildLaunchCommand(cfg);
     if (!cmd) return null;
-    return { command: cmd, cwd: cfg.cwd ? substVars(cfg.cwd) : repoPath, env: envMap(cfg.env), name: cfg.name };
+    const m = mergePlatform(cfg);
+    return { command: cmd, cwd: m.cwd ? substVars(m.cwd) : repoPath, env: envMap(m.env), name: m.name };
   }
 
-  return { substVars, envMap, winExe, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec };
+  return { substVars, envMap, winExe, mergePlatform, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec };
 }
 
 module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, compoundMembers, makeRunConfigLib };
