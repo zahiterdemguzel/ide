@@ -9,6 +9,8 @@ const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claud
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
+const { feedEffortInput } = require('./effort-parse');
+const { feedModelInput } = require('./model-parse');
 const { editOp } = require('./edit-ops');
 const { isBulkVcsCommand } = require('./fs-track');
 const { git } = require('./git');
@@ -53,6 +55,17 @@ function ensureSessionsDir() {
   fs.mkdirSync(sessionsDir, { recursive: true });
 }
 
+// Write a session file atomically: a full write to a sibling temp file followed by a
+// rename (atomic on the same filesystem). A plain writeFileSync can leave an empty or
+// truncated file if the app is killed or crashes mid-write (e.g. during quit), which
+// then fails to parse on the next launch. The rename guarantees a reader only ever
+// sees the old complete file or the new complete one, never a half-written one.
+function writeSessionFileAtomic(filePath, data) {
+  const tmp = filePath + '.tmp';
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, filePath);
+}
+
 // Delete one session's file (on kill or eviction). A missing file is fine — the
 // session may never have been written yet.
 function removeSessionFile(id) {
@@ -75,7 +88,7 @@ function migrateLegacyStore() {
     let seq = 0;
     for (const obj of list) {
       if (!obj || typeof obj.id !== 'string') continue;
-      try { fs.writeFileSync(sessionFilePath(obj.id), JSON.stringify({ ...obj, _seq: seq++ })); }
+      try { writeSessionFileAtomic(sessionFilePath(obj.id), JSON.stringify({ ...obj, _seq: seq++ })); }
       catch (err) { reportSessionError('saving a session', err); }
     }
   }
@@ -125,10 +138,20 @@ function loadPersistedSessions() {
   catch (err) { if (err.code !== 'ENOENT') reportSessionError('reading saved sessions', err); return; }
   const snapshots = [];
   for (const file of files) {
+    // Leftover temp files from an interrupted atomic write are stale, not sessions.
+    if (file.endsWith('.json.tmp')) { try { fs.unlinkSync(path.join(sessionsDir, file)); } catch { /* best-effort */ } continue; }
     if (!file.endsWith('.json')) continue;
+    const filePath = path.join(sessionsDir, file);
     let obj;
-    try { obj = JSON.parse(fs.readFileSync(path.join(sessionsDir, file), 'utf8')); }
-    catch (err) { reportSessionError('reading saved sessions', err); continue; }
+    // A file that can't be parsed (e.g. empty/truncated by a crash mid-write) is
+    // unrecoverable. Report it once, then delete it so the same error doesn't resurface
+    // on every launch.
+    try { obj = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+    catch (err) {
+      reportSessionError('reading saved sessions', err);
+      try { fs.unlinkSync(filePath); } catch { /* best-effort */ }
+      continue;
+    }
     if (!obj || typeof obj.id !== 'string') continue;
     snapshots.push(obj);
   }
@@ -183,7 +206,7 @@ function persistSession(id) {
   try {
     ensureSessionsDir();
     if (s._seq === undefined) s._seq = seqCounter++;
-    fs.writeFileSync(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+    writeSessionFileAtomic(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
     evictOverBudget();
   } catch (err) {
     reportSessionError('saving a session', err);
@@ -200,7 +223,7 @@ function persistSessions() {
     for (const [id, s] of sessions) {
       if (!isSessionPersistable(s)) { removeSessionFile(id); continue; }
       if (s._seq === undefined) s._seq = seqCounter++;
-      fs.writeFileSync(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+      writeSessionFileAtomic(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
     }
   } catch (err) {
     reportSessionError('saving sessions', err);
@@ -462,6 +485,7 @@ ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
   return [...sessions].map(([id, s]) => ({
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
+    effort: s.effort || '', model: s.model || '',
   }));
 }, []));
 
@@ -484,13 +508,13 @@ ipcMain.handle('get-usage', async () => {
 // spawned session gets a statusLine (live sessions keep what they spawned with).
 ipcMain.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
 
-ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows, model, subagentModel }) => {
+ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows, model, subagentModel, effort }) => {
   const id = crypto.randomUUID();
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
-  // own repo. `model`/`subagentModel` are the per-session agent choice (see
+  // own repo. `model`/`subagentModel`/`effort` are the per-session agent choice (see
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', _seq: seqCounter++ });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: effort || '', _seq: seqCounter++ });
   sessions.get(id).pty = spawnPty(id, cols, rows, false);
   persistSession(id);
   return { id, repo };
@@ -526,10 +550,62 @@ ipcMain.handle('resume-session', guard('restoring a session', (_e, { id, cols, r
   return { ok: true, repo: getRepoPath() };
 }, { ok: false }));
 
+// Change a session's reasoning effort. Unlike the model (fixed at spawn), effort
+// can be retargeted live: the record is updated so it survives archive/resume and
+// a restart (spawnPty re-applies it as CLAUDE_CODE_EFFORT_LEVEL via sessionEnv),
+// and if the PTY is live we drive the CLI's own `/effort <level>` slash command so
+// the running session switches immediately. `auto` maps to `/effort auto` (reset to
+// the model default). The renderer owns the list of valid levels.
+ipcMain.on('set-session-effort', guardOn('changing session effort', (_e, { id, effort }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  const level = typeof effort === 'string' ? effort.trim() : '';
+  if (!level) return;
+  s.effort = level;
+  persistSession(id);
+  if (s.pty) s.pty.write(`/effort ${level}\r`);
+}));
+
+// Change a session's model. Mirrors set-session-effort: originally fixed at spawn
+// (ANTHROPIC_MODEL via sessionEnv), the model can now be retargeted live — the
+// record is updated so it survives archive/resume and a restart (spawnPty re-applies
+// it), and if the PTY is live we drive the CLI's own `/model <id>` slash command so
+// the running session switches immediately. `default` maps to `/model default` (reset
+// to the CLI default). The renderer owns the list of valid ids.
+ipcMain.on('set-session-model', guardOn('changing session model', (_e, { id, model }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  const chosen = typeof model === 'string' ? model.trim() : '';
+  if (!chosen) return;
+  s.model = chosen;
+  persistSession(id);
+  if (s.pty) s.pty.write(`/model ${chosen}\r`);
+}));
+
 ipcMain.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   const s = sessions.get(id);
   if (!s || !s.pty) return;
   s.pty.write(data);
+  // Track a `/effort <level>` the user typed straight into the chat so the bar
+  // badge reflects it (the badge's own dropdown writes via set-session-effort, which
+  // bypasses this handler, so there's no echo to double-count).
+  const eff = feedEffortInput(s.inputBuf || '', data);
+  s.inputBuf = eff.buf;
+  if (eff.effort && eff.effort !== s.effort) {
+    s.effort = eff.effort;
+    persistSession(id);
+    sendToRenderer('session-effort', { id, effort: eff.effort });
+  }
+  // Same for a `/model <id>` typed into the chat (the badge's own dropdown writes
+  // via set-session-model, which bypasses this handler, so there's no echo to
+  // double-count).
+  const mdl = feedModelInput(s.modelInputBuf || '', data);
+  s.modelInputBuf = mdl.buf;
+  if (mdl.model && mdl.model !== s.model) {
+    s.model = mdl.model;
+    persistSession(id);
+    sendToRenderer('session-model', { id, model: mdl.model });
+  }
   // ESC/Ctrl+C while the agent is working interrupts the turn (no hook fires for
   // it, so we read it off the input). Mirror the dot in the renderer and persist.
   const interrupted = interruptState(data, s.state);

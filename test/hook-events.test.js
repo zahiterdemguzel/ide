@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { eventToState, interruptState, shouldApplyState, hooksSettings } = require('../src/main/hook-events');
+const { eventToState, deriveStatus, interruptState, shouldApplyState, hooksSettings } = require('../src/main/hook-events');
 
 test('eventToState: Stop -> completed', () => {
   assert.equal(eventToState({ hook_event_name: 'Stop' }), 'completed');
@@ -66,6 +66,85 @@ test('eventToState: any event carrying agent_id (a Task-tool subagent context) i
   );
 });
 
+// deriveStatus: subagent-aware gating of the completed state / finish chime.
+// Threads its returned tracking through a sequence of events like the hook server.
+function runEvents(payloads) {
+  let tracking = { subagents: 0, mainStopped: false };
+  const states = [];
+  for (const p of payloads) {
+    const r = deriveStatus(p, tracking);
+    tracking = r.tracking;
+    states.push(r.state);
+  }
+  return { states, tracking };
+}
+
+test('deriveStatus: no subagents — main Stop completes immediately (unchanged behavior)', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Edit' },
+    { hook_event_name: 'Stop' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'completed']);
+});
+
+test('deriveStatus: a blocking subagent that finishes before main still completes on Stop', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'SubagentStop' },
+    { hook_event_name: 'Stop' },
+  ]);
+  // SubagentStop before main Stop keeps it working; the final Stop completes it.
+  assert.deepEqual(states, ['working', 'working', 'completed']);
+});
+
+test('deriveStatus: a background subagent outliving main Stop holds completed until it finishes', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'Stop' }, // main done, subagent still running
+    { hook_event_name: 'SubagentStop' }, // last agent finishes -> now complete
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'completed']);
+});
+
+test('deriveStatus: completed fires only once the LAST of several subagents finishes', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'SubagentStop' },
+    { hook_event_name: 'SubagentStop' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'working', 'completed']);
+});
+
+test('deriveStatus: a new user turn resets stale subagent bookkeeping', () => {
+  const { tracking } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'Stop' }, // held (subagent still counted)
+    { hook_event_name: 'UserPromptSubmit' }, // fresh turn wipes the orphaned count
+  ]);
+  assert.deepEqual(tracking, { subagents: 0, mainStopped: false });
+});
+
+test('deriveStatus: a stray SubagentStop never drives the count negative', () => {
+  const { states, tracking } = runEvents([
+    { hook_event_name: 'SubagentStop' },
+    { hook_event_name: 'Stop' },
+  ]);
+  assert.equal(tracking.subagents, 0);
+  assert.deepEqual(states, ['working', 'completed']);
+});
+
+test('deriveStatus: non-terminal events fall through to eventToState', () => {
+  assert.equal(deriveStatus({ hook_event_name: 'Notification' }).state, 'needs-input');
+  assert.equal(deriveStatus({ hook_event_name: 'SessionStart' }).state, 'idle');
+  assert.equal(
+    deriveStatus({ hook_event_name: 'PostToolUse', tool_input: { command: 'git push' } }).state,
+    'pushed',
+  );
+});
+
 test('interruptState: ESC or Ctrl+C while working -> interrupted', () => {
   assert.equal(interruptState('\x1b', 'working'), 'interrupted');
   assert.equal(interruptState('\x03', 'working'), 'interrupted');
@@ -109,7 +188,7 @@ test('shouldApplyState: idle does NOT downgrade a meaningful current state (resu
 test('hooksSettings: wires every tracked event to a curl POST on the given port', () => {
   const cfg = JSON.parse(hooksSettings(54321));
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
-    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop'];
+    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'SubagentStop'];
   assert.deepEqual(Object.keys(cfg.hooks).sort(), [...events].sort());
   for (const e of events) {
     const cmd = cfg.hooks[e][0].hooks[0].command;

@@ -6,10 +6,11 @@ import { isPanelEnabled, onPanelsChanged } from './panels.js';
 // the 5-hour session limit and the weekly limit — as labelled sliders with a
 // "resets in …" countdown. The data comes from main's get-usage, which reads the
 // Messages API's unified rate-limit response headers (see src/main/usage-parse.js).
-// Polled once a minute (per the headers' own granularity); hidden whenever main
-// returns null (no OAuth token, an API-key user, or a transient failure).
+// Polled every 30s, but only while this window has focus (a background window
+// shouldn't spend a token + round-trip per tick); hidden whenever main returns
+// null (no OAuth token, an API-key user, or a transient failure).
 
-const POLL_MS = 60000;
+const POLL_MS = 30000;
 const meter = document.getElementById('usage-meter');
 
 // Stacked top-to-bottom: 5-hour (the window users hit first) on top, weekly below.
@@ -83,7 +84,12 @@ async function refresh() {
 export function initUsageMeter() {
   build();
   refresh();
-  setInterval(refresh, POLL_MS);
+  // Poll every 30s, but skip the tick while this window is in the background so an
+  // unfocused app doesn't keep spending a token per round-trip.
+  setInterval(() => { if (document.hasFocus()) refresh(); }, POLL_MS);
+  // Refresh the moment focus returns, so coming back from the background shows
+  // current numbers without waiting for the next tick.
+  window.addEventListener('focus', refresh);
   // Re-apply visibility when the user flips the meter toggle in settings —
   // no re-fetch, just re-render the data we already have.
   onPanelsChanged(() => render(lastView));

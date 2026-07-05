@@ -54,6 +54,40 @@ test('parseUsageHeaders: keeps a window even when its reset is missing', () => {
   assert.equal(out.windows[1].resetAt, 1783062000 * 1000);
 });
 
+test('parseUsageHeaders: reads the maxed-out windows off a 429 that keeps its per-window headers', () => {
+  // Out of usage: the same headers ride on the 429, just with utilization at 1.
+  const out = parseUsageHeaders(headers({
+    'anthropic-ratelimit-unified-status': 'rejected',
+    'anthropic-ratelimit-unified-5h-utilization': '1',
+  }));
+  assert.equal(out.windows[0].utilization, 1);
+  assert.equal(out.windows[0].resetAt, 1782559800 * 1000);
+});
+
+test('parseUsageHeaders: synthesizes a full window when a rejection drops the per-window headers', () => {
+  const out = parseUsageHeaders({
+    'anthropic-ratelimit-unified-status': 'rejected',
+    'anthropic-ratelimit-unified-reset': '1782559800',
+    'anthropic-ratelimit-unified-representative-claim': 'seven_day',
+  });
+  assert.deepEqual(out.windows, [{ key: '7d', utilization: 1, resetAt: 1782559800 * 1000 }]);
+  assert.equal(out.representative, '7d');
+});
+
+test('parseUsageHeaders: rejection with no representative claim defaults to the 5h window', () => {
+  const out = parseUsageHeaders({
+    'anthropic-ratelimit-unified-status': 'rejected',
+    'anthropic-ratelimit-unified-reset': '1782559800',
+  });
+  assert.equal(out.windows[0].key, '5h');
+  assert.equal(out.windows[0].utilization, 1);
+});
+
+test('parseUsageHeaders: a non-usage failure (no unified headers) still yields null', () => {
+  assert.equal(parseUsageHeaders({ 'anthropic-ratelimit-unified-status': 'rejected' }), null); // no reset either
+  assert.equal(parseUsageHeaders({ 'x-request-id': 'abc' }), null);
+});
+
 test('resetMs: accepts epoch seconds or an ISO string, else null', () => {
   assert.equal(resetMs('1782559800'), 1782559800 * 1000);
   assert.equal(resetMs('2026-06-27T00:00:00Z'), Date.parse('2026-06-27T00:00:00Z'));

@@ -80,8 +80,63 @@ into the env at spawn time: `modelEnv()` (the pure, unit-tested
 `CLAUDE_CODE_SUBAGENT_MODEL` overrides, which `sessionEnv()` merges over the
 cleaned process env. The choice is persisted with the session
 (`session-persist.js`), so a restored/resumed session keeps running the model it
-was created with. Live sessions are never retargeted — the defaults only affect the
-*next* session.
+was created with. The settings-panel defaults only affect the *next* session; a live
+session is retargeted only from the session-bar model badge (below).
+
+**Session-bar indicator.** Like effort, the active session's model is shown and
+changeable **live** from a pill next to the effort badge in `#session-bar`
+(`#session-model` + its `#session-model-badge-menu` dropdown, wired in `sessions.js`;
+it reuses the `.effort-badge`/effort-menu chrome verbatim for an identical size/look,
+with the neutral default `--ec` since models aren't a heat ramp, and the dropdown
+omits the `default` inherit sentinel — only the concrete models are pickable).
+Choosing a model updates the record + badge,
+remembers it as the new default (`setSessionModel()`), and drives the CLI's own
+**`/model <id>`** slash command by writing it to the session's PTY (`set-session-model`
+IPC → `s.pty.write`), so the live session switches immediately (`default` → `/model
+default`). The same in-chat reverse-sync as effort applies: a `/model <id>` typed
+straight into the session is caught by `feedModelInput()` (the pure, unit-tested
+`model-parse.js`, which shares the line-buffer engine `slash-parse.js` with
+`effort-parse.js`) in `pty-input`, which pushes a **`session-model`** event the
+renderer repaints from. Only the direct-argument form is detected — a bare `/model`
+opens an interactive picker whose result isn't in the input stream, so it's untracked.
+The badge label maps model ids to their `MODELS` names (the `default` inherit id shows
+the short "Default").
+
+## Reasoning effort (per-session)
+
+Distinct from the model, each session also carries a **reasoning-effort level** the
+CLI reads from `CLAUDE_CODE_EFFORT_LEVEL` (`low`/`medium`/`high`/`xhigh`/`max`). The
+levels are the `EFFORTS` registry in `settings.js` (`auto`/`low`/`medium`/`high`/
+`xhigh`/`max`); `auto` is the sentinel that sets **no** env var (the model resolves
+its own default effort), mirroring the model `default` sentinel. The same
+`modelEnv()` in `agent-models.js` turns a non-`auto` selection into the
+`CLAUDE_CODE_EFFORT_LEVEL` override (`clean()` treats `auto`/`default`/empty as
+unset), and it's persisted on the record (`session-persist.js`) so a resumed session
+re-applies it at spawn. A new session starts at the **last chosen** level
+(`getSessionEffort()` / `setSessionEffort()`, `localStorage` `ide.sessionEffort`,
+default `auto`), so a change sticks as the default for the next session.
+
+**Session-bar indicator.** Unlike the model (fixed at spawn), effort is shown and
+changeable **live** from a colour-coded pill next to the session name in
+`#session-bar` (`#session-effort` + its `#session-effort-menu` dropdown, wired in
+`sessions.js`). Each level maps to an `--ec` colour via a `data-effort` attribute
+(`sessions.css`) on a low→high heat ramp (`Max` is a distinct purple). Choosing a
+level updates the record + badge, remembers it as the new default, and — because the
+env can't change a running process — drives the CLI's own **`/effort <level>`** slash
+command by writing it to the session's PTY (`set-session-effort` IPC → `s.pty.write`),
+so the live session switches immediately (`auto` → `/effort auto`). The dropdown
+mirrors the New-session model menu's open/close chrome but opens downward.
+
+**In-chat sync (the reverse direction).** The user can also run `/effort <level>`
+by typing it straight into the session — the badge tracks that too. Main's
+`pty-input` handler feeds every input chunk through `feedEffortInput()` (the pure,
+unit-tested `effort-parse.js`), which keeps a per-session line buffer and, when Enter
+closes an exact `/effort <level>` line, returns the level; main updates the record,
+persists, and pushes a **`session-effort`** event that the renderer uses to repaint
+the badge (and remember the new default). The badge's own dropdown writes via
+`set-session-effort`, which bypasses `pty-input`, so there's no echo to double-count.
+Only a level-bearing command is detected — `/effort` with no argument opens an
+interactive slider whose result isn't in the input stream, so it's left untracked.
 
 ## General preferences
 

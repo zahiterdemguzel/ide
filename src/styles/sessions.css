@@ -159,8 +159,68 @@
   display: none; align-items: center; justify-content: space-between; gap: 12px;
   padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--border);
 }
-#session-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-bar-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+#session-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .bar-right { display: flex; align-items: center; gap: 10px; flex: none; }
+
+/* Effort indicator: a small pill next to the session name showing the session's
+   reasoning-effort level, colour-coded low→high. Click to open a dropdown and
+   switch levels (applied live via the CLI's /effort command). Each level sets an
+   --ec (effort colour) that tints the dot, border, and text. */
+.effort-wrap { position: relative; flex: none; }
+.effort-badge {
+  --ec: var(--fg-dim);
+  display: inline-flex; align-items: center; gap: 6px;
+  background: color-mix(in srgb, var(--ec) 14%, transparent);
+  color: var(--ec); border: 1px solid color-mix(in srgb, var(--ec) 45%, transparent);
+  border-radius: 999px; padding: 3px 8px; cursor: pointer;
+  font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease;
+}
+.effort-badge:hover { background: color-mix(in srgb, var(--ec) 24%, transparent); border-color: var(--ec); }
+.effort-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ec); flex: none; }
+.effort-caret { opacity: .7; margin-left: -1px; }
+
+/* Per-level colours (shared by the badge and its menu items). Ordered as a
+   low→high heat ramp; Max gets a distinct purple so it stands out as the ceiling. */
+[data-effort="auto"]   { --ec: var(--fg-dim); }
+[data-effort="low"]    { --ec: var(--green); }
+[data-effort="medium"] { --ec: var(--yellow); }
+[data-effort="high"]   { --ec: color-mix(in srgb, var(--red) 55%, var(--yellow)); }
+[data-effort="xhigh"]  { --ec: var(--red); }
+[data-effort="max"]    { --ec: var(--purple); }
+
+/* The effort dropdown opens *below* the badge (the session bar sits at the top of
+   the pane), mirroring the model menu's chrome but growing downward. */
+.effort-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; min-width: 150px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); padding: 4px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 2px;
+  transform-origin: top left;
+  opacity: 0; transform: translateY(-8px) scaleY(0.85);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.effort-menu[hidden] { display: none; }
+.effort-menu.open { opacity: 1; transform: translateY(0) scaleY(1); }
+.effort-menu .effort-menu-item {
+  /* --ec comes from each item's own [data-effort] rule above (every item has one),
+     so it isn't defaulted here — a higher-specificity default would beat those. */
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-3); color: var(--fg); border: none; border-radius: 4px;
+  padding: 6px 10px; cursor: pointer; font-size: 12px; text-align: left; width: 100%;
+}
+.effort-menu .effort-menu-item .effort-dot { background: var(--ec); }
+.effort-menu .effort-menu-item:hover { background: color-mix(in srgb, var(--bg-3) 70%, var(--fg)); }
+.effort-menu .effort-menu-item.current { font-weight: 600; color: var(--ec); }
+
+/* Model indicator: a pill next to the effort badge showing the session's agent
+   model. It reuses the `.effort-badge` chrome verbatim (same size/look) with the
+   neutral default `--ec`, since models aren't a heat ramp; click opens the same
+   effort-menu dropdown to switch models (applied live via the CLI's /model
+   command). Model menu items carry no dot (no per-model colour). */
+.model-wrap { position: relative; flex: none; }
+.effort-menu .effort-menu-item.model-item.current { color: var(--fg); font-weight: 600; }
 #session-commit-msg { margin: 0; white-space: nowrap; }
 #session-commit {
   background: var(--accent); color: var(--on-accent); border: none; border-radius: 5px;

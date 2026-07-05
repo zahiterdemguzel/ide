@@ -11,8 +11,17 @@
 //   anthropic-ratelimit-unified-7d-utilization   "0".."1" fraction used
 //   anthropic-ratelimit-unified-7d-reset          epoch SECONDS the 7d window resets
 //   anthropic-ratelimit-unified-representative-claim   "five_hour" | "seven_day"
+//   anthropic-ratelimit-unified-status                 "allowed" | "allowed_warning" | "rejected"
+//   anthropic-ratelimit-unified-reset                  epoch SECONDS the bottleneck window resets
 // reset values are accepted as either epoch seconds or an ISO date string, so a
 // future format tweak doesn't silently break the countdown.
+//
+// These headers ride on EVERY /v1/messages response, including the 429 you get
+// once you're out of usage — so the caller reads them regardless of HTTP status.
+// A hard 429 rejection can drop the per-window utilization headers and report only
+// the overall `-status: rejected` + `-reset`; we synthesize a maxed-out window
+// from those so the meter still shows "100% · resets in …" instead of vanishing
+// exactly when the limit is hit.
 
 const WINDOWS = [
   { key: '5h', util: 'anthropic-ratelimit-unified-5h-utilization', reset: 'anthropic-ratelimit-unified-5h-reset' },
@@ -46,8 +55,21 @@ function parseUsageHeaders(headers = {}) {
     if (!Number.isFinite(util)) continue;
     windows.push({ key: w.key, utilization: clamp01(util), resetAt: resetMs(get(w.reset)) });
   }
-  if (!windows.length) return null;
-  return { windows, representative: CLAIM_KEY[get('anthropic-ratelimit-unified-representative-claim')] || null };
+  const representative = CLAIM_KEY[get('anthropic-ratelimit-unified-representative-claim')] || null;
+  if (windows.length) return { windows, representative };
+
+  // Out of usage: a rejected request may omit the per-window utilization headers
+  // and report only the overall status + reset. Synthesize a fully-used window off
+  // the representative claim (default 5h) so the meter still shows the limit and
+  // its reset countdown rather than hiding. Require a concrete reset so a bare
+  // status with no quantitative data doesn't render a contentless bar.
+  const rejectedReset = /reject/i.test(String(get('anthropic-ratelimit-unified-status') || ''))
+    ? resetMs(get('anthropic-ratelimit-unified-reset')) : null;
+  if (rejectedReset != null) {
+    const key = representative || '5h';
+    return { windows: [{ key, utilization: 1, resetAt: rejectedReset }], representative: key };
+  }
+  return null;
 }
 
 // Compact, locale-neutral "time until reset": "24m", "13h", "2d", or "now".
