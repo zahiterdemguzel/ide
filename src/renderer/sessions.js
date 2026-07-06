@@ -251,6 +251,9 @@ async function setArchived(id, archived) {
   applyTabFilter();
   if (activeId === id && !sessionVisible(s)) selectFirstVisible();
   else if (!archived && activeId === id) selectSession(id); // re-fit the rebuilt terminal
+  // Unarchiving reveals the badge — its stat was skipped while archived, so pull
+  // it now (no-op when it has no tracked work).
+  if (!archived && s.files.length) refreshDiffStat(id);
 }
 
 // Closing an overlay returns here: show the active session if there is one.
@@ -503,6 +506,12 @@ function refreshDiffStat(id) {
 // (this plus a concurrent session-meta) coalesce.
 export function refreshAllDiffStats() {
   for (const [, s] of sessions) {
+    // Archived sessions never compute a diff stat — their badge isn't shown while
+    // they sit in the Archived tab, and a stat spawns several git processes.
+    // Hundreds of them fanning out on launch is what made the app crawl on open.
+    // An archived row keeps its tracked-file-count fallback and gets its real
+    // stat only when it's unarchived (setArchived → refreshDiffStat).
+    if (s.archived) continue;
     if (s.files.length || (s.diffStat && s.diffStat.files)) refreshDiffStat(s.id);
   }
 }
@@ -732,7 +741,12 @@ export async function restoreSessions() {
   selectFirstVisible();
   // Populate the Diff badges for sessions that left uncommitted work; main has no
   // push trigger for a restored (idle) session, so pull each one's stat once.
-  for (const [, s] of sessions) if (s.files.length) refreshDiffStat(s.id);
+  // Active sessions only (refreshAllDiffStats skips archived ones): each stat
+  // spawns several git processes, and most restored sessions sit archived and
+  // unseen — computing all of them here is what used to make the app crawl on
+  // launch. An archived row keeps its tracked-file-count fallback and gets a real
+  // stat only when it's unarchived.
+  refreshAllDiffStats();
 }
 
 // Tear down a session's UI without telling main to kill it (used both for an

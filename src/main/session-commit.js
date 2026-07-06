@@ -12,6 +12,7 @@ const { companionPaths } = require('./companion-files');
 const { sumNumstat } = require('./git-parse');
 const { runHaiku } = require('./claude');
 const { commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage } = require('./commit-msg');
+const { createLimiter } = require('./concurrency');
 
 // Haiku can be slow (or its CLI fallback can hang); cap the per-session message
 // generation so the commit button never spins indefinitely. On timeout we commit
@@ -211,11 +212,14 @@ async function entriesToDiff(entries, withPatch) {
 
 // Light pull for the Diff button's badge (counts only). The renderer refreshes it
 // off each session-meta (so a background session's badge tracks its edits) and on
-// restore/select.
+// restore/select. Requests arrive in bursts (startup, a tab switch, a git refresh
+// fanning out to every visible session) and each one spawns several git processes,
+// so they run through a limiter instead of all at once.
+const limitDiffStat = createLimiter(3);
 ipcMain.handle('session-diff-stat', guard('reading a session diff', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { additions: 0, deletions: 0, files: 0 };
-  return sessionDiff(s, getRepoPath(), false);
+  return limitDiffStat(() => sessionDiff(s, getRepoPath(), false));
 }, { additions: 0, deletions: 0, files: 0 }));
 
 // Full patch for the Diff dialog (rendered over the terminal, terminal kept alive).
