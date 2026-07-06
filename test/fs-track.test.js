@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { isBulkVcsCommand } = require('../src/main/fs-track');
+const { isBulkVcsCommand, tracksFs, editedFilePath } = require('../src/main/fs-track');
 
 test('bulk working-tree movers are detected', () => {
   for (const c of [
@@ -42,4 +42,40 @@ test('path-level git edits and unrelated commands are NOT bulk movers', () => {
   ]) {
     assert.equal(isBulkVcsCommand(c), false, String(c));
   }
+});
+
+test('fs-touching tools are tracked by the working-tree diff', () => {
+  for (const p of [
+    { tool_name: 'Bash', tool_input: { command: 'npm run build' } },
+    { tool_name: 'Bash', tool_input: { command: 'git mv a.txt b.txt' } },
+    { tool_name: 'mcp__server__generate_image', tool_input: {} }, // unknown/MCP tools assumed fs-touching
+    { tool_name: 'SomeFutureTool' },
+  ]) {
+    assert.equal(tracksFs(p), true, p.tool_name);
+  }
+});
+
+test('text-edit, read-only, subagent-spawning, and bulk-VCS tools are NOT fs-tracked', () => {
+  for (const p of [
+    { tool_name: 'Write', tool_input: { file_path: 'x' } }, // replayed as text ops
+    { tool_name: 'Edit', tool_input: { file_path: 'x' } },
+    { tool_name: 'NotebookEdit', tool_input: { notebook_path: 'x.ipynb' } },
+    { tool_name: 'Read' },
+    { tool_name: 'Grep' },
+    // Both subagent-spawner names: the subagent's own hooks (same session_id)
+    // track its file work, so the wrapping call must not pin the counter.
+    { tool_name: 'Task', tool_input: { prompt: 'do stuff' } },
+    { tool_name: 'Agent', tool_input: { prompt: 'do stuff' } },
+    { tool_name: 'Bash', tool_input: { command: 'git pull' } }, // bulk git state move
+    {}, // no tool_name at all
+  ]) {
+    assert.equal(tracksFs(p), false, p.tool_name || '(none)');
+  }
+});
+
+test('editedFilePath reads file_path and NotebookEdit notebook_path', () => {
+  assert.equal(editedFilePath({ file_path: '/repo/a.js' }), '/repo/a.js');
+  assert.equal(editedFilePath({ notebook_path: '/repo/n.ipynb' }), '/repo/n.ipynb');
+  assert.equal(editedFilePath({}), null);
+  assert.equal(editedFilePath(undefined), null);
 });

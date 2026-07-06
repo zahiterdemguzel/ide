@@ -12,7 +12,7 @@ const { modelEnv } = require('./agent-models');
 const { feedEffortInput } = require('./effort-parse');
 const { feedModelInput } = require('./model-parse');
 const { editOp } = require('./edit-ops');
-const { isBulkVcsCommand } = require('./fs-track');
+const { tracksFs, editedFilePath, TEXT_EDIT_TOOLS } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
@@ -259,28 +259,8 @@ function getSessionState(id) {
   return sessions.get(id)?.state;
 }
 
-// Tools whose effect we replay as text ops (handled via `edits`, not the
-// filesystem diff below).
-const TEXT_EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
-// Tools that never change the working tree — skip the (two `git status`) snapshot
-// for these so only filesystem-touching tools pay for it. Anything NOT in either
-// set (Bash, MCP tools, unknown tools) is assumed able to create/move/delete files.
-const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch',
-  'WebSearch', 'TodoWrite', 'Task', 'BashOutput', 'KillShell', 'NotebookRead', 'ExitPlanMode']);
-
-// Whether a tool call should be tracked by the working-tree diff. A tool is
-// fs-tracked when it isn't a text-edit tool (those replay as ops) and isn't
-// read-only — UNLESS it's a Bash command that only MOVES git state (pull/merge/
-// reset/…): those files aren't the session's work, so attributing them would
-// inflate the per-session commit (see fs-track.js). Computed from the whole
-// payload, and used identically on Pre and Post so the in-flight counter stays
-// balanced.
-function tracksFs(payload) {
-  const name = payload.tool_name;
-  if (!name || TEXT_EDIT_TOOLS.has(name) || READONLY_TOOLS.has(name)) return false;
-  if (name === 'Bash' && isBulkVcsCommand(payload.tool_input && payload.tool_input.command)) return false;
-  return true;
-}
+// The tool classification (text-edit / read-only / fs-tracked) lives in the
+// pure fs-track.js (unit-tested in test/fs-track.test.js).
 
 // The session's full tracked-file list for the renderer's commit button: text
 // edits plus path-level changes (binary creates, renames/moves, deletes).
@@ -383,8 +363,13 @@ async function recordSessionActivity(payload) {
   const s = sessions.get(payload.session_id);
   if (!s) return null;
   let changed = false;
-  if (payload.hook_event_name === 'UserPromptSubmit') {
-    // A new prompt means the agent is idle (no tool in flight), so reset the
+  // Only a MAIN-THREAD prompt (no agent_id — Claude Code sets it only inside a
+  // subagent's own context) may reset the tracker or name the session: a
+  // subagent's UserPromptSubmit arrives while main-thread fs tools are still in
+  // flight, so letting it wipe fsInFlight/preStatus here would drop the pending
+  // snapshot and silently lose those tools' filesystem changes.
+  if (payload.hook_event_name === 'UserPromptSubmit' && !payload.agent_id) {
+    // A new user turn means the agent is idle (no tool in flight), so reset the
     // fs-tracking counter — self-heals a stuck count if a Post hook ever failed
     // to fire, which would otherwise suppress every later snapshot.
     s.fsInFlight = 0;
@@ -397,7 +382,10 @@ async function recordSessionActivity(payload) {
   }
   if (payload.hook_event_name === 'PostToolUse') {
     const ti = payload.tool_input || {};
-    const f = ti.file_path;
+    // editedFilePath also reads NotebookEdit's `notebook_path` — subagent edits
+    // (payloads carrying agent_id) land here too, same session_id, and belong to
+    // the session just like main-thread ones.
+    const f = editedFilePath(ti);
     // Skip .gitignore'd files: tracking them here would let commit-session add
     // them to the repo (and, once tracked, surface them in the changes panel).
     if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && !(await isIgnored(f))) {

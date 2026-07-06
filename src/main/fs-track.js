@@ -46,4 +46,43 @@ function isBulkVcsCommand(command) {
   return false;
 }
 
-module.exports = { isBulkVcsCommand };
+// Tools whose effect the session tracker replays as text ops (handled via
+// `edits` in sessions.js, not the filesystem diff).
+const TEXT_EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
+// Tools that never change the working tree — skip the (two `git status`) snapshot
+// for these so only filesystem-touching tools pay for it. The subagent spawners
+// (`Task` historically, `Agent` on newer CLIs) are here too: a subagent's OWN
+// Pre/PostToolUse hooks fire with the parent session_id, so its file work is
+// tracked directly — fs-tracking the wrapping call would just pin the in-flight
+// counter for the subagent's whole (possibly minutes-long) run, and if that call
+// is interrupted the stuck counter suppresses every later snapshot until the next
+// prompt. Anything NOT in either set (Bash, MCP tools, unknown tools) is assumed
+// able to create/move/delete files.
+const READONLY_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch',
+  'WebSearch', 'TodoWrite', 'Task', 'Agent', 'BashOutput', 'KillShell',
+  'NotebookRead', 'ExitPlanMode']);
+
+// Whether a tool call should be tracked by the working-tree diff. A tool is
+// fs-tracked when it isn't a text-edit tool (those replay as ops) and isn't
+// read-only — UNLESS it's a Bash command that only MOVES git state (pull/merge/
+// reset/…): those files aren't the session's work, so attributing them would
+// inflate the per-session commit. Computed from the whole payload, and used
+// identically on Pre and Post so the in-flight counter stays balanced.
+function tracksFs(payload) {
+  const name = payload.tool_name;
+  if (!name || TEXT_EDIT_TOOLS.has(name) || READONLY_TOOLS.has(name)) return false;
+  if (name === 'Bash' && isBulkVcsCommand(payload.tool_input && payload.tool_input.command)) return false;
+  return true;
+}
+
+// The file a text-edit tool touched. Most tools carry `file_path`; NotebookEdit
+// alone names its target `notebook_path` — missing that made notebook edits
+// invisible to the tracker (and they're excluded from the fs diff too, being a
+// text-edit tool, so they vanished entirely).
+function editedFilePath(toolInput) {
+  const ti = toolInput || {};
+  return ti.file_path || ti.notebook_path || null;
+}
+
+module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, TEXT_EDIT_TOOLS, READONLY_TOOLS };
