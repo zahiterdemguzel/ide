@@ -7,6 +7,8 @@ on:
 
 jobs:
   build:
+    # Ancaq əllə buraxılanda və ya mesajda (build) yazılıbsa işləyəcək
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '(build)')
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +43,11 @@ jobs:
           name: ${{ matrix.name }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+          # Ala, bax əsas məsələ burdadır! 
+          # 1 gündən sonra köhnə artifact-lər cəhənnəmə vasil olacaq
+          retention-days: 1 
+          # Eyni adda nəsə varsa, əzib keçəcək
+          overwrite: true 
 
   release:
     needs: build
