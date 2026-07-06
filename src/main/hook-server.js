@@ -17,6 +17,10 @@ const getHookPort = () => hookPort;
 // persist. Keyed by session_id; reset each turn by deriveStatus itself.
 const subagentTracking = new Map();
 const getTracking = (id) => subagentTracking.get(id) || { subagents: 0, mainStopped: false };
+// A session's PTY dying takes every agent in it down with it — drop the
+// bookkeeping so a later resume (same session id) starts from a clean slate
+// instead of inheriting a stale in-flight count.
+const clearTracking = (id) => subagentTracking.delete(id);
 
 // --- hooks injected per session via `claude --settings <json>` ---
 // Every event posts its raw stdin payload to our local server, which derives
@@ -73,4 +77,4 @@ function startHookServer() {
 // required before sessions (see main/index.js), so sessions captures this object
 // mid-load. Reassigning module.exports here would swap in a new object sessions
 // never sees, leaving hookServer.hooksSettings undefined at spawn time.
-Object.assign(module.exports, { startHookServer, getHookPort, hooksSettings });
+Object.assign(module.exports, { startHookServer, getHookPort, hooksSettings, clearTracking });

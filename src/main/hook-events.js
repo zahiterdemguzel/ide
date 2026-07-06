@@ -36,18 +36,30 @@ function eventToState(payload) {
   }
 }
 
-// Whether a PreToolUse payload spawns a subagent (the Task tool). Each such call
-// is later balanced by exactly one SubagentStop, so counting these against
-// SubagentStop tells us how many agents are still in flight.
+// Whether a main-thread PreToolUse payload spawns a subagent. Claude Code has
+// named the spawning tool `Task` historically and `Agent` on newer CLIs — both
+// count. Each spawn is later balanced by exactly one subagent stop, so counting
+// spawns against stops tells us how many agents are still in flight.
+const SUBAGENT_TOOLS = new Set(['Task', 'Agent']);
 function spawnsSubagent(payload) {
-  return payload.hook_event_name === 'PreToolUse' && payload.tool_name === 'Task';
+  return payload.hook_event_name === 'PreToolUse' && SUBAGENT_TOOLS.has(payload.tool_name);
+}
+
+// Whether a payload signals a subagent finishing. `SubagentStop` is the canonical
+// event; some CLI versions instead mis-route it as a `Stop` fired in the
+// subagent's own context (carrying its agent_id), so that shape must count as the
+// same signal — otherwise the in-flight count never drains and the session hangs
+// yellow forever.
+function isSubagentStop(payload) {
+  return payload.hook_event_name === 'SubagentStop'
+    || (payload.hook_event_name === 'Stop' && Boolean(payload.agent_id));
 }
 
 // Layer subagent-aware gating over eventToState so the finish chime waits for the
-// LAST agent in a session, not the first. Background subagents (spawned via Task)
-// can outlive the main agent's turn: Claude Code fires the main `Stop` while they
-// keep working, then one `SubagentStop` per subagent as each finishes. We hold the
-// `completed` state — and with it the celebrate/chime the renderer triggers on the
+// LAST agent in a session, not the first. Background subagents can outlive the
+// main agent's turn: Claude Code fires the main `Stop` while they keep working,
+// then one subagent stop per subagent as each finishes. We hold the `completed`
+// state — and with it the celebrate/chime the renderer triggers on the
 // working -> completed transition — until the main agent has stopped AND no
 // subagents remain in flight.
 //
@@ -57,20 +69,36 @@ function spawnsSubagent(payload) {
 function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) {
   let { subagents, mainStopped } = tracking;
   const ev = payload.hook_event_name;
+  const subagentStopped = isSubagentStop(payload);
 
-  // A fresh user turn clears stale bookkeeping so a prior turn's counts (e.g. an
-  // orphaned SubagentStop we never saw) can't leak into this one.
-  if (ev === 'UserPromptSubmit') { subagents = 0; mainStopped = false; }
-  else if (spawnsSubagent(payload)) { subagents += 1; mainStopped = false; }
-  else if (ev === 'SubagentStop') { subagents = Math.max(0, subagents - 1); }
-  else if (ev === 'Stop') { mainStopped = true; }
+  if (subagentStopped) {
+    subagents = Math.max(0, subagents - 1);
+  } else if (payload.agent_id) {
+    // Every other event fired inside a subagent's own context (agent_id is set
+    // only there) must touch neither the dot nor the bookkeeping: a subagent's
+    // UserPromptSubmit would wipe the in-flight count, its Stop would fake the
+    // main agent stopping, and its tool activity says nothing about the session.
+    return { state: null, tracking };
+  } else if (ev === 'UserPromptSubmit') {
+    // A fresh user turn clears stale bookkeeping so a prior turn's counts (e.g.
+    // an orphaned subagent stop we never saw) can't leak into this one.
+    subagents = 0; mainStopped = false;
+  } else if (ev === 'PreToolUse' || ev === 'PostToolUse') {
+    // Main-thread tool activity means the main agent is running (again) — e.g.
+    // re-invoked to process a finished background task — so a subagent stop
+    // arriving mid-work must not settle the session out from under it.
+    if (spawnsSubagent(payload)) subagents += 1;
+    mainStopped = false;
+  } else if (ev === 'Stop') {
+    mainStopped = true;
+  }
 
   const next = { subagents, mainStopped };
 
-  // Stop / SubagentStop settle the session to `completed` only once the main agent
-  // has stopped AND no subagents remain; until then it's still working (through
-  // its remaining agents), which also withholds the completion chime.
-  if (ev === 'Stop' || ev === 'SubagentStop') {
+  // A stop (main or subagent) settles the session to `completed` only once the
+  // main agent has stopped AND no subagents remain; until then it's still working
+  // (through its remaining agents), which also withholds the completion chime.
+  if (subagentStopped || ev === 'Stop') {
     return { state: mainStopped && subagents === 0 ? 'completed' : 'working', tracking: next };
   }
   return { state: eventToState(payload), tracking: next };

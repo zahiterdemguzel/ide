@@ -462,6 +462,10 @@ function spawnPty(id, cols, rows, resume) {
   p.onData((data) => { sendToRenderer('pty-data', { id, data }); });
   p.onExit(() => {
     const s = sessions.get(id);
+    // The PTY dying takes every agent (main + subagents) down with it, however it
+    // died — exit, archive, or close — so the hook server's subagent bookkeeping
+    // for this session is stale either way.
+    hookServer.clearTracking(id);
     // A suspend (archive) kills the PTY on purpose but keeps the entry and its
     // tracked-file state alive for a later resume — don't tear it down here.
     if (s && s.suspended) return;

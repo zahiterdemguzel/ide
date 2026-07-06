@@ -136,6 +136,77 @@ test('deriveStatus: a stray SubagentStop never drives the count negative', () =>
   assert.deepEqual(states, ['working', 'completed']);
 });
 
+test('deriveStatus: newer CLIs name the spawning tool Agent — counted like Task', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Agent' },
+    { hook_event_name: 'Stop' }, // main done, subagent still running -> held
+    { hook_event_name: 'SubagentStop' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'completed']);
+});
+
+test('deriveStatus: a subagent Stop (agent_id) is a subagent finishing, never the main agent', () => {
+  // Some CLI versions mis-route a subagent's own stop as `Stop` (with agent_id)
+  // instead of `SubagentStop`. It must decrement the in-flight count — NOT set
+  // mainStopped and chime while the main agent is still working.
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'Stop', agent_id: 'sub-1' }, // subagent done; main still going
+    { hook_event_name: 'Stop' }, // now the main agent really finishes
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'completed']);
+});
+
+test('deriveStatus: a SubagentStop carrying agent_id still drains the count', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'SubagentStop', agent_id: 'sub-1' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'completed']);
+});
+
+test('deriveStatus: subagent-context events never touch the dot or the bookkeeping', () => {
+  // A subagent's own UserPromptSubmit must not wipe the in-flight count, and its
+  // tool activity must not drive the session state.
+  const { states, tracking } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'UserPromptSubmit', agent_id: 'sub-1' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Edit', agent_id: 'sub-1' },
+    { hook_event_name: 'PostToolUse', tool_input: { command: 'git push' }, agent_id: 'sub-1' },
+    { hook_event_name: 'Notification', agent_id: 'sub-1' },
+    { hook_event_name: 'Stop' }, // main done, but the subagent is still counted
+  ]);
+  assert.deepEqual(states, ['working', null, null, null, null, 'working']);
+  assert.deepEqual(tracking, { subagents: 1, mainStopped: true });
+});
+
+test('deriveStatus: a nested spawn inside a subagent does not inflate the count', () => {
+  const { tracking } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Task', agent_id: 'sub-1' },
+  ]);
+  assert.equal(tracking.subagents, 1);
+});
+
+test('deriveStatus: main-thread activity after Stop reopens the turn', () => {
+  // Main stops with two background subagents in flight; the first finishing
+  // re-invokes the main agent, so the second finishing mid-work must NOT settle
+  // the session — only the main agent's next Stop does.
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'SubagentStop' }, // first finishes -> main re-invoked
+    { hook_event_name: 'PreToolUse', tool_name: 'Read' }, // main working again
+    { hook_event_name: 'SubagentStop' }, // last subagent, but main is mid-work
+    { hook_event_name: 'Stop' },
+  ]);
+  assert.deepEqual(states,
+    ['working', 'working', 'working', 'working', 'working', 'working', 'completed']);
+});
+
 test('deriveStatus: non-terminal events fall through to eventToState', () => {
   assert.equal(deriveStatus({ hook_event_name: 'Notification' }).state, 'needs-input');
   assert.equal(deriveStatus({ hook_event_name: 'SessionStart' }).state, 'idle');
