@@ -74,7 +74,7 @@ ipcMain.handle('run-config', (_e, { kind, name }) => {
   const s = withEnvFile(launchSpec(cfg), cfg, lib);
   if (s) return { ok: true, runs: [s] };
   const ofType = cfg.type ? ` of type "${cfg.type}"` : '';
-  return { ok: false, error: `Couldn't derive a run command for "${name}"${ofType}. This config has no runnable "program" or "runtimeExecutable" — it's likely a browser or attach config, which this app can't launch as a terminal command.` };
+  return { ok: false, error: `Couldn't derive a run command for "${name}"${ofType}. This config has no runnable "program" or "runtimeExecutable" (and no browser "url"/"file") — it's likely an attach config, which this app can't launch as a terminal command.` };
 });
 
 // Keep the toolbar in sync with the .vscode files without the user reopening the

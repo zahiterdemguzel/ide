@@ -135,9 +135,33 @@ test('buildLaunchCommand: bare program with no known type just runs it', () => {
   assert.equal(lin.buildLaunchCommand({ program: './run.sh' }), './run.sh');
 });
 
-test('buildLaunchCommand: returns null for an unrunnable config (browser/attach)', () => {
-  assert.equal(lin.buildLaunchCommand({ type: 'chrome', url: 'http://localhost' }), null);
+test('buildLaunchCommand: returns null for an unrunnable config (attach/no program)', () => {
   assert.equal(lin.buildLaunchCommand({ type: 'go' }), null); // TYPE_RUNTIME but no program
+  assert.equal(lin.buildLaunchCommand({ type: 'chrome' }), null); // browser but no url/file
+});
+
+test('buildLaunchCommand: browser config opens its url with the OS opener', () => {
+  const cfg = { type: 'chrome', url: 'http://localhost:5173' };
+  assert.equal(win.buildLaunchCommand(cfg), 'Start-Process http://localhost:5173');
+  assert.equal(mac.buildLaunchCommand(cfg), 'open http://localhost:5173');
+  assert.equal(lin.buildLaunchCommand(cfg), 'xdg-open http://localhost:5173');
+});
+
+test('buildLaunchCommand: browser variants (msedge/pwa-chrome/firefox) and file targets', () => {
+  assert.equal(lin.buildLaunchCommand({ type: 'pwa-chrome', url: 'http://x.test' }), 'xdg-open http://x.test');
+  assert.equal(lin.buildLaunchCommand({ type: 'msedge', url: 'http://x.test' }), 'xdg-open http://x.test');
+  // A `file` target (resolving ${workspaceFolder}) is opened when there's no url.
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'firefox', file: '${workspaceFolder}/index.html' }),
+    'xdg-open /repo/index.html',
+  );
+});
+
+test('buildLaunchCommand: browser config honours an explicit runtimeExecutable', () => {
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'chrome', runtimeExecutable: 'chromium', runtimeArgs: ['--incognito'], url: 'http://x.test' }),
+    'chromium --incognito http://x.test',
+  );
 });
 
 test('buildLaunchCommand: win32 rewrites the mvnw wrapper to mvnw.cmd', () => {

@@ -40,6 +40,20 @@ const TYPE_RUNTIME = {
   shell: ['bash'],
 };
 
+// Browser debug `type`s (Chrome/Edge/Firefox and their VS Code `pwa-`/`vscode-`
+// variants). They carry no `program`; their intent is to open a `url` (or local
+// `file`), so we translate them to an OS "open" command rather than rejecting them.
+// The dev server they point at is expected to be started separately (VS Code uses
+// a preLaunchTask/compound), exactly as it would be there.
+const BROWSER_TYPES = new Set([
+  'chrome', 'msedge', 'edge', 'firefox',
+  'pwa-chrome', 'pwa-msedge', 'pwa-firefox',
+  'vscode-edge-devtools.debug',
+]);
+
+// Per-platform command that opens a URL/path in the default handler (browser).
+const OPEN_CMD = { win32: ['Start-Process'], darwin: ['open'], linux: ['xdg-open'] };
+
 const quoteArg = (a) => { a = String(a); return /\s/.test(a) ? `"${a}"` : a; };
 
 // Build-tool wrappers ship an extensionless Unix script (used as a launch
@@ -151,6 +165,16 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
       const sceneArgs = scene && scene !== 'main' && scene !== 'current' ? [scene] : [];
       const parts = [exe, '--path', project, ...sceneArgs, ...runArgs, ...args];
       return parts.filter((p) => p !== '' && p != null).map(quoteArg).join(' ');
+    }
+    // A browser config opens its url (or local file). Honour an explicit
+    // runtimeExecutable (a specific browser binary) with its runtimeArgs; otherwise
+    // hand the target to the OS opener for the default browser. No target -> nothing
+    // to run.
+    if (BROWSER_TYPES.has(type)) {
+      const target = cfg.url ? substVars(cfg.url) : cfg.file ? substVars(cfg.file) : '';
+      if (!target) return null;
+      const opener = runExe ? [runExe, ...runArgs] : (OPEN_CMD[platform] || OPEN_CMD.linux);
+      return [...opener, target].map(quoteArg).join(' ');
     }
     let parts;
     if (type.includes('node')) parts = [runExe || 'node', ...runArgs, program, ...args];
