@@ -11,7 +11,7 @@ import './terminal-links.js';
 import { open as openQuickOpen } from './quick-open.js';
 import { registerCommands } from './command-palette.js';
 import { loadToolbar } from './toolbar.js';
-import { initConsoles } from './consoles.js';
+import { initConsoles, resetConsoles } from './consoles.js';
 import { initClaudeSetup } from './claude-setup.js';
 import { initSettings, cycleTheme } from './settings.js';
 import { initUsageMeter } from './usage-meter.js';
@@ -32,7 +32,7 @@ const recentMenu = document.getElementById('recent-folders-menu');
 
 function applyRepoChange(r) {
   if (r.error) { console.error('open-folder:', r.error); return; }
-  if (!r.canceled) { window.api.setWindowTitle(r.repo); setSessionsRepo(r.repo); refreshGit(); refreshTree(); loadToolbar(); autoFetch(); }
+  if (!r.canceled) { window.api.setWindowTitle(r.repo); setSessionsRepo(r.repo); resetConsoles(); refreshGit(); refreshTree(); loadToolbar(); autoFetch(); }
 }
 
 async function browseForFolder() {

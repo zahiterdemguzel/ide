@@ -79,9 +79,9 @@ function selectConsole(id) {
   term.focus();
 }
 
-function closeConsole(id) {
-  const c = consoles.get(id);
-  if (!c) return;
+// Tear down a terminal's pty, xterm, and DOM without any "keep one open" or
+// tab-selection follow-up — the shared teardown for closeConsole/resetConsoles.
+function disposeConsole(id, c) {
   window.api.termKill(id);
   if (c.renderer) c.renderer.dispose();
   untrackTermTheme(c.term);
@@ -89,6 +89,12 @@ function closeConsole(id) {
   c.host.remove();
   c.tab.remove();
   consoles.delete(id);
+}
+
+function closeConsole(id) {
+  const c = consoles.get(id);
+  if (!c) return;
+  disposeConsole(id, c);
   notifyConsolesChanged();
   if (activeConsole === id) {
     activeConsole = null;
@@ -96,6 +102,17 @@ function closeConsole(id) {
     if (next) selectConsole(next);
     else createConsole({ shell: shellList[0] }); // always keep one terminal open
   }
+}
+
+// Close every terminal and open a single fresh shell. Called when the workspace
+// changes: terminals spawn in the repo dir (see main/consoles spawnConsole) and
+// never follow a folder switch, so the old ones are stale — reset them all so the
+// new terminal opens in the new folder.
+export function resetConsoles() {
+  for (const [id, c] of [...consoles]) disposeConsole(id, c);
+  activeConsole = null;
+  notifyConsolesChanged();
+  createConsole({ shell: shellList[0] });
 }
 
 // Build a tab + xterm + PTY. opts: { shell:{name,path}, command, cwd, env, name, kind }.
