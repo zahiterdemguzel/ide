@@ -163,11 +163,9 @@
 #session-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .bar-right { display: flex; align-items: center; gap: 10px; flex: none; }
 
-/* Effort indicator: a small pill next to the session name showing the session's
-   reasoning-effort level, colour-coded low→high. Click to open a dropdown and
-   switch levels (applied live via the CLI's /effort command). Each level sets an
-   --ec (effort colour) that tints the dot, border, and text. */
-.effort-wrap { position: relative; flex: none; }
+/* Badge pill chrome, shared by the model indicator (and any future session-bar
+   pill). `--ec` sets the tint of the dot, border, and text; it defaults neutral
+   here and callers can override it. */
 .effort-badge {
   --ec: var(--fg-dim);
   display: inline-flex; align-items: center; gap: 6px;
@@ -181,17 +179,8 @@
 .effort-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ec); flex: none; }
 .effort-caret { opacity: .7; margin-left: -1px; }
 
-/* Per-level colours (shared by the badge and its menu items). Ordered as a
-   low→high heat ramp; Max gets a distinct purple so it stands out as the ceiling. */
-[data-effort="auto"]   { --ec: var(--fg-dim); }
-[data-effort="low"]    { --ec: var(--green); }
-[data-effort="medium"] { --ec: var(--yellow); }
-[data-effort="high"]   { --ec: color-mix(in srgb, var(--red) 55%, var(--yellow)); }
-[data-effort="xhigh"]  { --ec: var(--red); }
-[data-effort="max"]    { --ec: var(--purple); }
-
-/* The effort dropdown opens *below* the badge (the session bar sits at the top of
-   the pane), mirroring the model menu's chrome but growing downward. */
+/* The dropdown opens *below* the badge (the session bar sits at the top of the
+   pane), growing downward. */
 .effort-menu {
   position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; min-width: 150px;
   background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
@@ -204,8 +193,6 @@
 .effort-menu[hidden] { display: none; }
 .effort-menu.open { opacity: 1; transform: translateY(0) scaleY(1); }
 .effort-menu .effort-menu-item {
-  /* --ec comes from each item's own [data-effort] rule above (every item has one),
-     so it isn't defaulted here — a higher-specificity default would beat those. */
   display: flex; align-items: center; gap: 8px;
   background: var(--bg-3); color: var(--fg); border: none; border-radius: 4px;
   padding: 6px 10px; cursor: pointer; font-size: 12px; text-align: left; width: 100%;
@@ -214,11 +201,10 @@
 .effort-menu .effort-menu-item:hover { background: color-mix(in srgb, var(--bg-3) 70%, var(--fg)); }
 .effort-menu .effort-menu-item.current { font-weight: 600; color: var(--ec); }
 
-/* Model indicator: a pill next to the effort badge showing the session's agent
+/* Model indicator: a pill next to the session name showing the session's agent
    model. It reuses the `.effort-badge` chrome verbatim (same size/look) with the
-   neutral default `--ec`, since models aren't a heat ramp; click opens the same
-   effort-menu dropdown to switch models (applied live via the CLI's /model
-   command). Model menu items carry no dot (no per-model colour). */
+   neutral default `--ec`; click opens the `.effort-menu` dropdown to switch models
+   (applied live via the CLI's /model command). Model menu items carry no dot. */
 .model-wrap { position: relative; flex: none; }
 .effort-menu .effort-menu-item.model-item.current { color: var(--fg); font-weight: 600; }
 #session-commit-msg { margin: 0; white-space: nowrap; }

@@ -125,7 +125,6 @@ export default {
     'session.archiveTitle': 'Bu oturumu arşivle',
     'session.diff': 'Diff',
     'session.diffTitle': 'Bu oturumun değişikliklerini görüntüle',
-    'session.effortTitle': 'Bu oturum için akıl yürütme çabası — değiştirmek için tıklayın',
     'session.modelTitle': 'Bu oturum için model — değiştirmek için tıklayın',
     'session.diffDialogTitle': 'Oturum diff’i',
     'session.diffClose': 'Kapat',
