@@ -9,6 +9,7 @@ module.exports = {
   onFolderChanged: (cb) => ipcRenderer.on('folder-changed', (_e, msg) => cb(msg)),
   setWindowTitle: (repoPath) => ipcRenderer.invoke('set-window-title', repoPath),
   gitIsRepo: () => ipcRenderer.invoke('git-is-repo'),
+  setGitScope: (id) => ipcRenderer.send('set-git-scope', { id }),
   createRepo: (opts) => ipcRenderer.invoke('create-repo', opts),
   gitStatus: () => ipcRenderer.invoke('git-status'),
   gitBranches: () => ipcRenderer.invoke('git-branches'),

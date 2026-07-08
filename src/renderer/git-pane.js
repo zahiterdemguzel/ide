@@ -12,7 +12,7 @@ import { t } from '../i18n/index.js';
 // operation the user was running (`operation`, a translated phrase) and the exact
 // git error, so the agent knows both what was being attempted and what went wrong
 // without re-deriving either.
-async function offerClaudeMerge(title, message, errorText, operation) {
+export async function offerClaudeMerge(title, message, errorText, operation) {
   if (!(await confirmDialog({ title, message, ok: t('git.letClaude') }))) return;
   const err = (errorText || '').trim();
   const parts = [t('git.mergePrompt')];

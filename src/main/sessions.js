@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const { sendToRenderer } = require('./window');
-const { getRepoPath } = require('./repo');
+const { getRepoPath, setGitScope } = require('./repo');
 const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
@@ -20,6 +20,8 @@ const { interruptState } = require('./hook-events');
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
 const statusline = require('./statusline');
+const worktrees = require('./worktrees');
+const { mergeHasConflicts } = require('./worktrees-lib');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
 //         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
@@ -287,21 +289,29 @@ function pathClaimedByOther(self, abs, { edits = true, fileOps = true } = {}) {
   return false;
 }
 
+// The directory a session's git-tracked work lives in: its own worktree when it
+// has one (and it still exists on disk — a vanished worktree falls back rather
+// than erroring every call), else the repo it was created in.
+function workdirOf(s) {
+  if (s && s.workdir && fs.existsSync(s.workdir)) return s.workdir;
+  return (s && s.repo) || getRepoPath();
+}
+
 // True when `absPath` is excluded by .gitignore. `git check-ignore` reports
 // nothing (exit 1) for a tracked file even if it matches an ignore rule, so this
 // is exactly "untracked AND ignored" — the files we must never track or commit.
 // The filesystem-diff path already excludes these (they don't appear in `git
 // status`); this guards the text-edit path, which records by file path directly.
-async function isIgnored(absPath) {
-  const r = await git(['check-ignore', '-q', '--', absPath]);
+async function isIgnored(absPath, cwd) {
+  const r = await git(['check-ignore', '-q', '--', absPath], { cwd });
   return r.ok; // exit 0 = ignored
 }
 
 // Snapshot the working tree as Map<relPath, "XY"> (porcelain status code).
 // --no-renames so a rename surfaces as a delete + an add (two paths we can each
 // attribute), and --untracked-files=all so a new binary file lists individually.
-async function statusMap() {
-  const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames']);
+async function statusMap(cwd) {
+  const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames'], { cwd });
   const m = new Map();
   if (!r.ok) return m;
   for (const line of r.stdout.split('\n')) {
@@ -315,7 +325,7 @@ async function statusMap() {
 // binary, a moved-in file, or a Bash-modified file) or a 'delete' (file gone — a
 // moved-out or removed file). Returns whether anything was recorded.
 function applyFsDiff(s, before, after) {
-  const repoPath = getRepoPath();
+  const repoPath = workdirOf(s); // rel paths came from a status run in this dir
   let changed = false;
   for (const rel of new Set([...before.keys(), ...after.keys()])) {
     if (before.get(rel) === after.get(rel)) continue; // untouched by this tool
@@ -387,7 +397,7 @@ async function recordSessionActivity(payload) {
     const f = editedFilePath(ti);
     // Skip .gitignore'd files: tracking them here would let commit-session add
     // them to the repo (and, once tracked, surface them in the changes panel).
-    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && !(await isIgnored(f))) {
+    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && !(await isIgnored(f, workdirOf(s)))) {
       if (!s.edits.has(f)) s.edits.set(f, []);
       s.edits.get(f).push(editOp(payload.tool_name, ti));
       changed = true;
@@ -403,12 +413,12 @@ async function recordSessionActivity(payload) {
   // count goes 0→1, diff once it returns to 0, against that one consistent
   // baseline — so every concurrent tool's changes are captured exactly once.
   if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
-    if ((s.fsInFlight || 0) === 0) s.preStatus = await statusMap();
+    if ((s.fsInFlight || 0) === 0) s.preStatus = await statusMap(workdirOf(s));
     s.fsInFlight = (s.fsInFlight || 0) + 1;
   } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload)) {
     s.fsInFlight = Math.max(0, (s.fsInFlight || 0) - 1);
     if (s.fsInFlight === 0 && s.preStatus) {
-      if (applyFsDiff(s, s.preStatus, await statusMap())) changed = true;
+      if (applyFsDiff(s, s.preStatus, await statusMap(workdirOf(s)))) changed = true;
       s.preStatus = null;
     }
   }
@@ -441,7 +451,9 @@ function spawnPty(id, cols, rows, resume) {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
-    cwd: (s && s.repo) || getRepoPath(),
+    // A worktree session spawns in its own worktree so every file the agent
+    // touches (and every git command it runs) lands on its session branch.
+    cwd: s ? workdirOf(s) : getRepoPath(),
     // Re-apply the session's model choice on resume too, so a restored session
     // keeps running the model it was created with.
     env: sessionEnv(s),
@@ -476,7 +488,7 @@ ipcMain.handle('get-sessions', guard('reading saved sessions', () => {
   return [...sessions].map(([id, s]) => ({
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
-    model: s.model || '',
+    model: s.model || '', workdir: s.workdir || '', branch: s.branch || '',
   }));
 }, []));
 
@@ -499,17 +511,50 @@ ipcMain.handle('get-usage', async () => {
 // spawned session gets a statusLine (live sessions keep what they spawned with).
 ipcMain.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
 
-ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows, model, subagentModel }) => {
+// Settings → General → git worktree per session on/off (default off). Pushed by
+// the renderer on startup and on change; gates the NEXT session's spawn only.
+ipcMain.on('set-worktrees-enabled', (_e, on) => worktrees.setEnabled(on));
+
+// Scope the git pane to a session's worktree (or back to the main checkout with
+// a null/unknown id). The renderer pushes this on every session select.
+ipcMain.on('set-git-scope', guardOn('scoping the git pane', (_e, { id }) => {
+  const s = id ? sessions.get(id) : null;
+  setGitScope(s && s.workdir && fs.existsSync(s.workdir) ? s.workdir : null);
+}));
+
+ipcMain.handle('new-session', guard('creating a session', async (_e, { cols, rows, model, subagentModel, plain }) => {
   const id = crypto.randomUUID();
   const repo = getRepoPath();
+  // With the worktree setting on, the session gets its own worktree + branch so
+  // parallel sessions never share a working tree. `plain` skips it regardless —
+  // used for sessions that must operate on the MAIN checkout (e.g. the git pane
+  // handing a merge/conflict resolution to Claude). Falls back to a normal
+  // shared-tree session when the worktree can't be created (non-git folder, no
+  // commits yet).
+  const wt = (!plain && worktrees.isEnabled()) ? await worktrees.createSessionWorktree(id, repo) : null;
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo. `model`/`subagentModel` are the per-session agent choice (see
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', _seq: seqCounter++ });
+  sessions.set(id, { pty: null, repo, workdir: wt ? wt.workdir : '', branch: wt ? wt.branch : '', edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', _seq: seqCounter++ });
   sessions.get(id).pty = spawnPty(id, cols, rows, false);
   persistSession(id);
-  return { id, repo };
+  return { id, repo, workdir: wt ? wt.workdir : '', branch: wt ? wt.branch : '' };
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
+
+// Merge a worktree session's branch back into the branch checked out in the MAIN
+// repo. The renderer commits the session's outstanding work first (the regular
+// commit-session), so the branch holds everything. A conflicted merge is left in
+// progress in the main checkout and flagged `needsMerge` so the renderer can
+// offer to hand the resolution to a Claude session (same flow as pull/push).
+ipcMain.handle('merge-session', guard('merging a session branch', async (_e, id) => {
+  const s = sessions.get(id);
+  if (!s || !s.branch) return { ok: false, stderr: 'This session has no worktree branch' };
+  const repo = s.repo || getRepoPath();
+  const cur = await git(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repo });
+  if (cur.ok && cur.stdout.trim() === s.branch) return { ok: false, stderr: 'The main checkout is on the session branch itself' };
+  const r = await git(['merge', '--no-edit', s.branch], { cwd: repo });
+  return { ...r, needsMerge: !r.ok && mergeHasConflicts(r.stdout + '\n' + r.stderr) };
+}, (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
 
 // Archive: kill the Claude process to free resources but keep the session entry
 // (and all its tracked-file state) so it can resume under the same id.
@@ -587,6 +632,8 @@ ipcMain.on('kill-session', guardOn('closing a session', (_e, { id }) => {
   const s = sessions.get(id);
   if (!s) return;
   if (s.pty) try { s.pty.kill(); } catch { /* already gone */ }
+  // Best-effort worktree cleanup; the session branch is kept (see worktrees.js).
+  worktrees.removeSessionWorktree(s).catch(() => {});
   sessions.delete(id);
   if (persistTimers.has(id)) { clearTimeout(persistTimers.get(id)); persistTimers.delete(id); }
   removeSessionFile(id);
@@ -596,4 +643,4 @@ function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, guard };
+module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, workdirOf, killAllSessions, persistSession, persistSessions, reportSessionError, guard };

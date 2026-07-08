@@ -19,6 +19,7 @@ require('./repo');
 require('./git');
 require('./sessions');
 require('./session-commit');
+require('./usage-stats');
 require('./explorer');
 require('./db');
 require('./run-configs');

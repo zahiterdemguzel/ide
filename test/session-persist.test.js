@@ -18,6 +18,8 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
   assert.deepEqual(out, {
     id: 'id-1',
     repo: '/projects/app',
+    workdir: '',
+    branch: '',
     firstPrompt: 'fix the bug',
     name: 'Bug fix',
     archived: true,
@@ -72,6 +74,19 @@ test('serialize -> deserialize round-trips the per-session model choice', () => 
   const old = deserializeSession({ id: 'x' });
   assert.equal(old.model, '');
   assert.equal(old.subagentModel, '');
+});
+
+test('serialize -> deserialize round-trips the worktree binding', () => {
+  const s = liveSession({ repo: '/projects/app' });
+  s.workdir = '/data/worktrees/wt-a1b2c3d4';
+  s.branch = 'session/a1b2c3d4';
+  const restored = deserializeSession(serializeSession('id', s));
+  assert.equal(restored.workdir, '/data/worktrees/wt-a1b2c3d4');
+  assert.equal(restored.branch, 'session/a1b2c3d4');
+  // A snapshot predating the feature deserializes to no worktree.
+  const old = deserializeSession({ id: 'x' });
+  assert.equal(old.workdir, '');
+  assert.equal(old.branch, '');
 });
 
 test('deserializeSession: tolerates a malformed snapshot', () => {

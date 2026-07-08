@@ -49,6 +49,17 @@ function cliFolder() {
 let repoPath = cliFolder() || loadLastFolder();
 const getRepoPath = () => repoPath;
 
+// Git-pane scope override: when the renderer selects a session that runs in its
+// own git worktree, the pane's porcelain commands operate on that worktree
+// instead of the main checkout. Only the default cwd of git.js's git() reads
+// this (via getGitCwd); everything else — the explorer, session spawning,
+// per-session commit — stays on the paths it already resolves explicitly.
+let gitScope = null;
+function setGitScope(p) {
+  gitScope = (typeof p === 'string' && p && fs.existsSync(p)) ? p : null;
+}
+const getGitCwd = () => gitScope || repoPath;
+
 // Make sure the restored folder shows up in the recent list on first run, then
 // seed the OS-native recent menus (Windows Jump List / macOS Dock menu). The
 // refresh is ready-gated, so this pre-`ready` call is safely deferred.
@@ -62,6 +73,7 @@ const onRepoChange = (fn) => repoChangeListeners.push(fn);
 
 function setRepoPath(p) {
   repoPath = p;
+  gitScope = null; // a worktree scope belongs to the previous folder's session
   recentFolders = addRecent(recentFolders, repoPath);
   try { fs.writeFileSync(lastFolderFile, repoPath); } catch {}
   try { fs.writeFileSync(recentFoldersFile, JSON.stringify(recentFolders)); } catch {}
@@ -127,4 +139,4 @@ function openRecentInPlace(dir) {
 // since it already has the repo path in hand.
 ipcMain.handle('set-window-title', (_e, folderPath) => setWindowTitle(folderPath || repoPath));
 
-module.exports = { getRepoPath, getRecentFolders, setRepoPath, repoRoot, onRepoChange };
+module.exports = { getRepoPath, getRecentFolders, setRepoPath, repoRoot, onRepoChange, setGitScope, getGitCwd };

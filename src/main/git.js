@@ -1,6 +1,6 @@
 const { ipcMain } = require('electron');
 const { execFile } = require('child_process');
-const { getRepoPath } = require('./repo');
+const { getRepoPath, getGitCwd } = require('./repo');
 const { runHaiku } = require('./claude');
 const { parsePorcelain, parseLog, markPushed, markIncoming, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
@@ -8,7 +8,10 @@ const { validateRepoName, ghCreateArgs } = require('./repo-create');
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
-// is written to stdin (e.g. blob content for hash-object). 64M buffer for files.
+// is written to stdin (e.g. blob content for hash-object). opts.cwd overrides
+// the working directory (per-session commit/diff run in a session's own
+// worktree); the default is getGitCwd() — the open repo, or the selected
+// session's worktree when the git pane is scoped to one. 64M buffer for files.
 //
 // core.quotePath=false: emit non-ASCII paths verbatim instead of C-quoting them
 // (e.g. "\303\251.txt"), so the porcelain paths we parse round-trip back to add/diff.
@@ -19,7 +22,7 @@ function git(args, opts = {}) {
   return new Promise((resolve) => {
     const env = { ...(opts.env || process.env), GIT_TERMINAL_PROMPT: '0' };
     const child = execFile('git', ['-c', 'core.quotePath=false', ...args],
-      { cwd: getRepoPath(), env, maxBuffer: 64 * 1024 * 1024, timeout: opts.timeout || 120000 },
+      { cwd: opts.cwd || getGitCwd(), env, maxBuffer: 64 * 1024 * 1024, timeout: opts.timeout || 120000 },
       // git often reports failures on stdout (e.g. "nothing to commit"), so fall
       // back to stdout before err.message — otherwise the UI shows a bare "Command failed".
       (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && (stdout.trim() || err.message)) || '' }));

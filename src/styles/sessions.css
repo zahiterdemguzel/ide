@@ -215,6 +215,14 @@
 }
 #session-commit:hover:not(:disabled) { background: var(--accent-hi); }
 #session-commit:disabled { background: var(--bg-3); color: var(--fg-dim); cursor: default; }
+/* Merge-back (worktree sessions only): green — it lands the branch on main. */
+#session-merge {
+  background: var(--green); color: var(--on-accent, #fff); border: none; border-radius: 5px;
+  padding: 6px 12px; cursor: pointer; font-size: 12px;
+  transition: filter .12s ease;
+}
+#session-merge:hover:not(:disabled) { filter: brightness(1.15); }
+#session-merge:disabled { background: var(--bg-3); color: var(--fg-dim); cursor: default; filter: none; }
 #session-revert {
   background: transparent; color: var(--fg); border: 1px solid var(--border);
   border-radius: 5px; padding: 6px 12px; cursor: pointer; font-size: 12px;

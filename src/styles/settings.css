@@ -190,3 +190,17 @@
   transition: border-color .12s ease, color .12s ease;
 }
 .setup-back:hover { border-color: var(--accent); color: var(--accent-hi); }
+
+/* Settings → Activity & usage: per-model token/cost rows (3-column grid). */
+#settings-activity { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--fg-dim); }
+.activity-row {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 12px;
+  align-items: baseline; padding: 3px 2px;
+}
+.activity-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.activity-tokens { font-variant-numeric: tabular-nums; text-align: right; min-width: 64px; }
+.activity-cost { font-variant-numeric: tabular-nums; text-align: right; min-width: 64px; color: var(--fg); }
+.activity-head { color: var(--fg-dim); text-transform: uppercase; letter-spacing: .06em; font-size: 10px; }
+.activity-head .activity-model, .activity-head .activity-cost { color: var(--fg-dim); }
+.activity-total { border-top: 1px solid var(--border); margin-top: 2px; padding-top: 5px; font-weight: 600; }
+.activity-total .activity-tokens { color: var(--fg); }

@@ -33,6 +33,8 @@ function serializeSession(id, s) {
   return {
     id,
     repo: s.repo || '',                // the project folder this session belongs to
+    workdir: s.workdir || '',          // the session's own git worktree, if it has one
+    branch: s.branch || '',            // the worktree's session/<id8> branch
     firstPrompt: s.firstPrompt || '',
     name: s.name || '',
     archived: !!s.archived,
@@ -52,6 +54,8 @@ function deserializeSession(obj) {
   return {
     pty: null,
     repo: obj.repo || '',
+    workdir: obj.workdir || '',
+    branch: obj.branch || '',
     edits: new Map(Array.isArray(obj.edits) ? obj.edits : []),
     fileOps: new Map(Array.isArray(obj.fileOps) ? obj.fileOps : []),
     preStatus: null,

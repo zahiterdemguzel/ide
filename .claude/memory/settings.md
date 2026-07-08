@@ -147,6 +147,28 @@ on/off toggles wired in `src/renderer/settings.js`:
   `select-session` back to the renderer, which calls `selectSession(id)` to
   open the session the notification was about.
 
+- **Git worktree per session** (`#settings-worktrees`, default **off**) makes
+  every *new* session spawn in its own git worktree + `session/<id8>` branch (see
+  [architecture.md](architecture.md#per-session-worktrees)). Like the token
+  meter, it's applied in main at spawn time: `settings.js` persists the flag
+  (`localStorage` `ide.worktrees`, `isWorktreesEnabled()` /
+  `setWorktreesEnabled()`) and pushes it over IPC (`set-worktrees-enabled` →
+  `worktrees.setEnabled`), on startup and on change; main defaults **off** until
+  told otherwise. Live sessions keep the working tree they spawned in.
+
+## Activity & usage
+
+The dialog's **Activity & usage** group (`#settings-activity`) lists, for the
+open project, tokens per model with the cost at API list prices, then a Total
+row. `renderActivity()` (settings.js) refetches `get-usage-stats` on every
+dialog open and renders 3-column `.activity-row`s (model · tokens · cost;
+header + total rows styled via `.activity-head` / `.activity-total` in
+`settings.css`); each model row's tooltip breaks the tokens into
+input/output/cache-write/cache-read. Empty and loading states use
+`settings.activityEmpty` / `settings.activityLoading`. The data source and the
+pricing table live in main — see
+[architecture.md](architecture.md#activity--usage-stats).
+
 ## Where it lives
 
 - `src/renderer/settings.js` — theme + language wiring. Reads/writes

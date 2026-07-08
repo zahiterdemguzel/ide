@@ -2,7 +2,7 @@ import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrack
 import { hideAllOverlays } from './viewer/center.js';
 import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
-import { refreshGit } from './git-pane.js';
+import { refreshGit, offerClaudeMerge } from './git-pane.js';
 import { confirmDialog } from './shared/confirm.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
@@ -64,6 +64,7 @@ const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
 const sessionTitle = document.getElementById('session-title');
 const sessionCommitBtn = document.getElementById('session-commit');
+const sessionMergeBtn = document.getElementById('session-merge');
 const sessionRevertBtn = document.getElementById('session-revert');
 const sessionArchiveBtn = document.getElementById('session-archive');
 const sessionCommitMsg = document.getElementById('session-commit-msg');
@@ -134,11 +135,24 @@ function celebrateFinish(s) {
   }
 }
 
+// Git-pane scope: selecting a worktree session points the pane's git commands at
+// that session's worktree; selecting a normal session (or none) points them back
+// at the main checkout. Only pushed (and the pane refreshed) when it changes.
+let gitScopeId = null;
+function syncGitScope(s) {
+  const next = s && s.workdir ? s.id : null;
+  if (next === gitScopeId) return;
+  gitScopeId = next;
+  window.api.setGitScope(next);
+  refreshGit();
+}
+
 export function selectSession(id) {
   const s = sessions.get(id);
   if (!s) return;
   closeDiffDialog(); // the dialog belongs to whichever session was showing
   activeId = id;
+  syncGitScope(s);
   hideAllOverlays();
   emptyHint.style.display = 'none';
   // Only the visible terminal keeps a GPU renderer (see attachRenderer): release
@@ -212,6 +226,7 @@ function selectFirstVisible() {
     if (o.style.display !== 'none') { selectSession(o.dataset.id); return; }
   }
   activeId = null;
+  syncGitScope(null);
   for (const [, o] of sessions) o.container.style.display = 'none';
   emptyHint.style.display = 'flex';
   updateSessionBar();
@@ -275,6 +290,10 @@ function updateSessionBar() {
   renderModelBadge(s);
   renderCommitButton(s);
   renderDiffButton(s);
+  // Merge-back only exists for worktree sessions (they have a session branch).
+  sessionMergeBtn.style.display = s.branch ? '' : 'none';
+  sessionMergeBtn.disabled = !!(s.merging || s.committing);
+  sessionMergeBtn.textContent = s.merging ? t('session.merging') : t('session.mergeBack');
   // The notice is now only for failures / revert results, kept per-session so
   // switching sessions never carries a stale message over from another.
   sessionCommitMsg.textContent = s.commitMsg || '';
@@ -602,7 +621,7 @@ export async function newSession(opts = {}) {
   const model = opts.model || getSessionModel();
   const subagentModel = opts.subagentModel || getSubagentModel();
   // probe a size from a temporary fit after open
-  const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel });
+  const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel, plain: !!opts.plain });
   // A failed spawn already raised a session-error dialog from main; bail rather
   // than build a broken row around a missing id.
   if (!res || !res.id) return;
@@ -613,7 +632,7 @@ export async function newSession(opts = {}) {
   const { container, term, fit: fitAddon } = buildTerminal(id, repo);
   const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
 
-  sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model });
+  sessions.set(id, { id, repo, workdir: res.workdir || '', branch: res.branch || '', term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model });
   setTab('active');
   selectSession(id);
 }
@@ -625,7 +644,9 @@ export async function newSession(opts = {}) {
 // sent in two steps (see onPtyData) so the TUI registers the input before submit.
 const pendingPrompts = new Map();
 export async function newSessionWithPrompt(text) {
-  await newSession();
+  // Always a plain (main-checkout) session: these prompts resolve merges and
+  // conflicts in the MAIN working tree, which a per-session worktree can't touch.
+  await newSession({ plain: true });
   const id = getActiveId();
   if (id) pendingPrompts.set(id, text);
 }
@@ -635,7 +656,7 @@ export async function newSessionWithPrompt(text) {
 // the user to resume it, which selectSession does on demand. Its tracked-file list
 // is intact, so the commit button works against it before it's even resumed.
 function restoreSessionRow(meta) {
-  const { id, repo, firstPrompt, name, archived, files, state, model } = meta;
+  const { id, repo, workdir, branch, firstPrompt, name, archived, files, state, model } = meta;
   const container = document.createElement('div');
   container.className = 'term-container';
   hostEl.appendChild(container);
@@ -652,7 +673,7 @@ function restoreSessionRow(meta) {
   const st = state || 'idle';
   dot.className = 'dot ' + st;
   dot.title = STATE_LABEL[st] || st;
-  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, model: model || '' });
+  sessions.set(id, { id, repo: repo || '', workdir: workdir || '', branch: branch || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, model: model || '' });
 }
 
 // On startup, pull the persisted sessions from main and rebuild the list, then
@@ -744,6 +765,34 @@ sessionRevertBtn.onclick = async () => {
   s.commitMsgClass = r.ok && !skipped ? 'ok' : 'err';
   if (activeId === s.id) updateSessionBar();
   refreshGit();};
+
+// Merge a worktree session's branch back into the main checkout: commit its
+// outstanding work first (the regular per-session commit, so the branch holds
+// everything), then merge. A conflicted merge is left in progress in the main
+// checkout and offered to a fresh Claude session — the same handoff pull/push use.
+sessionMergeBtn.onclick = async () => {
+  const s = sessions.get(activeId);
+  if (!s || !s.branch || s.merging || s.committing) return;
+  s.merging = true;
+  s.commitMsg = '';
+  updateSessionBar();
+  try {
+    const outstanding = s.diffStat ? s.diffStat.files : s.files.length;
+    if (outstanding > 0) {
+      const c = await window.api.commitSession(s.id);
+      if (!c.ok) { s.commitMsg = c.stderr || 'Commit failed'; s.commitMsgClass = 'err'; return; }
+      setState(s.id, 'pushed');
+    }
+    const r = await window.api.mergeSession(s.id);
+    if (r.ok) { s.commitMsg = t('session.merged'); s.commitMsgClass = 'ok'; }
+    else if (r.needsMerge) offerClaudeMerge(t('git.sessionMergeTitle'), t('git.sessionMergeMsg'), r.stderr, t('git.opMergeBack'));
+    else { s.commitMsg = r.stderr || 'Merge failed'; s.commitMsgClass = 'err'; }
+  } finally {
+    s.merging = false;
+    if (activeId === s.id) updateSessionBar();
+    refreshGit();
+  }
+};
 
 sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); };
 

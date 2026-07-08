@@ -101,6 +101,7 @@
           <button id="session-revert" data-i18n-title="session.revertTitle" data-i18n="session.revert" title="Revert only this session's changes">Revert</button>
           <button id="session-archive" data-i18n-title="session.archiveTitle" title="Archive this session"></button>
           <button id="session-commit" data-i18n-title="session.commitHint" title="Commit only the files this session changed, with a message Claude writes for you." disabled>Nothing to commit</button>
+          <button id="session-merge" data-i18n-title="session.mergeTitle" data-i18n="session.mergeBack" title="Commit this session's work on its branch and merge it into the main checkout" style="display:none">Merge back</button>
         </div>
       </div>
       <div id="center-body">
@@ -527,7 +528,18 @@
             <input type="checkbox" id="settings-notifications" class="switch-input" />
             <span class="switch-ui"></span>
           </label>
+          <label class="panel-toggle">
+            <span class="panel-toggle-label" data-i18n="settings.worktrees">Git worktree per session</span>
+            <input type="checkbox" id="settings-worktrees" class="switch-input" />
+            <span class="switch-ui"></span>
+          </label>
         </div>
+        <div class="settings-group-hint" data-i18n="settings.worktreesHint">With worktrees on, each new session works on its own branch in an isolated checkout, so parallel sessions never overwrite each other; merge a session back from its Merge button.</div>
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-title" data-i18n="settings.activity">Activity &amp; usage</div>
+        <div class="settings-group-hint" data-i18n="settings.activityHint">Tokens this project's sessions used, per model, with the cost at API list prices.</div>
+        <div id="settings-activity"></div>
       </div>
       <div class="settings-group">
         <div class="settings-group-title" data-i18n="settings.panels">Panels</div>

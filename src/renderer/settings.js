@@ -47,7 +47,7 @@ const DEFAULT_MODEL = 'default';
 const STORE = {
   theme: 'ide.theme', locale: 'ide.locale',
   model: 'ide.sessionModel', subagentModel: 'ide.subagentModel',
-  statusLine: 'ide.statusLine',
+  statusLine: 'ide.statusLine', worktrees: 'ide.worktrees',
 };
 const DEFAULT_THEME = 'dark';
 
@@ -60,6 +60,17 @@ export function isStatusLineEnabled() {
 export function setStatusLineEnabled(on) {
   localStorage.setItem(STORE.statusLine, on ? '1' : '0');
   window.api?.setStatusLineEnabled?.(on);
+}
+
+// Git worktree per session. Default OFF; stored here but applied in main at
+// session creation, so the value is pushed over IPC. Live sessions keep the
+// working tree they spawned in — the toggle affects the next session.
+export function isWorktreesEnabled() {
+  return localStorage.getItem(STORE.worktrees) === '1';
+}
+export function setWorktreesEnabled(on) {
+  localStorage.setItem(STORE.worktrees, on ? '1' : '0');
+  window.api?.setWorktreesEnabled?.(on);
 }
 
 // The default model a new session spawns with, read by sessions.js at creation
@@ -97,6 +108,56 @@ export function cycleTheme() {
   applyTheme(next);
 }
 
+// --- Activity & usage (per-model tokens + cost for the open project) ---
+// Rendered fresh each time the dialog opens; the data comes from main, which
+// sweeps the project's Claude Code transcripts (see src/main/usage-stats.js).
+function fmtTokens(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n);
+}
+function fmtCost(usd) {
+  if (usd == null) return '—';
+  return '$' + (usd >= 100 ? usd.toFixed(0) : usd.toFixed(2));
+}
+
+function activityRow(label, tokens, cost, cls) {
+  const row = document.createElement('div');
+  row.className = 'activity-row' + (cls ? ' ' + cls : '');
+  const name = document.createElement('span');
+  name.className = 'activity-model';
+  name.textContent = label;
+  name.title = label;
+  const tok = document.createElement('span');
+  tok.className = 'activity-tokens';
+  tok.textContent = tokens;
+  const usd = document.createElement('span');
+  usd.className = 'activity-cost';
+  usd.textContent = cost;
+  row.append(name, tok, usd);
+  return row;
+}
+
+async function renderActivity(container) {
+  container.textContent = t('settings.activityLoading');
+  let r = null;
+  try { r = await window.api.getUsageStats(); } catch { /* falls through to empty */ }
+  container.replaceChildren();
+  if (!r || !r.ok || !r.models.length) {
+    container.textContent = t('settings.activityEmpty');
+    return;
+  }
+  container.appendChild(activityRow(t('settings.activityModel'), t('settings.activityTokens'), t('settings.activityCost'), 'activity-head'));
+  for (const m of r.models) {
+    const row = activityRow(m.model, fmtTokens(m.totalTokens), fmtCost(m.costUsd));
+    const tk = m.tokens;
+    row.title = `in ${fmtTokens(tk.input)} · out ${fmtTokens(tk.output)} · cache write ${fmtTokens(tk.cacheWrite)} · cache read ${fmtTokens(tk.cacheRead)}`;
+    container.appendChild(row);
+  }
+  container.appendChild(activityRow(t('settings.activityTotal'), fmtTokens(r.totalTokens), fmtCost(r.totalCostUsd), 'activity-total'));
+}
+
 function fillSelect(select, items, value) {
   select.innerHTML = '';
   for (const it of items) {
@@ -125,6 +186,9 @@ export function initSettings() {
   // Push the saved token-meter preference to main before any session spawns, so
   // the very first session honours it (main defaults on until told otherwise).
   window.api?.setStatusLineEnabled?.(isStatusLineEnabled());
+  // Same for the worktree preference — main defaults off until told otherwise,
+  // but a user who enabled it expects the very first session to honour it.
+  window.api?.setWorktreesEnabled?.(isWorktreesEnabled());
 
   const dialog = document.getElementById('settings-dialog');
   const langSel = document.getElementById('settings-language');
@@ -134,6 +198,8 @@ export function initSettings() {
   const sessionDiffBox = document.getElementById('settings-session-diff');
   const statusLineBox = document.getElementById('settings-statusline');
   const osNotifyBox = document.getElementById('settings-notifications');
+  const worktreesBox = document.getElementById('settings-worktrees');
+  const activityEl = document.getElementById('settings-activity');
   const modelSel = document.getElementById('settings-model');
   const subagentSel = document.getElementById('settings-subagent-model');
 
@@ -162,6 +228,7 @@ export function initSettings() {
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
   statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
   osNotifyBox.onchange = () => setOsNotificationsEnabled(osNotifyBox.checked);
+  worktreesBox.onchange = () => setWorktreesEnabled(worktreesBox.checked);
   // The model defaults apply to the *next* session created (and pre-fill the
   // per-session picker); live sessions keep the model they spawned with.
   modelSel.onchange = () => localStorage.setItem(STORE.model, modelSel.value);
@@ -193,6 +260,8 @@ export function initSettings() {
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();
+    worktreesBox.checked = isWorktreesEnabled();
+    renderActivity(activityEl); // async; fills in once the transcript sweep returns
     dialog.showModal();
   };
 
