@@ -47,8 +47,19 @@ function shortenPath(file) {
   return '…' + tail;
 }
 
+// Same drag payload as the explorer tree: an "@<rel>" mention on text/plain,
+// which the session terminal host's drop handler forwards to the active agent.
+function makeFileDraggable(li, file) {
+  li.draggable = true;
+  li.addEventListener('dragstart', (ev) => {
+    ev.dataTransfer.setData('text/plain', '@' + file);
+    ev.dataTransfer.effectAllowed = 'copy';
+  });
+}
+
 function gitItem(file, status, staged, action, label) {
   const li = document.createElement('li');
+  makeFileDraggable(li, file);
   // The change-type class drives the one bit of color in the list: the tinted
   // status letter (see .git-status in git.css). Everything else stays neutral.
   li.className = 'g-' + (status === '?' ? 'u' : status);
@@ -178,6 +189,7 @@ document.getElementById('conflicts-resolve').onclick = () =>
 // the markers are sorted out. No discard here — resolving is a deliberate edit.
 function conflictItem(file, status) {
   const li = document.createElement('li');
+  makeFileDraggable(li, file);
   li.className = 'g-conflict';
   li.onclick = () => openGitFile(file, status, false);
   const st = document.createElement('span');
