@@ -30,6 +30,32 @@
 #asset-body.panning { cursor: grabbing; }
 #asset-body.panning .zoom-img { cursor: grabbing; }
 
+/* .ico multi-frame view: one card per embedded size, checkerboard behind the
+   frame so transparency reads, label with size / bit depth / encoding. */
+.ico-view { display: flex; flex-direction: column; gap: 14px; }
+.ico-summary { font-family: Consolas, monospace; font-size: 12px; color: var(--fg-dim); }
+.ico-grid { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.ico-card {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 12px; cursor: pointer;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--fg); font: inherit;
+}
+.ico-card:hover { border-color: var(--accent); }
+.ico-thumb {
+  display: grid; place-items: center;
+  min-width: 64px; min-height: 64px; max-width: 256px; max-height: 256px;
+  border-radius: 4px; overflow: hidden;
+  /* checkerboard so transparent icon pixels are visible */
+  background:
+    repeating-conic-gradient(rgba(128, 128, 128, 0.18) 0% 25%, transparent 0% 50%)
+    0 0 / 16px 16px, var(--bg-3);
+}
+.ico-thumb img { display: block; max-width: 256px; max-height: 256px; image-rendering: pixelated; }
+.ico-thumb-err { font-size: 11px; color: var(--fg-dim); padding: 6px; }
+.ico-label { font-family: Consolas, monospace; font-size: 11px; color: var(--fg-dim); }
+.ico-card:hover .ico-label { color: var(--fg); }
+
 /* pixel editor: a scrollable canvas viewport above a dedicated control panel,
    so the editor's many controls never crowd the shared top toolbar. */
 #asset-body:has(.pixel-editor) { padding: 0; overflow: hidden; }

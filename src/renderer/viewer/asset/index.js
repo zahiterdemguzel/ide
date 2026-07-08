@@ -3,6 +3,7 @@ import { renderAudio } from './audio.js';
 import { renderZoom } from './zoom.js';
 import { renderPixelEditor } from './pixel-editor.js';
 import { renderImageAdjust, canAdjust } from './image-adjust.js';
+import { renderIcoView } from './ico-view.js';
 import { assetBtn } from './ui.js';
 
 // --- asset view: image zoom / pixel editor / audio waveform / 3D model ---
@@ -54,6 +55,13 @@ export async function showAsset(file, ext) {
 
   if (PDF_EXT.has(ext)) {
     renderPdfCoordinator(file, r.base64, ext, assetBody, assetTools, registerCleanup);
+    return;
+  }
+
+  // .ico is a multi-image container: show every embedded size, not the one
+  // frame Chromium would pick for a plain <img>.
+  if (ext === 'ico') {
+    renderIcoView(file, r.base64, assetBody, assetTools, registerCleanup);
     return;
   }
 

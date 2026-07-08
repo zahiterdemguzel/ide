@@ -6,7 +6,9 @@ export function extOf(file) { const m = /\.([^.]+)$/.exec(file); return m ? m[1]
 // Images/audio/3D-models/vector open the asset viewer; everything else gets the
 // text diff/viewer. SVG is NOT here — it routes through VECTOR_EXT to the vector
 // editor (a raster <img> can't be edited as paths).
-export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']);
+// .ico gets a dedicated multi-frame view inside the asset viewer (an icon file
+// bundles several sizes; a plain <img> would show only one).
+export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico']);
 export const AUDIO_EXT = new Set(['wav', 'ogg', 'mp3']);
 // 3D model formats the three.js viewer can render (one loader per extension).
 export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']);

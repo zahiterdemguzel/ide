@@ -19,7 +19,7 @@ test('extOf: a leading dot is not treated as an extension', () => {
 });
 
 test('IMG_EXT / AUDIO_EXT / MODEL_EXT / VECTOR_EXT cover the asset-viewer types', () => {
-  for (const e of ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']) assert.ok(IMG_EXT.has(e));
+  for (const e of ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico']) assert.ok(IMG_EXT.has(e));
   assert.ok(!IMG_EXT.has('svg'), 'svg routes to the vector editor, not the image viewer');
   for (const e of ['wav', 'ogg', 'mp3']) assert.ok(AUDIO_EXT.has(e));
   for (const e of ['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']) assert.ok(MODEL_EXT.has(e));

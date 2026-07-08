@@ -14,7 +14,7 @@ const { withClipboardRetry } = require('./clipboard-lib');
 // loaders dispatch off the extension, not the MIME.
 const ASSET_MIME = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
-  bmp: 'image/bmp', webp: 'image/webp', svg: 'image/svg+xml',
+  bmp: 'image/bmp', webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon',
   wav: 'audio/wav', ogg: 'audio/ogg', mp3: 'audio/mpeg',
   glb: 'model/gltf-binary', gltf: 'model/gltf+json', fbx: 'application/octet-stream',
   obj: 'text/plain', usdz: 'model/vnd.usdz+zip', stl: 'model/stl', ply: 'application/octet-stream',
