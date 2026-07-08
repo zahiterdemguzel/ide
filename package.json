@@ -58,6 +58,8 @@
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
     "paper": "^0.12.18",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.624",
     "sql.js": "^1.14.1",
     "three": "^0.185.0",
     "xlsx": "^0.18.5"
