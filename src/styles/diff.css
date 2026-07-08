@@ -120,6 +120,32 @@
 #editor-find button:hover { color: var(--fg); background: var(--bg-2); }
 #editor-find-case.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 
+/* JSON structure actions — a floating pill over the bottom-right of the editor
+   body offering "+ Item" / "+ Key" for the container the caret sits in. Styled
+   after the find bar so editor chrome reads as one family. */
+#editor-json-actions {
+  position: absolute; bottom: 14px; right: 20px; z-index: 3;
+  display: flex; align-items: center; gap: 4px;
+  padding: 4px; background: var(--bg-3);
+  border: 1px solid var(--border); border-radius: 999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .4);
+}
+#editor-json-actions[hidden] { display: none; }
+#editor-json-actions button {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 10px 3px 8px; font-size: 12px; line-height: 1.4; cursor: pointer;
+  background: none; color: var(--fg-dim); border: 1px solid transparent; border-radius: 999px;
+  transition: background .1s ease, color .1s ease;
+}
+#editor-json-actions button:hover { color: var(--fg); background: var(--bg-2); }
+#editor-json-actions button[hidden] { display: none; }
+.json-add-plus {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; border-radius: 50%;
+  font-size: 12px; line-height: 1;
+  color: var(--on-accent); background: var(--accent);
+}
+
 /* file editor: a transparent textarea overlays a highlighted <pre> so native
    editing (caret, selection, undo) shows the syntax colours behind it. */
 .editor { display: inline-flex; min-width: 100%; min-height: 100%; }

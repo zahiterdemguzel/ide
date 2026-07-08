@@ -8,6 +8,7 @@ const saveBtn = document.getElementById('diff-save');
 const previewBtn = document.getElementById('diff-preview');
 const findBar = document.getElementById('editor-find');
 const runSplit = document.getElementById('run-split');
+const jsonBar = document.getElementById('editor-json-actions');
 
 export function setDiffTitle(file) { diffFile.textContent = file; }
 // Hiding the container also retires the editor's Save/Run buttons and find bar —
@@ -22,5 +23,6 @@ export function hideDiff() {
   previewBtn.hidden = true;
   findBar.hidden = true;
   runSplit.hidden = true;
+  jsonBar.hidden = true;
 }
 export function showDiffContainer() { diffView.style.display = 'flex'; runSplit.hidden = true; }
