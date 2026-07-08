@@ -70,6 +70,7 @@ function createWindow() {
       webviewTag: true, // inline web browser for Ctrl+clicked links
     },
   });
+  win.maximize();
   win.loadFile('index.html');
   win.setTitle('IDE');
   // Keep the title under our control: ignore the <title> the page would push.
