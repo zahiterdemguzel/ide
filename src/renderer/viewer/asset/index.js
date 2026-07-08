@@ -1,4 +1,4 @@
-import { AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT } from '../../shared/ext.js';
+import { AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT } from '../../shared/ext.js';
 import { renderAudio } from './audio.js';
 import { renderZoom } from './zoom.js';
 import { renderPixelEditor } from './pixel-editor.js';
@@ -49,6 +49,11 @@ export async function showAsset(file, ext) {
 
   if (VECTOR_EXT.has(ext)) {
     renderVectorCoordinator(file, r.base64, ext, assetBody, assetTools, registerCleanup);
+    return;
+  }
+
+  if (PDF_EXT.has(ext)) {
+    renderPdfCoordinator(file, r.base64, ext, assetBody, assetTools, registerCleanup);
     return;
   }
 
@@ -132,6 +137,51 @@ function renderModelCoordinator(file, base64, ext, body, tools, registerCleanup)
       renderModelEditor(file, base64, ext, body, viewTools, registerSub);
     } catch (e) {
       body.textContent = 'Could not open 3D editor: ' + (e && e.message ? e.message : e);
+    }
+  };
+
+  registerCleanup(() => { if (subCleanup) subCleanup(); tools.classList.remove('asset-edit-mode'); });
+  showView();
+}
+
+// PDF coordinator: mirrors renderModelCoordinator for .pdf. The view is a
+// pdf.js page renderer (read-only, pan/zoom); Edit hands off to the page-level
+// editor (rotate / delete / reorder pages via pdf-lib). Both modules import
+// their library lazily, so a PDF costs nothing until one is opened.
+function renderPdfCoordinator(file, base64, ext, body, tools, registerCleanup) {
+  const viewTools = document.createElement('span');
+  viewTools.className = 'asset-view-tools';
+  tools.insertBefore(viewTools, tools.firstChild);
+
+  let subCleanup = null;
+  const registerSub = (fn) => { subCleanup = fn; };
+  const clear = () => {
+    if (subCleanup) { subCleanup(); subCleanup = null; }
+    viewTools.innerHTML = '';
+    body.innerHTML = '';
+  };
+
+  const showView = async () => {
+    clear();
+    tools.classList.remove('asset-edit-mode');
+    try {
+      const { renderPdfView } = await import('./pdf-view.js');
+      await renderPdfView(base64, body, viewTools, registerSub, showEdit);
+    } catch (e) {
+      body.textContent = 'Could not open PDF: ' + (e && e.message ? e.message : e);
+    }
+  };
+  const showEdit = async () => {
+    clear();
+    tools.classList.add('asset-edit-mode');
+    try {
+      const { renderPdfEditor } = await import('./pdf-editor.js');
+      await renderPdfEditor(file, base64, body, viewTools, registerSub, (newBase64) => {
+        base64 = newBase64; // the saved bytes become the view's baseline
+        showView();
+      });
+    } catch (e) {
+      body.textContent = 'Could not open PDF editor: ' + (e && e.message ? e.message : e);
     }
   };
 

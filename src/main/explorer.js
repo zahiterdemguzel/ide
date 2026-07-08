@@ -19,6 +19,7 @@ const ASSET_MIME = {
   glb: 'model/gltf-binary', gltf: 'model/gltf+json', fbx: 'application/octet-stream',
   obj: 'text/plain', usdz: 'model/vnd.usdz+zip', stl: 'model/stl', ply: 'application/octet-stream',
   ai: 'application/illustrator',
+  pdf: 'application/pdf',
 };
 
 // List one directory level for the file explorer (lazy: children fetched on

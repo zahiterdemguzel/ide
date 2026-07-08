@@ -20,6 +20,9 @@ export const VECTOR_EXT = new Set(['svg', 'ai']);
 // Subset of VECTOR_EXT the vector editor can write back: only SVG round-trips
 // through paper.js's exportSVG. .ai stays a view-only preview.
 export const EDITABLE_VECTOR_EXT = new Set(['svg']);
+// PDF opens the pdf.js viewer with a page-level editor (rotate / delete /
+// reorder pages via pdf-lib). Content-level editing (text/vector) is out of scope.
+export const PDF_EXT = new Set(['pdf']);
 // Tabular formats the spreadsheet viewer opens (CSV + the Excel workbook formats).
 export const SHEET_EXT = new Set(['csv', 'tsv', 'xlsx', 'xls', 'xlsm', 'xlsb', 'ods']);
 // Single-file database formats the database viewer opens. The SQLite family is
