@@ -19,7 +19,6 @@ export default {
     'explorer.openFolder': 'Open folder',
     'explorer.browseFolder': 'Browse…',
     'explorer.removeRecent': 'Remove from recent',
-    'explorer.removeRecent': 'Remove from recents',
     'explorer.newFile': 'New file',
     'explorer.newFolder': 'New folder',
     'explorer.collapseAll': 'Collapse all',

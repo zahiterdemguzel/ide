@@ -18,7 +18,6 @@ export default {
     'explorer.openFolder': 'Klasör aç',
     'explorer.browseFolder': 'Gözat…',
     'explorer.removeRecent': 'Son kullanılanlardan kaldır',
-    'explorer.removeRecent': 'Son kullanılanlardan kaldır',
     'explorer.newFile': 'Yeni dosya',
     'explorer.newFolder': 'Yeni klasör',
     'explorer.collapseAll': 'Tümünü daralt',

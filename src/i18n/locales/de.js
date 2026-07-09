@@ -18,7 +18,6 @@ export default {
     'explorer.openFolder': 'Ordner öffnen',
     'explorer.browseFolder': 'Durchsuchen…',
     'explorer.removeRecent': 'Aus Verlauf entfernen',
-    'explorer.removeRecent': 'Aus Verlauf entfernen',
     'explorer.newFile': 'Neue Datei',
     'explorer.newFolder': 'Neuer Ordner',
     'explorer.collapseAll': 'Alle einklappen',

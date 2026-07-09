@@ -97,9 +97,6 @@
 }
 .recent-menu[hidden] { display: none; }
 .recent-menu.open { opacity: 1; transform: translateY(0) scaleY(1); }
-.recent-row { display: flex; align-items: stretch; gap: 2px; }
-.recent-row:hover { background: var(--bg-3); border-radius: 4px; }
-.recent-row .recent-item { flex: 1; min-width: 0; }
 .sidebar-actions .recent-item {
   background: none; color: var(--fg); border: none; border-radius: 4px;
   padding: 6px 8px; cursor: pointer; font-size: 12px;
@@ -124,17 +121,6 @@
 .sidebar-actions .recent-delete:hover { background: none; color: var(--red); }
 /* armed: the first click keeps the trash red + visible until the second confirms */
 .sidebar-actions .recent-delete.armed { visibility: visible; color: var(--red); }
-.recent-row:hover .recent-item:hover { background: transparent; }
-/* Trash button: hidden until the row is hovered, then armed-red on first click. */
-.recent-remove {
-  flex: none; background: none; border: none; border-radius: 4px;
-  color: var(--fg-dim); cursor: pointer; padding: 0 6px;
-  display: flex; align-items: center; visibility: hidden;
-}
-.recent-row:hover .recent-remove { visibility: visible; }
-.recent-remove:hover { color: var(--red); background: var(--bg-2); }
-.recent-remove.armed { visibility: visible; color: var(--red); }
-.recent-remove.armed:hover { background: var(--red); color: #fff; }
 .recent-item-name {
   font-weight: 600; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
