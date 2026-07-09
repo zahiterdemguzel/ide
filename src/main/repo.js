@@ -4,7 +4,7 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 const { getWin, setWindowTitle, sendToRenderer } = require('./window');
 const { sharedDataDir } = require('./instance');
-const { addRecent } = require('./recent-folders');
+const { addRecent, removeRecent } = require('./recent-folders');
 const { parseFolderArg } = require('./cli-args');
 const { refreshNativeRecent } = require('./native-recent');
 
@@ -113,6 +113,17 @@ function switchToFolder(dir) {
 }
 
 ipcMain.handle('open-folder-path', (_e, dir) => switchToFolder(dir));
+
+// Forget a folder the user removed from the recent list. Persists and re-seeds
+// the OS-native recent menus; returns the trimmed list so the renderer can re-render.
+function removeRecentFolder(dir) {
+  recentFolders = removeRecent(recentFolders, dir);
+  try { fs.writeFileSync(recentFoldersFile, JSON.stringify(recentFolders)); } catch {}
+  refreshNativeRecent(recentFolders, openRecentInPlace);
+  return recentFolders;
+}
+
+ipcMain.handle('remove-recent-folder', (_e, dir) => removeRecentFolder(dir));
 
 // macOS Dock menu pick: switch the running app's folder and tell the renderer to
 // reload everything that depends on it, mirroring the in-app Open-folder flow.

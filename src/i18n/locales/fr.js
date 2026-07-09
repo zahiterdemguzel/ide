@@ -17,6 +17,8 @@ export default {
     'explorer.search': 'Rechercher des fichiers…',
     'explorer.openFolder': 'Ouvrir un dossier',
     'explorer.browseFolder': 'Parcourir…',
+    'explorer.removeRecent': 'Retirer des récents',
+    'explorer.removeRecent': 'Retirer des récents',
     'explorer.newFile': 'Nouveau fichier',
     'explorer.newFolder': 'Nouveau dossier',
     'explorer.collapseAll': 'Tout réduire',
@@ -116,6 +118,7 @@ export default {
     'armHint.revertSession': 'Cliquez à nouveau pour annuler les modifications de cette session',
     'armHint.terminate': 'Cliquez à nouveau pour fermer ce navigateur',
     'armHint.deleteSession': 'Cliquez à nouveau pour supprimer définitivement cette session',
+    'armHint.removeRecent': 'Cliquez à nouveau pour retirer ce projet des récents',
     'armHint.dropStash': 'Cliquez à nouveau pour supprimer cette remise',
     'armHint.deleteBranch': 'Cliquez à nouveau pour supprimer cette branche',
 

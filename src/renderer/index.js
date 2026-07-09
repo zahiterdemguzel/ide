@@ -18,8 +18,11 @@ import { initUsageMeter } from './usage-meter.js';
 import { initPanels } from './panels.js';
 import { initOnboarding, activateOnboarding, startTour, openCheatSheet } from './onboarding/index.js';
 import { onClaudeReady } from './claude-setup.js';
+import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { t } from '../i18n/index.js';
 import './panes.js';
+
+const TRASH_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
 
 // Closing a center overlay returns to the active session (sessions owns it).
 onClose(showActiveSession);
@@ -68,6 +71,9 @@ async function openRecentMenu() {
 
   recentMenu.replaceChildren();
   for (const dir of recents) {
+    const row = document.createElement('div');
+    row.className = 'recent-row';
+
     const item = document.createElement('button');
     item.className = 'recent-item' + (dir === current ? ' current' : '');
     item.title = dir;
@@ -79,7 +85,29 @@ async function openRecentMenu() {
     path.textContent = dir;
     item.append(name, path);
     item.onclick = () => { closeRecentMenu(); openRecentFolder(dir); };
-    recentMenu.appendChild(item);
+
+    // Forgetting a project can't be undone, so it arms on the first click and
+    // only removes on the second — the same two-click pattern as the session
+    // delete button. Removal keeps the menu open so several can be pruned in a row.
+    const del = document.createElement('button');
+    del.className = 'recent-delete';
+    del.title = t('explorer.removeRecent');
+    del.innerHTML = TRASH_ICON;
+    del.onclick = (e) => {
+      e.stopPropagation();
+      if (!del.classList.contains('armed')) {
+        del.classList.add('armed');
+        del.title = t('armHint.removeRecent');
+        showArmHint(del);
+        return;
+      }
+      hideArmHint();
+      row.remove();
+      window.api.removeRecentFolder(dir).catch((err) => console.error('remove-recent-folder failed:', err));
+    };
+
+    row.append(item, del);
+    recentMenu.appendChild(row);
   }
 
   const browse = document.createElement('button');

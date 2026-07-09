@@ -17,6 +17,8 @@ export default {
     'explorer.search': 'Dosyalarda ara…',
     'explorer.openFolder': 'Klasör aç',
     'explorer.browseFolder': 'Gözat…',
+    'explorer.removeRecent': 'Son kullanılanlardan kaldır',
+    'explorer.removeRecent': 'Son kullanılanlardan kaldır',
     'explorer.newFile': 'Yeni dosya',
     'explorer.newFolder': 'Yeni klasör',
     'explorer.collapseAll': 'Tümünü daralt',
@@ -116,6 +118,7 @@ export default {
     'armHint.revertSession': 'Bu oturumun değişikliklerini geri almak için tekrar tıkla',
     'armHint.terminate': 'Bu tarayıcıyı kapatmak için tekrar tıkla',
     'armHint.deleteSession': 'Bu oturumu kalıcı olarak silmek için tekrar tıkla',
+    'armHint.removeRecent': 'Bu projeyi son kullanılanlardan kaldırmak için tekrar tıkla',
     'armHint.dropStash': 'Bu zulayı silmek için tekrar tıkla',
     'armHint.deleteBranch': 'Bu dalı silmek için tekrar tıkla',
 

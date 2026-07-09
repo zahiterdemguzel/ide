@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { addRecent, MAX_RECENT } = require('../src/main/recent-folders');
+const { addRecent, removeRecent, MAX_RECENT } = require('../src/main/recent-folders');
 
 test('addRecent: prepends a new folder', () => {
   assert.deepEqual(addRecent(['/a', '/b'], '/c'), ['/c', '/a', '/b']);
@@ -29,4 +29,20 @@ test('addRecent: filters garbage out of the existing list', () => {
 
 test('addRecent: tolerates a non-array list', () => {
   assert.deepEqual(addRecent(undefined, '/a'), ['/a']);
+});
+
+test('removeRecent: drops the given folder', () => {
+  assert.deepEqual(removeRecent(['/a', '/b', '/c'], '/b'), ['/a', '/c']);
+});
+
+test('removeRecent: a missing folder leaves the list unchanged', () => {
+  assert.deepEqual(removeRecent(['/a', '/b'], '/x'), ['/a', '/b']);
+});
+
+test('removeRecent: scrubs garbage while filtering', () => {
+  assert.deepEqual(removeRecent(['/a', '', null, 5, '/b'], '/a'), ['/b']);
+});
+
+test('removeRecent: tolerates a non-array list', () => {
+  assert.deepEqual(removeRecent(undefined, '/a'), []);
 });

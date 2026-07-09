@@ -141,7 +141,7 @@ Clicking it calls `create-repo` (see the [Git](#the-main-process--three-subsyste
 
 ## Native recent-projects menus
 
-Right-clicking the app's **taskbar icon (Windows)** or **Dock icon (macOS)** shows a list of recently opened projects — the same `recentFolders` the in-app Open-folder reverse-combobox uses, kept in sync. `repo.js` calls `refreshNativeRecent(recentFolders, openRecentInPlace)` once at load and again from `setRepoPath`/the stale-entry pruning, so the native menu always matches the persisted list. The menu structure is built by the Electron-free, unit-tested `native-recent-menu.js` (`jumpListCategories`/`dockMenuItems`/`folderLabel`); `native-recent.js` does the Electron wiring.
+Right-clicking the app's **taskbar icon (Windows)** or **Dock icon (macOS)** shows a list of recently opened projects — the same `recentFolders` the in-app Open-folder reverse-combobox uses, kept in sync. `repo.js` calls `refreshNativeRecent(recentFolders, openRecentInPlace)` once at load and again from `setRepoPath`/the stale-entry pruning/`removeRecentFolder`, so the native menu always matches the persisted list. Each recent row in the in-app combobox carries a trash button that arms on the first click and, on the second, DOM-removes the row and calls the `remove-recent-folder` IPC (`removeRecentFolder` in `repo.js` → the Electron-free `removeRecent` in `recent-folders.js`) — same two-click arm pattern (`shared/arm-hint.js`) as the session-delete button. The menu structure is built by the Electron-free, unit-tested `native-recent-menu.js` (`jumpListCategories`/`dockMenuItems`/`folderLabel`); `native-recent.js` does the Electron wiring.
 
 The two platforms differ because of how each OS hands the click back:
 

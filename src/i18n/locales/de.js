@@ -17,6 +17,8 @@ export default {
     'explorer.search': 'Dateien suchen…',
     'explorer.openFolder': 'Ordner öffnen',
     'explorer.browseFolder': 'Durchsuchen…',
+    'explorer.removeRecent': 'Aus Verlauf entfernen',
+    'explorer.removeRecent': 'Aus Verlauf entfernen',
     'explorer.newFile': 'Neue Datei',
     'explorer.newFolder': 'Neuer Ordner',
     'explorer.collapseAll': 'Alle einklappen',
@@ -116,6 +118,7 @@ export default {
     'armHint.revertSession': 'Nochmals klicken, um die Änderungen dieser Sitzung zurückzunehmen',
     'armHint.terminate': 'Nochmals klicken, um diesen Browser zu schließen',
     'armHint.deleteSession': 'Nochmals klicken, um diese Sitzung dauerhaft zu löschen',
+    'armHint.removeRecent': 'Nochmals klicken, um dieses Projekt aus dem Verlauf zu entfernen',
     'armHint.dropStash': 'Nochmals klicken, um diesen Stash zu verwerfen',
     'armHint.deleteBranch': 'Nochmals klicken, um diesen Branch zu löschen',
 

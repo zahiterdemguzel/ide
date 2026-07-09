@@ -18,6 +18,8 @@ export default {
     'explorer.search': 'Search files…',
     'explorer.openFolder': 'Open folder',
     'explorer.browseFolder': 'Browse…',
+    'explorer.removeRecent': 'Remove from recent',
+    'explorer.removeRecent': 'Remove from recents',
     'explorer.newFile': 'New file',
     'explorer.newFolder': 'New folder',
     'explorer.collapseAll': 'Collapse all',
@@ -117,6 +119,7 @@ export default {
     'armHint.revertSession': "Click again to revert this session's changes",
     'armHint.terminate': 'Click again to close this browser',
     'armHint.deleteSession': 'Click again to delete this session permanently',
+    'armHint.removeRecent': 'Click again to remove this project from recent',
     'armHint.dropStash': 'Click again to drop this stash',
     'armHint.deleteBranch': 'Click again to delete this branch',
 

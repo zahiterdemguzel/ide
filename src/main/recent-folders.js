@@ -12,4 +12,11 @@ function addRecent(list, folder, max = MAX_RECENT) {
   return [folder, ...clean.filter((p) => p !== folder)].slice(0, max);
 }
 
-module.exports = { addRecent, MAX_RECENT };
+// Drop `folder` from the list (used when the user deletes a recent entry). Also
+// scrubs garbage so a bad value never lingers.
+function removeRecent(list, folder) {
+  const clean = Array.isArray(list) ? list.filter((p) => typeof p === 'string' && p) : [];
+  return clean.filter((p) => p !== folder);
+}
+
+module.exports = { addRecent, removeRecent, MAX_RECENT };
