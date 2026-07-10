@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/highlight.js'); // PERF-TEMP
 import { extOf } from './ext.js';
 
 // --- syntax highlighting (highlight.js) ---

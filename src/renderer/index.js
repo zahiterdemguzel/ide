@@ -22,6 +22,8 @@ import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { t } from '../i18n/index.js';
 import './panes.js';
 
+const rperf = (label) => console.log(`[perf-renderer] +${Math.round(performance.now())}ms ${label}`); // PERF-TEMP
+rperf('index.js body start (imports done)'); // PERF-TEMP
 const TRASH_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
 
 // Closing a center overlay returns to the active session (sessions owns it).
@@ -163,17 +165,23 @@ registerCommands([
   { id: 'keyboard-shortcuts', titleKey: 'command.keyboardShortcuts', keywordsKey: 'command.keyboardShortcuts.kw', run: openCheatSheet },
 ]);
 
+rperf('before initSettings'); // PERF-TEMP
 initSettings();
+rperf('after initSettings'); // PERF-TEMP
 // Toolbar meter for the user's remaining Claude subscription usage (after
 // initSettings so its labels are translated).
 initUsageMeter();
 initPanels();
+rperf('before initConsoles'); // PERF-TEMP
 initConsoles();
+rperf('after initConsoles'); // PERF-TEMP
 // On every launch, detect whether the Claude Code CLI is installed and, if not,
 // guide the user through installing it (runs after initSettings so the dialog's
 // strings are translated, and after initConsoles so "Run in terminal" has a tab).
 initClaudeSetup();
-restoreSessions();
+rperf('after initClaudeSetup'); // PERF-TEMP
+restoreSessions().then(() => rperf('restoreSessions resolved')); // PERF-TEMP
+requestAnimationFrame(() => rperf('first frame painted')); // PERF-TEMP
 // No project opens by default. With no folder open, skip the repo-driven loads
 // and pop the recent-projects menu (the Open-folder button shows as pressed) so
 // picking or browsing for a project is the launch screen's first action. Only a

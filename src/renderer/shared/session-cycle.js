@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/session-cycle.js'); // PERF-TEMP
 // Pure, DOM-free helper for keyboard session cycling (Ctrl+Tab / Ctrl+Shift+Tab).
 // Given the ordered ids of the currently-visible session rows and the active id,
 // return the id to switch to. `dir` 1 = next, -1 = previous; both wrap around the

@@ -1,3 +1,6 @@
+const T0 = Date.now(); // PERF-TEMP
+const perf = (label) => console.error(`[perf-main] +${Date.now() - T0}ms ${label}`); // PERF-TEMP
+perf('main module start'); // PERF-TEMP
 const { app, BrowserWindow, Menu } = require('electron');
 // Windows ties a toast notification's click activation to the AppUserModelID of
 // the process that posted it. Without this, Windows has no reliable way to route
@@ -9,6 +12,7 @@ if (process.platform === 'win32') app.setAppUserModelId('com.claude.session-edit
 // Redirect userData to a per-instance profile dir before any subsystem reads a
 // path from it (repo.js derives its config path on load). Must come first.
 require('./instance');
+perf('instance loaded'); // PERF-TEMP
 const { createWindow } = require('./window');
 const { startHookServer } = require('./hook-server');
 const { killAllSessions, persistSessions } = require('./sessions');
@@ -25,6 +29,7 @@ require('./run-configs');
 require('./runners');
 require('./consoles');
 require('./onboarding-store');
+perf('subsystems loaded'); // PERF-TEMP
 
 // Log every crash (uncaught exception, unhandled rejection, renderer/child-process
 // death) to a file under crashlogs/ — without exiting, so the app stays usable.
@@ -63,9 +68,13 @@ app.commandLine.appendSwitch('enable-zero-copy');
 // fighting over the disk cache.
 
 app.whenReady().then(() => {
+  perf('app ready'); // PERF-TEMP
   Menu.setApplicationMenu(null); // no native File/Edit/View menu — the in-app run toolbar replaces it
   startHookServer();
-  createWindow();
+  perf('hook server started'); // PERF-TEMP
+  const w = createWindow();
+  perf('window created'); // PERF-TEMP
+  w.webContents.once('did-finish-load', () => perf('did-finish-load')); // PERF-TEMP
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 

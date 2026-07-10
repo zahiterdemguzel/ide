@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/osc52.js'); // PERF-TEMP
 // Decode an OSC 52 clipboard-set payload into the text the terminal app wants
 // copied. Apps (notably the Claude CLI) copy by emitting `OSC 52 ; Pc ; Pd ST`
 // rather than a key event: Pc is the target selection (c/p/…), Pd is the

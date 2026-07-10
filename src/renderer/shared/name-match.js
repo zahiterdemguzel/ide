@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/name-match.js'); // PERF-TEMP
 // Whitespace-term name matching shared by surfaces that filter a list by a typed
 // query. This mirrors the explorer's filename search (main's `search-names`): the
 // query is folded (NFC + case-insensitive, via text-fold) and split on whitespace
