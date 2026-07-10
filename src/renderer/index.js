@@ -174,12 +174,16 @@ initConsoles();
 // strings are translated, and after initConsoles so "Run in terminal" has a tab).
 initClaudeSetup();
 restoreSessions();
-refreshGit();
-refreshTree();
-loadToolbar();
-// Refresh the remote-tracking refs once on launch so the ahead/behind badges
-// reflect the remote without the user reaching for Sync.
-autoFetch();
+// No project opens by default. With no folder open, skip the repo-driven loads
+// and pop the recent-projects menu (the Open-folder button shows as pressed) so
+// picking or browsing for a project is the launch screen's first action. Only a
+// `--folder` CLI launch starts with a folder already open, in which case load
+// everything as usual — including a one-time autoFetch so the ahead/behind
+// badges reflect the remote without the user reaching for Sync.
+window.api.getRepoPath().then((repo) => {
+  if (repo) { refreshGit(); refreshTree(); loadToolbar(); autoFetch(); }
+  else openRecentMenu();
+}).catch((err) => console.error('startup repo check failed:', err));
 // First-time onboarding. The help/cheat sheet wires up immediately; the
 // automatic guided tour and contextual hints wait until Claude Code is confirmed
 // installed (past the setup gate) so a new user isn't onboarded mid-install, and

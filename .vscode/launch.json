@@ -8,11 +8,9 @@
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "npm",
-      // Open the gitignored throwaway test workspace instead of the persisted
-      // last folder, so developing the IDE with the IDE doesn't have the test
-      // instance fight over (or commit into) the real repo. `--` forwards the
-      // flag through `npm start` to `electron .` (parsed by src/main/cli-args.js).
-      "runtimeArgs": ["start", "--", "--folder", "${workspaceFolder}/.test-workspace"],
+      // No --folder flag: the app starts with no project open (the recent-projects
+      // picker pops up on launch), matching the real first-run experience.
+      "runtimeArgs": ["start"],
       "cwd": "${workspaceFolder}",
       // Run in a real terminal so the main process's stdout/stderr is visible.
       // The default ("internalConsole") routes Electron output to the Debug

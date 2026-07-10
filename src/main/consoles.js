@@ -59,7 +59,8 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env } = {}) {
       name: 'xterm-color',
       cols: cols || 80,
       rows: rows || 24,
-      cwd: cwd || getRepoPath(),
+      // Home as the last resort: with no project open yet, a null cwd would crash the spawn.
+      cwd: cwd || getRepoPath() || require('os').homedir(),
       // Scrub VS Code debugger/inspector pollution: a console may run the `claude` CLI
       // (the setup gate's install/auth terminal does), itself a Node process that would
       // otherwise boot debug-attached and fail — the reason the install died here but

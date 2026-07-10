@@ -2,6 +2,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { addRecent, removeRecent, MAX_RECENT } = require('../src/main/recent-folders');
 
+test('recent list keeps the last 10 projects', () => {
+  assert.equal(MAX_RECENT, 10);
+});
+
 test('addRecent: prepends a new folder', () => {
   assert.deepEqual(addRecent(['/a', '/b'], '/c'), ['/c', '/a', '/b']);
 });

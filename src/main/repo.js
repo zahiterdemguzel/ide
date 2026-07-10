@@ -8,20 +8,8 @@ const { addRecent, removeRecent } = require('./recent-folders');
 const { parseFolderArg } = require('./cli-args');
 const { refreshNativeRecent } = require('./native-recent');
 
-// Restore the last opened folder; fall back to cwd on first run / bad path.
-// Kept in the shared data dir (not the per-instance profile) so it persists
-// across runs and is common to every instance.
-const lastFolderFile = path.join(sharedDataDir, 'last-folder.txt');
-function loadLastFolder() {
-  try {
-    const p = fs.readFileSync(lastFolderFile, 'utf8').trim();
-    if (p && fs.existsSync(p)) return p;
-  } catch {}
-  return process.cwd();
-}
-
 // Recently opened folders for the Open-folder reverse-combobox, most recent
-// first. Persisted alongside last-folder so it survives restarts.
+// first. Kept in the shared data dir so it persists across runs and instances.
 const recentFoldersFile = path.join(sharedDataDir, 'recent-folders.json');
 function loadRecentFolders() {
   try {
@@ -35,9 +23,8 @@ const getRecentFolders = () => recentFolders;
 
 // A `--folder <path>` CLI override wins over the persisted last folder, so a
 // launched instance can open a specific directory (e.g. a throwaway test
-// workspace) without disturbing the shared last-folder.txt — it's applied to the
-// initial repoPath directly and never written back. Falls through to the last
-// folder when the flag is absent or its path doesn't exist.
+// workspace) — it's applied to the initial repoPath directly and never written
+// back to the recent list.
 function cliFolder() {
   const p = parseFolderArg(process.argv);
   if (!p) return null;
@@ -46,13 +33,14 @@ function cliFolder() {
   return null;
 }
 
-let repoPath = cliFolder() || loadLastFolder();
+// No project opens by default: repoPath stays null until the user picks one from
+// the recent-projects menu (auto-opened on launch) or browses. A `--folder` CLI
+// flag is the only way to start with a folder already open.
+let repoPath = cliFolder();
 const getRepoPath = () => repoPath;
 
-// Make sure the restored folder shows up in the recent list on first run, then
-// seed the OS-native recent menus (Windows Jump List / macOS Dock menu). The
+// Seed the OS-native recent menus (Windows Jump List / macOS Dock menu). The
 // refresh is ready-gated, so this pre-`ready` call is safely deferred.
-recentFolders = addRecent(recentFolders, repoPath);
 refreshNativeRecent(recentFolders, openRecentInPlace);
 
 // Subsystems that derive state from the open folder (e.g. the run-config watcher)
@@ -63,7 +51,6 @@ const onRepoChange = (fn) => repoChangeListeners.push(fn);
 function setRepoPath(p) {
   repoPath = p;
   recentFolders = addRecent(recentFolders, repoPath);
-  try { fs.writeFileSync(lastFolderFile, repoPath); } catch {}
   try { fs.writeFileSync(recentFoldersFile, JSON.stringify(recentFolders)); } catch {}
   refreshNativeRecent(recentFolders, openRecentInPlace);
   for (const fn of repoChangeListeners) { try { fn(repoPath); } catch (err) { console.error('[repo-change listener]', err); } }

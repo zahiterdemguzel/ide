@@ -2,7 +2,7 @@
 // reverse-combobox. Kept Electron-free so it's unit-testable; repo.js handles
 // the actual file persistence and IPC.
 
-const MAX_RECENT = 7;
+const MAX_RECENT = 10;
 
 // Move `folder` to the front, drop any prior duplicate, and cap the list. Empty
 // or non-string entries are ignored so a bad value never poisons the list.

@@ -30,7 +30,9 @@ let archivedTerms = [];
 // Sessions are scoped to the project folder they were created in: only the open
 // folder's sessions are shown. Switching folders (setSessionsRepo) re-filters the
 // list without tearing down the other projects' live terminals.
-let currentRepo = null;
+// undefined = not resolved yet (startup window, no filter); null = resolved to
+// "no project open" (hide every project-bound session); string = the open folder.
+let currentRepo;
 
 // Optional per-row "+added -removed" diff badge in the sessions list. Off by
 // default; toggled from settings. Persists in localStorage.
@@ -176,8 +178,9 @@ function sessionInTab(s) {
 }
 
 // A row is shown only when it both belongs to the open project and matches the
-// active tab. currentRepo is null until restoreSessions resolves the open folder;
-// treat that startup window as "no filter yet" so nothing is hidden prematurely.
+// active tab. currentRepo is undefined until restoreSessions resolves the open
+// folder; treat that startup window as "no filter yet" so nothing is hidden
+// prematurely. A resolved null (no project open) hides every session.
 // A session's searchable text: its generated title plus its first prompt — the
 // same identity a sidebar row shows, so a query matches what the user reads.
 function sessionHaystack(s) {
@@ -185,7 +188,7 @@ function sessionHaystack(s) {
 }
 
 function sessionVisible(s) {
-  if (currentRepo !== null && s.repo !== currentRepo) return false;
+  if (currentRepo !== undefined && s.repo !== currentRepo) return false;
   if (!sessionInTab(s)) return false;
   // The search bar only filters the Archived tab (where it's shown).
   if (currentTab === 'archived' && archivedTerms.length) return matchesTerms(archivedTerms, sessionHaystack(s));

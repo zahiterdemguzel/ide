@@ -368,6 +368,7 @@ function scheduleTreeChanged() {
 function watchRepo() {
   if (watcher) { watcher.close(); watcher = null; }
   if (debounce) { clearTimeout(debounce); debounce = null; }
+  if (!getRepoPath()) return; // nothing to watch until a folder is opened
   try {
     watcher = fs.watch(getRepoPath(), { recursive: true }, (_event, filename) => {
       if (filename && shouldSkipDir(firstSegment(filename))) return;

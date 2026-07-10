@@ -108,10 +108,13 @@ function gitItem(file, status, staged, action, label) {
 }
 
 export async function refreshGit() {
+  // No folder open yet (fresh launch, nothing picked): leave the pane alone —
+  // the create-repo panel would make no sense with no folder to init.
+  const repoPath = await window.api.getRepoPath();
+  if (!repoPath) return;
   // A non-git folder swaps the whole pane for the create-repository panel; bail
   // before any porcelain call (they'd all fail with "not a git repository").
   if (!(await window.api.gitIsRepo())) {
-    const repoPath = await window.api.getRepoPath();
     window.api.setWindowTitle(repoPath);
     showCreatePanel(repoPath);
     return;

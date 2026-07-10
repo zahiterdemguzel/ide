@@ -441,7 +441,8 @@ function spawnPty(id, cols, rows, resume) {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
-    cwd: (s && s.repo) || getRepoPath(),
+    // Home as the last resort: with no project open yet, a null cwd would crash the spawn.
+    cwd: (s && s.repo) || getRepoPath() || require('os').homedir(),
     // Re-apply the session's model choice on resume too, so a restored session
     // keeps running the model it was created with.
     env: sessionEnv(s),

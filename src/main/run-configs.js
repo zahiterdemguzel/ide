@@ -88,6 +88,7 @@ function unwatchVscode() {
 }
 function watchVscode() {
   unwatchVscode();
+  if (!getRepoPath()) return; // nothing to watch until a folder is opened
   const onChange = () => { sendToRenderer('run-configs-changed'); };
   for (const name of ['launch.json', 'tasks.json']) {
     const p = path.join(getRepoPath(), '.vscode', name);

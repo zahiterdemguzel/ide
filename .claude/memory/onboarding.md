@@ -98,7 +98,7 @@ app runs each launch in a throwaway per-instance userData profile that's deleted
 on quit (see `src/main/instance.js`), so the default session's `localStorage` is
 wiped every time. The flag therefore lives in `onboarding.json` in the **shared**
 data dir (`src/main/onboarding-store.js`), reached over IPC — the same persistence
-strategy `repo.js` uses for `last-folder.txt` / `recent-folders.json`.
+strategy `repo.js` uses for `recent-folders.json`.
 
 `startTour()` marks the flag the moment the tour actually shows (not just on
 Finish/Skip), so quitting mid-tour still counts and it never auto-runs twice.

@@ -174,6 +174,9 @@ async function sessionEntries(s, repoPath) {
 // fetched when `withPatch`) feeds the diff dialog. An empty entry set is "no
 // change", so the button disables.
 async function sessionDiff(s, repoPath, withPatch) {
+  // No folder open (fresh launch before a project is picked): there is no repo to
+  // diff against, so report "no change" instead of letting path.relative(null) throw.
+  if (!repoPath) return { patch: '', additions: 0, deletions: 0, files: 0 };
   const { entries } = await sessionEntries(s, repoPath);
   return entriesToDiff(entries, withPatch);
 }
@@ -260,6 +263,7 @@ ipcMain.handle('commit-session', guard('committing a session', async (_e, id) =>
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
+  if (!repoPath) return { ok: false, stderr: 'No folder open' };
   const { entries, committedAbs, committedFileOps, emptyAbs, emptyFileOps } = await sessionEntries(s, repoPath);
   // Empty patches are phantom changes — forget them unconditionally (regardless of
   // whether a real commit follows) so the tracked-file count stops counting them.
@@ -313,6 +317,7 @@ ipcMain.handle('revert-session', guard('reverting a session', async (_e, id) => 
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
+  if (!repoPath) return { ok: false, stderr: 'No folder open' };
   const sharedWithOther = (abs) => [...sessions].some(([sid, o]) => sid !== id && (o.edits.has(abs) || o.fileOps.has(abs)));
   const reverted = [], skipped = [];
   for (const [abs, ops] of s.edits) {

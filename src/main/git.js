@@ -17,6 +17,8 @@ const { validateRepoName, ghCreateArgs } = require('./repo-create');
 // timeout: backstop so a stuck network op (push/pull/fetch) can't wedge the UI.
 function git(args, opts = {}) {
   return new Promise((resolve) => {
+    // No folder open yet: never let execFile default to the app's own cwd.
+    if (!getRepoPath()) return resolve({ ok: false, stdout: '', stderr: 'no folder open' });
     const env = { ...(opts.env || process.env), GIT_TERMINAL_PROMPT: '0' };
     const child = execFile('git', ['-c', 'core.quotePath=false', ...args],
       { cwd: getRepoPath(), env, maxBuffer: 64 * 1024 * 1024, timeout: opts.timeout || 120000 },
@@ -77,6 +79,7 @@ ipcMain.handle('git-status', () => gitStatus());
 // actionable message rather than a bare spawn error.
 function gh(args) {
   return new Promise((resolve) => {
+    if (!getRepoPath()) return resolve({ ok: false, stdout: '', stderr: 'no folder open' });
     const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
     execFile('gh', args, { cwd: getRepoPath(), env, maxBuffer: 16 * 1024 * 1024, timeout: 120000 },
       (err, stdout, stderr) => {
