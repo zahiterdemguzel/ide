@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval quick-open.js'); // PERF-TEMP
 // Quick Open palette (Ctrl/Cmd+P): a centered, keyboard-driven fuzzy file
 // switcher — the IDE staple for jumping to a file without touching the tree. It
 // fetches the repo's flat file list once per open (list-files) and fuzzy-matches

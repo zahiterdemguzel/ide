@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/arm-hint.js'); // PERF-TEMP
 import { t } from '../../i18n/index.js';
 
 // The destructive buttons (discard, revert, terminate, delete) use a two-click

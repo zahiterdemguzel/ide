@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval claude-setup.js'); // PERF-TEMP
 // Claude Code availability gate — a simple, three-step setup wizard.
 //
 // This IDE is a front-end for the `claude` CLI; without it no session can spawn.

@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval explorer/tree.js'); // PERF-TEMP
 import { fileColor } from '../shared/ext.js';
 import { fileIcon, folderIcon, setFolderIcon } from '../shared/file-icon-img.js';
 import { openFromTree } from '../viewer/center.js';

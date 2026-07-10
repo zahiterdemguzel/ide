@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval explorer/search.js'); // PERF-TEMP
 import { fileColor } from '../shared/ext.js';
 import { fileIcon } from '../shared/file-icon-img.js';
 import { openFromTree } from '../viewer/center.js';

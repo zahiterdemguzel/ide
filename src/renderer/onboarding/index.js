@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval onboarding/index.js'); // PERF-TEMP
 // Onboarding entry point.
 //
 // initOnboarding() wires the always-available help (cheat sheet, F1/?, the

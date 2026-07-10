@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval viewer/center.js'); // PERF-TEMP
 import { IMG_EXT, AUDIO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SHEET_EXT, DB_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
 import { showDiff, showCommit, showStash } from './diff.js';

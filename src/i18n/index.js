@@ -1,3 +1,4 @@
+console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval ../i18n/index.js'); // PERF-TEMP
 // Tiny dependency-free i18n engine.
 //
 // To add a language: create src/i18n/locales/<code>.js exporting
