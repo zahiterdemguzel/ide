@@ -6,14 +6,18 @@ const os = require('os');
 const { usageView } = require('./usage-parse');
 
 // node-pty on Windows doesn't search PATH — resolve the full claude.exe path once.
+// Async (the `where`/`which` subprocess used to run execFileSync and block the
+// main process — every IPC reply and PTY byte stalls while main is blocked).
 let claudeCmd = null;
 function resolveClaude() {
   if (claudeCmd) return claudeCmd;
   const finder = process.platform === 'win32' ? 'where' : 'which';
-  try {
-    const out = execFileSync(finder, ['claude'], { encoding: 'utf8' });
-    claudeCmd = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean) || 'claude';
-  } catch { claudeCmd = 'claude'; }
+  claudeCmd = new Promise((resolve) => {
+    execFile(finder, ['claude'], { encoding: 'utf8' }, (err, stdout) => {
+      const found = !err && stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+      resolve(found || 'claude');
+    });
+  });
   return claudeCmd;
 }
 
@@ -104,9 +108,9 @@ function runApi(token, prompt) {
 // --- Fallback: one-shot CLI call ---------------------------------------------
 // Always works (and refreshes the OAuth token on disk), just slow. Used when the
 // API fast path is unavailable.
-function runCli(prompt, { cwd } = {}) {
+async function runCli(prompt, { cwd } = {}) {
+  const exe = await resolveClaude();
   return new Promise((resolve) => {
-    const exe = resolveClaude();
     const win32 = process.platform === 'win32';
     const child = execFile(win32 ? `"${exe}"` : exe, ['-p', '--model', 'haiku'],
       { cwd, maxBuffer: 1024 * 1024, shell: win32 },
@@ -123,10 +127,10 @@ function runCli(prompt, { cwd } = {}) {
 // missing. Any failure (not on PATH, non-zero exit, timeout) resolves to
 // not-installed. `resolveClaude()` is intentionally re-run (cache cleared) so a
 // re-check after a fresh install can pick the binary up.
-function claudeAvailable() {
+async function claudeAvailable() {
   claudeCmd = null; // re-probe PATH: the user may have just installed it
+  const exe = await resolveClaude();
   return new Promise((resolve) => {
-    const exe = resolveClaude();
     const win32 = process.platform === 'win32';
     execFile(win32 ? `"${exe}"` : exe, ['--version'],
       { timeout: 10000, shell: win32 },

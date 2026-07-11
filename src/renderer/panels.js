@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval panels.js'); // PERF-TEMP
 // Panel visibility toggles. Lets the user show/hide the Explorer, Git, and
 // Terminal panels plus the Launch-config / Task buttons in the run toolbar.
 // Choices persist to localStorage and apply instantly. The sessions list is

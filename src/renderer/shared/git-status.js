@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/git-status.js'); // PERF-TEMP
 // Human-readable description of one status row, shown as the git pane's status
 // badge tooltip. The same porcelain letter means different things in the staged
 // vs unstaged column — most confusingly 'D': a *staged* deletion (file removed

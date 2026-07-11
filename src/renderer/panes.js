@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval panes.js'); // PERF-TEMP
 import { fitActive } from './sessions.js';
 import { fitConsole } from './consoles.js';
 

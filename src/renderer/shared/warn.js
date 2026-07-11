@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/warn.js'); // PERF-TEMP
 import { t } from '../../i18n/index.js';
 
 // A modal warning for non-fatal errors — a session failing to save/retrieve, or

@@ -70,27 +70,56 @@ try {
 
 // The renderer's app settings (theme, locale, panel visibility, agent-model
 // defaults, etc. — see docs/settings.md) are plain `localStorage`, which
-// Chromium backs with a `Local Storage` folder in the *default* session, i.e.
-// directly under userData. Same problem as the browser partition above: left
-// alone, every setting would reset on each restart. Junction that folder to a
-// shared, persistent location too. Concurrent instances sharing this storage is
-// the same accepted trade-off as the browser profile.
-const localStorageLink = path.join(instanceDir, 'Local Storage');
+// Chromium backs with a `Local Storage` LevelDB folder in the *default*
+// session, i.e. directly under userData. Left alone, every setting would reset
+// on each restart (the per-instance profile is disposable).
+//
+// This used to be a junction to one shared folder, but LevelDB allows a single
+// live process: with any sibling instance running, the new instance's storage
+// service spent ~5.5s waiting on the shared database's lock before giving up —
+// the renderer's first localStorage read blocks module evaluation, so that was
+// 5.5s of blank window on every extra instance. Instead, COPY the shared
+// snapshot into the per-instance profile on launch (before Chromium opens it)
+// and copy it back out on quit. Each instance runs on its own private copy —
+// no lock contention, instant startup. Concurrent instances no longer see each
+// other's mid-session setting changes and the last instance to quit wins,
+// which is the same accepted trade-off the junction already made (last writer
+// won there too).
+const localStorageLive = path.join(instanceDir, 'Local Storage');
 const localStorageDir = path.join(sharedDataDir, 'local-storage');
 try {
-  fs.mkdirSync(localStorageDir, { recursive: true });
-  fs.mkdirSync(instanceDir, { recursive: true });
-  fs.symlinkSync(localStorageDir, localStorageLink, 'junction');
+  if (fs.existsSync(localStorageDir)) {
+    fs.mkdirSync(instanceDir, { recursive: true });
+    fs.cpSync(localStorageDir, localStorageLive, { recursive: true, force: true });
+  }
 } catch {}
 
+// Persist the live settings back to the shared snapshot. Staged via a temp dir +
+// rename so a copy that fails midway (a file still locked by a lingering storage
+// flush) can never leave the shared snapshot half-written — a LevelDB folder
+// mixing files from two generations reads as corrupt and would drop every setting.
+function persistLocalStorage() {
+  if (!fs.existsSync(localStorageLive)) return;
+  const tmp = localStorageDir + '.tmp';
+  try {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.cpSync(localStorageLive, tmp, { recursive: true });
+    fs.rmSync(localStorageDir, { recursive: true, force: true });
+    fs.renameSync(tmp, localStorageDir);
+  } catch {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+  }
+}
+
 // The per-instance profile is disposable — drop it when this instance exits so
-// the dirs don't pile up across runs. Remove the junctions first: a recursive
-// delete that followed them into the shared dirs would wipe the persisted
-// settings/logins they exist to protect. rmdir removes the junction's reparse
-// point only, never the target's contents.
+// the dirs don't pile up across runs. First persist the live Local Storage back
+// to the shared snapshot, then remove the browser junction before the recursive
+// delete (a delete that followed it into the shared dir would wipe the logins it
+// exists to protect; rmdir removes the junction's reparse point only, never the
+// target's contents).
 app.on('quit', () => {
+  persistLocalStorage();
   try { fs.rmdirSync(browserPartitionLink); } catch {}
-  try { fs.rmdirSync(localStorageLink); } catch {}
   try { fs.rmSync(instanceDir, { recursive: true, force: true }); } catch {}
 });
 

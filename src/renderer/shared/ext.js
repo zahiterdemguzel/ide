@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/ext.js'); // PERF-TEMP
 // File-extension helpers shared across the UI: which extensions are images/audio
 // (route to the asset viewer) and per-extension filename colours for the tree.
 

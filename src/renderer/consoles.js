@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval consoles.js'); // PERF-TEMP
 import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
 import { registerTerminalLinks } from './terminal-links.js';
 

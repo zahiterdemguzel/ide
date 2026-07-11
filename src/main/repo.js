@@ -1,7 +1,7 @@
 const { ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 const { getWin, setWindowTitle, sendToRenderer } = require('./window');
 const { sharedDataDir } = require('./instance');
 const { addRecent, removeRecent } = require('./recent-folders');
@@ -59,10 +59,10 @@ function setRepoPath(p) {
 // Resolve the git repo root for a chosen dir so porcelain paths and add/reset
 // line up no matter which subfolder the user picked. Falls back to the dir itself.
 function repoRoot(dir) {
-  try {
-    const out = execFileSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' });
-    return out.trim() || dir;
-  } catch { return dir; }
+  return new Promise((resolve) => {
+    execFile('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' },
+      (err, stdout) => resolve((!err && stdout.trim()) || dir));
+  });
 }
 
 ipcMain.handle('get-repo-path', () => repoPath);
@@ -72,7 +72,7 @@ ipcMain.handle('open-folder', async () => {
   try {
     const r = await dialog.showOpenDialog(getWin(), { properties: ['openDirectory'] });
     if (r.canceled || !r.filePaths[0]) return { canceled: true };
-    setRepoPath(repoRoot(r.filePaths[0]));
+    setRepoPath(await repoRoot(r.filePaths[0]));
     return { canceled: false, repo: repoPath };
   } catch (err) {
     console.error('[open-folder failed]', err);
@@ -83,7 +83,7 @@ ipcMain.handle('open-folder', async () => {
 // Switch to a folder chosen from a recent list. Drop it from the list if it no
 // longer exists so stale entries don't linger. Shared by the renderer's recent
 // menu (via IPC) and the macOS Dock menu (in place).
-function switchToFolder(dir) {
+async function switchToFolder(dir) {
   try {
     if (typeof dir !== 'string' || !fs.existsSync(dir)) {
       recentFolders = recentFolders.filter((p) => p !== dir);
@@ -91,7 +91,7 @@ function switchToFolder(dir) {
       refreshNativeRecent(recentFolders, openRecentInPlace);
       return { canceled: true, error: 'missing' };
     }
-    setRepoPath(repoRoot(dir));
+    setRepoPath(await repoRoot(dir));
     return { canceled: false, repo: repoPath };
   } catch (err) {
     console.error('[switch folder failed]', err);
@@ -116,8 +116,8 @@ ipcMain.handle('remove-recent-folder', (_e, dir) => removeRecentFolder(dir));
 // reload everything that depends on it, mirroring the in-app Open-folder flow.
 // (The Windows Jump List can't message a running instance, so it relaunches the
 // exe with `--folder` instead — see native-recent.js.)
-function openRecentInPlace(dir) {
-  const r = switchToFolder(dir);
+async function openRecentInPlace(dir) {
+  const r = await switchToFolder(dir);
   if (!r.canceled) sendToRenderer('folder-changed', { repo: r.repo });
 }
 

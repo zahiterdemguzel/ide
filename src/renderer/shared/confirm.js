@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/confirm.js'); // PERF-TEMP
 // Styled modal confirm, reusing the #confirm-dialog element (same chrome as the
 // "Change folder?" / git-error dialogs). Resolves true on OK, false on Cancel /
 // Esc / backdrop. `danger: true` paints the OK button red for destructive acts.

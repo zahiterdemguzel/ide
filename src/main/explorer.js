@@ -24,10 +24,10 @@ const ASSET_MIME = {
 
 // List one directory level for the file explorer (lazy: children fetched on
 // expand). Folders first, then alphabetical — VS Code order. `.git` is hidden.
-ipcMain.handle('list-dir', (_e, rel) => {
+ipcMain.handle('list-dir', async (_e, rel) => {
   try {
     const dir = path.join(getRepoPath(), rel || '');
-    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    const entries = (await fs.promises.readdir(dir, { withFileTypes: true }))
       .filter((d) => d.name !== '.git')
       .map((d) => ({ name: d.name, dir: d.isDirectory() }))
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
@@ -155,20 +155,20 @@ ipcMain.handle('search-refs', async (_e, q) => {
 });
 
 // Read a repo-relative text file for the explorer's file editor.
-ipcMain.handle('read-text', (_e, file) => {
-  try { return { ok: true, text: fs.readFileSync(path.join(getRepoPath(), file), 'utf8') }; }
+ipcMain.handle('read-text', async (_e, file) => {
+  try { return { ok: true, text: await fs.promises.readFile(path.join(getRepoPath(), file), 'utf8') }; }
   catch (e) { return { ok: false, error: e.message }; }
 });
 
 // Write a repo-relative text file back to disk (the editor's Save). Guards
 // against paths escaping the repo, same as create/rename/delete.
-ipcMain.handle('write-text', (_e, { file, text }) => {
+ipcMain.handle('write-text', async (_e, { file, text }) => {
   try {
     const repoPath = getRepoPath();
     const abs = path.join(repoPath, file);
     const inside = path.relative(repoPath, abs);
     if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
-    fs.writeFileSync(abs, text);
+    await fs.promises.writeFile(abs, text);
     return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }
 });
@@ -182,14 +182,14 @@ ipcMain.handle('write-text', (_e, { file, text }) => {
 // resolved path exists, is a file or dir, and sits inside the *open* repo —
 // the renderer routes in-repo files to the explorer's viewer, directories to
 // the OS file browser, and anything else to the OS via open-external.
-ipcMain.handle('resolve-link-path', (_e, raw, baseDir) => {
+ipcMain.handle('resolve-link-path', async (_e, raw, baseDir) => {
   try {
     const p = String(raw || '').trim();
     if (!p) return { ok: false };
     const repoPath = getRepoPath();
     const base = baseDir || repoPath;
     const abs = path.isAbsolute(p) ? path.normalize(p) : path.resolve(base, p);
-    const st = fs.statSync(abs); // throws if it doesn't exist
+    const st = await fs.promises.stat(abs); // throws if it doesn't exist
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     const inRepo = !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
     return { ok: true, isFile: st.isFile(), isDir: st.isDirectory(), inRepo, rel, abs };
@@ -288,16 +288,16 @@ ipcMain.handle('reveal-in-folder', (_e, rel) => {
 
 // Read/write a repo-relative binary asset as base64 for the viewer/editor.
 // Paths come from git porcelain (inside the repo), so no traversal guard.
-ipcMain.handle('read-asset', (_e, file) => {
+ipcMain.handle('read-asset', async (_e, file) => {
   try {
     const abs = path.join(getRepoPath(), file);
     const ext = path.extname(abs).slice(1).toLowerCase();
-    return { ok: true, base64: fs.readFileSync(abs).toString('base64'),
+    return { ok: true, base64: (await fs.promises.readFile(abs)).toString('base64'),
       mime: ASSET_MIME[ext] || 'application/octet-stream' };
   } catch (e) { return { ok: false, error: e.message }; }
 });
-ipcMain.handle('write-asset', (_e, { file, base64 }) => {
-  try { fs.writeFileSync(path.join(getRepoPath(), file), Buffer.from(base64, 'base64')); return { ok: true }; }
+ipcMain.handle('write-asset', async (_e, { file, base64 }) => {
+  try { await fs.promises.writeFile(path.join(getRepoPath(), file), Buffer.from(base64, 'base64')); return { ok: true }; }
   catch (e) { return { ok: false, error: e.message }; }
 });
 

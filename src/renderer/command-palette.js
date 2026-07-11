@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval command-palette.js'); // PERF-TEMP
 // Command Palette (Ctrl/Cmd+Shift+P): a centered, keyboard-driven launcher for
 // app actions — the sibling of Quick Open (Ctrl/Cmd+P), which jumps to files.
 // Where Quick Open fuzzy-matches file paths, this fuzzy-matches a small registry

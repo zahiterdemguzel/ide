@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval terminal-links.js'); // PERF-TEMP
 import { findTerminalLinks } from './shared/terminal-links-parse.js';
 import { openFromTree, showWeb } from './viewer/center.js';
 

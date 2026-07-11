@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval settings.js'); // PERF-TEMP
 // User settings: theme + language. Both persist to localStorage and apply
 // instantly. The dialog (gear button in the top toolbar) lets the user switch
 // either; the rest of the app reads nothing here — theme flows through CSS

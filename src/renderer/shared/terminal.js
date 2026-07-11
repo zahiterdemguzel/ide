@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/terminal.js'); // PERF-TEMP
 // xterm.js is loaded as a classic <script> before the module graph, so its
 // globals are available. Re-export them here so feature modules import from one
 // place instead of reaching into `window`.

@@ -432,12 +432,12 @@ async function generateSessionName(id, prompt) {
 // Spawn the Claude PTY for `id` and wire its data/exit streams. `resume` starts
 // `claude --resume <id>` (continuing the existing conversation under the same id,
 // so hooks keep firing with the same session_id) instead of creating a new one.
-function spawnPty(id, cols, rows, resume) {
+async function spawnPty(id, cols, rows, resume) {
   const startArg = resume ? ['--resume', id] : ['--session-id', id];
   // Spawn in the session's own project folder, not whatever folder is currently
   // open — a session always belongs to the repo it was created in.
   const s = sessions.get(id);
-  const p = pty.spawn(resolveClaude(), [...startArg, '--settings', hookServer.hooksSettings()], {
+  const p = pty.spawn(await resolveClaude(), [...startArg, '--settings', hookServer.hooksSettings()], {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
@@ -500,14 +500,14 @@ ipcMain.handle('get-usage', async () => {
 // spawned session gets a statusLine (live sessions keep what they spawned with).
 ipcMain.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
 
-ipcMain.handle('new-session', guard('creating a session', (_e, { cols, rows, model, subagentModel }) => {
+ipcMain.handle('new-session', guard('creating a session', async (_e, { cols, rows, model, subagentModel }) => {
   const id = crypto.randomUUID();
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo. `model`/`subagentModel` are the per-session agent choice (see
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
   sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', _seq: seqCounter++ });
-  sessions.get(id).pty = spawnPty(id, cols, rows, false);
+  sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   return { id, repo };
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
@@ -532,12 +532,12 @@ ipcMain.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
 
 // Restore: respawn the PTY (resuming the same Claude conversation) for an entry
 // that was suspended; its edits/fileOps continue accumulating against the same id.
-ipcMain.handle('resume-session', guard('restoring a session', (_e, { id, cols, rows }) => {
+ipcMain.handle('resume-session', guard('restoring a session', async (_e, { id, cols, rows }) => {
   const s = sessions.get(id);
   if (!s) return { ok: false };
   s.suspended = false;
   s.archived = false;
-  s.pty = spawnPty(id, cols, rows, true);
+  s.pty = await spawnPty(id, cols, rows, true);
   persistSession(id);
   return { ok: true, repo: getRepoPath() };
 }, { ok: false }));

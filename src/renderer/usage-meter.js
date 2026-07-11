@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval usage-meter.js'); // PERF-TEMP
 import { t } from '../i18n/index.js';
 import { isPanelEnabled, onPanelsChanged } from './panels.js';
 

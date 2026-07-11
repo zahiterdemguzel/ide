@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval git-pane.js'); // PERF-TEMP
 import { openGitFile, openCommit, openStash } from './viewer/center.js';
 import { statusLabel, normalizeBranchName } from './shared/git-status.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';

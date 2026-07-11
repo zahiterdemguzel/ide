@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval viewer/code-render.js'); // PERF-TEMP
 // The diff viewer and the file editor share one DOM container (`#diff-view` /
 // `#diff-body`). These refs and the single hide() live here so both views target
 // the same element and exactly one place toggles it.

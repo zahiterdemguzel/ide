@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval toolbar.js'); // PERF-TEMP
 import { runSpecInConsole, runningConfigNames, stopConfig, onConsolesChanged } from './consoles.js';
 import { isPanelEnabled, onPanelsChanged } from './panels.js';
 

@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval shared/notify.js'); // PERF-TEMP
 // Notification sound for the working → completed transition (see status-detection.md):
 // when a session that was running finishes, the sidebar row animates and one of a
 // few short chimes plays to pull the user's eye back. The sounds are synthesized

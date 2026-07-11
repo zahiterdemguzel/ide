@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval sessions.js'); // PERF-TEMP
 import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
 import { hideAllOverlays } from './viewer/center.js';
 import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
@@ -992,4 +991,3 @@ window.api.onSessionError(({ context, message }) => {
   const detail = context ? `${t('warn.session')} (${context}):\n\n${message}` : message;
   showWarning(detail, t('warn.session'));
 });
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms sessions.js body END'); // PERF-TEMP

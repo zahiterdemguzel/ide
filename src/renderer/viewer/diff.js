@@ -1,4 +1,3 @@
-console.log('[perf-mod] +'+Math.round(performance.now())+'ms eval viewer/diff.js'); // PERF-TEMP
 import { diffBody, setDiffTitle, showDiffContainer } from './code-render.js';
 import { langFor, hlLine } from '../shared/highlight.js';
 
