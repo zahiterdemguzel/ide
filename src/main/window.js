@@ -60,6 +60,11 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1400,
     height: 1008,
+    // Hidden until ready-to-show: Chromium clears to white on navigation before
+    // the renderer's first paint, and showing the window immediately flashed
+    // that white frame on launch. backgroundColor still applies (covers any
+    // repaint gap after show, e.g. while maximizing).
+    show: false,
     backgroundColor: '#1e1e1e',
     icon: path.join(__dirname, '..', '..', 'assets', 'icon.png'),
     webPreferences: {
@@ -70,7 +75,12 @@ function createWindow() {
       webviewTag: true, // inline web browser for Ctrl+clicked links
     },
   });
-  win.maximize();
+  // First paint is ready — maximize while still hidden, then reveal in one step
+  // so the user never sees the unpainted (white) surface or the resize jump.
+  win.once('ready-to-show', () => {
+    win.maximize();
+    win.show();
+  });
   win.loadFile('index.html');
   win.setTitle('IDE');
   // Keep the title under our control: ignore the <title> the page would push.
