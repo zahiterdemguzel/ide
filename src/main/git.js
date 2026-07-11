@@ -201,8 +201,17 @@ ipcMain.handle('git-commit', async (_e, msg) => {
   const r = await git(['commit', '-m', msg]);
   return { ...r, message: msg };
 });
-// Undo last commit, keep its changes staged. ponytail: soft reset, no HEAD~1 history rewrite beyond one.
-ipcMain.handle('git-undo', () => git(['reset', '--soft', 'HEAD~1']));
+// Undo last commit, keep its changes staged. Soft reset, no history rewrite beyond
+// one. Refuses when HEAD is already on the upstream: dropping a pushed commit would
+// diverge from the remote, so those must be reverted (a new commit) instead. With no
+// upstream, rev-list fails and nothing is pushed, so the undo is allowed.
+ipcMain.handle('git-undo', async () => {
+  const pushed = await git(['rev-list', '--count', '@{u}..HEAD']);
+  if (pushed.ok && (parseInt(pushed.stdout.trim(), 10) || 0) === 0) {
+    return { ok: false, stderr: 'Last commit is already pushed — revert it instead of undoing.' };
+  }
+  return git(['reset', '--soft', 'HEAD~1']);
+});
 
 // Push. A branch with no upstream fails with "has no upstream branch"; retry once
 // with -u to create the tracking ref (the common first-push case) so the user
