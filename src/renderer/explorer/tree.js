@@ -16,7 +16,35 @@ function select(row, rel, dir) {
   fileTree.querySelectorAll('.tree-row.sel').forEach((x) => x.classList.remove('sel'));
   row.classList.add('sel');
   selected = { rel, dir };
+  // Focus the tree so the Delete key acts on the selection (see the keydown below).
+  fileTree.focus({ preventScroll: true });
 }
+
+async function deleteEntry(rel, dir) {
+  const okToDelete = await confirmDialog({
+    title: dir ? 'Delete folder?' : 'Delete file?',
+    message: dir
+      ? `Move "${rel}" and everything inside it to the Recycle Bin?`
+      : `Move "${rel}" to the Recycle Bin?`,
+    ok: 'Delete',
+    danger: true,
+  });
+  if (!okToDelete) return;
+  const r = await window.api.deleteFile(rel);
+  if (!r.ok) {
+    await confirmDialog({ title: 'Delete failed', message: r.error || 'Could not delete.', ok: 'OK' });
+    return;
+  }
+  if (selected && selected.rel === rel) selected = null;
+  await refreshTree();
+}
+
+fileTree.tabIndex = -1;
+fileTree.addEventListener('keydown', (e) => {
+  if (e.key !== 'Delete' || !selected) return;
+  e.preventDefault();
+  deleteEntry(selected.rel, selected.dir);
+});
 
 // --- context menu ---
 const ctxMenu = document.createElement('div');
@@ -86,22 +114,7 @@ ctxMenu.addEventListener('click', async (e) => {
     await refreshTree();
 
   } else if (btn.dataset.action === 'delete') {
-    const okToDelete = await confirmDialog({
-      title: dir ? 'Delete folder?' : 'Delete file?',
-      message: dir
-        ? `Move "${rel}" and everything inside it to the Recycle Bin?`
-        : `Move "${rel}" to the Recycle Bin?`,
-      ok: 'Delete',
-      danger: true,
-    });
-    if (!okToDelete) return;
-    const r = await window.api.deleteFile(rel);
-    if (!r.ok) {
-      await confirmDialog({ title: 'Delete failed', message: r.error || 'Could not delete.', ok: 'OK' });
-      return;
-    }
-    if (selected && selected.rel === rel) selected = null;
-    await refreshTree();
+    await deleteEntry(rel, dir);
 
   } else if (btn.dataset.action === 'add-to-chat') {
     sendToActiveSession('@' + rel);

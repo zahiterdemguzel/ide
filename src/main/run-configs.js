@@ -1,9 +1,10 @@
 const { ipcMain } = require('electron');
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
 const { sendToRenderer } = require('./window');
-const { parseJsonc, parseEnvFile, compoundMembers, makeRunConfigLib } = require('./run-configs-lib');
+const { parseJsonc, parseEnvFile, compoundMembers, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
 // We don't run a real debugger; each launch config / task is translated into a
@@ -16,23 +17,78 @@ function readVscodeJson(name) {
   catch { return null; }
 }
 
-// Names for the toolbar: launch configs + compounds, then task labels.
+const isHiddenLaunch = (c) => !!(c && c.presentation && c.presentation.hidden);
+const orderOf = (c) => (c && c.presentation && typeof c.presentation.order === 'number') ? c.presentation.order : Infinity;
+const byOrder = (a, b) => orderOf(a) - orderOf(b);
+
+// Names for the toolbar: launch configs + compounds, then task labels. Entries a
+// user hid in VS Code (task `hide`, launch/compound `presentation.hidden`) stay
+// hidden here too, and `presentation.order` sorts the visible ones.
 ipcMain.handle('get-run-configs', () => {
   const launch = readVscodeJson('launch.json');
   const tasks = readVscodeJson('tasks.json');
   const launchList = [];
   if (launch) {
-    for (const c of (launch.configurations || [])) if (c && c.name) launchList.push({ name: c.name });
-    for (const c of (launch.compounds || [])) if (c && c.name) launchList.push({ name: c.name, compound: true, members: compoundMembers(c) });
+    for (const c of [...(launch.configurations || [])].sort(byOrder)) {
+      if (c && c.name && !isHiddenLaunch(c)) launchList.push({ name: c.name });
+    }
+    for (const c of [...(launch.compounds || [])].sort(byOrder)) {
+      if (c && c.name && !isHiddenLaunch(c)) launchList.push({ name: c.name, compound: true, members: compoundMembers(c) });
+    }
   }
   const taskList = [];
-  if (tasks) for (const t of (tasks.tasks || [])) { const n = t && (t.label || t.taskName); if (n) taskList.push({ name: n }); }
+  if (tasks) {
+    for (const t of (tasks.tasks || [])) {
+      if (!t || t.hide) continue;
+      const n = t.label || t.taskName;
+      if (n) taskList.push({ name: n });
+    }
+  }
   return { launch: launchList, tasks: taskList };
 });
 
+// The pure lib bound to the open folder plus everything it can't know itself:
+// ${userHome}, ${config:...} (settings.json), ${defaultBuildTask}, collected
+// ${input:...} answers, and the renderer's active file for the ${file} family.
+function makeLib(tasksJson, inputs, activeFile) {
+  const repo = getRepoPath();
+  const file = activeFile ? (path.isAbsolute(activeFile) ? activeFile : path.join(repo, activeFile)) : undefined;
+  return makeRunConfigLib(repo, process.platform, {
+    home: os.homedir(),
+    settings: readVscodeJson('settings.json') || {},
+    defaultBuildTask: defaultBuildTaskName((tasksJson && tasksJson.tasks) || []),
+    inputs: inputs || {},
+    activeFile: file,
+  });
+}
+
+// If the resolved specs still reference ${input:id}s, describe what the renderer
+// must ask the user (VS Code `inputs`: promptString / pickString — `command`
+// inputs run an extension command, which we can't do). Returns null when the
+// specs are ready to run.
+function pendingInputs(runs, ...inputSources) {
+  const ids = findInputIds(runs);
+  if (!ids.length) return null;
+  const defs = inputSources.flatMap((src) => (src && src.inputs) || []);
+  const needs = [];
+  for (const id of ids) {
+    const d = defs.find((x) => x && x.id === id);
+    if (!d || (d.type !== 'promptString' && d.type !== 'pickString')) {
+      return { error: `This config uses \${input:${id}}, which ${d ? `is a "${d.type}" input this app can't run` : 'has no matching entry in "inputs"'}.` };
+    }
+    needs.push({
+      id: d.id, type: d.type, description: d.description || d.id,
+      default: d.default, options: d.options, password: !!d.password,
+    });
+  }
+  return { needsInputs: needs };
+}
+
 // Resolve one config/task by name into run specs (re-reads the files so edits are
 // always picked up). The renderer opens an in-app terminal per spec; a compound
-// yields one spec per referenced configuration.
+// yields one spec per referenced configuration. When a spec needs ${input:...}
+// answers, we instead return { needsInputs } and the renderer re-invokes with the
+// collected values.
 // Merge a launch config's `envFile` into the spec's env (file IO, so it lives here
 // rather than the pure lib). envFile is the base; an explicit `env` key wins. A
 // missing/unreadable file is ignored (VS Code warns but still launches).
@@ -45,34 +101,57 @@ function withEnvFile(spec, cfg, lib) {
   return spec;
 }
 
-ipcMain.handle('run-config', (_e, { kind, name }) => {
-  const lib = makeRunConfigLib(getRepoPath());
-  const { resolveTask, launchSpec } = lib;
+// Resolve a launch config's `preLaunchTask` (a task label, or
+// "${defaultBuildTask}") into task specs to chain in front of the launch command.
+function preLaunchSpecs(cfg, tasksJson, lib) {
+  if (!cfg.preLaunchTask) return [];
+  const all = lib.normalizeTasks(tasksJson);
+  const name = lib.substVars(String(cfg.preLaunchTask));
+  const t = all.find((x) => (x.label || x.taskName) === name);
+  return t ? lib.resolveTask(all, t) : [];
+}
+
+function resolveLaunchConfig(cfg, tasksJson, lib) {
+  const spec = withEnvFile(lib.launchSpec(cfg), cfg, lib);
+  return spec ? lib.prependTasks(preLaunchSpecs(cfg, tasksJson, lib), spec) : null;
+}
+
+ipcMain.handle('run-config', (_e, { kind, name, inputs, activeFile }) => {
+  const tasksJson = readVscodeJson('tasks.json');
+  const lib = makeLib(tasksJson, inputs, activeFile);
   if (kind === 'task') {
-    const tasks = readVscodeJson('tasks.json');
-    const all = (tasks && tasks.tasks) || [];
+    const all = lib.normalizeTasks(tasksJson);
     const t = all.find((x) => (x.label || x.taskName) === name);
     if (!t) return { ok: false, error: 'Task not found' };
-    const runs = resolveTask(all, t);
+    const runs = lib.resolveTask(all, t);
     if (!runs.length) return { ok: false, error: 'Task has no runnable command (a compound must reference tasks that do)' };
+    const pending = pendingInputs(runs, tasksJson, readVscodeJson('launch.json'));
+    if (pending) return { ok: false, ...pending };
     return { ok: true, runs };
   }
   const launch = readVscodeJson('launch.json');
   if (!launch) return { ok: false, error: 'No launch.json' };
+  const done = (runs) => {
+    const pending = pendingInputs(runs, launch, tasksJson);
+    if (pending) return { ok: false, ...pending };
+    return { ok: true, runs };
+  };
   const compound = (launch.compounds || []).find((c) => c.name === name);
   if (compound) {
-    const runs = [];
+    // A compound-level preLaunchTask runs once, in its own terminal, before the
+    // members (best effort: members start in parallel, as VS Code does).
+    const runs = preLaunchSpecs(compound, tasksJson, lib);
     for (const ref of (compound.configurations || [])) {
       const refName = typeof ref === 'object' ? ref.name : ref;
       const cfg = (launch.configurations || []).find((c) => c.name === refName);
-      if (cfg) { const s = withEnvFile(launchSpec(cfg), cfg, lib); if (s) runs.push(s); }
+      if (cfg) { const s = resolveLaunchConfig(cfg, tasksJson, lib); if (s) runs.push(s); }
     }
-    return runs.length ? { ok: true, runs } : { ok: false, error: 'Compound references no runnable configs' };
+    return runs.length ? done(runs) : { ok: false, error: 'Compound references no runnable configs' };
   }
   const cfg = (launch.configurations || []).find((c) => c.name === name);
   if (!cfg) return { ok: false, error: 'Config not found' };
-  const s = withEnvFile(launchSpec(cfg), cfg, lib);
-  if (s) return { ok: true, runs: [s] };
+  const s = resolveLaunchConfig(cfg, tasksJson, lib);
+  if (s) return done([s]);
   const ofType = cfg.type ? ` of type "${cfg.type}"` : '';
   return { ok: false, error: `Couldn't derive a run command for "${name}"${ofType}. This config has no runnable "program" or "runtimeExecutable" (and no browser "url"/"file") — it's likely an attach config, which this app can't launch as a terminal command.` };
 });

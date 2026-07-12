@@ -37,6 +37,7 @@
 
 /* file explorer tree */
 #file-tree { flex: 1; overflow: auto; padding-bottom: 6px; user-select: none; }
+#file-tree:focus { outline: none; }
 .tree-row {
   display: flex; align-items: center; gap: 4px;
   height: 22px; padding-right: 8px; cursor: pointer; white-space: nowrap;

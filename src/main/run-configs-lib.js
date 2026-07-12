@@ -96,7 +96,48 @@ function compoundMembers(compound) {
     .filter(Boolean);
 }
 
-function makeRunConfigLib(repoPath, platform = process.platform) {
+// Scan resolved run specs for unresolved ${input:id} placeholders — the ids the
+// caller must collect values for (VS Code's `inputs`) before the run can start.
+function findInputIds(specs) {
+  const ids = new Set();
+  const scan = (s) => {
+    if (typeof s !== 'string') return;
+    for (const m of s.matchAll(/\$\{input:([^}]+)\}/g)) ids.add(m[1]);
+  };
+  for (const spec of specs || []) {
+    scan(spec.command); scan(spec.cwd);
+    for (const v of Object.values(spec.env || {})) scan(v);
+  }
+  return [...ids];
+}
+
+// Label of the default build task (`group: "build"` with isDefault, or the first
+// plain `"build"` group). Backs the ${defaultBuildTask} variable and lets a
+// launch config say `"preLaunchTask": "${defaultBuildTask}"`.
+function defaultBuildTaskName(tasks) {
+  const isBuild = (g) => g === 'build' || (g && typeof g === 'object' && g.kind === 'build');
+  const flagged = (tasks || []).find((t) => t.group && typeof t.group === 'object' && t.group.kind === 'build' && t.group.isDefault);
+  const any = flagged || (tasks || []).find((t) => isBuild(t.group));
+  return any ? (any.label || any.taskName) : undefined;
+}
+
+// Shell args VS Code implies when a task's `options.shell.executable` is given
+// without explicit args: the flag that makes that shell run one command line.
+function defaultShellArgs(exe) {
+  const base = path.basename(String(exe)).toLowerCase();
+  if (base.includes('powershell') || base.includes('pwsh')) return ['-Command'];
+  if (base.includes('cmd')) return ['/d', '/c'];
+  return ['-c'];
+}
+
+// `ctx` supplies what pure translation can't know on its own — all optional:
+//   home             ${userHome}
+//   settings         .vscode/settings.json object, for ${config:dotted.key}
+//   defaultBuildTask label backing ${defaultBuildTask}
+//   inputs           { id: value } answers, for ${input:id}
+//   activeFile       absolute path of the file open in the editor, for the
+//                    ${file}/${fileBasename}/${relativeFile}/… family
+function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
   // VS Code lets a task or launch config override `command`/`args`/`options`
   // (and program/runtimeExecutable/env/…) under a platform key — `windows` on
   // win32, `osx` on macOS, `linux` elsewhere — with the override winning per
@@ -114,16 +155,53 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
     return merged;
   }
 
-  // Resolve the VS Code variables we can without a live editor context. Unknown
-  // ${...} placeholders (e.g. ${file}) are left untouched — best effort.
+  // The ${file}-family variables, derived from ctx.activeFile when one is open.
+  function fileVars() {
+    const af = ctx.activeFile;
+    if (!af) return null;
+    const dir = path.dirname(af);
+    const base = path.basename(af);
+    const ext = path.extname(af);
+    return {
+      file: af,
+      fileBasename: base,
+      fileBasenameNoExtension: base.slice(0, base.length - ext.length),
+      fileExtname: ext,
+      fileDirname: dir,
+      fileDirnameBasename: path.basename(dir),
+      relativeFile: path.relative(repoPath, af),
+      relativeFileDirname: path.relative(repoPath, dir),
+      fileWorkspaceFolder: repoPath,
+    };
+  }
+
+  // Resolve the VS Code variables we can. ${input:id} resolves from ctx.inputs
+  // when the caller has collected an answer; otherwise it (like ${command:...},
+  // or ${file} with no open editor) is left untouched — best effort, and the
+  // leftover ${input:...}s are how findInputIds knows what still needs asking.
   function substVars(str) {
     if (typeof str !== 'string') return str;
-    return str
-      .replace(/\$\{workspaceFolder(?:Basename)?\}/g, (m) => m.includes('Basename') ? path.basename(repoPath) : repoPath)
-      .replace(/\$\{workspaceRoot\}/g, repoPath)
-      .replace(/\$\{cwd\}/g, repoPath)
-      .replace(/\$\{pathSeparator\}/g, path.sep)
-      .replace(/\$\{env:([^}]+)\}/g, (_, n) => process.env[n] || '');
+    return str.replace(/\$\{([^}]+)\}/g, (m, key) => {
+      switch (key) {
+        case 'workspaceFolder': case 'workspaceRoot': case 'cwd': return repoPath;
+        case 'workspaceFolderBasename': return path.basename(repoPath);
+        case 'pathSeparator': case '/': return path.sep;
+        case 'userHome': return ctx.home != null ? ctx.home : m;
+        case 'defaultBuildTask': return ctx.defaultBuildTask != null ? ctx.defaultBuildTask : m;
+      }
+      if (key.startsWith('env:')) return process.env[key.slice(4)] || '';
+      if (key.startsWith('config:')) {
+        const v = (ctx.settings || {})[key.slice(7)]; // settings.json keys are literal dotted strings
+        return v == null ? '' : String(v);
+      }
+      if (key.startsWith('input:')) {
+        const v = (ctx.inputs || {})[key.slice(6)];
+        return v == null ? m : String(v);
+      }
+      const fv = fileVars();
+      if (fv && key in fv) return fv[key];
+      return m;
+    });
   }
 
   // On Windows, rewrite an extensionless build-tool wrapper (mvnw/gradlew) to its
@@ -177,26 +255,67 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
       return [...opener, target].map(quoteArg).join(' ');
     }
     let parts;
-    if (type.includes('node')) parts = [runExe || 'node', ...runArgs, program, ...args];
-    else if (type.includes('python') || type === 'debugpy') parts = [runExe || 'python', ...runArgs, program, ...args];
+    // An interpreter type with neither a program nor a runtimeExecutable (the
+    // attach-config shape) has nothing to run — don't fall through to a bare REPL.
+    if (type.includes('node')) parts = (program || runExe) ? [runExe || 'node', ...runArgs, program, ...args] : null;
+    else if (type.includes('python') || type === 'debugpy') parts = (program || runExe) ? [runExe || 'python', ...runArgs, program, ...args] : null;
     else if (runExe) parts = [runExe, ...runArgs, program, ...args];
     else if (TYPE_RUNTIME[type] && program) parts = [...TYPE_RUNTIME[type], ...runArgs, program, ...args];
     else if (program) parts = [program, ...args];
     else return null;
+    if (!parts) return null;
     return parts.filter((p) => p !== '' && p != null).map(quoteArg).join(' ');
   }
 
-  // Turn a task into a command line: `command` (verbatim for shell tasks, which may
-  // be a full line) followed by its quoted args. Returns null with no command.
+  // Wrap a built command line in the task's custom shell (`options.shell`), when
+  // one is set: `<executable> <shell args> "<line>"`. Without explicit args we
+  // supply the shell's run-one-command flag (defaultShellArgs).
+  function wrapShell(line, options) {
+    const sh = options && options.shell;
+    if (!sh || !sh.executable) return line;
+    const exe = substVars(sh.executable);
+    const shArgs = (sh.args && sh.args.length ? sh.args : defaultShellArgs(exe)).map(substVars);
+    return [quoteArg(exe), ...shArgs.map(quoteArg), `"${line.replace(/"/g, '\\"')}"`].join(' ');
+  }
+
+  // Turn a task into a command line. Contributed task types that name their tool
+  // (npm/typescript/gulp/grunt/jake) are expanded to that tool's CLI; otherwise
+  // it's the `command` (verbatim for shell tasks, which may be a full line)
+  // followed by its quoted args. Returns null with nothing to run.
   function buildTaskCommand(task) {
     task = mergePlatform(task);
-    let command = task.command;
-    if (command && typeof command === 'object') command = command.value;
-    command = substVars(command || '');
-    if (!command) return null;
-    const args = (task.args || []).map((a) => substVars(typeof a === 'object' ? (a.value ?? '') : a));
-    if (task.type === 'process') return [command, ...args].map(quoteArg).join(' ');
-    return [command, ...args.map(quoteArg)].join(' '); // shell task: command stays verbatim
+    let line = null;
+    if (task.type === 'npm') {
+      const script = substVars(task.script || '');
+      line = script ? ['npm', 'run', script].map(quoteArg).join(' ') : null;
+    } else if (task.type === 'typescript') {
+      const parts = ['npx', 'tsc'];
+      if (task.tsconfig) parts.push('-p', substVars(task.tsconfig));
+      if (task.option === 'watch') parts.push('--watch');
+      line = parts.map(quoteArg).join(' ');
+    } else if (task.type === 'gulp' || task.type === 'grunt' || task.type === 'jake') {
+      const parts = ['npx', task.type];
+      if (task.task) parts.push(substVars(task.task));
+      line = parts.map(quoteArg).join(' ');
+    } else {
+      let command = task.command;
+      if (command && typeof command === 'object') command = command.value;
+      command = substVars(command || '');
+      if (!command) return null;
+      // Args may be plain strings or { value, quoting } objects; "strong"/"weak"
+      // quoting means "always quote" (we can't do literal single-quoting portably,
+      // so both map to our double-quote — best effort).
+      const args = (task.args || []).map((a) => {
+        const raw = typeof a === 'object' && a !== null ? (a.value ?? '') : a;
+        const force = typeof a === 'object' && a !== null && (a.quoting === 'strong' || a.quoting === 'weak');
+        const v = substVars(raw);
+        return force && !/^".*"$/.test(v) ? `"${v}"` : quoteArg(v);
+      });
+      line = task.type === 'process'
+        ? [quoteArg(command), ...args].join(' ')
+        : [command, ...args].join(' '); // shell task: command stays verbatim
+    }
+    return line == null ? null : wrapShell(line, task.options);
   }
 
   // Prefix a sequence step with a directory change when it runs somewhere other than
@@ -240,8 +359,13 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
     if (!deps.length) {
       const cmd = buildTaskCommand(task);
       if (!cmd) return [];
-      const opt = mergePlatform(task).options || {};
-      return [{ command: cmd, cwd: opt.cwd ? substVars(opt.cwd) : repoPath, env: envMap(opt.env), name: label }];
+      const merged = mergePlatform(task);
+      const opt = merged.options || {};
+      // An npm task's `path` is its package dir (relative to the workspace);
+      // an explicit options.cwd still wins.
+      let cwd = opt.cwd ? substVars(opt.cwd) : repoPath;
+      if (!opt.cwd && merged.type === 'npm' && merged.path) cwd = path.join(repoPath, substVars(merged.path));
+      return [{ command: cmd, cwd, env: envMap(opt.env), name: label }];
     }
 
     const depSpecs = deps.flatMap((d) => {
@@ -265,6 +389,34 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
     return ordered; // parallel / any: one terminal per resolved spec
   }
 
+  // Fold tasks.json's *global* scope onto each task: a top-level `options` (and
+  // top-level windows/osx/linux override blocks) applies to every task, with the
+  // task's own values winning per property (env/cwd shallow-merged like VS Code).
+  function normalizeTasks(tasksJson) {
+    if (!tasksJson) return [];
+    const g = mergePlatform(tasksJson);
+    const gOpt = g.options;
+    return (g.tasks || []).map((t) => {
+      if (!gOpt || typeof gOpt !== 'object') return t;
+      return { ...t, options: { ...gOpt, ...t.options, env: { ...gOpt.env, ...(t.options || {}).env } } };
+    });
+  }
+
+  // VS Code's `preLaunchTask`: chain the task's resolved steps in front of the
+  // launch command in ONE terminal, so the launch only starts once the task
+  // succeeded. The terminal sits at the repo root; every step (including the
+  // launch itself) carries its own cd prefix when it runs elsewhere.
+  function prependTasks(taskSpecs, spec) {
+    if (!spec || !taskSpecs || !taskSpecs.length) return spec;
+    const all = [...taskSpecs, spec];
+    return {
+      command: chainCommands(all.map(stepCommand)),
+      cwd: repoPath,
+      env: Object.assign({}, ...all.map((s) => s.env || {})),
+      name: spec.name,
+    };
+  }
+
   // A run spec the renderer turns into an in-app terminal tab: the command line plus
   // the cwd/env to spawn its shell in, and the name used as the tab label.
   function launchSpec(cfg) {
@@ -274,7 +426,7 @@ function makeRunConfigLib(repoPath, platform = process.platform) {
     return { command: cmd, cwd: m.cwd ? substVars(m.cwd) : repoPath, env: envMap(m.env), name: m.name };
   }
 
-  return { substVars, envMap, winExe, mergePlatform, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec };
+  return { substVars, envMap, winExe, mergePlatform, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec, normalizeTasks, prependTasks };
 }
 
-module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, compoundMembers, makeRunConfigLib };
+module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, compoundMembers, findInputIds, defaultBuildTaskName, makeRunConfigLib };

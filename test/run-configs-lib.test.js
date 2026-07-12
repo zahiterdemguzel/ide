@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseJsonc, parseEnvFile, compoundMembers, makeRunConfigLib } = require('../src/main/run-configs-lib');
+const path = require('path');
+const { parseJsonc, parseEnvFile, compoundMembers, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('../src/main/run-configs-lib');
 
 const REPO = '/repo';
 const lin = makeRunConfigLib(REPO, 'linux');
@@ -78,6 +79,60 @@ test('substVars: non-strings pass through', () => {
   assert.equal(lin.substVars(5), 5);
 });
 
+test('substVars: ctx-backed variables (userHome, config, defaultBuildTask, input)', () => {
+  const l = makeRunConfigLib(REPO, 'linux', {
+    home: '/home/u',
+    settings: { 'my.port': 8080 },
+    defaultBuildTask: 'build',
+    inputs: { env: 'staging' },
+  });
+  assert.equal(l.substVars('${userHome}/x'), '/home/u/x');
+  assert.equal(l.substVars('--port=${config:my.port}'), '--port=8080');
+  assert.equal(l.substVars('${defaultBuildTask}'), 'build');
+  assert.equal(l.substVars('deploy-${input:env}'), 'deploy-staging');
+  // An unanswered input and a missing config key behave like VS Code best-effort:
+  assert.equal(l.substVars('${input:other}'), '${input:other}');
+  assert.equal(l.substVars('${config:absent}'), '');
+});
+
+test('substVars: without ctx, userHome/defaultBuildTask stay untouched', () => {
+  assert.equal(lin.substVars('${userHome}'), '${userHome}');
+  assert.equal(lin.substVars('${defaultBuildTask}'), '${defaultBuildTask}');
+});
+
+test('substVars: ${file}-family variables from ctx.activeFile', () => {
+  const af = path.join(REPO, 'src', 'app.test.js');
+  const l = makeRunConfigLib(REPO, 'linux', { activeFile: af });
+  assert.equal(l.substVars('${file}'), af);
+  assert.equal(l.substVars('${fileBasename}'), 'app.test.js');
+  assert.equal(l.substVars('${fileBasenameNoExtension}'), 'app.test');
+  assert.equal(l.substVars('${fileExtname}'), '.js');
+  assert.equal(l.substVars('${fileDirname}'), path.join(REPO, 'src'));
+  assert.equal(l.substVars('${fileDirnameBasename}'), 'src');
+  assert.equal(l.substVars('${relativeFile}'), path.join('src', 'app.test.js'));
+  assert.equal(l.substVars('${relativeFileDirname}'), 'src');
+  assert.equal(l.substVars('${fileWorkspaceFolder}'), REPO);
+  // No active file: left untouched.
+  assert.equal(lin.substVars('${fileBasename}'), '${fileBasename}');
+});
+
+// --- findInputIds / defaultBuildTaskName ---
+
+test('findInputIds: collects unresolved input ids across command/cwd/env', () => {
+  assert.deepEqual(findInputIds([
+    { command: 'run ${input:a} ${input:b}', cwd: '/x/${input:c}', env: { K: '${input:a}' } },
+  ]).sort(), ['a', 'b', 'c']);
+  assert.deepEqual(findInputIds([{ command: 'plain' }]), []);
+});
+
+test('defaultBuildTaskName: isDefault wins, plain "build" group is a fallback', () => {
+  const t1 = { label: 'compile', group: 'build' };
+  const t2 = { label: 'bundle', group: { kind: 'build', isDefault: true } };
+  assert.equal(defaultBuildTaskName([t1, t2]), 'bundle');
+  assert.equal(defaultBuildTaskName([t1]), 'compile');
+  assert.equal(defaultBuildTaskName([{ label: 'x', group: 'test' }]), undefined);
+});
+
 // --- buildLaunchCommand ---
 
 test('buildLaunchCommand: node config', () => {
@@ -138,6 +193,9 @@ test('buildLaunchCommand: bare program with no known type just runs it', () => {
 test('buildLaunchCommand: returns null for an unrunnable config (attach/no program)', () => {
   assert.equal(lin.buildLaunchCommand({ type: 'go' }), null); // TYPE_RUNTIME but no program
   assert.equal(lin.buildLaunchCommand({ type: 'chrome' }), null); // browser but no url/file
+  // A node/python attach config (no program) must not become a bare REPL.
+  assert.equal(lin.buildLaunchCommand({ type: 'node', request: 'attach', port: 9229 }), null);
+  assert.equal(lin.buildLaunchCommand({ type: 'python', request: 'attach' }), null);
 });
 
 test('buildLaunchCommand: browser config opens its url with the OS opener', () => {
@@ -223,6 +281,45 @@ test('buildTaskCommand: command/args may be {value} objects', () => {
 
 test('buildTaskCommand: returns null with no command', () => {
   assert.equal(lin.buildTaskCommand({ args: ['x'] }), null);
+});
+
+test('buildTaskCommand: npm task type runs the script', () => {
+  assert.equal(lin.buildTaskCommand({ type: 'npm', script: 'build' }), 'npm run build');
+  assert.equal(lin.buildTaskCommand({ type: 'npm' }), null); // no script -> nothing to run
+});
+
+test('buildTaskCommand: typescript task type maps to npx tsc', () => {
+  assert.equal(lin.buildTaskCommand({ type: 'typescript', tsconfig: 'tsconfig.json' }), 'npx tsc -p tsconfig.json');
+  assert.equal(lin.buildTaskCommand({ type: 'typescript', tsconfig: 'tsconfig.json', option: 'watch' }),
+    'npx tsc -p tsconfig.json --watch');
+});
+
+test('buildTaskCommand: gulp/grunt/jake task types run via npx', () => {
+  assert.equal(lin.buildTaskCommand({ type: 'gulp', task: 'clean' }), 'npx gulp clean');
+  assert.equal(lin.buildTaskCommand({ type: 'grunt', task: 'dist' }), 'npx grunt dist');
+  assert.equal(lin.buildTaskCommand({ type: 'jake' }), 'npx jake');
+});
+
+test('buildTaskCommand: { value, quoting: "strong" } args are always quoted', () => {
+  assert.equal(
+    lin.buildTaskCommand({ type: 'shell', command: 'echo', args: [{ value: 'nospace', quoting: 'strong' }, { value: 'plain' }] }),
+    'echo "nospace" plain',
+  );
+});
+
+test('buildTaskCommand: options.shell wraps the line in the custom shell', () => {
+  assert.equal(
+    lin.buildTaskCommand({ type: 'shell', command: 'echo hi', options: { shell: { executable: '/bin/zsh' } } }),
+    '/bin/zsh -c "echo hi"',
+  );
+  assert.equal(
+    lin.buildTaskCommand({ type: 'shell', command: 'dir', options: { shell: { executable: 'cmd.exe' } } }),
+    'cmd.exe /d /c "dir"',
+  );
+  assert.equal(
+    lin.buildTaskCommand({ type: 'shell', command: 'ls', options: { shell: { executable: 'pwsh', args: ['-NoProfile', '-Command'] } } }),
+    'pwsh -NoProfile -Command "ls"',
+  );
 });
 
 // The co-op LAN test task: a `bash foo.sh` process task with a `windows` override
@@ -337,6 +434,59 @@ test('resolveTask: a dependency cycle terminates (no infinite recursion)', () =>
   const specs = lin.resolveTask([a, b], a);
   // Must return *something* finite rather than hang/throw.
   assert.ok(Array.isArray(specs));
+});
+
+test('resolveTask: npm task path sets the spec cwd (options.cwd still wins)', () => {
+  const t = { label: 'web build', type: 'npm', script: 'build', path: 'packages/web' };
+  assert.deepEqual(lin.resolveTask([t], t), [
+    { command: 'npm run build', cwd: path.join(REPO, 'packages/web'), env: {}, name: 'web build' },
+  ]);
+  const t2 = { ...t, options: { cwd: '/elsewhere' } };
+  assert.equal(lin.resolveTask([t2], t2)[0].cwd, '/elsewhere');
+});
+
+// --- normalizeTasks / prependTasks ---
+
+test('normalizeTasks: global options fold onto tasks, task values win', () => {
+  const json = {
+    options: { cwd: '/g', env: { A: '1', B: 'base' } },
+    tasks: [
+      { label: 'a', command: 'x' },
+      { label: 'b', command: 'y', options: { cwd: '/t', env: { B: 'task' } } },
+    ],
+  };
+  const [a, b] = lin.normalizeTasks(json);
+  assert.deepEqual(a.options, { cwd: '/g', env: { A: '1', B: 'base' } });
+  assert.deepEqual(b.options, { cwd: '/t', env: { A: '1', B: 'task' } });
+});
+
+test('normalizeTasks: global platform block overrides global options', () => {
+  const json = {
+    options: { env: { MODE: 'base' } },
+    windows: { options: { env: { MODE: 'win' } } },
+    tasks: [{ label: 'a', command: 'x' }],
+  };
+  assert.equal(win.normalizeTasks(json)[0].options.env.MODE, 'win');
+  assert.equal(lin.normalizeTasks(json)[0].options.env.MODE, 'base');
+});
+
+test('prependTasks: chains preLaunchTask steps before the launch command', () => {
+  const taskSpecs = [{ command: 'npm run build', cwd: REPO, env: { A: '1' } }];
+  const launch = { command: 'node app.js', cwd: REPO, env: { B: '2' }, name: 'Server' };
+  assert.deepEqual(lin.prependTasks(taskSpecs, launch), {
+    command: 'npm run build && node app.js', cwd: REPO, env: { A: '1', B: '2' }, name: 'Server',
+  });
+  // No tasks: the launch spec passes through untouched.
+  assert.equal(lin.prependTasks([], launch), launch);
+});
+
+test('prependTasks: a step (or the launch) in another cwd gets a cd prefix', () => {
+  const taskSpecs = [{ command: 'make', cwd: '/repo/sub', env: {} }];
+  const launch = { command: 'run', cwd: '/repo/app', env: {}, name: 'L' };
+  assert.equal(
+    lin.prependTasks(taskSpecs, launch).command,
+    "cd '/repo/sub' && make && cd '/repo/app' && run",
+  );
 });
 
 test('resolveTask: a single string dependsOn is accepted', () => {
