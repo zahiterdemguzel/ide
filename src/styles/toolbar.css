@@ -4,14 +4,20 @@
   height: 36px; padding: 0 8px; background: var(--bg-3);
   border-bottom: 1px solid var(--border); overflow: hidden;
 }
-/* The run strip grows to fill the bar and scrolls internally when it overflows,
-   so the usage meter + browser/settings stay pinned to the right edge no matter
-   how many run buttons there are. Scrollbar hidden (wheel/trackpad still scrolls). */
+/* The runs area grows to fill the bar so the usage meter + browser/settings stay
+   pinned to the right edge. Inside it, launch configs and tasks each sit in their
+   own .run-strip that scrolls internally when it overflows (scrollbar hidden;
+   wheel/trackpad still scrolls), so the two groups scroll independently and the
+   separator between them stays put. */
 #toolbar-runs {
   display: flex; align-items: center; gap: 6px;
-  flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
+  flex: 1 1 auto; min-width: 0; overflow: hidden;
 }
-#toolbar-runs::-webkit-scrollbar { display: none; }
+.run-strip {
+  display: flex; align-items: center; gap: 6px;
+  flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
+}
+.run-strip::-webkit-scrollbar { display: none; }
 .tool-btn {
   display: inline-flex; align-items: center; gap: 5px;
   background: var(--bg-2); color: var(--fg); border: 1px solid var(--border);

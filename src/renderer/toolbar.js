@@ -9,6 +9,17 @@ import { getActiveFile } from './viewer/file.js';
 // relaunching reuses its existing tab. Rebuilt on startup and on open-folder.
 const toolbarRuns = document.getElementById('toolbar-runs');
 
+// Each group (launch configs, tasks) lives in its own strip that scrolls
+// horizontally (hidden scrollbar) when it overflows, so scrolling one group
+// never moves the other. A plain mouse wheel only emits vertical deltas —
+// translate those into scrollLeft on whichever strip the pointer is over.
+toolbarRuns.addEventListener('wheel', (e) => {
+  const strip = e.target.closest('.run-strip');
+  if (!strip || !e.deltaY || e.deltaX) return; // trackpad horizontal swipes already work
+  strip.scrollLeft += e.deltaY;
+  e.preventDefault();
+}, { passive: false });
+
 // Launch buttons whose icon flips play -> restart while their terminal is alive.
 // Each entry: { btn, ico, stop, name, compound, members }.
 let launchButtons = [];
@@ -182,12 +193,22 @@ export async function loadToolbar() {
   // The folder has configs, but the user may have hidden one or both groups.
   const launch = isPanelEnabled('launch') ? rawLaunch : [];
   const tasks = isPanelEnabled('tasks') ? rawTasks : [];
-  for (const c of launch) toolbarRuns.appendChild(runButton('launch', c.name, c.compound, c.members));
+  if (launch.length) {
+    const strip = document.createElement('div');
+    strip.className = 'run-strip';
+    for (const c of launch) strip.appendChild(runButton('launch', c.name, c.compound, c.members));
+    toolbarRuns.appendChild(strip);
+  }
   if (launch.length && tasks.length) {
     const sep = document.createElement('span');
     sep.className = 'tool-sep';
     toolbarRuns.appendChild(sep);
   }
-  for (const t of tasks) toolbarRuns.appendChild(runButton('task', t.name));
+  if (tasks.length) {
+    const strip = document.createElement('div');
+    strip.className = 'run-strip';
+    for (const t of tasks) strip.appendChild(runButton('task', t.name));
+    toolbarRuns.appendChild(strip);
+  }
   refreshRunStates();
 }
