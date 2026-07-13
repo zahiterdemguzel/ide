@@ -1,4 +1,4 @@
-import { AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT } from '../../shared/ext.js';
+import { AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, SCENE_EXT } from '../../shared/ext.js';
 import { renderAudio } from './audio.js';
 import { renderZoom } from './zoom.js';
 import { renderPixelEditor } from './pixel-editor.js';
@@ -39,6 +39,12 @@ export async function showAsset(file, ext) {
   });
   openExt.title = "Open in the OS's default program for this file type";
   assetTools.appendChild(openExt);
+
+  // Godot scenes are text, not bytes — the scene editor reads the file itself.
+  if (SCENE_EXT.has(ext)) {
+    renderSceneCoordinator(file, assetBody, assetTools, registerCleanup);
+    return;
+  }
 
   const r = await window.api.readAsset(file);
   if (!r.ok) { assetBody.textContent = r.error || 'Could not read file'; return; }
@@ -150,6 +156,33 @@ function renderModelCoordinator(file, base64, ext, body, tools, registerCleanup)
 
   registerCleanup(() => { if (subCleanup) subCleanup(); tools.classList.remove('asset-edit-mode'); });
   showView();
+}
+
+// Godot scene coordinator: a single edit mode (the 3D scene editor is also the
+// viewer), so unlike the model/PDF/vector coordinators there's no view↔edit
+// switch — just the lazy import that keeps three.js off this module's eager
+// graph. "Open externally" stays visible (it hands the scene to Godot itself).
+function renderSceneCoordinator(file, body, tools, registerCleanup) {
+  const viewTools = document.createElement('span');
+  viewTools.className = 'asset-view-tools';
+  tools.insertBefore(viewTools, tools.firstChild);
+
+  let subCleanup = null;
+  const registerSub = (fn) => { subCleanup = fn; };
+  registerCleanup(() => { if (subCleanup) subCleanup(); });
+
+  (async () => {
+    try {
+      const [{ renderSceneEditor }, r] = await Promise.all([
+        import('./scene-editor.js'),
+        window.api.readText(file),
+      ]);
+      if (!r.ok) { body.textContent = r.error || 'Could not read file'; return; }
+      renderSceneEditor(file, r.text, body, viewTools, registerSub);
+    } catch (e) {
+      body.textContent = 'Could not open scene: ' + (e && e.message ? e.message : e);
+    }
+  })();
 }
 
 // PDF coordinator: mirrors renderModelCoordinator for .pdf. The view is a

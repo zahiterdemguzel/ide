@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extOf, fileColor, IMG_EXT, AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, HTML_EXT } from '../src/renderer/shared/ext.js';
+import { extOf, fileColor, IMG_EXT, AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, HTML_EXT, SCENE_EXT } from '../src/renderer/shared/ext.js';
 
 test('extOf: returns the lowercased extension after the last dot', () => {
   assert.equal(extOf('index.js'), 'js');
@@ -43,8 +43,13 @@ test('HTML_EXT covers both spellings and excludes non-HTML types', () => {
   for (const e of ['xhtml', 'css', 'js', 'md', 'txt']) assert.ok(!HTML_EXT.has(e));
 });
 
+test('SCENE_EXT routes Godot scenes only (.tres/.escn stay with the text editor)', () => {
+  assert.ok(SCENE_EXT.has('tscn'));
+  for (const e of ['tres', 'escn', 'gd', 'godot']) assert.ok(!SCENE_EXT.has(e));
+});
+
 test('the asset-viewer extension sets are disjoint (one routing per type)', () => {
-  const sets = [IMG_EXT, AUDIO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT];
+  const sets = [IMG_EXT, AUDIO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SCENE_EXT];
   for (let i = 0; i < sets.length; i++)
     for (let j = i + 1; j < sets.length; j++)
       for (const e of sets[i]) assert.ok(!sets[j].has(e), `${e} is in two asset sets`);

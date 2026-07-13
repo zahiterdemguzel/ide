@@ -1,4 +1,4 @@
-import { IMG_EXT, AUDIO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SHEET_EXT, DB_EXT, extOf } from '../shared/ext.js';
+import { IMG_EXT, AUDIO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SHEET_EXT, DB_EXT, SCENE_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
 import { showDiff, showCommit, showStash } from './diff.js';
 import { showFile } from './file.js';
@@ -55,12 +55,13 @@ function hideSessionViews() {
 
 function clearCenter() { hideAllOverlays(); hideSessionViews(); }
 
-// Route a file opened from the tree/search: images/audio/3D-models/vector → asset
-// viewer, everything else → read-only text view. `jump` (optional { line, term }).
+// Route a file opened from the tree/search: images/audio/3D-models/vector/Godot
+// scenes → asset viewer, everything else → read-only text view. `jump`
+// (optional { line, term }).
 export async function openFromTree(file, jump) {
   clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext) || PDF_EXT.has(ext)) (await load('asset')).showAsset(file, ext);
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext) || PDF_EXT.has(ext) || SCENE_EXT.has(ext)) (await load('asset')).showAsset(file, ext);
   else if (SHEET_EXT.has(ext)) (await load('sheet')).showSheet(file, ext);
   else if (DB_EXT.has(ext)) (await load('db')).showDb(file, ext);
   else showFile(file, jump);

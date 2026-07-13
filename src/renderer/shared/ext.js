@@ -37,6 +37,10 @@ export const DB_EXT = new Set([
   'duckdb', 'ddb', 'mdb', 'accdb', 'mdf', 'ndf', 'ldf',
   'myd', 'myi', 'frm', 'ibd', 'fdb', 'gdb', 'dbf', 'realm', 'bdb', 'nsf', 'odb',
 ]);
+// Godot scene files open the 3D scene editor (a three.js view over the parsed
+// .tscn text — see shared/tscn.js). .escn/.tres stay with the text editor:
+// .escn is an export artifact and .tres holds a single resource, not a scene.
+export const SCENE_EXT = new Set(['tscn']);
 // HTML files the editor offers a Preview/Code toggle for: Preview swaps the text
 // editor for the page rendered in a webview, Code switches back. Both spellings.
 export const HTML_EXT = new Set(['html', 'htm']);
@@ -59,6 +63,8 @@ const FILE_COLORS = {
   wav: '#ba68c8', ogg: '#ba68c8', mp3: '#ba68c8', mp4: '#ba68c8', mov: '#ba68c8',
   glb: '#ff7043', gltf: '#ff7043', fbx: '#ff7043', obj: '#ff7043',
   usdz: '#ff7043', stl: '#ff7043', ply: '#ff7043',
+  // Godot family — the engine's brand blue
+  tscn: '#478cbf', tres: '#478cbf', escn: '#478cbf', gd: '#478cbf', godot: '#478cbf',
   ini: '#9e9e9e', env: '#9e9e9e', conf: '#9e9e9e', cfg: '#9e9e9e',
   zip: '#bcaaa4', tar: '#bcaaa4', gz: '#bcaaa4', rar: '#bcaaa4', '7z': '#bcaaa4',
   txt: '#bdbdbd', pdf: '#e57373', sql: '#e8a33d',
