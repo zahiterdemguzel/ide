@@ -1,15 +1,19 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
-import { createViewer, frameObject, buildHierarchy, addEmptyMarkers } from './model-scene.js';
+import { createViewer, frameObject, buildHierarchy, addEmptyMarkers, loadModel } from './model-scene.js';
 import { assetBtn } from './ui.js';
+import { base64ToArrayBuffer } from '../../shared/base64.js';
+import { MODEL_EXT, extOf } from '../../shared/ext.js';
 import { refreshGit } from '../../git-pane.js';
 import { showFile } from '../file.js';
 import { hideAsset } from './index.js';
+import { t } from '../../../i18n/index.js';
 import {
   parseTscn, serializeTscn, nodeSections, nodePathOf, attrStr, getAttr, getProp,
   parseNums, parseRef, transformOfNode, setNodeTransform, addNode, removeNodeTree,
-  addSubResource, uniqueChildName,
+  addSubResource, addExtResource, uniqueChildName, reparentNode,
 } from '../../shared/tscn.js';
+import { modelEntries, nodeNameFor, godotRootOf } from '../../shared/scene-assets.js';
 
 // 3D editor for Godot .tscn scenes, built on the same shared scene core as the
 // glTF editor (model-scene.js): outliner, orbit viewer, transform gizmo, undo/
@@ -17,9 +21,10 @@ import {
 // truth — the three.js graph is a live *view* of it. Every edit mutates the doc
 // (so unknown node types, scripts, signals and properties survive untouched)
 // and mirrors the change onto the three.js objects; Save serializes the doc
-// back through write-text. Node types the viewer can't visualize (scripts,
-// instanced scenes, non-primitive meshes) still appear in the outliner and get
-// a placeholder in the viewport so they can be selected and transformed.
+// back through write-text. Instanced model files (.glb/.obj/…) load their real
+// mesh asynchronously; node types the viewer can't visualize (scripts, .tscn
+// instances, .res meshes) still appear in the outliner and get a placeholder
+// in the viewport so they can be selected and transformed.
 
 export function renderSceneEditor(file, text, body, tools, registerCleanup) {
   let doc = parseTscn(text);
@@ -33,20 +38,65 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
   const viewer = createViewer(body);
   const { scene, camera, renderer, controls } = viewer;
 
-  // --- header: Save + status + raw-text escape hatch ---
+  // --- header: Code | Preview switch + Save + status ---
   const status = document.createElement('span');
   status.className = 'asset-pct';
   let saving = false, dirty = false;
-  const setStatus = (t) => { status.textContent = t; };
+  const setStatus = (s) => { status.textContent = s; };
   const refreshSave = () => { saveBtn.disabled = !dirty || saving; };
   const markDirty = () => { dirty = true; setStatus(''); refreshSave(); };
 
-  const textBtn = assetBtn('Text', () => { hideAsset(); showFile(file); });
-  textBtn.title = 'Open the scene as raw text';
+  // The same Code | Preview segmented switch as the HTML editor's (#diff-preview
+  // in file.js) — here Preview (this 3D view) is the active side, and Code hands
+  // the file back to the text editor, whose own switch leads back here.
+  const seg = document.createElement('div');
+  seg.className = 'asset-seg previewing';
+  seg.setAttribute('role', 'switch');
+  seg.setAttribute('aria-checked', 'true');
+  seg.tabIndex = 0;
+  seg.title = t('editor.codeTitle');
+  const segCode = document.createElement('button');
+  segCode.type = 'button';
+  segCode.className = 'seg-opt';
+  segCode.textContent = t('editor.code');
+  const segPreview = document.createElement('button');
+  segPreview.type = 'button';
+  segPreview.className = 'seg-opt active';
+  segPreview.textContent = t('editor.preview');
+  const segThumb = document.createElement('span');
+  segThumb.className = 'seg-thumb';
+  segThumb.setAttribute('aria-hidden', 'true');
+  seg.append(segCode, segPreview, segThumb);
+  const toCode = () => { hideAsset(); showFile(file); };
+  // Clicking Code (or the bare track) leaves for the text editor; clicking
+  // Preview is a no-op since this view is already the preview side.
+  seg.onclick = (e) => {
+    const opt = e.target.closest('.seg-opt');
+    if (!opt || opt === segCode) toCode();
+  };
+  seg.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toCode(); }
+  });
+
   const saveBtn = assetBtn('Save', () => save());
   saveBtn.classList.add('adjust-apply');
   saveBtn.title = 'Save changes back to the file (Ctrl+S)';
-  tools.append(textBtn, saveBtn, status);
+
+  // The transform-mode switch and Delete are header-toolbar tools (like the
+  // other asset editors' chrome), not dock sections — the dock keeps only the
+  // Add-child picker. Their handlers close over functions defined below, which
+  // only run on click, after the whole editor is wired.
+  const modeButtons = {
+    translate: assetBtn('Move', () => setMode('translate')),
+    rotate: assetBtn('Rotate', () => setMode('rotate')),
+    scale: assetBtn('Scale', () => setMode('scale')),
+  };
+  modeButtons.translate.title = 'Move (W)';
+  modeButtons.rotate.title = 'Rotate (E)';
+  modeButtons.scale.title = 'Scale (R)';
+  const delBtn = assetBtn('Delete', () => deleteSelected());
+  delBtn.title = 'Delete the selected node and its children (Del)';
+  tools.append(seg, modeButtons.translate, modeButtons.rotate, modeButtons.scale, delBtn, saveBtn, status);
 
   // --- undo/redo ---
   // Each command carries the serialized document before/after (the doc is
@@ -142,7 +192,7 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
       const meshSub = ref && ref.kind === 'sub' ? subResource(ref.id) : null;
       const geometry = meshSub && geometryForMesh(meshSub);
       if (geometry) return new THREE.Mesh(geometry, materialForMesh(node, meshSub));
-      return placeholderBox(0x999999); // ArrayMesh/.res/ext meshes can't be decoded here
+      return placeholderBox(0x999999); // ArrayMesh/.res stay boxes; ext model files swap in async
     }
     if (type === 'DirectionalLight3D' || type === 'OmniLight3D' || type === 'SpotLight3D') {
       const group = new THREE.Group();
@@ -174,6 +224,59 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
   // shared outliner/marker helpers already skip, so the tree shows only nodes.
   const markVisual = (o) => { o.traverse((c) => { c.userData.isEmptyMarker = true; }); return o; };
 
+  // --- loading real model files behind ext_resource references ---
+  // An instanced model (`instance=ExtResource(...)` pointing at a .glb/.obj/…,
+  // the nodes the resources panel drops) or a MeshInstance3D whose `mesh` is a
+  // model-file ext_resource starts as a placeholder box, then swaps in the
+  // actual mesh once its bytes load through the same loaders as the 3D model
+  // viewer. res:// paths resolve against the nearest project.godot (the file
+  // list arrives async, so loads chain on it); a load that fails — missing
+  // file, unsupported format like .tscn/.res — just keeps the placeholder.
+  let disposed = false;
+  let resRoot = null;
+  const filesPromise = window.api.listFiles();
+  const filesReady = filesPromise.then((r) => {
+    if (r && r.ok) resRoot = godotRootOf(file, r.files) ?? '';
+  });
+  const extResourceOf = (raw) => {
+    const ref = raw === undefined ? null : parseRef(raw);
+    if (!ref || ref.kind !== 'ext') return null;
+    return doc.sections.find((s) => s.tag === 'ext_resource' && attrStr(s, 'id') === ref.id) || null;
+  };
+  const modelResOf = (node, type, instance) => {
+    const src = instance !== undefined ? instance : (type === 'MeshInstance3D' ? getProp(node, 'mesh') : undefined);
+    const ext = extResourceOf(src);
+    const res = ext && attrStr(ext, 'path');
+    return res && res.startsWith('res://') && MODEL_EXT.has(extOf(res)) ? res : null;
+  };
+  // One parse per file: instances of the same model clone the cached master
+  // (clones share geometry/materials, disposed once with the scene).
+  const modelCache = new Map();
+  const masterModel = (repo) => {
+    if (!modelCache.has(repo)) {
+      modelCache.set(repo, window.api.readAsset(repo).then((r) => {
+        if (!r || !r.ok) throw new Error((r && r.error) || 'unreadable');
+        return loadModel(extOf(repo), base64ToArrayBuffer(r.base64));
+      }));
+    }
+    return modelCache.get(repo);
+  };
+  let initialLoads = [];
+  const queueModelLoad = (obj, placeholder, res) => {
+    const p = filesReady
+      .then(() => {
+        if (resRoot === null) throw new Error('no file list');
+        return masterModel((resRoot ? resRoot + '/' : '') + res.slice('res://'.length));
+      })
+      .then((master) => {
+        if (disposed) return;
+        if (placeholder) obj.remove(placeholder);
+        obj.add(markVisual(master.clone(true)));
+      })
+      .catch(() => {});
+    if (initialLoads) initialLoads.push(p);
+  };
+
   const createNodeObject = (node) => {
     const type = attrStr(node, 'type');
     const instance = getAttr(node, 'instance');
@@ -185,6 +288,8 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
     applyNodeTransform(obj, transformOfNode(node));
     const visual = visualFor(node, type, instance);
     if (visual) obj.add(markVisual(visual));
+    const modelRes = modelResOf(node, type, instance);
+    if (modelRes) queueModelLoad(obj, visual, modelRes);
     return obj;
   };
 
@@ -210,6 +315,14 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
   controls.target.set(0, 0, 0);
   frameObject(pivot, camera, controls, viewer.grid);
   const markers = addEmptyMarkers(rootObj);
+  // The first framing only saw placeholders; once the initial model loads
+  // settle, re-frame so a real (possibly much larger) mesh fits the view.
+  // Models dropped in later never re-frame — the camera is the user's then.
+  Promise.allSettled(initialLoads).then(() => {
+    const loads = initialLoads.length;
+    initialLoads = null;
+    if (!disposed && loads) frameObject(pivot, camera, controls, viewer.grid);
+  });
 
   // --- transform gizmo ---
   const gizmo = new TransformControls(camera, renderer.domElement);
@@ -267,20 +380,6 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
     return b;
   };
 
-  const transformBody = section('Transform');
-  const modeButtons = {
-    translate: assetBtn('Move', () => setMode('translate')),
-    rotate: assetBtn('Rotate', () => setMode('rotate')),
-    scale: assetBtn('Scale', () => setMode('scale')),
-  };
-  modeButtons.translate.title = 'Move (W)';
-  modeButtons.rotate.title = 'Rotate (E)';
-  modeButtons.scale.title = 'Scale (R)';
-  const transformRow = document.createElement('div');
-  transformRow.className = 'model-edit-row';
-  transformRow.append(modeButtons.translate, modeButtons.rotate, modeButtons.scale);
-  transformBody.appendChild(transformRow);
-
   // Add-child section: new node types Godot users reach for first. The new
   // node lands as the last child of the selection (or the root).
   const ADDABLE = [
@@ -295,25 +394,36 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
     { label: 'Spot light', type: 'SpotLight3D', name: 'SpotLight3D' },
     { label: 'Camera', type: 'Camera3D', name: 'Camera3D' },
   ];
+  // One Add button that opens the option list directly (no separate combobox);
+  // clicking an option adds that node type immediately. The list expands inline
+  // inside the dock section — the dock clips absolutely-positioned popups.
   const addBody = section('Add child');
-  const addSelect = document.createElement('select');
-  addSelect.className = 'model-edit-select';
-  for (const s of ADDABLE) {
-    const opt = document.createElement('option');
-    opt.textContent = s.label;
-    addSelect.appendChild(opt);
+  const addBtn = assetBtn('+ Add…', () => toggleAddMenu());
+  addBtn.title = 'Add a child node to the selected node';
+  const addMenu = document.createElement('div');
+  addMenu.className = 'model-add-menu';
+  for (const spec of ADDABLE) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'model-add-item';
+    item.textContent = spec.label;
+    item.addEventListener('click', () => { closeAddMenu(); addSelected(spec); });
+    addMenu.appendChild(item);
   }
-  const addBtn = assetBtn('Add', () => addSelected());
-  addBtn.title = 'Add as a child of the selected node';
-  addBody.append(addSelect, addBtn);
+  addBody.append(addBtn, addMenu);
 
-  const nodeBody = section('Node');
-  const delBtn = assetBtn('Delete', () => deleteSelected());
-  delBtn.title = 'Delete the selected node and its children (Del)';
-  const nodeRow = document.createElement('div');
-  nodeRow.className = 'model-edit-row';
-  nodeRow.append(delBtn);
-  nodeBody.appendChild(nodeRow);
+  const onAddOutside = (e) => { if (!addBody.contains(e.target)) closeAddMenu(); };
+  const closeAddMenu = () => {
+    addMenu.classList.remove('open');
+    addBtn.classList.remove('on');
+    document.removeEventListener('pointerdown', onAddOutside, true);
+  };
+  const toggleAddMenu = () => {
+    if (addMenu.classList.contains('open')) { closeAddMenu(); return; }
+    addMenu.classList.add('open');
+    addBtn.classList.add('on');
+    document.addEventListener('pointerdown', onAddOutside, true);
+  };
 
   // --- selection / structural edits ---
   let outliner = null;
@@ -327,8 +437,7 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
     updateSelection(outliner.getSelected());
   };
 
-  const addSelected = () => {
-    const spec = ADDABLE[addSelect.selectedIndex];
+  const addSelected = (spec) => {
     const parentObj = outliner.getSelected() || rootObj;
     const parentPath = parentObj.userData.nodePath;
     const beforeText = serializeTscn(doc);
@@ -360,6 +469,41 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
       redoScene: () => { parent.remove(obj); reselect(null); },
     });
     reselect(null);
+  };
+
+  // Drag-and-drop reparent from the outliner. Mirrors Godot's reparent-keep-
+  // global-transform: `attach` preserves the world transform, and the child's
+  // resulting local matrix is written back to the doc. reparentNode may rename
+  // the node on a sibling collision and rebases every descendant path, so the
+  // three.js side re-tags `userData.nodePath` across the moved subtree.
+  const retagPaths = (obj, fromPrefix, toPrefix) => {
+    obj.traverse((o) => {
+      const p = o.userData.nodePath;
+      if (p === fromPrefix) o.userData.nodePath = toPrefix;
+      else if (p && p.startsWith(fromPrefix + '/')) o.userData.nodePath = toPrefix + p.slice(fromPrefix.length);
+    });
+  };
+  const reparent = (child, newParent) => {
+    const oldParent = child.parent;
+    if (child === rootObj || !oldParent || oldParent === newParent || !newParent.userData.nodePath) return;
+    const oldPath = child.userData.nodePath;
+    const oldName = child.name;
+    const beforeX = snapXform(child);
+    const beforeText = serializeTscn(doc);
+    const { path, name } = reparentNode(doc, oldPath, newParent.userData.nodePath);
+    newParent.attach(child);
+    child.name = name;
+    retagPaths(child, oldPath, path);
+    // Only 3D nodes get the compensating local transform — a dragged Control/
+    // plain Node has no Transform3D property to write.
+    if (child.userData.transformable) setNodeTransform(doc, path, transformNums(child));
+    const afterX = snapXform(child);
+    pushCommand({
+      before: beforeText, after: serializeTscn(doc),
+      undoScene: () => { oldParent.add(child); applyXform(child, beforeX); child.name = oldName; retagPaths(child, path, oldPath); reselect(child); },
+      redoScene: () => { newParent.add(child); applyXform(child, afterX); child.name = name; retagPaths(child, oldPath, path); reselect(child); },
+    });
+    reselect(child);
   };
 
   // --- click a node in the viewport to select it ---
@@ -398,7 +542,115 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointerup', onPointerUp);
 
-  outliner = buildHierarchy(rootObj, viewer.wrap, controls, scene, markers, { onSelect: updateSelection });
+  // --- resources panel: the project's 3D models, dragged into the viewport ---
+  // A bottom strip listing every model file (shared/scene-assets.js decides
+  // which, names them, and finds a *pre-existing* sibling thumbnail — none are
+  // generated; models without one show a glyph). Dropping a card raycasts the
+  // drop point onto the ground plane and adds an instanced-scene node there:
+  // a PackedScene ext_resource (deduped by path) + a typeless instance node,
+  // whose real mesh then streams in through queueModelLoad.
+  const MODEL_MIME = 'application/x-godot-model';
+  const entriesByFile = new Map();
+
+  const dropLocalPoint = (clientX, clientY) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(ndc, camera);
+    const point = new THREE.Vector3();
+    const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), -viewer.grid.position.y);
+    if (!raycaster.ray.intersectPlane(ground, point)) {
+      point.copy(raycaster.ray.origin).addScaledVector(raycaster.ray.direction, 5);
+    }
+    rootObj.updateWorldMatrix(true, false);
+    return rootObj.worldToLocal(point);
+  };
+
+  const addModelNode = (entry, local) => {
+    const beforeText = serializeTscn(doc);
+    const id = addExtResource(doc, { type: 'PackedScene', path: entry.res });
+    const name = uniqueChildName(doc, '.', nodeNameFor(entry.name));
+    const node = addNode(doc, { parentPath: '.', name, instance: `ExtResource("${id}")` });
+    setNodeTransform(doc, nodePathOf(node), [1, 0, 0, 0, 1, 0, 0, 0, 1, local.x, local.y, local.z]);
+    const obj = createNodeObject(node);
+    rootObj.add(obj);
+    pushCommand({
+      before: beforeText, after: serializeTscn(doc),
+      undoScene: () => { rootObj.remove(obj); reselect(null); },
+      redoScene: () => { rootObj.add(obj); reselect(obj); },
+    });
+    reselect(obj);
+  };
+
+  const onDragOver = (e) => {
+    if (!e.dataTransfer.types.includes(MODEL_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const onDrop = (e) => {
+    const entry = entriesByFile.get(e.dataTransfer.getData(MODEL_MIME));
+    if (!entry) return;
+    e.preventDefault();
+    addModelNode(entry, dropLocalPoint(e.clientX, e.clientY));
+  };
+  renderer.domElement.addEventListener('dragover', onDragOver);
+  renderer.domElement.addEventListener('drop', onDrop);
+
+  const buildResourcePanel = async () => {
+    const r = await filesPromise; // shared with the model-loading path
+    if (!r || !r.ok) return;
+    const entries = modelEntries(file, r.files);
+    if (!entries.length) return; // no models in the project → no panel
+
+    const panel = document.createElement('div');
+    panel.className = 'scene-res-panel';
+    const head = document.createElement('button');
+    head.className = 'model-tree-head';
+    head.title = 'Toggle resources panel';
+    head.innerHTML = '<span class="model-tree-caret">▾</span>'
+      + `<span class="model-tree-title">Models (${entries.length})</span>`;
+    head.addEventListener('click', () => panel.classList.toggle('collapsed'));
+    const strip = document.createElement('div');
+    strip.className = 'scene-res-strip';
+    panel.append(head, strip);
+
+    for (const entry of entries) {
+      entriesByFile.set(entry.file, entry);
+      const card = document.createElement('div');
+      card.className = 'scene-res-card';
+      card.draggable = true;
+      card.title = `${entry.file} — drag into the scene`;
+      const thumb = document.createElement('div');
+      thumb.className = 'scene-res-thumb';
+      thumb.textContent = '◆';
+      if (entry.thumb) {
+        window.api.readAsset(entry.thumb).then((res) => {
+          if (!res || !res.ok) return;
+          const img = new Image();
+          img.onload = () => { thumb.textContent = ''; thumb.appendChild(img); };
+          img.src = `data:${res.mime};base64,${res.base64}`;
+        });
+      }
+      const label = document.createElement('span');
+      label.className = 'scene-res-name';
+      label.textContent = entry.name;
+      card.append(thumb, label);
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData(MODEL_MIME, entry.file);
+        e.dataTransfer.setData('text/plain', entry.file);
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+      strip.appendChild(card);
+    }
+    viewer.wrap.appendChild(panel);
+  };
+  buildResourcePanel();
+
+  outliner = buildHierarchy(rootObj, viewer.wrap, controls, scene, markers, {
+    onSelect: updateSelection,
+    editable: true,
+    onReparent: reparent,
+  });
   updateSelection(null);
   setMode('translate');
   viewer.wrap.appendChild(dock);
@@ -437,9 +689,13 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
 
   refreshSave();
   registerCleanup(() => {
+    disposed = true; // in-flight model loads must not touch the torn-down scene
+    closeAddMenu(); // drops its document-level outside-click listener
     document.removeEventListener('keydown', onKey, true);
     renderer.domElement.removeEventListener('pointerdown', onPointerDown);
     renderer.domElement.removeEventListener('pointerup', onPointerUp);
+    renderer.domElement.removeEventListener('dragover', onDragOver);
+    renderer.domElement.removeEventListener('drop', onDrop);
     gizmo.detach();
     scene.remove(gizmo.getHelper());
     gizmo.dispose();

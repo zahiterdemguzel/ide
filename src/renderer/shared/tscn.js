@@ -200,12 +200,13 @@ export function uniqueChildName(doc, parentPath, base) {
 
 // Append a node as the last child of parentPath. Sections stay in Godot's
 // depth-first order: the new node goes right after the parent's whole subtree.
-export function addNode(doc, { parentPath, type, name, props = [] }) {
-  const attrs = [
-    { key: 'name', value: quote(name) },
-    { key: 'type', value: quote(type) },
-    { key: 'parent', value: quote(parentPath) },
-  ];
+// An instanced-scene node (`instance: 'ExtResource("1_x")'`) carries no type —
+// its type comes from the instanced scene's root, so Godot omits the attribute.
+export function addNode(doc, { parentPath, type, name, props = [], instance }) {
+  const attrs = [{ key: 'name', value: quote(name) }];
+  if (type !== undefined) attrs.push({ key: 'type', value: quote(type) });
+  attrs.push({ key: 'parent', value: quote(parentPath) });
+  if (instance !== undefined) attrs.push({ key: 'instance', value: instance });
   const node = { tag: 'node', attrs, props: props.map((p) => ({ ...p })) };
   let insertAt = -1;
   for (let i = 0; i < doc.sections.length; i++) {
@@ -228,6 +229,80 @@ export function removeNodeTree(doc, path) {
     }
     return true;
   });
+}
+
+// Move a node (and its whole subtree) under a new parent, renaming on a
+// sibling collision like Godot does. Rewrites the subtree's parent paths and
+// any connection endpoints into it, and re-slots the sections after the new
+// parent's subtree so the file stays in depth-first order. Returns the node's
+// new `{ path, name }`.
+export function reparentNode(doc, path, newParentPath) {
+  if (path === '.') throw new Error('cannot reparent the scene root');
+  if (newParentPath === path || newParentPath.startsWith(path + '/')) throw new Error('cannot reparent into own subtree');
+  const node = findNode(doc, path);
+  if (!node) throw new Error(`node not found: ${path}`);
+  const oldName = attrStr(node, 'name');
+  if (attrStr(node, 'parent') === newParentPath) return { path, name: oldName };
+
+  const name = uniqueChildName(doc, newParentPath, oldName);
+  const newPath = newParentPath === '.' ? name : newParentPath + '/' + name;
+  const rebase = (p) => (p === path ? newPath : newPath + p.slice(path.length));
+
+  const subtree = doc.sections.filter((s) => s.tag === 'node' && inSubtree(nodePathOf(s), path));
+  doc.sections = doc.sections.filter((s) => !subtree.includes(s));
+  setAttr(node, 'name', quote(name));
+  setAttr(node, 'parent', quote(newParentPath));
+  for (const s of subtree) {
+    if (s === node) continue;
+    setAttr(s, 'parent', quote(rebase(attrStr(s, 'parent'))));
+  }
+  for (const s of doc.sections) {
+    if (s.tag !== 'connection') continue;
+    for (const key of ['from', 'to']) {
+      const p = attrStr(s, key);
+      if (p !== undefined && inSubtree(p, path)) setAttr(s, key, quote(rebase(p)));
+    }
+  }
+
+  let insertAt = -1;
+  for (let i = 0; i < doc.sections.length; i++) {
+    const s = doc.sections[i];
+    if (s.tag === 'node' && inSubtree(nodePathOf(s), newParentPath)) insertAt = i;
+  }
+  if (insertAt < 0) throw new Error(`parent node not found: ${newParentPath}`);
+  doc.sections.splice(insertAt + 1, 0, ...subtree);
+  return { path: newPath, name };
+}
+
+// Insert an `[ext_resource]` (or return the id of an existing one for the same
+// type+path — dropping the same model twice must not duplicate the resource).
+// Ids follow Godot's "<n>_<slug>" shape; sections stay grouped after the
+// descriptor, before sub_resources/nodes; load_steps is kept honest.
+export function addExtResource(doc, { type, path }) {
+  const exts = doc.sections.filter((s) => s.tag === 'ext_resource');
+  const existing = exts.find((s) => attrStr(s, 'type') === type && attrStr(s, 'path') === path);
+  if (existing) return attrStr(existing, 'id');
+  const ids = new Set(exts.map((s) => attrStr(s, 'id')));
+  const slug = (path.split('/').pop() || 'res').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'res';
+  let n = exts.length + 1;
+  let id = `${n}_${slug}`;
+  while (ids.has(id)) id = `${++n}_${slug}`;
+  const sec = {
+    tag: 'ext_resource',
+    attrs: [
+      { key: 'type', value: quote(type) },
+      { key: 'path', value: quote(path) },
+      { key: 'id', value: quote(id) },
+    ],
+    props: [],
+  };
+  let insertAt = 0;
+  for (let i = 0; i < doc.sections.length; i++) {
+    if (doc.sections[i].tag === 'ext_resource') insertAt = i + 1;
+  }
+  doc.sections.splice(insertAt, 0, sec);
+  updateLoadSteps(doc);
+  return id;
 }
 
 // Insert a `[sub_resource]` with a fresh unique id, keeping resource sections

@@ -230,6 +230,27 @@
 .model-row-wire.on { color: var(--accent-hi); }
 .model-row.sel .model-row-eye, .model-row.sel .model-row-wire { color: var(--on-accent); }
 
+/* Code | Preview segmented switch in an asset header (the Godot scene editor):
+   the same control as the HTML editor's #diff-preview (diff.css), but flowing
+   inline in the tools row instead of absolutely centred in the head. */
+.asset-seg {
+  position: relative; display: inline-grid; grid-template-columns: 1fr 1fr;
+  align-items: stretch; background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 999px; cursor: pointer; user-select: none; overflow: hidden;
+}
+.asset-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.asset-seg .seg-opt {
+  position: relative; z-index: 1; background: none; border: none; cursor: pointer;
+  padding: 4px 14px; font-size: 12px; line-height: 1.3; white-space: nowrap;
+  text-align: center; color: var(--fg-dim); transition: color .15s ease;
+}
+.asset-seg .seg-opt.active { color: var(--on-accent); }
+.asset-seg .seg-thumb {
+  position: absolute; z-index: 0; top: 0; bottom: 0; left: 0; width: 50%;
+  background: var(--accent); transition: left .18s ease;
+}
+.asset-seg.previewing .seg-thumb { left: 50%; }
+
 /* --- 3D editor mode --- */
 
 /* In edit mode the header shows only the editor's Save button. "Open externally"
@@ -275,8 +296,61 @@
   padding: 3px 4px; font: inherit; cursor: pointer;
 }
 .model-edit-sliders { display: flex; flex-direction: column; gap: 5px; margin-top: 7px; }
+
+/* Add-child dropdown (scene editor): the Add button opens the option list
+   directly, expanded inline so the dock's overflow doesn't clip it. */
+.model-add-menu {
+  display: none; flex-direction: column; gap: 1px; margin-top: 4px;
+  max-height: 220px; overflow-y: auto;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 5px;
+  padding: 3px;
+}
+.model-add-menu.open { display: flex; }
+.model-add-item {
+  background: none; border: none; color: var(--fg); cursor: pointer;
+  font: inherit; font-size: 12px; text-align: left; white-space: nowrap;
+  padding: 4px 8px; border-radius: 3px;
+}
+.model-add-item:hover { background: var(--accent); color: var(--on-accent); }
 .model-edit-mat { display: flex; flex-direction: column; gap: 6px; }
 .model-edit-mat-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* Godot scene editor: bottom resources strip — the project's 3D model files as
+   draggable cards (name + pre-existing thumbnail, or a glyph), dropped into the
+   viewport to instance them into the scene. Same translucent chrome as the
+   outliner/dock panels. */
+.scene-res-panel {
+  position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 2;
+  display: flex; flex-direction: column;
+  font-family: Consolas, monospace; font-size: 12px; color: var(--fg);
+  background: color-mix(in srgb, var(--bg-2) 72%, transparent);
+  border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+}
+.scene-res-panel.collapsed .model-tree-caret { transform: rotate(-90deg); }
+.scene-res-panel.collapsed .scene-res-strip { display: none; }
+.scene-res-strip { display: flex; gap: 8px; padding: 8px; overflow-x: auto; }
+.scene-res-card {
+  flex: none; width: 76px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 6px 4px; cursor: grab; user-select: none;
+  background: var(--bg-3); border: 1px solid var(--border); border-radius: 6px;
+}
+.scene-res-card:hover { border-color: var(--accent); }
+.scene-res-card:active { cursor: grabbing; }
+.scene-res-thumb {
+  width: 48px; height: 48px; display: grid; place-items: center;
+  border-radius: 4px; background: var(--bg-2); overflow: hidden;
+  color: var(--fg-dim); font-size: 18px;
+}
+.scene-res-thumb img { max-width: 100%; max-height: 100%; display: block; }
+.scene-res-name {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; color: var(--fg-dim);
+}
+.scene-res-card:hover .scene-res-name { color: var(--fg); }
 
 /* custom audio player (no native controls) */
 .audio-player {

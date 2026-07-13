@@ -4,7 +4,7 @@ import {
   parseTscn, serializeTscn, nodeSections, nodePathOf, findNode, attrStr, getAttr,
   getProp, parseNums, parseRef, fmtNum, unquote, quote,
   transformOfNode, setNodeTransform, serializeTransform3d, IDENTITY_TRANSFORM,
-  addNode, removeNodeTree, addSubResource, uniqueChildName,
+  addNode, removeNodeTree, addSubResource, uniqueChildName, reparentNode,
 } from '../src/renderer/shared/tscn.js';
 
 // A small but representative scene, written in the canonical layout the
@@ -148,6 +148,31 @@ test('removeNodeTree drops the subtree and its connections', () => {
   assert.deepEqual(nodeSections(doc).map(nodePathOf), ['.', 'UI']);
   assert.ok(!doc.sections.some((s) => s.tag === 'connection'), 'connection into the subtree removed');
   assert.throws(() => removeNodeTree(doc, '.'));
+});
+
+test('reparentNode moves a subtree, rebasing paths and connections', () => {
+  const doc = parseTscn(SCENE);
+  const { path, name } = reparentNode(doc, 'Player', 'UI');
+  assert.equal(path, 'UI/Player');
+  assert.equal(name, 'Player');
+  // Depth-first order: the subtree re-slots after its new parent.
+  assert.deepEqual(nodeSections(doc).map(nodePathOf), ['.', 'UI', 'UI/Player', 'UI/Player/Mesh']);
+  assert.equal(attrStr(findNode(doc, 'UI/Player/Mesh'), 'parent'), 'UI/Player');
+  const conn = doc.sections.find((s) => s.tag === 'connection');
+  assert.equal(attrStr(conn, 'from'), 'UI/Player'); // endpoint follows the move
+});
+
+test('reparentNode renames on sibling collision and rejects bad targets', () => {
+  const doc = parseTscn(SCENE);
+  addNode(doc, { parentPath: '.', type: 'Node3D', name: 'Mesh' }); // future sibling clash
+  const { path, name } = reparentNode(doc, 'Player/Mesh', '.');
+  assert.equal(name, 'Mesh2');
+  assert.equal(path, 'Mesh2');
+  assert.equal(findNode(doc, 'Player/Mesh'), null);
+  // Same-parent drop is a no-op, not a rename.
+  assert.deepEqual(reparentNode(doc, 'UI', '.'), { path: 'UI', name: 'UI' });
+  assert.throws(() => reparentNode(doc, '.', 'UI'), /root/);
+  assert.throws(() => reparentNode(doc, 'Player', 'Player'), /own subtree/);
 });
 
 test('addSubResource makes a unique id and keeps load_steps honest', () => {
