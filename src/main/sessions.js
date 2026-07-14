@@ -666,9 +666,19 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
   if (s.pty) s.pty.write(`/model ${chosen}\r`);
 }));
 
-bridge.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
+// While a phone holds a session, only that phone may write to or resize the PTY.
+// The desktop's renderer already blocks its own input/fit while covered, but this
+// is the authoritative gate: a desktop opening the covered session (or any other
+// device) must not reflow the terminal under the phone's screen.
+function heldByAnotherDevice(s, e) {
+  if (!s || !s.controlledBy) return false;
+  const deviceId = e && e.remote ? e.deviceId : null;
+  return deviceId !== s.controlledBy;
+}
+
+bridge.on('pty-input', guardOn('writing to a session', (e, { id, data }) => {
   const s = sessions.get(id);
-  if (!s || !s.pty) return;
+  if (!s || !s.pty || heldByAnotherDevice(s, e)) return;
   s.pty.write(data);
   // Track a `/model <id>` typed into the chat (the badge's own dropdown writes
   // via set-session-model, which bypasses this handler, so there's no echo to
@@ -688,9 +698,10 @@ bridge.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
     sendToRenderer('status', { id, state: interrupted });
   }
 }));
-bridge.on('pty-resize', guardOn('resizing a session', (_e, { id, cols, rows }) => {
+bridge.on('pty-resize', guardOn('resizing a session', (e, { id, cols, rows }) => {
   const s = sessions.get(id);
-  if (s && s.pty) try { s.pty.resize(cols, rows); } catch { /* race on close */ }
+  if (!s || !s.pty || heldByAnotherDevice(s, e)) return;
+  try { s.pty.resize(cols, rows); } catch { /* race on close */ }
 }));
 bridge.on('kill-session', guardOn('closing a session', (_e, { id }) => {
   const s = sessions.get(id);

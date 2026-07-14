@@ -450,6 +450,10 @@ export function refreshAllDiffStats() {
 
 export function fit(s) {
   if (!s || !s.fit || !s.term) return; // suspended sessions have no terminal
+  // A phone holds this session: its PTY is sized to the phone's screen and main
+  // would drop our resize anyway. Don't reflow the covered xterm either — it
+  // should keep mirroring the phone-sized output for an instant takeover.
+  if (s.controlled) return;
   try {
     s.fit.fit();
     window.api.resize(s.id, s.term.cols, s.term.rows);
@@ -768,6 +772,8 @@ function setControlled(s, on) {
   if (s.term) s.term.options.disableStdin = on;
   if (!on) {
     if (s.cover) { s.cover.remove(); s.cover = null; }
+    // The PTY is still phone-sized; snap the visible terminal back to ours.
+    if (s.id === activeId) fit(s);
     return;
   }
   const cover = document.createElement('div');
