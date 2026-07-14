@@ -14,6 +14,7 @@ const { invokeRemote } = require('./remote-bridge');
 const { releaseDeviceControl } = require('./sessions');
 const { startRemoteServer } = require('../../server/ws-server');
 const { startPortForward } = require('../../server/http-proxy');
+const { normalizeConfig } = require('./remote-config-lib');
 
 // Paired devices persist machine-wide (like recent-folders.json): pairing a
 // phone once should survive app restarts and instances. Only token hashes are
@@ -32,6 +33,20 @@ const deviceStore = {
   },
 };
 
+// The paired devices outlive the process, so the *service* they dial has to as
+// well: on/off and the listening port persist beside them (see
+// remote-config-lib.js for why the port can't be ephemeral).
+const configFile = path.join(sharedDataDir, 'remote-config.json');
+function loadConfig() {
+  try { return normalizeConfig(JSON.parse(fs.readFileSync(configFile, 'utf8'))); } catch {}
+  return normalizeConfig(null);
+}
+function saveConfig(next) {
+  config = next;
+  try { fs.writeFileSync(configFile, JSON.stringify(config)); } catch (err) { console.error('[remote config save]', err); }
+}
+
+let config = loadConfig();
 let server = null; // { port, pairing, broadcast, close } while enabled
 const forwards = new Map(); // targetPort -> proxy handle ({ port, issueUrlToken, close })
 
@@ -81,8 +96,7 @@ function status() {
 
 async function enable() {
   if (server) return status();
-  server = await startRemoteServer({
-    port: 0,
+  const opts = {
     invoke: invokeRemote,
     deviceStore,
     appVersion: app.getVersion(),
@@ -90,11 +104,25 @@ async function enable() {
     // A phone holding a session can't release it if it just vanishes, so hand the
     // session back to the desktop when its socket dies.
     onDisconnect: releaseDeviceControl,
-  });
+  };
+  try {
+    server = await startRemoteServer({ port: config.port, ...opts });
+  } catch (err) {
+    if (err.code !== 'EADDRINUSE') throw err;
+    // Almost always a sibling instance already listening on the shared port. It
+    // serves the same paired devices out of the same store, so the phones keep
+    // working against it; this instance just takes any free port so its own QR
+    // still pairs. The configured port is deliberately left alone — migrating it
+    // to a fallback would move the address every paired phone is holding.
+    server = await startRemoteServer({ port: 0, ...opts });
+    console.warn(`[remote] port ${config.port} is in use; listening on ${server.port} instead`);
+  }
+  if (!config.enabled) saveConfig({ ...config, enabled: true });
   return status();
 }
 
 async function disable() {
+  if (config.enabled) saveConfig({ ...config, enabled: false });
   if (!server) return status();
   const s = server;
   server = null;
@@ -102,6 +130,14 @@ async function disable() {
   await s.close();
   return status();
 }
+
+// Remote access is a service, not a per-window toggle. A phone paired to this
+// machine reconnects on its own (backoff, stored device token) but has nothing to
+// reach until the server is listening again — and it can't ask anyone to re-open
+// Settings — so restore the last state as soon as the app is up.
+app.whenReady().then(() => {
+  if (config.enabled) enable().catch((err) => console.error('[remote autostart]', err));
+});
 
 // Renderer pushes fan out to remote clients too (protocol.js filters to the
 // remote-event allowlist, so desktop-only channels never leave the machine).
