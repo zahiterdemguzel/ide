@@ -14,6 +14,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
+import StateDot from '../components/StateDot';
 import { MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, modelSuffix } from '../api/models';
 
 const PAGE = 30;
@@ -37,11 +38,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'archived', label: 'Archived' },
   { key: 'all', label: 'All' },
 ];
-
-const STATE_COLORS: Record<string, string> = {
-  working: '#e5c07b', waiting: '#61afef', completed: '#98c379',
-  pushed: '#98c379', interrupted: '#e06c75', idle: '#7d8590',
-};
 
 const NO_COUNTS: Counts = { active: 0, archived: 0, all: 0 };
 
@@ -328,7 +324,9 @@ export default function SessionsScreen({ navigation }: any) {
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
             onPress={() => open(item)}
           >
-            <View style={[styles.dot, { backgroundColor: STATE_COLORS[item.state] ?? '#7d8590' }]} />
+            <View style={styles.dotSlot}>
+              <StateDot state={item.state} size={10} />
+            </View>
             <Text
               style={[styles.name, item.archived && styles.nameArchived]}
               numberOfLines={1}
@@ -452,7 +450,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#21262d',
   },
   rowPressed: { backgroundColor: '#161b22' },
-  dot: { width: 10, height: 10, borderRadius: 5 },
+  // Fixed slot: the working ring is wider than the resting dot, and without this the
+  // row's text would nudge sideways every time a session started or stopped.
+  dotSlot: { width: 13, alignItems: 'center' },
   name: { flex: 1, color: '#e6edf3', fontSize: 15 },
   nameArchived: { color: '#7d8590' },
 

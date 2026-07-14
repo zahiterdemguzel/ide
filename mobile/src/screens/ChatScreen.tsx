@@ -20,6 +20,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import MessageView from '../components/chat/MessageView';
 import Composer, { Draft } from '../components/chat/Composer';
 import BadgeMenu from '../components/chat/BadgeMenu';
+import StateDot from '../components/StateDot';
 import { useConnection } from '../api/context';
 import {
   Answer, Ask, AskQuestion, Message, Pending, SlashCommand, Transcript,
@@ -28,7 +29,7 @@ import {
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, MODELS, effortName, modelBadgeName,
 } from '../api/models';
-import { color, font, radius, space, stateColor } from '../theme';
+import { color, font, radius, space } from '../theme';
 
 type DiffStat = { additions: number; deletions: number; files: number };
 
@@ -224,7 +225,9 @@ export default function ChatScreen({ route, navigation }: any) {
         <View style={styles.titleWrap}>
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
           <View style={styles.status}>
-            <View style={[styles.dot, { backgroundColor: stateColor[state] || color.faint }]} />
+            <View style={styles.dotSlot}>
+              <StateDot state={state} />
+            </View>
             <Text style={styles.statusText} numberOfLines={1}>{STATE_LABEL[state] || state}</Text>
             {/* What the session is running, and where you change it. The desktop keeps
                 the same two badges in the same place. Effort names "Auto" here even
@@ -553,7 +556,9 @@ const styles = StyleSheet.create({
   titleWrap: { flex: 1 },
   title: { color: color.text, fontSize: font.size.md, fontWeight: '600' },
   status: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
-  dot: { width: 7, height: 7, borderRadius: radius.pill },
+  // Fixed slot: the working ring is wider than the resting dot, and without this the
+  // status label would nudge sideways every time a session started or stopped.
+  dotSlot: { width: 11, alignItems: 'center' },
   // The state label gives up its room to the badges rather than pushing them off the bar.
   statusText: { flexShrink: 1, color: color.muted, fontSize: font.size.xs },
   stop: {
