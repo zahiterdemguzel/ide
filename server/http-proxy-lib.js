@@ -1,12 +1,19 @@
-// Pure decisions for the dev-server reverse proxy: URL-token/cookie auth and
-// the redirect that swaps the one-time URL token for a session cookie. No
-// sockets here — http-proxy.js applies these to real requests.
+// Pure decisions for the dev-server reverse proxy: URL-token/cookie auth, the
+// redirect that swaps the one-time URL token for a session cookie, and the two
+// response headers that have to be rewritten for the forwarded site to behave
+// like a site. No sockets here — http-proxy.js applies these to real requests.
 
 const crypto = require('crypto');
 
 const COOKIE = '_ideauth';
 const TOKEN_PARAM = '_ideauth';
 const TOKEN_TTL_MS = 10 * 60 * 1000;
+
+// Hop-by-hop headers must not be forwarded in either direction (RFC 7230 §6.1).
+const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
+
+// Anything the dev server thinks of as "itself".
+const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::(\d+))?(?=[/?#]|$)/i;
 
 const newUrlToken = () => crypto.randomBytes(16).toString('base64url');
 
@@ -49,6 +56,58 @@ function createAuthState(now = Date.now) {
   };
 }
 
+// The proxy sends the dev server its own Host (127.0.0.1:<target>), because dev
+// servers check it — so anything it builds from that Host points at localhost.
+// `/admin` answered with `Location: http://127.0.0.1:3000/login` would send the
+// *phone's* browser to the phone's own localhost. Reduce such a redirect to a
+// path and let the browser resolve it against whatever address it came in on:
+// the LAN proxy or the relay, without either having to know which it is.
+function rewriteLocation(value, targetPort) {
+  const m = LOCAL_ORIGIN.exec(String(value ?? ''));
+  if (!m) return value; // relative already, or a genuinely elsewhere host
+  if (m[1] && Number(m[1]) !== Number(targetPort)) return value; // a different local service
+  const rest = String(value).slice(m[0].length);
+  return rest.startsWith('/') ? rest : `/${rest}`;
+}
+
+// A session cookie a /login page sets is dropped by the browser unless it can
+// keep it: `Domain=localhost` names a host the phone isn't on, and `Secure` is
+// unusable over the LAN proxy's plain http. Drop both and let it default to
+// host-only on the origin the browser actually used. SameSite=None is the one
+// exception — browsers reject it without Secure, so that pair stays together.
+function rewriteSetCookie(value) {
+  const attrs = String(value).split(';');
+  const sameSiteNone = attrs.some((a) => /^\s*samesite\s*=\s*none\s*$/i.test(a));
+  return attrs
+    .filter((a, i) => i === 0 || !/^\s*domain\s*=/i.test(a))
+    .filter((a, i) => i === 0 || sameSiteNone || !/^\s*secure\s*$/i.test(a))
+    .join(';');
+}
+
+function rewriteResponseHeaders(headers, targetPort) {
+  const out = {};
+  for (const [k, v] of Object.entries(headers || {})) {
+    const key = k.toLowerCase();
+    if (HOP.has(key)) continue;
+    if (key === 'location') out[k] = rewriteLocation(v, targetPort);
+    else if (key === 'set-cookie') out[k] = [].concat(v).map(rewriteSetCookie);
+    else out[k] = v;
+  }
+  return out;
+}
+
+// The path a forwarded link should land on ('/admin', '/login?next=/x'). Comes
+// from the phone, so it may be anything: keep it a path on *this* site — never
+// an absolute or protocol-relative URL that would carry the auth token off to
+// another origin.
+function normalizeForwardPath(input) {
+  const raw = String(input ?? '').trim();
+  if (!raw || raw === '/') return '';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return ''; // scheme: not a path
+  const path = `/${raw.replace(/^\/+/, '')}`; // also kills protocol-relative //host
+  return /[\r\n]/.test(path) ? '' : path;
+}
+
 function parseCookies(header) {
   const out = {};
   for (const part of String(header || '').split(';')) {
@@ -64,4 +123,15 @@ function safeEqual(a, b) {
   return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
 }
 
-module.exports = { createAuthState, parseCookies, COOKIE, TOKEN_PARAM, TOKEN_TTL_MS };
+module.exports = {
+  createAuthState,
+  parseCookies,
+  rewriteLocation,
+  rewriteSetCookie,
+  rewriteResponseHeaders,
+  normalizeForwardPath,
+  COOKIE,
+  TOKEN_PARAM,
+  TOKEN_TTL_MS,
+  HOP,
+};

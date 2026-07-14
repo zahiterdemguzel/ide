@@ -1,15 +1,16 @@
 // Reverse proxy that exposes one desktop-local dev server (127.0.0.1:<target>)
 // on the LAN so the phone's browser can open it. One listener per forwarded
-// port — no path rewriting needed. Auth: a signed one-time URL (?_ideauth=…)
+// port, mounted at the root — so every path of the site (/login, /admin, its
+// absolute asset URLs) is reachable unchanged, and the auth cookie is Path=/ so
+// the browser can walk to any of them. Auth: a signed one-time URL (?_ideauth=…)
 // swaps to an HttpOnly cookie on first hit (see http-proxy-lib.js). Raw socket
-// piping on Upgrade keeps HMR/websockets working. Pure bridging, no app logic.
+// piping on Upgrade keeps HMR/websockets working. Pure bridging, no app logic —
+// the only headers rewritten are the ones that would otherwise hand a phone the
+// desktop's own localhost (Host on the way in, Location/Set-Cookie on the way out).
 
 const http = require('http');
 const net = require('net');
-const { createAuthState } = require('./http-proxy-lib');
-
-// Hop-by-hop headers must not be forwarded (RFC 7230 §6.1).
-const HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
+const { createAuthState, rewriteResponseHeaders, HOP } = require('./http-proxy-lib');
 
 function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
   const auth = createAuthState(now);
@@ -29,7 +30,7 @@ function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
     headers.host = `127.0.0.1:${targetPort}`; // dev servers often check Host
     const upstream = http.request(
       { host: '127.0.0.1', port: targetPort, method: req.method, path: req.url, headers },
-      (ur) => { res.writeHead(ur.statusCode, ur.headers); ur.pipe(res); });
+      (ur) => { res.writeHead(ur.statusCode, rewriteResponseHeaders(ur.headers, targetPort)); ur.pipe(res); });
     upstream.on('error', (err) => {
       if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' });
       res.end(`Bad gateway: nothing is listening on 127.0.0.1:${targetPort} (${err.code || err.message})\n`);

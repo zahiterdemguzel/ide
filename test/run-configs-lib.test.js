@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { parseJsonc, parseEnvFile, compoundMembers, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('../src/main/run-configs-lib');
+const { parseJsonc, parseEnvFile, compoundMembers, listRunConfigs, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('../src/main/run-configs-lib');
 
 const REPO = '/repo';
 const lin = makeRunConfigLib(REPO, 'linux');
@@ -54,6 +54,55 @@ test('compoundMembers: missing/empty configurations and falsy entries', () => {
   assert.deepEqual(compoundMembers({}), []);
   assert.deepEqual(compoundMembers(null), []);
   assert.deepEqual(compoundMembers({ configurations: [null, '', 'Real', { foo: 1 }] }), ['Real']);
+});
+
+// --- listRunConfigs ---
+
+test('listRunConfigs: launch configs, then compounds; tasks by label', () => {
+  const r = listRunConfigs(
+    { configurations: [{ name: 'Server' }, { name: 'Client' }], compounds: [{ name: 'Both', configurations: ['Server', 'Client'] }] },
+    { tasks: [{ label: 'Build' }, { taskName: 'Legacy' }] },
+  );
+  assert.deepEqual(r.launch, [
+    { name: 'Server' }, { name: 'Client' },
+    { name: 'Both', compound: true, members: ['Server', 'Client'] },
+  ]);
+  assert.deepEqual(r.tasks, [{ name: 'Build' }, { name: 'Legacy' }]);
+});
+
+test('listRunConfigs: drops hidden entries and sorts by presentation.order', () => {
+  const r = listRunConfigs(
+    {
+      configurations: [
+        { name: 'Last', presentation: { order: 2 } },
+        { name: 'Hidden', presentation: { hidden: true } },
+        { name: 'First', presentation: { order: 1 } },
+      ],
+    },
+    { tasks: [{ label: 'Shown' }, { label: 'Gone', hide: true }] },
+  );
+  assert.deepEqual(r.launch.map((c) => c.name), ['First', 'Last']);
+  assert.deepEqual(r.tasks, [{ name: 'Shown' }]);
+});
+
+test('listRunConfigs: de-dupes names within a list, first wins', () => {
+  const r = listRunConfigs(
+    { configurations: [{ name: 'Dev' }, { name: 'Dev' }], compounds: [{ name: 'Dev', configurations: ['Dev'] }] },
+    { tasks: [{ label: 'npm install' }, { label: 'npm install' }] },
+  );
+  assert.deepEqual(r.launch, [{ name: 'Dev' }]);
+  assert.deepEqual(r.tasks, [{ name: 'npm install' }]);
+});
+
+test('listRunConfigs: a task and a launch config may share a name', () => {
+  const r = listRunConfigs({ configurations: [{ name: 'Build' }] }, { tasks: [{ label: 'Build' }] });
+  assert.deepEqual(r.launch, [{ name: 'Build' }]);
+  assert.deepEqual(r.tasks, [{ name: 'Build' }]);
+});
+
+test('listRunConfigs: missing files and nameless entries', () => {
+  assert.deepEqual(listRunConfigs(null, null), { launch: [], tasks: [] });
+  assert.deepEqual(listRunConfigs({ configurations: [{}, null] }, { tasks: [{}, null] }), { launch: [], tasks: [] });
 });
 
 // --- substVars ---

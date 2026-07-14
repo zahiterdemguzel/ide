@@ -6,7 +6,7 @@ const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
 const { sendToRenderer } = require('./window');
 const { stopConfigNamed } = require('./consoles');
-const { parseJsonc, parseEnvFile, compoundMembers, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('./run-configs-lib');
+const { parseJsonc, parseEnvFile, compoundMembers, listRunConfigs, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
 // We don't run a real debugger; each launch config / task is translated into a
@@ -19,35 +19,8 @@ function readVscodeJson(name) {
   catch { return null; }
 }
 
-const isHiddenLaunch = (c) => !!(c && c.presentation && c.presentation.hidden);
-const orderOf = (c) => (c && c.presentation && typeof c.presentation.order === 'number') ? c.presentation.order : Infinity;
-const byOrder = (a, b) => orderOf(a) - orderOf(b);
-
-// Names for the toolbar: launch configs + compounds, then task labels. Entries a
-// user hid in VS Code (task `hide`, launch/compound `presentation.hidden`) stay
-// hidden here too, and `presentation.order` sorts the visible ones.
-bridge.handle('get-run-configs', () => {
-  const launch = readVscodeJson('launch.json');
-  const tasks = readVscodeJson('tasks.json');
-  const launchList = [];
-  if (launch) {
-    for (const c of [...(launch.configurations || [])].sort(byOrder)) {
-      if (c && c.name && !isHiddenLaunch(c)) launchList.push({ name: c.name });
-    }
-    for (const c of [...(launch.compounds || [])].sort(byOrder)) {
-      if (c && c.name && !isHiddenLaunch(c)) launchList.push({ name: c.name, compound: true, members: compoundMembers(c) });
-    }
-  }
-  const taskList = [];
-  if (tasks) {
-    for (const t of (tasks.tasks || [])) {
-      if (!t || t.hide) continue;
-      const n = t.label || t.taskName;
-      if (n) taskList.push({ name: n });
-    }
-  }
-  return { launch: launchList, tasks: taskList };
-});
+bridge.handle('get-run-configs', () =>
+  listRunConfigs(readVscodeJson('launch.json'), readVscodeJson('tasks.json')));
 
 // The pure lib bound to the open folder plus everything it can't know itself:
 // ${userHome}, ${config:...} (settings.json), ${defaultBuildTask}, collected

@@ -37,7 +37,14 @@ const TERMINAL_HTML = `<!doctype html><html><head>
   body.sel #sel{display:block}
 </style>
 </head><body><div id="t"></div><pre id="sel"></pre><script>
-  const term = new Terminal({ fontSize: 12, theme: { background: '#1e1e1e' }, scrollback: 5000 });
+  // scrollback is xterm's budget in *rows*, while main retains its tail in *characters*
+  // (SCROLL_MAX in src/main/consoles.js) — and the phone is narrow, so it soft-wraps a
+  // desktop-width line into two or three rows. A row budget that merely matched main's
+  // character budget at desktop width would therefore throw away the oldest output the
+  // moment it arrived, and raising main's cap would look like it did nothing. This is
+  // sized well above main's 1M chars can produce at phone width, so main's cap — the one
+  // that is actually a decision — stays the only thing that truncates the scrollback.
+  const term = new Terminal({ fontSize: 12, theme: { background: '#1e1e1e' }, scrollback: 100000 });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
   const host = document.getElementById('t');

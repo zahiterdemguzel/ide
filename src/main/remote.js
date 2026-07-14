@@ -20,7 +20,10 @@ const { createHub } = require('../../server/hub');
 const { startRemoteServer } = require('../../server/ws-server');
 const { startRelayClient } = require('../../server/relay-client');
 const { startPortForward } = require('../../server/http-proxy');
-const { normalizeConfig, isRoom } = require('./remote-config-lib');
+const { normalizeForwardPath } = require('../../server/http-proxy-lib');
+const {
+  normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone,
+} = require('./remote-config-lib');
 
 // Paired devices persist machine-wide (like recent-folders.json): pairing a
 // phone once should survive app restarts and instances. Only token hashes are
@@ -57,6 +60,17 @@ let config = normalizeConfig(rawConfig);
 // so it has to be on disk before the first QR is shown — not just in memory.
 if (!rawConfig || !isRoom(rawConfig.room)) saveConfig(config);
 
+// The relay this run talks to: the one on this machine while developing, the
+// deployed one from a build. Resolved here rather than read off `config` so the
+// dev URL is never written back to the shared config file — see resolveRelayUrl.
+const relayUrl = resolveRelayUrl({
+  isDev: !app.isPackaged,
+  env: process.env,
+  stored: rawConfig && rawConfig.relayUrl,
+});
+// What a *phone* must dial to reach that same relay (localhost is the phone).
+const phoneRelayUrl = () => relayUrlForPhone(relayUrl, lanAddresses()[0]);
+
 let hub = null;
 let server = null; // LAN ws server, while enabled
 let relay = null; // outbound socket to the cloud relay, while enabled
@@ -77,17 +91,24 @@ async function proxyFor(targetPort) {
 //          is no other route: a phone on cellular cannot reach a 192.168.x address.
 //
 // Proxies die with the remote server (disable/quit).
+//
+// The link lands on `path` ('/admin') if the phone asked for one, and on the site
+// root otherwise. Either way it is the whole site that is forwarded, not that one
+// page: the auth cookie the token swaps itself for is Path=/, so from there the
+// browser can walk to any other path on the same address.
 const forward = {
-  async open(targetPort, ctx = {}) {
+  async open(targetPort, ctx = {}, path) {
     const proxy = await proxyFor(targetPort);
     const token = proxy.issueUrlToken();
+    const at = normalizeForwardPath(path) || '/';
+    const auth = `${at.includes('?') ? '&' : '?'}_ideauth=${token}`;
     if (ctx.via === 'relay') {
       // Named down to this window, not just this machine: a sibling may be proxying
       // the same target port, and the token is only good at the proxy that issued it.
-      return `${config.relayUrl}/p/${config.room}/${instanceId}/${targetPort}/?_ideauth=${token}`;
+      return `${phoneRelayUrl()}/p/${config.room}/${instanceId}/${targetPort}${at}${auth}`;
     }
     const host = lanAddresses()[0] || '127.0.0.1';
-    return `http://${host}:${proxy.port}/?_ideauth=${token}`;
+    return `http://${host}:${proxy.port}${at}${auth}`;
   },
   async close(targetPort) {
     const proxy = forwards.get(targetPort);
@@ -126,7 +147,7 @@ function status() {
     enabled: !!server,
     port: server ? server.port : null,
     hosts: server ? lanAddresses() : [],
-    relayUrl: config.relayUrl,
+    relayUrl: phoneRelayUrl(), // what the pane shows, so show what a phone dials
     room: config.room,
     relayConnected: !!relay && relay.connected(),
   };
@@ -161,8 +182,9 @@ async function enable() {
   // so it runs alongside rather than instead: a paired phone tries the LAN address
   // first and falls back to the room. Failing to reach the relay is not fatal —
   // it retries in the background and same-network use is unaffected.
+  console.log(`[remote] relay ${relayUrl}${app.isPackaged ? '' : ' (dev)'}`);
   relay = startRelayClient({
-    relayUrl: config.relayUrl,
+    relayUrl, // the desktop's own route to it: localhost in dev, no rewrite needed
     room: config.room,
     instance: instanceId,
     hub,
@@ -251,7 +273,7 @@ ipcMain.handle('remote-new-pair-token', () => {
     'v=1',
     `host=${encodeURIComponent(host)}`,
     `port=${server.port}`,
-    `relay=${encodeURIComponent(config.relayUrl)}`,
+    `relay=${encodeURIComponent(phoneRelayUrl())}`,
     `room=${encodeURIComponent(config.room)}`,
     `tk=${token}`,
   ];

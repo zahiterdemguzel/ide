@@ -69,7 +69,7 @@ function createHub(opts) {
       if (msg.t === 'fwd-open') {
         if (!opts.forward) return reply(proto.fwdErr(msg.port, 'forwarding-disabled'));
         try {
-          reply(proto.fwdOk(msg.port, await opts.forward.open(msg.port, ctx)));
+          reply(proto.fwdOk(msg.port, await opts.forward.open(msg.port, ctx, msg.path)));
         } catch (err) {
           reply(proto.fwdErr(msg.port, String((err && err.message) || err)));
         }

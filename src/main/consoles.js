@@ -22,7 +22,14 @@ const consoles = new Map(); // id -> { pty, name, kind, scroll }
 // needs the output that already scrolled by. Main keeps a bounded tail per
 // terminal, stamped with a counter so the client can drop the live chunks that
 // raced its snapshot request (same scheme as session scrollback).
-const SCROLL_MAX = 200_000;
+//
+// This is the ceiling on everything a phone can ever scroll back to: what main drops
+// off the front, no client can ask for again. It's deliberately generous — a build or
+// a dev server logs a lot, and the answer you came to read is usually the *first*
+// error, not the last line. The phone's xterm keeps a matching row budget
+// (`scrollback` in mobile/src/components/XtermWebView.tsx): raising either alone does
+// nothing, since whichever is smaller is what actually truncates the output.
+const SCROLL_MAX = 1_000_000;
 const newScroll = () => ({ chunks: [], len: 0, seq: 0 });
 
 function pushScroll(scroll, data) {

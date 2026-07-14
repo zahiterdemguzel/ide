@@ -42,17 +42,27 @@ export default function RunDrawer({ visible, onClose }: Props) {
   const [configs, setConfigs] = useState<RunConfigs>({ launch: [], tasks: [] });
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  // The two halves of this panel are fetched *independently*. They used to be one
+  // `Promise.all` inside one silent `catch {}`, which failed in the worst possible way:
+  // `Promise.all` rejects as a unit, so whichever channel broke took the other's result
+  // down with it, and the panel rendered empty — no configs, no tasks, no terminals, and
+  // nothing on screen saying anything had gone wrong. An empty panel is also what a
+  // project with no .vscode files legitimately looks like, so the failure was
+  // indistinguishable from the normal case. Settle them separately and say so.
   const refresh = useCallback(async () => {
     if (!conn || state !== 'ready') return;
-    try {
-      const [cfg, terms] = await Promise.all([
-        conn.req<RunConfigs>('get-run-configs'),
-        conn.req<TerminalInfo[]>('term-list'),
-      ]);
-      setConfigs({ launch: cfg?.launch ?? [], tasks: cfg?.tasks ?? [] });
-      setTerminals(terms ?? []);
-    } catch { /* socket dropped; the reconnect refetches */ }
+    const [cfg, terms] = await Promise.allSettled([
+      conn.req<RunConfigs>('get-run-configs'),
+      conn.req<TerminalInfo[]>('term-list'),
+    ]);
+    if (cfg.status === 'fulfilled') {
+      setConfigs({ launch: cfg.value?.launch ?? [], tasks: cfg.value?.tasks ?? [] });
+    }
+    if (terms.status === 'fulfilled') setTerminals(terms.value ?? []);
+    const failed = [cfg, terms].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
+    setError(failed ? (failed.reason?.message ?? String(failed.reason)) : null);
   }, [conn, state]);
 
   // Live: main pushes the terminal list on every open/close, and re-reads the
@@ -128,7 +138,11 @@ export default function RunDrawer({ visible, onClose }: Props) {
           </View>
 
           <ScrollView contentContainerStyle={styles.body}>
-            {empty && (
+            {/* A panel that is empty because the desktop refused the request must not
+                look like a project that simply has no configs. */}
+            {!!error && <Text style={styles.error}>Couldn’t load from the desktop: {error}</Text>}
+
+            {empty && !error && (
               <Text style={styles.empty}>
                 No .vscode/launch.json or tasks.json in this project.
               </Text>
@@ -264,4 +278,10 @@ const styles = StyleSheet.create({
   play: { backgroundColor: '#21262d', borderColor: '#3fb95033' },
   stop: { backgroundColor: '#21262d', borderColor: '#f8514933' },
   empty: { color: '#7d8590', fontSize: 13, paddingHorizontal: 16, paddingVertical: 8 },
+  error: {
+    color: '#ffa198', fontSize: 12, lineHeight: 17,
+    marginHorizontal: 16, marginTop: 12, padding: 10,
+    backgroundColor: '#f8514915', borderRadius: 6,
+    borderWidth: 1, borderColor: '#f8514933',
+  },
 });

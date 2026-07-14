@@ -96,6 +96,45 @@ function compoundMembers(compound) {
     .filter(Boolean);
 }
 
+// The toolbar's entries: launch configs + compounds, then task labels. Entries a
+// user hid in VS Code (task `hide`, launch/compound `presentation.hidden`) stay
+// hidden here too, and `presentation.order` sorts the visible ones.
+//
+// Names are unique within each list, first occurrence wins: a run is started and
+// stopped *by name* (run-config-start / stopConfigNamed), so a second entry with a
+// name already taken can never be addressed separately — showing it would offer a
+// button that runs the first one.
+function listRunConfigs(launchJson, tasksJson) {
+  const isHidden = (c) => !!(c && c.presentation && c.presentation.hidden);
+  const orderOf = (c) => (c && c.presentation && typeof c.presentation.order === 'number') ? c.presentation.order : Infinity;
+  const byOrder = (a, b) => orderOf(a) - orderOf(b);
+
+  const launch = [];
+  const tasks = [];
+  const seen = new Set();
+  const take = (list, name, entry) => {
+    const key = `${list === launch ? 'l' : 't'}:${name}`;
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    list.push(entry);
+  };
+
+  if (launchJson) {
+    for (const c of [...(launchJson.configurations || [])].sort(byOrder)) {
+      if (c && !isHidden(c)) take(launch, c.name, { name: c.name });
+    }
+    for (const c of [...(launchJson.compounds || [])].sort(byOrder)) {
+      if (c && !isHidden(c)) take(launch, c.name, { name: c.name, compound: true, members: compoundMembers(c) });
+    }
+  }
+  if (tasksJson) {
+    for (const t of (tasksJson.tasks || [])) {
+      if (t && !t.hide) take(tasks, t.label || t.taskName, { name: t.label || t.taskName });
+    }
+  }
+  return { launch, tasks };
+}
+
 // Scan resolved run specs for unresolved ${input:id} placeholders — the ids the
 // caller must collect values for (VS Code's `inputs`) before the run can start.
 function findInputIds(specs) {
@@ -429,4 +468,4 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
   return { substVars, envMap, winExe, mergePlatform, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec, normalizeTasks, prependTasks };
 }
 
-module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, compoundMembers, findInputIds, defaultBuildTaskName, makeRunConfigLib };
+module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, compoundMembers, listRunConfigs, findInputIds, defaultBuildTaskName, makeRunConfigLib };

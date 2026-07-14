@@ -157,6 +157,9 @@ function parseMessage(raw) {
       return typeof msg.ch === 'string' ? msg : null;
     case 'fwd-open':
     case 'fwd-close':
+      // `path` (fwd-open, optional) is the page to land on; the desktop is what
+      // decides whether it is a path at all — see normalizeForwardPath.
+      if (msg.path !== undefined && typeof msg.path !== 'string') return null;
       return Number.isInteger(msg.port) && msg.port > 0 && msg.port < 65536 ? msg : null;
     default:
       return null;

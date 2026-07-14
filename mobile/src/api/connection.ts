@@ -152,11 +152,12 @@ export class Connection {
 
   private fwdWaiters = new Map<number, { resolve: (url: string) => void; reject: (e: Error) => void }>();
 
-  // Forward desktop localhost:<port> to the LAN; resolves to the URL to open
-  // in the phone's browser.
-  forwardPort(port: number): Promise<string> {
+  // Forward desktop localhost:<port> to this phone; resolves to the URL to open
+  // in its browser. `path` ('/admin') is the page to land on — the whole site is
+  // forwarded either way, so from there the browser can walk to any other path.
+  forwardPort(port: number, path?: string): Promise<string> {
     if (this.state !== 'ready' || !this.ws) return Promise.reject(new Error('not connected'));
-    this.ws.send(JSON.stringify({ t: 'fwd-open', port }));
+    this.ws.send(JSON.stringify({ t: 'fwd-open', port, path }));
     return new Promise((resolve, reject) => this.fwdWaiters.set(port, { resolve, reject }));
   }
 

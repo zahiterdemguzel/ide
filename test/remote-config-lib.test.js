@@ -1,6 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { normalizeConfig, isRoom, DEFAULT_PORT, DEFAULT_RELAY_URL } = require('../src/main/remote-config-lib');
+const {
+  normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone,
+  DEFAULT_PORT, DEFAULT_RELAY_URL, DEV_RELAY_URL,
+} = require('../src/main/remote-config-lib');
 
 // The room id is minted when it's missing, so pin it to keep these deterministic.
 const room = () => 'fixed-room-id';
@@ -53,4 +56,37 @@ test('a non-http relay URL falls back to the default', () => {
     assert.equal(norm({ relayUrl }).relayUrl, DEFAULT_RELAY_URL);
   }
   assert.equal(norm({ relayUrl: 'http://localhost:8080' }).relayUrl, 'http://localhost:8080');
+});
+
+// Debugging the relay means debugging *your* relay: a dev run that quietly talked
+// to Render would be testing the deployed code, not the code it is running.
+test('a dev run uses the local relay, a build the hosted one', () => {
+  assert.equal(resolveRelayUrl({ isDev: true }), DEV_RELAY_URL);
+  assert.equal(resolveRelayUrl({ isDev: false }), DEFAULT_RELAY_URL);
+
+  // A build takes a self-hosted relay from the config; a dev run does not, so a
+  // stored URL can never drag a debug session back onto a remote relay.
+  const stored = 'https://relay.example';
+  assert.equal(resolveRelayUrl({ isDev: false, stored }), stored);
+  assert.equal(resolveRelayUrl({ isDev: true, stored }), DEV_RELAY_URL);
+  assert.equal(resolveRelayUrl({ isDev: false, stored: 'ws://nonsense' }), DEFAULT_RELAY_URL);
+
+  // IDE_RELAY_URL overrides either way — a staging relay, or a dev run deliberately
+  // pointed at the deployed one. Junk in it is ignored, not obeyed.
+  const env = { IDE_RELAY_URL: 'http://10.0.0.5:8080' };
+  assert.equal(resolveRelayUrl({ isDev: true, env }), 'http://10.0.0.5:8080');
+  assert.equal(resolveRelayUrl({ isDev: false, env, stored }), 'http://10.0.0.5:8080');
+  assert.equal(resolveRelayUrl({ isDev: true, env: { IDE_RELAY_URL: 'nonsense' } }), DEV_RELAY_URL);
+});
+
+// `localhost` on a phone is the phone. The desktop still dials localhost itself;
+// only what it *hands* a phone (QR, forwarded link) is rewritten.
+test('the local relay is handed to a phone by LAN address, not as localhost', () => {
+  assert.equal(relayUrlForPhone('http://localhost:8080', '192.168.1.42'), 'http://192.168.1.42:8080');
+  assert.equal(relayUrlForPhone('http://127.0.0.1:8080/', '192.168.1.42'), 'http://192.168.1.42:8080/');
+  // Nothing to rewrite: a real relay, or a machine with no LAN address to offer.
+  assert.equal(relayUrlForPhone(DEFAULT_RELAY_URL, '192.168.1.42'), DEFAULT_RELAY_URL);
+  assert.equal(relayUrlForPhone('http://localhost:8080', undefined), 'http://localhost:8080');
+  // Not a host match — a hostname that merely starts with "localhost" is left alone.
+  assert.equal(relayUrlForPhone('https://localhost.example.com', '192.168.1.42'), 'https://localhost.example.com');
 });

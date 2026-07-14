@@ -15,12 +15,39 @@ const DEFAULT_PORT = 47823;
 // self-hosted relay would set.
 const DEFAULT_RELAY_URL = 'https://ide-yj3x.onrender.com';
 
+// The relay you are running next to (server/index.js's own default port).
+const DEV_RELAY_URL = 'http://localhost:8080';
+
 const isHttpUrl = (s) => {
   try {
     const u = new URL(s);
     return u.protocol === 'http:' || u.protocol === 'https:';
   } catch { return false; }
 };
+
+// Which relay this run talks to. A dev run is the one you are debugging the relay
+// *in*, so it must reach the relay on your machine and not Render — and it must
+// not need a config file edit to say so, because that edit is what would then
+// leak into a build. Hence: the packaged app always takes the stored/hosted URL,
+// a dev run always takes the local one, and `IDE_RELAY_URL` overrides either (a
+// staging relay, or a dev run deliberately pointed at the deployed one).
+//
+// The dev URL is resolved, never *persisted*: `remote-config.json` is shared with
+// the installed app, so writing `localhost` into it would strand a real build.
+function resolveRelayUrl({ isDev = false, env = {}, stored } = {}) {
+  if (isHttpUrl(env.IDE_RELAY_URL)) return env.IDE_RELAY_URL;
+  if (isDev) return DEV_RELAY_URL;
+  return isHttpUrl(stored) ? stored : DEFAULT_RELAY_URL;
+}
+
+// `localhost` names the *phone* when a phone reads it. The desktop keeps dialling
+// the local relay at localhost (same machine, same relay), but everything handed
+// to a phone — the QR's `relay=`, a forwarded dev-server link — has to name the
+// address the phone can reach it at instead, or the dev relay is desktop-only.
+function relayUrlForPhone(relayUrl, lanHost) {
+  if (!lanHost) return relayUrl;
+  return String(relayUrl).replace(/^(https?:\/\/)(localhost|127\.0\.0\.1|\[::1\])(?=[:/]|$)/i, `$1${lanHost}`);
+}
 
 // A room id is the desktop's address on the relay: it goes in the QR and every
 // paired phone keeps it. Must match the relay's own room pattern (relay-route.js).
@@ -37,4 +64,6 @@ function normalizeConfig(raw, newRoom = () => crypto.randomUUID()) {
   };
 }
 
-module.exports = { normalizeConfig, isRoom, DEFAULT_PORT, DEFAULT_RELAY_URL };
+module.exports = {
+  normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone, DEFAULT_PORT, DEFAULT_RELAY_URL, DEV_RELAY_URL,
+};

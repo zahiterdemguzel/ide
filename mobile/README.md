@@ -51,6 +51,10 @@ call are allowlisted in `server/protocol.js` (desktop side). The chat fetches
 xterm.js in a WebView (xterm can't run in
 React Native) and streams `term-data`/`term-input` like the desktop renderer.
 
-Port forwarding: the Ports screen sends `fwd-open` with a port number; the
-desktop starts a LAN reverse proxy for `127.0.0.1:<port>` and returns a
-one-time-auth URL that is opened in the system browser.
+Port forwarding: the Ports screen sends `fwd-open` with a port number (and an
+optional path); the desktop starts a LAN reverse proxy for `127.0.0.1:<port>`
+and returns a one-time-auth URL that is opened in the system browser. What is
+forwarded is the whole site: the token becomes a `Path=/` cookie on first hit,
+so from there any path on that origin (`/login`, `/admin`) can just be typed —
+onto the base address the screen shows, not onto the opened link, which ends in
+the token.
