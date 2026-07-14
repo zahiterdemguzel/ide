@@ -65,6 +65,49 @@ test('pair → req → ev round trip', async () => {
   } finally { await server.close(); }
 });
 
+// A phone holding a session can't release it if it just vanishes (locked, off Wi-Fi),
+// so the desktop has to hear about the dead socket or the session stays covered forever.
+test('a dropped socket reports its device as disconnected', async () => {
+  const gone = [];
+  const { server } = await startTestServer(undefined, { onDisconnect: (id) => gone.push(id) });
+  try {
+    const c = await connect(server.port);
+    await c.next(); // hello
+    c.send({ t: 'pair', pairToken: server.pairing.issue(), deviceName: 'Phone' });
+    const { deviceId } = await c.next();
+
+    c.close();
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(gone, [deviceId]);
+  } finally { await server.close(); }
+});
+
+// ...but not while that same device still has another socket open, or reconnecting
+// would hand the session back mid-use.
+test('a device with another live socket is not reported as disconnected', async () => {
+  const gone = [];
+  const { server } = await startTestServer(undefined, { onDisconnect: (id) => gone.push(id) });
+  try {
+    const c1 = await connect(server.port);
+    await c1.next();
+    c1.send({ t: 'pair', pairToken: server.pairing.issue(), deviceName: 'Phone' });
+    const { deviceToken } = await c1.next();
+
+    const c2 = await connect(server.port);
+    await c2.next();
+    c2.send({ t: 'auth', deviceToken });
+    await c2.next();
+
+    c1.close();
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(gone, []); // c2 still holds it
+
+    c2.close();
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(gone.length, 1);
+  } finally { await server.close(); }
+});
+
 test('auth with paired device token works; bad token rejected', async () => {
   const { server } = await startTestServer();
   try {

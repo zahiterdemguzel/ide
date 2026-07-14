@@ -72,6 +72,19 @@ function filterCommits(commits, query) {
   });
 }
 
+// Slice one page of commits out of a list, reporting whether any remain beyond it.
+// Callers over-fetch by at least one commit past the page's end, so `hasMore` costs
+// no extra git call: browsing asks git for limit+1 (and git already applied the skip,
+// so it passes skip 0 here); searching keeps scanning until it holds skip+limit+1
+// matches, or the history runs out. A short list simply yields a short page and
+// hasMore:false.
+function pageCommits(commits, skip, limit) {
+  return {
+    commits: commits.slice(skip, skip + limit),
+    hasMore: commits.length > skip + limit,
+  };
+}
+
 // Parse `git stash list --pretty=format:%gd%x1f%s%x1f%cr` stdout. Fields are
 // unit-separator (\x1f) delimited, one stash per line. `%gd` is the selector
 // (stash@{N}) used to apply/pop/drop a specific stash; `%s` is its message (git's
@@ -168,4 +181,4 @@ function orderBranchesByUsage(branches, reflogStdout) {
     .map((e) => e.b);
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage };
+module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage };

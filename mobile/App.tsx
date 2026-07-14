@@ -7,14 +7,17 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { Connection, ConnectionState } from './src/api/connection';
 import { loadCredentials, saveCredentials, clearCredentials, wsUrl, PairInfo } from './src/api/pairing';
 import { ConnectionContext, useConnection } from './src/api/context';
 import ProjectDrawer, { basename } from './src/components/ProjectDrawer';
+import RunDrawer from './src/components/RunDrawer';
 import PairScreen from './src/screens/PairScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
 import SessionTerminal from './src/screens/SessionTerminal';
+import ConsoleTerminal from './src/screens/ConsoleTerminal';
 import GitScreen from './src/screens/GitScreen';
 import FilesScreen from './src/screens/FilesScreen';
 import PortsScreen from './src/screens/PortsScreen';
@@ -40,14 +43,16 @@ function ProjectTitle({ name }: { name: string | null }) {
   );
 }
 
-function ProjectButton({ onPress }: { onPress: () => void }) {
+// The two side actions bracket the header: project switcher on the left, the run
+// panel (launch configs, tasks, and the terminals they opened) on the right.
+function HeaderButton({ icon, color, onPress }: { icon: any; color: string; onPress: () => void }) {
   return (
     <Pressable
-      style={({ pressed }) => [styles.projectBtn, pressed && styles.projectBtnPressed]}
+      style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
       hitSlop={10}
       onPress={onPress}
     >
-      <Ionicons name="folder-open-outline" size={18} color="#4da3ff" />
+      <Ionicons name={icon} size={18} color={color} />
     </Pressable>
   );
 }
@@ -56,6 +61,7 @@ function ProjectButton({ onPress }: { onPress: () => void }) {
 function MainTabs() {
   const { conn, state } = useConnection();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [runOpen, setRunOpen] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,7 +79,12 @@ function MainTabs() {
           headerTitleAlign: 'center',
           headerShadowVisible: false,
           headerTitle: () => <ProjectTitle name={current} />,
-          headerLeft: () => <ProjectButton onPress={() => setDrawerOpen(true)} />,
+          headerLeft: () => (
+            <HeaderButton icon="folder-open-outline" color="#4da3ff" onPress={() => setDrawerOpen(true)} />
+          ),
+          headerRight: () => (
+            <HeaderButton icon="play" color="#3fb950" onPress={() => setRunOpen(true)} />
+          ),
           tabBarStyle: {
             backgroundColor: '#161b22',
             borderTopColor: '#30363d',
@@ -100,6 +111,7 @@ function MainTabs() {
         <Tab.Screen name="Ports" component={PortsScreen} />
       </Tab.Navigator>
       <ProjectDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <RunDrawer visible={runOpen} onClose={() => setRunOpen(false)} />
     </>
   );
 }
@@ -141,33 +153,36 @@ export default function App() {
 
   return (
     <ConnectionContext.Provider value={ctx}>
-      <NavigationContainer theme={DarkTheme}>
-        <StatusBar style="light" />
-        <Stack.Navigator>
-          {!paired ? (
-            <Stack.Screen name="Pair" component={PairScreen} options={{ title: 'Pair with desktop' }} />
-          ) : (
-            <>
-              <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
-              <Stack.Screen name="Terminal" component={SessionTerminal} options={{ headerShown: false }} />
-            </>
-          )}
-        </Stack.Navigator>
-      </NavigationContainer>
+      <SafeAreaProvider>
+        <NavigationContainer theme={DarkTheme}>
+          <StatusBar style="light" />
+          <Stack.Navigator>
+            {!paired ? (
+              <Stack.Screen name="Pair" component={PairScreen} options={{ title: 'Pair with desktop' }} />
+            ) : (
+              <>
+                <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
+                <Stack.Screen name="Terminal" component={SessionTerminal} options={{ headerShown: false }} />
+                <Stack.Screen name="Console" component={ConsoleTerminal} options={{ headerShown: false }} />
+              </>
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
+      </SafeAreaProvider>
     </ConnectionContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
-  projectBtn: {
+  headerBtn: {
     width: 34,
     height: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 12,
+    marginHorizontal: 12,
     borderRadius: 8,
     backgroundColor: '#21262d',
   },
-  projectBtnPressed: { backgroundColor: '#30363d' },
-  projectName: { color: '#e6edf3', fontSize: 15, fontWeight: '600', maxWidth: 200 },
+  headerBtnPressed: { backgroundColor: '#30363d' },
+  projectName: { color: '#e6edf3', fontSize: 15, fontWeight: '600', maxWidth: 160 },
 });

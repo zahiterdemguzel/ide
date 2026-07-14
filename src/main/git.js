@@ -2,7 +2,7 @@ const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
-const { parsePorcelain, parseLog, markPushed, markIncoming, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage } = require('./git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
 
@@ -13,7 +13,7 @@ const { validateRepoName, ghCreateArgs } = require('./repo-create');
 // core.quotePath=false: emit non-ASCII paths verbatim instead of C-quoting them
 // (e.g. "\303\251.txt"), so the porcelain paths we parse round-trip back to add/diff.
 // GIT_TERMINAL_PROMPT=0: a remote that wants credentials with no helper would
-// otherwise block forever on a prompt we can't answer (no tty) â€” fail fast instead.
+// otherwise block forever on a prompt we can't answer (no tty) — fail fast instead.
 // timeout: backstop so a stuck network op (push/pull/fetch) can't wedge the UI.
 function git(args, opts = {}) {
   return new Promise((resolve) => {
@@ -23,7 +23,7 @@ function git(args, opts = {}) {
     const child = execFile('git', ['-c', 'core.quotePath=false', ...args],
       { cwd: getRepoPath(), env, maxBuffer: 64 * 1024 * 1024, timeout: opts.timeout || 120000 },
       // git often reports failures on stdout (e.g. "nothing to commit"), so fall
-      // back to stdout before err.message â€” otherwise the UI shows a bare "Command failed".
+      // back to stdout before err.message — otherwise the UI shows a bare "Command failed".
       (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && (stdout.trim() || err.message)) || '' }));
     if (opts.input != null) child.stdin.end(opts.input);
   });
@@ -54,7 +54,7 @@ async function aheadCount() {
   return parseInt(r.stdout.trim(), 10) || 0;
 }
 
-// Commits on the upstream not yet on HEAD â€” i.e. what a pull would bring in.
+// Commits on the upstream not yet on HEAD — i.e. what a pull would bring in.
 // Reflects the last fetch's view of the remote, mirroring aheadCount(); returns
 // 0 when there is no upstream, so the pull badge stays hidden.
 async function behindCount() {
@@ -96,7 +96,7 @@ function gh(args) {
 }
 
 // Turn a plain folder into a git repo, make the initial commit, then create the
-// GitHub repository and push â€” the whole flow behind the create-repo panel's one
+// GitHub repository and push — the whole flow behind the create-repo panel's one
 // button. Default branch is `main` (set via symbolic-ref so it's honoured on git
 // versions predating `init -b`). Returns { ok, step, error } so the renderer can
 // say which stage failed.
@@ -130,7 +130,7 @@ bridge.handle('create-repo', (_e, opts) => createRepo(opts));
 // parseBranches drops remotes that duplicate a local name and the `origin/HEAD`
 // pointer. The for-each-ref `--sort=-committerdate` gives a latest-*edited* order,
 // then orderBranchesByUsage re-ranks by latest-*used* (last checkout) from the
-// HEAD reflog â€” so with an empty search the branches the user is most likely to
+// HEAD reflog — so with an empty search the branches the user is most likely to
 // switch to sit at the top. The current branch is flagged so the renderer can
 // mark/skip it.
 bridge.handle('git-branches', async () => {
@@ -146,7 +146,7 @@ bridge.handle('git-branches', async () => {
 });
 
 // Switch branches. Fails cleanly (reported to the renderer) when the worktree
-// has changes that would be overwritten â€” git refuses rather than clobbering them.
+// has changes that would be overwritten — git refuses rather than clobbering them.
 bridge.handle('git-checkout', (_e, branch) => git(['checkout', branch]));
 
 // Create a new branch off the current HEAD and switch to it. Git rejects names
@@ -154,7 +154,7 @@ bridge.handle('git-checkout', (_e, branch) => git(['checkout', branch]));
 bridge.handle('git-create-branch', (_e, branch) => git(['checkout', '-b', branch]));
 
 // Delete a local branch. Force (`-D`) rather than `-d` because the renderer
-// already gates this behind a two-click confirm â€” the guard is the approval,
+// already gates this behind a two-click confirm — the guard is the approval,
 // not git's merged-only check, so the button reliably removes the branch the
 // user approved (git still refuses to delete the branch that's checked out).
 bridge.handle('git-delete-branch', (_e, branch) => git(['branch', '-D', branch]));
@@ -208,7 +208,7 @@ bridge.handle('git-commit', async (_e, msg) => {
 bridge.handle('git-undo', async () => {
   const pushed = await git(['rev-list', '--count', '@{u}..HEAD']);
   if (pushed.ok && (parseInt(pushed.stdout.trim(), 10) || 0) === 0) {
-    return { ok: false, stderr: 'Last commit is already pushed â€” revert it instead of undoing.' };
+    return { ok: false, stderr: 'Last commit is already pushed — revert it instead of undoing.' };
   }
   return git(['reset', '--soft', 'HEAD~1']);
 });
@@ -222,12 +222,12 @@ bridge.handle('git-push', async () => {
     r = await git(['push', '-u', 'origin', 'HEAD']);
   }
   // A rejection because the remote moved on (someone pushed first) is fixable by a
-  // pull/merge/push â€” flag it so the renderer can offer to hand that to a session.
+  // pull/merge/push — flag it so the renderer can offer to hand that to a session.
   return { ...r, needsMerge: !r.ok && pushNeedsMerge(r.stderr) };
 });
 
 // --- history (History tab) ---
-// Hashes of commits on HEAD not yet on the upstream â€” what the History tab tags as
+// Hashes of commits on HEAD not yet on the upstream — what the History tab tags as
 // "unpushed" (and the push badge counts). With no upstream (no remote-tracking
 // branch, or the rev-list otherwise fails) nothing has been pushed, so every listed
 // commit counts as unpushed.
@@ -237,7 +237,7 @@ async function unpushedHashes(commits) {
   return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
-// Commits on the upstream not yet on HEAD â€” what a pull would bring in. Same
+// Commits on the upstream not yet on HEAD — what a pull would bring in. Same
 // fields/format as gitLog so the History tab can render them with the regular
 // commit row (tagged `incoming`). Newest first, capped at 100. Empty when there is
 // no upstream, nothing is incoming, or the rev-list fails. Reflects the last
@@ -250,31 +250,80 @@ async function incomingCommits() {
   return markIncoming(parseLog(r.stdout));
 }
 
-// Recent commits for the History tab. Fields are unit-separator (\x1f) delimited,
-// one commit per line â€” subjects never contain newlines, so splitting on \n is safe.
-// Each local commit is tagged pushed/unpushed so the tab can show the split and pick
-// the right "undo" action (history rewrite vs. revert commit); `incoming` carries the
-// not-yet-pulled commits the tab previews above the local log.
-async function gitLog() {
-  const fmt = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f');
-  const r = await git(['log', '-n', '100', '--pretty=format:' + fmt]);
-  if (!r.ok) return { ok: false, error: r.stderr, commits: [], incoming: [] };
-  const commits = parseLog(r.stdout);
-  return { ok: true, commits: markPushed(commits, await unpushedHashes(commits)), incoming: await incomingCommits() };
+// Fields are unit-separator (\x1f) delimited, one commit per line - subjects never
+// contain newlines, so splitting on \n is safe.
+const LOG_FORMAT = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f');
+// How many commits one `git log` reads while hunting for search matches. Only used
+// when there's a query; browsing pages straight out of git with --skip.
+const SCAN_CHUNK = 2000;
+
+// One page of the log.
+//
+// Browsing (no query) pages directly out of git with -n/--skip, so the cost is the
+// page, not the history. Searching can't do that: the query matches author and hash
+// as well as the subject, which `git log --grep` cannot express. So we read the log
+// in chunks and filter each with filterCommits - the same matcher, and the same
+// semantics, the desktop History tab uses. The scan stops as soon as the page is
+// full, so a query hitting recent commits costs one chunk however long the history
+// is; only a rare or unmatched query walks back far.
+//
+// Both paths ask git for one commit beyond the page, so `hasMore` is free.
+async function logPage({ limit, skip, query }) {
+  const q = (query || '').trim();
+  if (!q) {
+    // git applied the skip, so the page starts at 0 here; the +1 is what tells us
+    // whether anything follows it.
+    const r = await git(['log', '-n', String(limit + 1), '--skip=' + skip, '--pretty=format:' + LOG_FORMAT]);
+    if (!r.ok) return { ok: false, error: r.stderr, commits: [], hasMore: false };
+    return { ok: true, ...pageCommits(parseLog(r.stdout), 0, limit) };
+  }
+  const need = skip + limit + 1;
+  const matches = [];
+  for (let scanned = 0; matches.length < need; scanned += SCAN_CHUNK) {
+    const r = await git(['log', '-n', String(SCAN_CHUNK), '--skip=' + scanned, '--pretty=format:' + LOG_FORMAT]);
+    if (!r.ok) return { ok: false, error: r.stderr, commits: [], hasMore: false };
+    const batch = parseLog(r.stdout);
+    matches.push(...filterCommits(batch, q));
+    if (batch.length < SCAN_CHUNK) break; // end of history
+  }
+  return { ok: true, ...pageCommits(matches, skip, limit) };
 }
-bridge.handle('git-log', () => gitLog());
+
+// Commits for the History views. Each local commit is tagged pushed/unpushed so the
+// caller can show the split and pick the right "undo" action (history rewrite vs.
+// revert commit).
+//
+// `incoming` (the not-yet-pulled commits previewed above the local log) rides along
+// only on an unfiltered first page: it belongs at the top of the history, so repeating
+// it per page would duplicate rows, and a search asks about local history, not about
+// what a pull would bring in.
+//
+// The desktop calls this with no args (window.api.gitLog()), so the defaults reproduce
+// its original behavior exactly: the newest 100 commits, plus incoming.
+async function gitLog({ limit = 100, skip = 0, query = '' } = {}) {
+  const page = await logPage({ limit, skip, query });
+  if (!page.ok) return { ok: false, error: page.error, commits: [], incoming: [], hasMore: false };
+  const firstPage = skip === 0 && !(query || '').trim();
+  return {
+    ok: true,
+    commits: markPushed(page.commits, await unpushedHashes(page.commits)),
+    incoming: firstPage ? await incomingCommits() : [],
+    hasMore: page.hasMore,
+  };
+}
+bridge.handle('git-log', (_e, opts) => gitLog(opts));
 
 // Full patch of one commit, for the center diff viewer (--format= drops the
 // commit metadata so only the unified diff comes back).
 bridge.handle('git-commit-diff', (_e, hash) => git(['show', '--format=', hash]));
 
-// Revert a commit: create a new commit that undoes it. Non-destructive â€” it does
+// Revert a commit: create a new commit that undoes it. Non-destructive — it does
 // not rewrite history, so it's the right tool for commits already pushed to the remote.
 bridge.handle('git-revert-commit', (_e, hash) => git(['revert', '--no-edit', hash]));
 
 // Undo an UNPUSHED commit by dropping it from history. Safe to rewrite since it
 // isn't on the remote yet (the renderer only routes unpushed commits here). The
-// HEAD commit is a soft reset so its changes stay staged â€” mirroring the Undo
+// HEAD commit is a soft reset so its changes stay staged — mirroring the Undo
 // button; an older commit is excised by replaying everything after it onto its
 // parent. If that rebase can't apply cleanly (the commit conflicts with a later
 // one) we abort it so the worktree is left clean rather than mid-rebase.
@@ -296,7 +345,7 @@ bridge.handle('git-stash-list', async () => {
 
 // Stash the whole working tree so the user can set the changes aside.
 // --include-untracked saves new files too (the "put everything away" intent).
-// With nothing to stash, git exits 0 with "No local changes to save" â€” the
+// With nothing to stash, git exits 0 with "No local changes to save" — the
 // renderer reads that to report it rather than a misleading "stashed".
 bridge.handle('git-stash-push', () => git(['stash', 'push', '--include-untracked']));
 
@@ -307,7 +356,7 @@ bridge.handle('git-stash-show', (_e, ref) => git(['stash', 'show', '-p', ref]));
 // conflict if the working tree moved on; git reports it and the renderer surfaces it.
 bridge.handle('git-stash-apply', (_e, ref) => git(['stash', 'apply', ref]));
 bridge.handle('git-stash-pop', (_e, ref) => git(['stash', 'pop', ref]));
-// Delete a stash without applying it (two-click armed in the UI â€” it's destructive).
+// Delete a stash without applying it (two-click armed in the UI — it's destructive).
 bridge.handle('git-stash-drop', (_e, ref) => git(['stash', 'drop', ref]));
 
 bridge.handle('git-fetch', () => git(['fetch']));

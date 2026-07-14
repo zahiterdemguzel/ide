@@ -19,14 +19,14 @@ const { createLimiter } = require('./concurrency');
 // with the deterministic session-title fallback instead.
 const COMMIT_MSG_TIMEOUT_MS = 30000;
 
-// Build one commit whose tree is HEAD with only `entries` applied â€” via a
+// Build one commit whose tree is HEAD with only `entries` applied — via a
 // throwaway index + commit-tree, so the real index and the working tree are
 // never touched. That's what lets two sessions that edited the SAME file each
 // commit only their own hunks: we commit a synthesized blob, not whatever the
 // shared working file currently holds. Each entry is either
-//   { path, content }   â€” write/replace this blob (content is a string or Buffer,
+//   { path, content }   — write/replace this blob (content is a string or Buffer,
 //                          so a binary file a Bash tool produced commits intact)
-//   { path, delete: true } â€” remove this path (a file the session moved out or rm'd)
+//   { path, delete: true } — remove this path (a file the session moved out or rm'd)
 async function commitBlobs(entries, msg) {
   const head = await git(['rev-parse', '-q', '--verify', 'HEAD']);
   const headSha = head.stdout.trim();
@@ -73,7 +73,7 @@ async function commitBlobs(entries, msg) {
 }
 
 // Build the list of blob entries representing ONLY this session's changes vs
-// HEAD â€” for each touched file, replay the session's own edits onto the committed
+// HEAD — for each touched file, replay the session's own edits onto the committed
 // (HEAD) version (another session's edits to the same file are left out). Shared
 // by commit (which commits the entries) and diff (which renders them). Returns the
 // entries plus bookkeeping the commit path needs: which abs paths each entry came
@@ -100,7 +100,7 @@ async function sessionEntries(s, repoPath) {
     entries.push({ path: rel, content }); committedAbs.push(abs);
   }
   // Path-level changes a text op can't represent: a binary file the session
-  // created (committed from its current bytes â€” read as a Buffer so it stays
+  // created (committed from its current bytes — read as a Buffer so it stays
   // intact), or a file it moved/removed (committed as a deletion).
   const seen = new Set(entries.map((e) => e.path));
   for (const [abs, kind] of s.fileOps) {
@@ -110,11 +110,11 @@ async function sessionEntries(s, repoPath) {
     // edited (via the exact, per-session text-edit signal) while this session's
     // Bash/MCP tool ran can be mis-recorded here. That file is the other session's
     // work; committing it as a whole-file blob would sweep in their edits. Drop it
-    // and forget it from tracking â€” text-edit ownership wins. This also self-heals a
+    // and forget it from tracking — text-edit ownership wins. This also self-heals a
     // fileOp recorded before the fix (or before the other session's edit landed).
     if (pathClaimedByOther(s, abs, { edits: true, fileOps: false })) { emptyFileOps.push(abs); continue; }
     if (kind === 'delete') {
-      // Nothing committed at HEAD means there is nothing to delete â€” a phantom op.
+      // Nothing committed at HEAD means there is nothing to delete — a phantom op.
       if (!(await git(['cat-file', '-e', `HEAD:${rel}`])).ok) { emptyFileOps.push(abs); continue; }
       entries.push({ path: rel, delete: true }); committedFileOps.push(abs); continue;
     }
@@ -131,7 +131,7 @@ async function sessionEntries(s, repoPath) {
     entries.push({ path: rel, content: buf }); committedFileOps.push(abs);
   }
   // Fold in Godot sidecars (`<file>.uid`, `<file>.import`) for every resource we're
-  // committing. The editor writes these next to the file â€” the agent's edit tools
+  // committing. The editor writes these next to the file — the agent's edit tools
   // never touch them, so they're absent from s.edits/s.fileOps and would otherwise
   // be left behind, breaking the import. They're recomputed from disk each time (not
   // tracked in s.edits/s.fileOps), so there's nothing to forget after a commit.
@@ -155,7 +155,7 @@ async function sessionEntries(s, repoPath) {
       }
       if (buf == null) continue; // no sidecar on disk to add
       // Skip an unchanged sidecar (current bytes already match HEAD) so it doesn't
-      // inflate the commit with a diff-less blob â€” same blob-hash check as binary adds.
+      // inflate the commit with a diff-less blob — same blob-hash check as binary adds.
       const headSha = await git(['rev-parse', '-q', '--verify', `HEAD:${comp}`]);
       if (headSha.ok) {
         const curSha = await git(['hash-object', '--path', comp, '--stdin'], { input: buf });
@@ -181,7 +181,7 @@ async function sessionDiff(s, repoPath, withPatch) {
   return entriesToDiff(entries, withPatch);
 }
 
-// Diff a precomputed entry set against HEAD via a throwaway index â€” the body of
+// Diff a precomputed entry set against HEAD via a throwaway index — the body of
 // sessionDiff, split out so commit-session can render the patch for the SAME
 // frozen entries it is about to commit (for the message prompt) without rebuilding
 // them off the live, still-changing working tree.
@@ -233,7 +233,7 @@ bridge.handle('session-diff', guard('reading a session diff', async (_e, id) => 
 }, { ok: false, patch: '', additions: 0, deletions: 0, files: 0 }));
 
 // Author a commit message from this session's OWN diff (the same patch the Diff
-// dialog shows), via Haiku â€” so the message describes the actual code change, not
+// dialog shows), via Haiku — so the message describes the actual code change, not
 // the session's first conversational prompt. Bounded by COMMIT_MSG_TIMEOUT_MS;
 // on timeout/failure/empty-diff we fall back to the session title.
 async function sessionCommitMessage(s, id, patch) {
@@ -249,7 +249,7 @@ async function sessionCommitMessage(s, id, patch) {
 }
 
 // Commit ONLY the hunks this session edited. For each touched file we replay the
-// session's own edits onto the committed (HEAD) version and commit that â€” so
+// session's own edits onto the committed (HEAD) version and commit that — so
 // another session's edits to the same file are left uncommitted in the working
 // tree. If an edit can't be replayed cleanly (the other session moved that text,
 // or an opaque op), we fall back to the whole current file for that path.
@@ -257,7 +257,7 @@ async function sessionCommitMessage(s, id, patch) {
 // The message is generated from this session's diff via Haiku, which can take a
 // few seconds. We SNAPSHOT and clear the session's tracking up front, before that
 // await, so a session that keeps running during generation accumulates its new
-// edits as a SEPARATE batch â€” they are never folded into this commit. If the
+// edits as a SEPARATE batch — they are never folded into this commit. If the
 // commit then fails we restore the snapshot so the work isn't silently dropped.
 bridge.handle('commit-session', guard('committing a session', async (_e, id) => {
   const s = sessions.get(id);
@@ -265,7 +265,7 @@ bridge.handle('commit-session', guard('committing a session', async (_e, id) => 
   const repoPath = getRepoPath();
   if (!repoPath) return { ok: false, stderr: 'No folder open' };
   const { entries, committedAbs, committedFileOps, emptyAbs, emptyFileOps } = await sessionEntries(s, repoPath);
-  // Empty patches are phantom changes â€” forget them unconditionally (regardless of
+  // Empty patches are phantom changes — forget them unconditionally (regardless of
   // whether a real commit follows) so the tracked-file count stops counting them.
   let pruned = false;
   for (const abs of emptyAbs) if (s.edits.delete(abs)) pruned = true;
@@ -295,7 +295,7 @@ bridge.handle('commit-session', guard('committing a session', async (_e, id) => 
     persistSession(id);
     sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   } else {
-    // The commit failed after we cleared tracking â€” restore the snapshot (newer
+    // The commit failed after we cleared tracking — restore the snapshot (newer
     // edits, if any arrived during generation, stay ahead of the restored ops) so
     // the user can retry. The working-tree changes were never touched.
     for (const { abs, ops } of editSnap) s.edits.set(abs, [...ops, ...(s.edits.get(abs) || [])]);
@@ -310,7 +310,7 @@ bridge.handle('commit-session', guard('committing a session', async (_e, id) => 
 // so another session's edits to the same file survive. For each touched file we
 // back its ops out of the current working contents (inverseEdits). If an op
 // can't be inverted (a full Write, opaque, or moved text), a hard reset to HEAD
-// is only safe when NO other live session also edited that file â€” otherwise we
+// is only safe when NO other live session also edited that file — otherwise we
 // skip it (clobbering another agent's work is worse than leaving ours). Reverted
 // files are forgotten so a later commit/revert won't double-apply them.
 bridge.handle('revert-session', guard('reverting a session', async (_e, id) => {
@@ -337,7 +337,7 @@ bridge.handle('revert-session', guard('reverting a session', async (_e, id) => {
   // Undo path-level changes (binary creates, renames/moves, deletes). `git
   // checkout HEAD -- <rel>` restores the committed bytes (binary-safe), and an
   // 'add' with no HEAD version was new this session, so it's unlinked. A path
-  // another session also touched is skipped â€” clobbering its work is worse.
+  // another session also touched is skipped — clobbering its work is worse.
   const revertedOps = [];
   for (const [abs, kind] of s.fileOps) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');

@@ -24,7 +24,7 @@ const ASSET_MIME = {
 };
 
 // List one directory level for the file explorer (lazy: children fetched on
-// expand). Folders first, then alphabetical â€” VS Code order. `.git` is hidden.
+// expand). Folders first, then alphabetical — VS Code order. `.git` is hidden.
 bridge.handle('list-dir', async (_e, rel) => {
   try {
     const dir = path.join(getRepoPath(), rel || '');
@@ -141,7 +141,7 @@ bridge.handle('list-files', async () => {
 // blocks the main thread. --untracked also greps new (un-ignored) files; the
 // trailing pathspecs prune dependency/build dirs (search-ignore.js) so an
 // un-ignored node_modules doesn't drown out real hits. Capped at 500 matches.
-// ponytail: parse stdout regardless of exit code â€” grep exits 1 on no matches
+// ponytail: parse stdout regardless of exit code — grep exits 1 on no matches
 // (and when repoPath isn't a git repo, yielding empty results).
 bridge.handle('search-refs', async (_e, q) => {
   if (!q) return { ok: true, matches: [] };
@@ -175,12 +175,12 @@ bridge.handle('write-text', async (_e, { file, text }) => {
 });
 
 // Resolve a path the user Ctrl+clicked in the terminal. Absolute paths are used
-// as-is; bare ones resolve against `baseDir` â€” the *originating* terminal's own
+// as-is; bare ones resolve against `baseDir` — the *originating* terminal's own
 // directory (a session's repo, or a console's cwd), which the renderer passes
 // per-terminal since it can differ from whichever folder is currently open in
 // the explorer. Falls back to the open folder when no baseDir is given (e.g.
 // the onboarding terminal, before any repo is open). Reports whether the
-// resolved path exists, is a file or dir, and sits inside the *open* repo â€”
+// resolved path exists, is a file or dir, and sits inside the *open* repo —
 // the renderer routes in-repo files to the explorer's viewer, directories to
 // the OS file browser, and anything else to the OS via open-external.
 bridge.handle('resolve-link-path', async (_e, raw, baseDir) => {
@@ -259,9 +259,9 @@ bridge.handle('delete-file', async (_e, rel) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
-// Open a repo-relative file in the OS's default program for its type â€” the asset
+// Open a repo-relative file in the OS's default program for its type — the asset
 // viewer's "Open externally" button (a .glb in the system 3D viewer, an image in
-// the default image app, â€¦). Resolves the path against repoPath here so the
+// the default image app, …). Resolves the path against repoPath here so the
 // renderer never has to know the absolute path.
 bridge.handle('open-asset-external', async (_e, rel) => {
   try {
@@ -344,7 +344,7 @@ bridge.handle('clipboard-read', () =>
 // catches create/rename/delete/edit at any depth (recursive is native on
 // win32/darwin). Two cheap guards keep it from hurting performance:
 //   1. Events whose top path segment is a skipped dir (node_modules, .git, build
-//      output â€” see search-ignore.js) are dropped before they cost anything, so
+//      output — see search-ignore.js) are dropped before they cost anything, so
 //      a churning dependency/build dir never triggers a rebuild.
 //   2. The rest are debounced into a single `tree-changed` per quiet window, so a
 //      burst (git checkout, npm install of real source, save-all) collapses to

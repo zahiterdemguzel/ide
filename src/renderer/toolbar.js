@@ -170,6 +170,13 @@ document.getElementById('run-error-ok').onclick = () =>
 // changes (created/edited/deleted), so the buttons track the files live.
 window.api.onRunConfigsChanged(() => loadToolbar());
 
+// A paired phone asked to run a config/task. Main resolved it and handed us the
+// specs: open them exactly as a toolbar click would (same tab reuse, so a rerun
+// from the phone restarts the tab that's already here).
+window.api.onRunSpecs(({ runs }) => {
+  for (const spec of runs || []) runSpecInConsole(spec);
+});
+
 // Re-render when the Launch/Tasks visibility toggles change.
 onPanelsChanged(() => loadToolbar());
 

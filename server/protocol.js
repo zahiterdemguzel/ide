@@ -17,9 +17,14 @@ const REMOTE_CHANNELS = {
     'remove-recent-folder',
     // claude sessions
     'get-sessions',
+    // one page of the list, tab-filtered and searchable — what a phone lists with,
+    // so a long archive is never shipped in full
+    'query-sessions',
     'new-session',
     'resume-session',
     'check-claude',
+    // retained PTY output, so a phone reopening a session sees its scrollback
+    'session-scrollback',
     // git
     'git-is-repo',
     'git-status',
@@ -66,8 +71,18 @@ const REMOTE_CHANNELS = {
     'term-shells',
     'term-create',
     'term-restart',
+    'term-list',
+    'term-scrollback',
+    // run configs (.vscode/launch.json + tasks.json). Starting/stopping goes
+    // through the desktop, which owns the terminal tabs — see run-configs.js.
+    'get-run-configs',
+    'run-config-start',
+    'run-config-stop',
   ]),
   send: new Set([
+    // claim/release a session while the phone's terminal screen is open, so the
+    // desktop can cover it instead of showing two people driving one PTY
+    'session-control',
     'pty-input',
     'pty-resize',
     'kill-session',
@@ -84,10 +99,16 @@ const REMOTE_EVENTS = new Set([
   'pty-data',
   'status',
   'session-meta',
+  'sessions-changed',
   'session-name',
   'session-error',
   'term-data',
   'term-exit',
+  // the open terminals changed (opened/closed/restarted) — also how a phone tells
+  // which launch configs are running, and 'run-configs-changed' when the .vscode
+  // files themselves are edited
+  'terminals-changed',
+  'run-configs-changed',
   'session-evicted',
   'session-model',
   'tree-changed',

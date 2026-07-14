@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -185,6 +185,33 @@ test('filterCommits: matches full or short hash', () => {
 test('filterCommits: all whitespace-split terms must match (any field)', () => {
   assert.deepEqual(filterCommits(COMMITS, 'ada parser').map((c) => c.short), ['99ffee0']);
   assert.deepEqual(filterCommits(COMMITS, 'ada theme'), []);
+});
+
+// The over-fetched commit (one past the page) is what makes hasMore free, so the
+// boundary between "exactly a full page" and "a full page plus one" is the case that
+// decides whether the phone offers to load more.
+test('pageCommits: an over-fetched commit means more remain', () => {
+  const list = [1, 2, 3, 4];
+  assert.deepEqual(pageCommits(list, 0, 3), { commits: [1, 2, 3], hasMore: true });
+});
+
+test('pageCommits: an exactly-full page reports no more', () => {
+  const list = [1, 2, 3];
+  assert.deepEqual(pageCommits(list, 0, 3), { commits: [1, 2, 3], hasMore: false });
+});
+
+test('pageCommits: a short list yields a short page', () => {
+  assert.deepEqual(pageCommits([1, 2], 0, 5), { commits: [1, 2], hasMore: false });
+  assert.deepEqual(pageCommits([], 0, 5), { commits: [], hasMore: false });
+});
+
+// The search path pages the *matches*, so it skips within them rather than letting
+// git skip: page 2 of a search must start at the 4th match, not the 4th commit.
+test('pageCommits: skips within the list (the search path)', () => {
+  const list = [1, 2, 3, 4, 5, 6, 7];
+  assert.deepEqual(pageCommits(list, 3, 3), { commits: [4, 5, 6], hasMore: true });
+  assert.deepEqual(pageCommits(list, 3, 4), { commits: [4, 5, 6, 7], hasMore: false });
+  assert.deepEqual(pageCommits(list, 7, 3), { commits: [], hasMore: false });
 });
 
 test('sumNumstat: totals additions, deletions, and changed files', () => {

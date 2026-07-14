@@ -11,6 +11,7 @@ const fs = require('fs');
 const { sharedDataDir } = require('./instance');
 const { onBroadcast } = require('./window');
 const { invokeRemote } = require('./remote-bridge');
+const { releaseDeviceControl } = require('./sessions');
 const { startRemoteServer } = require('../../server/ws-server');
 const { startPortForward } = require('../../server/http-proxy');
 
@@ -86,6 +87,9 @@ async function enable() {
     deviceStore,
     appVersion: app.getVersion(),
     forward,
+    // A phone holding a session can't release it if it just vanishes, so hand the
+    // session back to the desktop when its socket dies.
+    onDisconnect: releaseDeviceControl,
   });
   return status();
 }
@@ -101,8 +105,15 @@ async function disable() {
 
 // Renderer pushes fan out to remote clients too (protocol.js filters to the
 // remote-event allowlist, so desktop-only channels never leave the machine).
+//
+// `sessions-changed` is the exception: the desktop renderer reconciles against the
+// whole list, but a phone pages its list over `query-sessions` and would only throw
+// the payload away — so remote clients get it as a bare signal ("refetch your
+// page"). Shipping every session, archived ones included, on every list change is
+// exactly what the paging exists to avoid.
 onBroadcast((channel, payload) => {
-  if (server) server.broadcast(channel, payload);
+  if (!server) return;
+  server.broadcast(channel, channel === 'sessions-changed' ? null : payload);
 });
 
 ipcMain.handle('remote-status', () => status());

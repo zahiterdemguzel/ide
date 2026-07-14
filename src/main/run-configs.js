@@ -1,9 +1,11 @@
 const { ipcMain } = require('electron');
+const bridge = require('./remote-bridge');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
 const { sendToRenderer } = require('./window');
+const { stopConfigNamed } = require('./consoles');
 const { parseJsonc, parseEnvFile, compoundMembers, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
@@ -24,7 +26,7 @@ const byOrder = (a, b) => orderOf(a) - orderOf(b);
 // Names for the toolbar: launch configs + compounds, then task labels. Entries a
 // user hid in VS Code (task `hide`, launch/compound `presentation.hidden`) stay
 // hidden here too, and `presentation.order` sorts the visible ones.
-ipcMain.handle('get-run-configs', () => {
+bridge.handle('get-run-configs', () => {
   const launch = readVscodeJson('launch.json');
   const tasks = readVscodeJson('tasks.json');
   const launchList = [];
@@ -116,7 +118,7 @@ function resolveLaunchConfig(cfg, tasksJson, lib) {
   return spec ? lib.prependTasks(preLaunchSpecs(cfg, tasksJson, lib), spec) : null;
 }
 
-ipcMain.handle('run-config', (_e, { kind, name, inputs, activeFile }) => {
+function resolveRunConfig({ kind, name, inputs, activeFile }) {
   const tasksJson = readVscodeJson('tasks.json');
   const lib = makeLib(tasksJson, inputs, activeFile);
   if (kind === 'task') {
@@ -154,6 +156,37 @@ ipcMain.handle('run-config', (_e, { kind, name, inputs, activeFile }) => {
   if (s) return done([s]);
   const ofType = cfg.type ? ` of type "${cfg.type}"` : '';
   return { ok: false, error: `Couldn't derive a run command for "${name}"${ofType}. This config has no runnable "program" or "runtimeExecutable" (and no browser "url"/"file") — it's likely an attach config, which this app can't launch as a terminal command.` };
+}
+
+ipcMain.handle('run-config', (_e, args) => resolveRunConfig(args || {}));
+
+// Start a config/task on behalf of a remote client. The phone can't open a
+// terminal tab — the desktop renderer owns those — so main resolves the specs and
+// pushes them to the renderer, which runs them through the very same path a
+// toolbar click takes (reusing a same-named tab, so this is rerun as well as run).
+// One code path means desktop and phone can't drift.
+//
+// ${input:...} configs are the one thing we can't do headlessly: the answers come
+// from a modal the desktop renderer owns. Say so rather than silently running a
+// config with unresolved placeholders.
+bridge.handle('run-config-start', (_e, { kind, name } = {}) => {
+  const r = resolveRunConfig({ kind, name });
+  if (r.needsInputs) {
+    const ids = r.needsInputs.map((i) => i.id).join(', ');
+    return { ok: false, error: `"${name}" asks for input (${ids}). Start it from the desktop toolbar — the prompt opens there.` };
+  }
+  if (!r.ok) return r;
+  sendToRenderer('run-specs', { runs: r.runs });
+  return { ok: true };
+});
+
+// Stop a launch config: close the terminal(s) it started. A compound stops each of
+// its member configs, exactly like the toolbar's Stop button.
+bridge.handle('run-config-stop', (_e, { name } = {}) => {
+  const launch = readVscodeJson('launch.json') || {};
+  const compound = (launch.compounds || []).find((c) => c && c.name === name);
+  for (const n of compound ? compoundMembers(compound) : [name]) stopConfigNamed(n);
+  return { ok: true };
 });
 
 // Keep the toolbar in sync with the .vscode files without the user reopening the

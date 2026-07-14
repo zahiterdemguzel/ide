@@ -129,14 +129,19 @@ async function createConsole(opts = {}) {
   registerTerminalLinks(term, opts.cwd);
   try { fit.fit(); } catch { /* pane hidden */ }
 
+  // Main records the name/kind too: it's what lets a paired phone list the open
+  // terminals and tell which launch configs are running. The renderer stays the one
+  // place a terminal is named.
+  const name = opts.name || (opts.shell && opts.shell.name) || 'shell';
+  const kind = opts.kind || 'shell';
   const { id } = await window.api.termCreate({
     cols: term.cols, rows: term.rows,
     shell: opts.shell && opts.shell.path,
     command: opts.command, cwd: opts.cwd, env: opts.env,
+    name, kind,
   });
   term.onData((d) => window.api.termInput(id, d));
 
-  const name = opts.name || (opts.shell && opts.shell.name) || 'shell';
   const tab = document.createElement('div');
   tab.className = 'term-tab';
   tab.title = name;
@@ -153,7 +158,7 @@ async function createConsole(opts = {}) {
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); closeConsole(id); } };
   termTabs.appendChild(tab);
 
-  consoles.set(id, { term, fit, host, tab, label, name, kind: opts.kind || 'shell', renderer: null });
+  consoles.set(id, { term, fit, host, tab, label, name, kind, renderer: null });
   notifyConsolesChanged();
   selectConsole(id); // attaches the GPU renderer to this now-visible console
   return id;
@@ -168,7 +173,11 @@ export async function runSpecInConsole(spec) {
   for (const [id, c] of consoles) {
     if (c.kind === kind && c.name === spec.name) {
       c.term.reset();
-      await window.api.termRestart({ id, cols: c.term.cols, rows: c.term.rows, command: spec.command, cwd: spec.cwd, env: spec.env });
+      await window.api.termRestart({
+        id, cols: c.term.cols, rows: c.term.rows,
+        command: spec.command, cwd: spec.cwd, env: spec.env,
+        name: spec.name, kind,
+      });
       selectConsole(id);
       return id;
     }

@@ -464,6 +464,7 @@ export function sendToActiveSession(text) {
   if (!activeId) return;
   const s = sessions.get(activeId);
   if (!s || !s.term) return; // archived session: nothing to send input to
+  if (s.controlled) return; // a phone holds it — don't type into someone else's PTY
   window.api.sendInput(activeId, text);
   s.term.focus();
 }
@@ -498,10 +499,12 @@ function buildTerminal(id, repo) {
 // session entry and all its uncommitted tracked-file state for a later resume)
 // and dispose the renderer terminal to free its memory. s.files is untouched, so
 // the work stays committable and the tracking history survives the archive.
-function suspendSessionUI(s) {
+// `notifyMain: false` when the archive originated elsewhere (a paired phone): main
+// has already killed the PTY, so re-sending suspend-session would be a no-op echo.
+function suspendSessionUI(s, { notifyMain = true } = {}) {
   if (s.suspended) return;
   s.suspended = true;
-  window.api.suspendSession(s.id);
+  if (notifyMain) window.api.suspendSession(s.id);
   if (s.term) {
     if (s.renderer) { s.renderer.dispose(); s.renderer = null; }
     untrackTermTheme(s.term);
@@ -510,21 +513,31 @@ function suspendSessionUI(s) {
     s.fit = null;
   }
   showSuspendedHint(s.container, 'Session archived to free resources — restore it to continue.');
+  clearControlled(s); // the hint replaced the container's children, cover included
 }
 
 // Restore an archived session: respawn its Claude conversation under the same id
 // (`--resume`, so main keeps accumulating tracked edits against the same entry)
 // and rebuild the terminal in place. The terminal must exist before resume so the
 // first pty-data the resumed process emits has somewhere to render.
-async function resumeSessionUI(s) {
-  if (!s.suspended) return;
+// Swap the "archived" placeholder for a live terminal. Split out of resumeSessionUI
+// because a session restored from a phone is already respawned by the time the
+// desktop hears about it: it needs the terminal rebuilt but not a second resume.
+function rebuildTerminalUI(s) {
   s.suspended = false;
   s.container.classList.remove('suspended');
-  s.container.replaceChildren();
+  s.container.replaceChildren(); // drops the cover node with everything else
+  clearControlled(s);
   const { term, fit } = attachTerminal(s.id, s.container, s.repo);
   s.term = term;
   s.fit = fit;
   s.renderer = null; // re-attached by selectSession when this session is shown
+  return term;
+}
+
+async function resumeSessionUI(s) {
+  if (!s.suspended) return;
+  const term = rebuildTerminalUI(s);
   await window.api.resumeSession(s.id, { cols: term.cols || 80, rows: term.rows || 24 });
 }
 
@@ -613,10 +626,13 @@ export async function newSession(opts = {}) {
   if (res.repo) currentRepo = res.repo;
   const repo = res.repo || currentRepo;
 
-  const { container, term, fit: fitAddon } = buildTerminal(id, repo);
-  const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
-
-  sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model });
+  // The sessions-changed push racing this call may have adopted the row already
+  // (both paths build the same live row) — reuse it rather than duplicating it.
+  if (!sessions.has(id)) {
+    const { container, term, fit: fitAddon } = buildTerminal(id, repo);
+    const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
+    sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model });
+  }
   setTab('active');
   selectSession(id);
 }
@@ -679,6 +695,100 @@ export async function restoreSessions() {
   // stat only when it's unarchived.
   refreshAllDiffStats();
 }
+
+// Build a live row for a session that was created on another client (a paired
+// phone): its Claude process is already running in main, so it gets a real terminal
+// straight away — pty-data is broadcast to every client, so both screens show the
+// same conversation.
+function adoptSession(meta) {
+  const repo = meta.repo || currentRepo || '';
+  const { container, term, fit } = buildTerminal(meta.id, repo);
+  const { li, dot, label, diffBadge, closeBtn } = makeRow(meta.id);
+  const state = meta.state || 'idle';
+  const shown = meta.name || (meta.firstPrompt && meta.firstPrompt.split('\n')[0]);
+  if (shown) label.textContent = shown;
+  dot.className = 'dot ' + state;
+  dot.title = STATE_LABEL[state] || state;
+  sessions.set(meta.id, {
+    id: meta.id, repo, term, fit, container, li, dot, label, diffBadge, closeBtn, state,
+    firstPrompt: meta.firstPrompt || '', name: meta.name || '', files: meta.files || [],
+    archived: false, suspended: false, model: meta.model || '',
+  });
+}
+
+// Main owns the session set and pushes the whole list whenever it changes, so a
+// session created/archived/restored/deleted on a paired phone lands here and the
+// desktop list follows it (and vice versa — our own changes arrive back as an echo
+// that reconciles to a no-op, since the UI already matches).
+function syncSessions(list) {
+  if (!Array.isArray(list)) return;
+  const seen = new Set();
+  for (const meta of list) {
+    seen.add(meta.id);
+    const s = sessions.get(meta.id);
+    if (!s) {
+      // A running session needs a terminal to render into; a stopped one gets the
+      // usual "restore me" placeholder.
+      if (meta.live) adoptSession(meta);
+      else restoreSessionRow(meta);
+    } else if (meta.archived !== s.archived) {
+      s.archived = meta.archived;
+      // Main has already killed/respawned the PTY, so mirror it in the UI only.
+      if (meta.archived) suspendSessionUI(s, { notifyMain: false });
+      else if (s.suspended && meta.live) rebuildTerminalUI(s);
+    }
+    // The list carries who holds each session, so a renderer that reloaded (or a row
+    // adopted mid-flight) still comes up covered if a phone is driving it.
+    setControlled(sessions.get(meta.id), !!meta.controlled);
+  }
+  for (const id of [...sessions.keys()]) if (!seen.has(id)) removeSessionUI(id);
+  applyTabFilter();
+  const cur = sessions.get(activeId);
+  if (!cur || !sessionVisible(cur)) selectFirstVisible();
+}
+
+// A paired phone is driving this session. Cover its terminal rather than tearing it
+// down — the xterm keeps consuming pty-data underneath, so taking control back shows
+// the current screen instantly instead of a blank one. The cover also swallows clicks
+// and disableStdin swallows keystrokes, so the desktop can't type into a PTY someone
+// else is holding.
+// Forget a cover whose DOM node was already thrown away with the container's other
+// children, so a later claim rebuilds it instead of assuming it's still on screen.
+function clearControlled(s) {
+  s.cover = null;
+  s.controlled = false;
+  s.li.classList.remove('controlled');
+}
+
+function setControlled(s, on) {
+  if (!s || s.controlled === on) return;
+  s.controlled = on;
+  s.li.classList.toggle('controlled', on);
+  s.container.classList.toggle('controlled', on);
+  if (s.term) s.term.options.disableStdin = on;
+  if (!on) {
+    if (s.cover) { s.cover.remove(); s.cover = null; }
+    return;
+  }
+  const cover = document.createElement('div');
+  cover.className = 'term-controlled-cover';
+  const text = document.createElement('div');
+  text.className = 'term-controlled-text';
+  text.textContent = 'Controlled by mobile';
+  const hint = document.createElement('div');
+  hint.className = 'term-controlled-hint';
+  hint.textContent = 'This session is being driven from a paired phone. Its output is hidden here.';
+  const btn = document.createElement('button');
+  btn.className = 'term-controlled-btn';
+  btn.textContent = 'Take control';
+  // Main clears the claim and echoes session-control back, which uncovers us.
+  btn.onclick = () => window.api.takeSessionControl(s.id);
+  cover.append(text, hint, btn);
+  s.container.appendChild(cover);
+  s.cover = cover;
+}
+
+window.api.onSessionControl(({ id, controlled }) => setControlled(sessions.get(id), controlled));
 
 // Tear down a session's UI without telling main to kill it (used both for an
 // explicit close and when main evicts an old session past the storage budget).
@@ -985,6 +1095,7 @@ window.api.onSessionModel(({ id, model }) => {
 // Main evicted the oldest sessions to stay under the persisted-storage budget;
 // drop their rows so the UI matches what survives on disk.
 window.api.onSessionEvicted(({ ids }) => { for (const id of ids) removeSessionUI(id); });
+window.api.onSessionsChanged(syncSessions);
 // A session failed in main (saving/retrieving/committing/…). Rather than crash or
 // vanish into the console, surface it as a dismissable warning with the error text.
 window.api.onSessionError(({ context, message }) => {

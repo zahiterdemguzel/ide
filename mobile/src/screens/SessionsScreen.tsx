@@ -1,14 +1,33 @@
 // Claude sessions of the open project: list, create, resume, archive, delete.
-// Mirrors the desktop sessions panel: Active/Archived/All tabs, newest-first.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, FlatList, Pressable, Alert, StyleSheet } from 'react-native';
+// Mirrors the desktop sessions panel: Active/Archived/All tabs, newest-first, and a
+// search bar on the Archived tab.
+//
+// The list is *paged*, not held whole: `query-sessions` returns one screenful at a
+// time (tab-filtered, searched and sorted in main), and scrolling to the bottom asks
+// for the next page. An archive of hundreds of sessions is never fetched in full,
+// and the search filters in main so only matching rows come over the wire.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  View, Text, TextInput, FlatList, Pressable, Alert, ActivityIndicator, StyleSheet,
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
 
+const PAGE = 30;
+// Safety net behind the sessions-changed push: a dropped socket or a missed event
+// would otherwise leave the list stale until the next manual pull.
+const POLL_MS = 5000;
+// Typing shouldn't fire a round trip per keystroke; the desktop debounces its own
+// archived search the same way.
+const SEARCH_DEBOUNCE_MS = 200;
+
 type Session = {
   id: string; repo: string; firstPrompt: string; name: string;
-  archived: boolean; state: string; files: string[]; model: string;
+  archived: boolean; state: string; model: string; live: boolean; controlled: boolean;
 };
+type Counts = { active: number; archived: number; all: number };
+type Page = { items: Session[]; total: number; counts: Counts };
 
 type Tab = 'active' | 'archived' | 'all';
 const TABS: { key: Tab; label: string }[] = [
@@ -22,46 +41,125 @@ const STATE_COLORS: Record<string, string> = {
   pushed: '#98c379', interrupted: '#e06c75', idle: '#7d8590',
 };
 
+const NO_COUNTS: Counts = { active: 0, archived: 0, all: 0 };
+
 export default function SessionsScreen({ navigation }: any) {
   const { conn } = useConnection();
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [items, setItems] = useState<Session[]>([]);
+  const [total, setTotal] = useState(0);
+  const [counts, setCounts] = useState<Counts>(NO_COUNTS);
   const [repo, setRepo] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('active');
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const refresh = useCallback(async () => {
-    if (!conn) return;
-    const [list, repoPath] = await Promise.all([
-      conn.req<Session[]>('get-sessions'),
-      conn.req<string | null>('get-repo-path'),
-    ]);
-    setRepo(repoPath);
-    setSessions(list.filter((s) => !repoPath || s.repo === repoPath));
-  }, [conn]);
+  // Raw input vs the query actually sent — debounced so a round trip isn't fired per
+  // keystroke.
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(search.trim()), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Mirrors of the paging state, so the callbacks below can read how much is loaded
+  // without being rebuilt (and re-registering their listeners) on every page.
+  const loaded = useRef(0);
+  const totalRef = useRef(0);
+  loaded.current = items.length;
+  totalRef.current = total;
+
+  // One request at a time: a poll tick landing on a push, or a load-more landing on a
+  // refresh, is dropped rather than raced. Whatever it misses, the next tick re-runs.
+  const busy = useRef(false);
+
+  // Refetch from the top, keeping however many pages are already open so scrolling
+  // back up doesn't hit a hole.
+  const refetch = useCallback(async (size: number) => {
+    if (!conn || conn.state !== 'ready' || busy.current) return;
+    busy.current = true;
+    try {
+      const [page, repoPath] = await Promise.all([
+        conn.req<Page>('query-sessions', { tab, query, offset: 0, limit: size }),
+        conn.req<string | null>('get-repo-path'),
+      ]);
+      setRepo(repoPath);
+      setItems(page.items);
+      setTotal(page.total);
+      setCounts(page.counts);
+    } catch {
+      // Socket dropped mid-request; the reconnect's 'ready' re-runs this.
+    } finally {
+      busy.current = false;
+    }
+  }, [conn, tab, query]);
+
+  const refresh = useCallback(
+    () => refetch(Math.max(PAGE, loaded.current)),
+    [refetch],
+  );
+
+  const loadMore = useCallback(async () => {
+    const offset = loaded.current;
+    if (!conn || conn.state !== 'ready' || busy.current || offset >= totalRef.current) return;
+    busy.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await conn.req<Page>('query-sessions', { tab, query, offset, limit: PAGE });
+      // A refresh may have replaced the list while this page was in flight; appending
+      // then would duplicate or misorder rows, so drop it — the list is already fresh.
+      setItems((prev) => (prev.length === offset ? [...prev, ...page.items] : prev));
+      setTotal(page.total);
+      setCounts(page.counts);
+    } catch {
+      // Same as above: the next refresh recovers.
+    } finally {
+      busy.current = false;
+      setLoadingMore(false);
+    }
+  }, [conn, tab, query]);
+
+  // Switching tab or query invalidates the page: drop what's loaded and fetch the
+  // first page of the new view. (`refetch` changes identity exactly when tab/query do.)
+  useEffect(() => {
+    setItems([]);
+    setTotal(0);
+    refetch(PAGE);
+  }, [refetch]);
 
   useEffect(() => {
-    refresh();
+    const patch = (id: string, fields: Partial<Session>) =>
+      setItems((prev) => prev.map((s) => (s.id === id ? { ...s, ...fields } : s)));
     const offs = [
-      conn?.on('status', ({ id, state }: any) =>
-        setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, state } : s)))),
-      conn?.on('session-name', ({ id, name }: any) =>
-        setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, name } : s)))),
-      conn?.on('session-meta', () => refresh()),
+      conn?.on('status', ({ id, state }: any) => patch(id, { state })),
+      conn?.on('session-name', ({ id, name }: any) => patch(id, { name })),
+      // Main pushes this whenever the set changes (created / archived / restored /
+      // deleted / evicted), from whichever client made it. It carries no payload for
+      // remote clients — the list is paged, so it's purely a "refetch" signal.
+      conn?.on('sessions-changed', () => refresh()),
+      // Switching project (here or on the desktop) re-scopes the list.
+      conn?.on('folder-changed', () => refresh()),
+      // Reconnecting means any change made while the socket was down was missed.
+      conn?.onState((s) => { if (s === 'ready') refresh(); }),
     ];
     return () => offs.forEach((off) => off?.());
   }, [conn, refresh]);
 
-  // get-sessions returns creation order; the newest session belongs on top.
-  const shown = useMemo(() => {
-    const match = (s: Session) =>
-      tab === 'all' ? true : tab === 'archived' ? s.archived : !s.archived;
-    return sessions.filter(match).slice().reverse();
-  }, [sessions, tab]);
+  // Refetch whenever the tab is opened, then keep polling while it's on screen. The
+  // tab navigator keeps this screen mounted, so a mount effect alone would never
+  // re-run on a revisit.
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+      const timer = setInterval(refresh, POLL_MS);
+      return () => clearInterval(timer);
+    }, [refresh]),
+  );
 
-  const counts = useMemo(() => ({
-    active: sessions.filter((s) => !s.archived).length,
-    archived: sessions.filter((s) => s.archived).length,
-    all: sessions.length,
-  }), [sessions]);
+  // The search bar lives on the Archived tab only; leaving it clears the filter.
+  const selectTab = (t: Tab) => {
+    setTab(t);
+    if (t !== 'archived') setSearch('');
+  };
 
   const newSession = async () => {
     try {
@@ -81,12 +179,13 @@ export default function SessionsScreen({ navigation }: any) {
 
   const open = async (s: Session) => {
     if (s.archived) await conn?.req('resume-session', { id: s.id, cols: 80, rows: 30 });
-    navigation.navigate('Terminal', { id: s.id, resume: false });
+    navigation.navigate('Terminal', { id: s.id, name: title(s), resume: false });
   };
 
   const archive = (s: Session) => {
     conn?.send('suspend-session', { id: s.id });
-    setSessions((prev) => prev.map((x) => (x.id === s.id ? { ...x, archived: true } : x)));
+    setItems((prev) => prev.map((x) => (x.id === s.id ? { ...x, archived: true } : x)));
+    refresh();
   };
 
   const unarchive = async (s: Session) => {
@@ -105,18 +204,21 @@ export default function SessionsScreen({ navigation }: any) {
           style: 'destructive',
           onPress: () => {
             conn?.send('kill-session', { id: s.id });
-            setSessions((prev) => prev.filter((x) => x.id !== s.id));
+            setItems((prev) => prev.filter((x) => x.id !== s.id));
+            refresh();
           },
         },
       ],
     );
   };
 
-  const emptyText = !repo
-    ? 'Open a project first.'
-    : tab === 'archived'
-      ? 'No archived sessions.'
-      : 'No sessions yet — tap New session.';
+  const emptyText = useMemo(() => {
+    if (!repo) return 'Open a project first.';
+    if (tab === 'archived') {
+      return query ? `No archived sessions match “${query}”.` : 'No archived sessions.';
+    }
+    return 'No sessions yet — tap New session.';
+  }, [repo, tab, query]);
 
   return (
     <View style={styles.fill}>
@@ -127,7 +229,7 @@ export default function SessionsScreen({ navigation }: any) {
             <Pressable
               key={t.key}
               style={[styles.tab, on && styles.tabOn]}
-              onPress={() => setTab(t.key)}
+              onPress={() => selectTab(t.key)}
             >
               <Text style={[styles.tabLabel, on && styles.tabLabelOn]}>{t.label}</Text>
               <Text style={[styles.tabCount, on && styles.tabCountOn]}>{counts[t.key]}</Text>
@@ -136,12 +238,36 @@ export default function SessionsScreen({ navigation }: any) {
         })}
       </View>
 
+      {tab === 'archived' && (
+        <View style={styles.searchWrap}>
+          <Ionicons name="search" size={16} color="#6e7681" />
+          <TextInput
+            style={styles.search}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search archived sessions"
+            placeholderTextColor="#6e7681"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          {search.length > 0 && (
+            <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel="Clear search">
+              <Ionicons name="close-circle" size={16} color="#6e7681" />
+            </Pressable>
+          )}
+        </View>
+      )}
+
       <FlatList
-        data={shown}
+        data={items}
         keyExtractor={(s) => s.id}
         refreshing={false}
         onRefresh={refresh}
-        contentContainerStyle={shown.length ? undefined : styles.fill}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.5}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={items.length ? undefined : styles.fill}
         renderItem={({ item }) => (
           <Pressable
             style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
@@ -165,6 +291,9 @@ export default function SessionsScreen({ navigation }: any) {
           </Pressable>
         )}
         ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
+        ListFooterComponent={
+          loadingMore ? <ActivityIndicator style={styles.more} color="#7d8590" /> : null
+        }
       />
 
       <Pressable
@@ -217,6 +346,14 @@ const styles = StyleSheet.create({
   tabCount: { color: '#57606a', fontSize: 12, fontVariant: ['tabular-nums'] },
   tabCountOn: { color: '#4da3ff' },
 
+  searchWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 10, marginBottom: 10, paddingHorizontal: 10,
+    borderRadius: 8, backgroundColor: '#0d1117',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: '#30363d',
+  },
+  search: { flex: 1, paddingVertical: 8, color: '#e6edf3', fontSize: 14 },
+
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingVertical: 14, paddingHorizontal: 14,
@@ -230,7 +367,8 @@ const styles = StyleSheet.create({
   iconBtn: { padding: 6, borderRadius: 6 },
   iconBtnPressed: { backgroundColor: '#21262d' },
 
-  empty: { color: '#7d8590', textAlign: 'center', marginTop: 48 },
+  empty: { color: '#7d8590', textAlign: 'center', marginTop: 48, paddingHorizontal: 24 },
+  more: { paddingVertical: 16 },
 
   new: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

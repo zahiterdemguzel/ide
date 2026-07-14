@@ -52,4 +52,10 @@ module.exports = [
     files: ['eslint.config.js', 'scripts/**/*.js'],
     languageOptions: { sourceType: 'commonjs', globals: { ...globals.node } },
   },
+  {
+    // scripts/*.mjs import the renderer's ESM modules directly (e.g. the mobile
+    // asset generator reads shared/file-icons.js), so they're ESM, not CommonJS.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { sourceType: 'module', globals: { ...globals.node } },
+  },
 ];

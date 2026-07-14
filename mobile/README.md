@@ -23,6 +23,13 @@ Project switching is deliberately *not* a tab: the small square icon button at
 header-left opens `src/components/ProjectDrawer.tsx`, a panel that slides in from
 the left with the desktop's recent projects (and the Unpair action).
 
+The Files tab browses with breadcrumbs, shows files with the **desktop explorer's
+own icons**, and opens them **syntax-highlighted** (tap the pencil to edit, Save to
+write back). Neither the icons nor the language mapping is maintained twice: both
+are generated from the desktop's modules into `src/generated/desktop-assets.ts` by
+`npm run gen:mobile` **in the repo root**, and a root test fails if that output
+drifts. Don't hand-edit the generated file.
+
 ## How it talks to the desktop
 
 `src/api/connection.ts` speaks the JSON ws protocol from the repo's `server/`

@@ -32,14 +32,14 @@ function startRemoteServer(opts) {
       if (msg.t === 'pair') {
         if (!pairing.consume(msg.pairToken)) return send(proto.authErr(proto.ERR.BAD_TOKEN));
         const { device, token } = auth.createDevice(deviceStore, msg.deviceName);
-        deviceId = device.id;
+        deviceId = ws.deviceId = device.id;
         clients.add(ws);
         return send(proto.paired(token, device.id));
       }
       if (msg.t === 'auth') {
         const device = auth.verifyDevice(deviceStore, msg.deviceToken);
         if (!device) return send(proto.authErr(proto.ERR.BAD_TOKEN));
-        deviceId = device.id;
+        deviceId = ws.deviceId = device.id;
         clients.add(ws);
         return send(proto.authOk(device.id, appVersion));
       }
@@ -79,7 +79,16 @@ function startRemoteServer(opts) {
       }
     });
 
-    ws.on('close', () => clients.delete(ws));
+    ws.on('close', () => {
+      clients.delete(ws);
+      // A device that vanishes (locked phone, dropped Wi-Fi) can't clean up whatever
+      // it was holding, so tell the embedder which one left.
+      if (deviceId && opts.onDisconnect) {
+        // Only when it's really gone: the same device may hold another live socket.
+        const stillHere = [...clients].some((c) => c.deviceId === deviceId);
+        if (!stillHere) { try { opts.onDisconnect(deviceId); } catch {} }
+      }
+    });
   });
 
   // Drop sockets that stop answering pings (phone locked, Wi-Fi dropped).

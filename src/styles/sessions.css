@@ -90,6 +90,14 @@
 #session-list li.archived .sess-delete.armed { visibility: visible; color: var(--red); }
 #session-list li.archived .sess-label { color: var(--fg-dim); font-style: italic; }
 
+/* Held by a paired phone: mark the row so it's clear from the list why that
+   session's terminal is covered. */
+#session-list li.controlled .sess-label::after {
+  content: '📱';
+  margin-left: 6px;
+  font-size: 10px;
+}
+
 .dot { position: relative; width: 9px; height: 9px; border-radius: 50%; flex: none; background: var(--gray); }
 /* A just-started session sits idle (gray) — no work in flight yet. */
 .dot.idle { background: var(--gray); }

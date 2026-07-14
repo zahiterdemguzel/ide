@@ -10,7 +10,9 @@
 import { extOf } from './ext.js';
 
 // extension -> icon id
-const EXT_ICON = {
+// Exported for scripts/gen-mobile-assets.mjs, which bakes this table (and the
+// SVGs it names) into the mobile app — this file stays the single source.
+export const EXT_ICON = {
   // languages
   js: 'javascript', mjs: 'javascript', cjs: 'javascript',
   jsx: 'react', tsx: 'react',
@@ -75,7 +77,7 @@ const EXT_ICON = {
 
 // exact filename (lowercased) -> icon id; wins over the extension table so a
 // well-known file gets its real logo (Dockerfile, package.json, …).
-const NAME_ICON = {
+export const NAME_ICON = {
   dockerfile: 'docker',
   makefile: 'make', 'cmakelists.txt': 'make',
   '.gitignore': 'git', '.gitattributes': 'git', '.gitmodules': 'git',

@@ -16,8 +16,9 @@ const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
 const { interruptState } = require('./hook-events');
+const { querySessions } = require('./session-query-lib');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
-// session (runtime), long after both modules have loaded â€” safe circular require.
+// session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
 const statusline = require('./statusline');
 
@@ -25,14 +26,14 @@ const statusline = require('./statusline');
 //         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
 // `pty` is null while a session is suspended (archived in the UI, or freshly
 // restored from disk after a restart): the Claude process is killed/absent to free
-// resources, but the entry â€” and all its tracked-file state â€” is kept so resuming
+// resources, but the entry — and all its tracked-file state — is kept so resuming
 // under the same id continues tracking seamlessly. `archived` is the UI tab the
 // session lives in; `suspended` is whether the PTY is currently down (always true
 // for a restored session until the user resumes it).
 const sessions = new Map();
 
 // Persisted across restarts in the shared data dir (not the disposable per-instance
-// profile), so sessions survive closing the app â€” both active and archived ones.
+// profile), so sessions survive closing the app — both active and archived ones.
 // Each session is its own file under sessionsDir (`<id>.json`) so a single session's
 // change only rewrites that one file (a fast, incremental save) and the whole set is
 // never serialized at once. The legacy single-file store (`sessions.json`) is
@@ -65,7 +66,7 @@ function writeSessionFileAtomic(filePath, data) {
   fs.renameSync(tmp, filePath);
 }
 
-// Delete one session's file (on kill or eviction). A missing file is fine â€” the
+// Delete one session's file (on kill or eviction). A missing file is fine — the
 // session may never have been written yet.
 function removeSessionFile(id) {
   try { fs.unlinkSync(sessionFilePath(id)); }
@@ -113,7 +114,7 @@ function flushSessionErrors() {
 
 // Wrap a session IPC handler so any throw becomes a reported warning + a safe
 // return value, instead of a rejected invoke (an unhandled rejection in the
-// renderer) or â€” for fire-and-forget `.on` handlers â€” an uncaught main-process
+// renderer) or — for fire-and-forget `.on` handlers — an uncaught main-process
 // exception. `fallback` is what the renderer gets back on failure.
 function guard(context, fn, fallback) {
   return async (...args) => {
@@ -159,7 +160,7 @@ function loadPersistedSessions() {
     try {
       const entry = deserializeSession(obj);
       // An empty husk (created but never prompted, no tracked work) has no transcript
-      // to resume â€” it only ever produces the "No conversation found" error. Drop it
+      // to resume — it only ever produces the "No conversation found" error. Drop it
       // and delete its stale file so it can't resurrect on every launch.
       if (!isSessionPersistable(entry)) { removeSessionFile(obj.id); continue; }
       entry._seq = obj._seq || 0;
@@ -189,15 +190,16 @@ function evictOverBudget() {
     removeSessionFile(id);
   }
   sendToRenderer('session-evicted', { ids: evictedIds });
+  broadcastSessions();
 }
 
 // Write one session to its own file (the common case: a single session changed). The
 // `_seq` rides along so load can restore creation order. Evicts over-budget sessions
-// after the write. A throw here must never crash the app â€” it's surfaced instead.
+// after the write. A throw here must never crash the app — it's surfaced instead.
 function persistSession(id) {
   const s = sessions.get(id);
   if (!s) return;
-  // A session with no conversation and no tracked work isn't worth saving â€” and
+  // A session with no conversation and no tracked work isn't worth saving — and
   // resuming it later fails with "No conversation found" (see isSessionPersistable).
   // `new-session` persists on create, so this is the no-op that keeps a never-used
   // session off disk until its first prompt; clear any older file just in case.
@@ -214,7 +216,7 @@ function persistSession(id) {
 
 // Write every session to disk (used on quit). Synchronous so it completes before the
 // process exits. Evicts first so an over-budget set never writes files it's about to
-// delete. A throw here would otherwise be an uncaught exception on quit â€” surface it.
+// delete. A throw here would otherwise be an uncaught exception on quit — surface it.
 function persistSessions() {
   try {
     evictOverBudget();
@@ -242,7 +244,7 @@ function schedulePersist(id) {
 // server drives this from the live event stream; commit-session marks 'pushed').
 // Only a `working` session reopens as `interrupted` on disk; the settled states
 // (`completed`/`pushed`/`idle`, and `needs-input` collapsed to green) are kept (see
-// persistedState) â€” but we store the live value so a later transition to a settled
+// persistedState) — but we store the live value so a later transition to a settled
 // state is captured. No-op for an unknown/evicted id.
 function setSessionState(id, state) {
   const s = sessions.get(id);
@@ -268,13 +270,13 @@ function trackedFiles(s) {
 }
 
 // True when a session OTHER than `self` already owns this absolute path. Text
-// edits (`edits`) are an EXACT, per-session-attributed signal â€” the hook payload
+// edits (`edits`) are an EXACT, per-session-attributed signal — the hook payload
 // carries the session id and file path. The working-tree diff that fills
 // `fileOps` is GLOBAL and can't tell sessions apart, so when two sessions run
 // concurrently (one editing code, one running a Bash/MCP command) the diff would
 // otherwise attribute the editor's file to the other session. This predicate is
 // how that change is kept out of the wrong session. `kinds` selects which maps to
-// consult â€” fileOp attribution checks both (text-edit authority + first-recorder-
+// consult — fileOp attribution checks both (text-edit authority + first-recorder-
 // wins for two fs-only sessions); the commit/diff read path checks only `edits`,
 // since a path another session edited precisely must never be swept into this
 // session's whole-file blob.
@@ -289,7 +291,7 @@ function pathClaimedByOther(self, abs, { edits = true, fileOps = true } = {}) {
 
 // True when `absPath` is excluded by .gitignore. `git check-ignore` reports
 // nothing (exit 1) for a tracked file even if it matches an ignore rule, so this
-// is exactly "untracked AND ignored" â€” the files we must never track or commit.
+// is exactly "untracked AND ignored" — the files we must never track or commit.
 // The filesystem-diff path already excludes these (they don't appear in `git
 // status`); this guards the text-edit path, which records by file path directly.
 async function isIgnored(absPath) {
@@ -311,8 +313,8 @@ async function statusMap() {
 }
 
 // Diff a before/after status snapshot taken across one tool call and attribute
-// each changed path to the session as an 'add' (file now present â€” a created
-// binary, a moved-in file, or a Bash-modified file) or a 'delete' (file gone â€” a
+// each changed path to the session as an 'add' (file now present — a created
+// binary, a moved-in file, or a Bash-modified file) or a 'delete' (file gone — a
 // moved-out or removed file). Returns whether anything was recorded.
 function applyFsDiff(s, before, after) {
   const repoPath = getRepoPath();
@@ -323,7 +325,7 @@ function applyFsDiff(s, before, after) {
     // The status snapshot is global, so a file ANOTHER session changed during
     // this tool's window shows up here too. If that session already owns the path
     // (its exact text edits, or a filesystem change it recorded first), the change
-    // is theirs â€” don't attribute it to this Bash/MCP tool. See per-session commit
+    // is theirs — don't attribute it to this Bash/MCP tool. See per-session commit
     // "Known ceilings".
     if (pathClaimedByOther(s, abs)) continue;
     if (fs.existsSync(abs)) {
@@ -332,7 +334,7 @@ function applyFsDiff(s, before, after) {
       changed = true;
     } else {
       s.edits.delete(abs); // the tool moved/removed it, so any recorded text ops are void
-      // A file that was only ever untracked and is now gone never reached HEAD â€”
+      // A file that was only ever untracked and is now gone never reached HEAD —
       // there is nothing to commit as a deletion, so just forget it.
       if ((before.get(rel) || '').startsWith('?')) { if (s.fileOps.delete(abs)) changed = true; }
       else { s.fileOps.set(abs, 'delete'); changed = true; }
@@ -343,11 +345,11 @@ function applyFsDiff(s, before, after) {
 
 // When the app is launched from VS Code's debugger (.vscode/launch.json), VS Code
 // injects debugger/inspector variables into our env. node-pty would pass these to
-// the spawned `claude` CLI â€” itself a Node process â€” which then boots as a
+// the spawned `claude` CLI — itself a Node process — which then boots as a
 // debug-attached target and never starts the session. `cleanEnv` strips them so a
 // session spawns identically regardless of how the app itself was launched. The same
 // scrub guards the console PTYs (incl. the setup install/auth terminal), which run the
-// same `claude` binary â€” see src/main/proc-env.js.
+// same `claude` binary — see src/main/proc-env.js.
 // `models` ({ model, subagentModel }) is the session's per-session agent choice:
 // modelEnv turns it into ANTHROPIC_MODEL / CLAUDE_CODE_SUBAGENT_MODEL overrides so
 // the spawned CLI runs the chosen model for the main agent and its subagents (a
@@ -362,14 +364,14 @@ async function recordSessionActivity(payload) {
   const s = sessions.get(payload.session_id);
   if (!s) return null;
   let changed = false;
-  // Only a MAIN-THREAD prompt (no agent_id â€” Claude Code sets it only inside a
+  // Only a MAIN-THREAD prompt (no agent_id — Claude Code sets it only inside a
   // subagent's own context) may reset the tracker or name the session: a
   // subagent's UserPromptSubmit arrives while main-thread fs tools are still in
   // flight, so letting it wipe fsInFlight/preStatus here would drop the pending
   // snapshot and silently lose those tools' filesystem changes.
   if (payload.hook_event_name === 'UserPromptSubmit' && !payload.agent_id) {
     // A new user turn means the agent is idle (no tool in flight), so reset the
-    // fs-tracking counter â€” self-heals a stuck count if a Post hook ever failed
+    // fs-tracking counter — self-heals a stuck count if a Post hook ever failed
     // to fire, which would otherwise suppress every later snapshot.
     s.fsInFlight = 0;
     s.preStatus = null;
@@ -381,7 +383,7 @@ async function recordSessionActivity(payload) {
   }
   if (payload.hook_event_name === 'PostToolUse') {
     const ti = payload.tool_input || {};
-    // editedFilePath also reads NotebookEdit's `notebook_path` â€” subagent edits
+    // editedFilePath also reads NotebookEdit's `notebook_path` — subagent edits
     // (payloads carrying agent_id) land here too, same session_id, and belong to
     // the session just like main-thread ones.
     const f = editedFilePath(ti);
@@ -393,15 +395,15 @@ async function recordSessionActivity(payload) {
       changed = true;
     }
   }
-  // Filesystem changes a text-edit tool can't express â€” a binary file a Bash/MCP
-  // tool created, or a file it renamed/moved/deleted â€” are caught by diffing the
+  // Filesystem changes a text-edit tool can't express — a binary file a Bash/MCP
+  // tool created, or a file it renamed/moved/deleted — are caught by diffing the
   // git working tree across the tool call: snapshot before the first fs tool of a
   // burst, compare once the last one finishes. Claude runs tool calls in PARALLEL
   // within a turn, so the Pre/Post hooks interleave; a single snapshot slot would
   // let a second Pre clobber it and a Post-without-Pre drop its changes entirely.
   // Instead we ref-count the fs tools in flight (`fsInFlight`): snapshot when the
   // count goes 0â†’1, diff once it returns to 0, against that one consistent
-  // baseline â€” so every concurrent tool's changes are captured exactly once.
+  // baseline — so every concurrent tool's changes are captured exactly once.
   if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
     if ((s.fsInFlight || 0) === 0) s.preStatus = await statusMap();
     s.fsInFlight = (s.fsInFlight || 0) + 1;
@@ -429,13 +431,31 @@ async function generateSessionName(id, prompt) {
   if (name && s) { s.name = name; sendToRenderer('session-name', { id, name }); persistSession(id); }
 }
 
+// The desktop renderer's xterm instance lives as long as the session, so main never
+// needed to remember PTY output. A phone does: navigating away from the session
+// screen destroys its WebView, and with it the entire scrollback. Keep a bounded tail
+// of each live session's output for a reattaching client to replay.
+const SCROLLBACK_CHARS = 200_000;
+
+function appendScrollback(s, data) {
+  const sb = s.scroll;
+  sb.seq += 1;
+  sb.chunks.push(data);
+  sb.chars += data.length;
+  // Drop whole chunks off the front. A cut can land mid-escape-sequence, which xterm
+  // tolerates — and the next full redraw clears any resulting smear anyway.
+  while (sb.chars > SCROLLBACK_CHARS && sb.chunks.length > 1) {
+    sb.chars -= sb.chunks.shift().length;
+  }
+}
+
 // Spawn the Claude PTY for `id` and wire its data/exit streams. `resume` starts
 // `claude --resume <id>` (continuing the existing conversation under the same id,
 // so hooks keep firing with the same session_id) instead of creating a new one.
 async function spawnPty(id, cols, rows, resume) {
   const startArg = resume ? ['--resume', id] : ['--session-id', id];
   // Spawn in the session's own project folder, not whatever folder is currently
-  // open â€” a session always belongs to the repo it was created in.
+  // open — a session always belongs to the repo it was created in.
   const s = sessions.get(id);
   const p = pty.spawn(await resolveClaude(), [...startArg, '--settings', hookServer.hooksSettings()], {
     name: 'xterm-color',
@@ -447,18 +467,24 @@ async function spawnPty(id, cols, rows, resume) {
     // keeps running the model it was created with.
     env: sessionEnv(s),
   });
-  p.onData((data) => { sendToRenderer('pty-data', { id, data }); });
+  // A fresh PTY draws its own screen from scratch, so anything retained from a
+  // previous run of this session is stale — start the tail empty on every spawn.
+  if (s) s.scroll = { chunks: [], chars: 0, seq: 0 };
+  p.onData((data) => {
+    if (s) appendScrollback(s, data);
+    sendToRenderer('pty-data', { id, data, seq: s ? s.scroll.seq : 0 });
+  });
   p.onExit(() => {
     const s = sessions.get(id);
     // The PTY dying takes every agent (main + subagents) down with it, however it
-    // died â€” exit, archive, or close â€” so the hook server's subagent bookkeeping
+    // died — exit, archive, or close — so the hook server's subagent bookkeeping
     // for this session is stale either way.
     hookServer.clearTracking(id);
     // A suspend (archive) kills the PTY on purpose but keeps the entry and its
-    // tracked-file state alive for a later resume â€” don't tear it down here.
+    // tracked-file state alive for a later resume — don't tear it down here.
     if (s && s.suspended) return;
     sessions.delete(id);
-    // A non-persistable session that just exited is an empty husk â€” most often a
+    // A non-persistable session that just exited is an empty husk — most often a
     // `claude --resume <id>` that failed with "No conversation found". Delete its
     // file so it doesn't come back on the next launch.
     if (s && !isSessionPersistable(s)) removeSessionFile(id);
@@ -467,19 +493,68 @@ async function spawnPty(id, cols, rows, resume) {
   return p;
 }
 
+// The UI-facing view of every session. Only these fields are sent; the tracked-file
+// list drives the per-session commit button immediately, before the session is even
+// resumed. `live` says whether the Claude process is running right now, so a client
+// rebuilding a row knows whether to attach a terminal or a "restore me" placeholder.
+function sessionList() {
+  return [...sessions].map(([id, s]) => ({
+    id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
+    archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
+    model: s.model || '', live: !!s.pty, controlled: !!s.controlledBy,
+  }));
+}
+
+// Main owns the session set; every client (the desktop renderer and any paired
+// phone) is a view of it. Whenever the set or a session's archived/live-ness
+// changes — created, archived, restored, deleted, evicted — push the whole list so
+// each client reconciles against it. Without this a change made on one client is
+// invisible to the other. Per-session churn (status dots, names, tracked files) has
+// its own narrower events; this one is only for list-shape changes.
+function broadcastSessions() {
+  sendToRenderer('sessions-changed', sessionList());
+}
+
 // Return the restored sessions so the renderer can rebuild its list on startup.
-// Only the UI-facing fields are sent; the tracked-file list drives the per-session
-// commit button immediately, before the session is even resumed.
 bridge.handle('get-sessions', guard('reading saved sessions', () => {
   // The renderer is alive by the time it asks for the list, so flush any errors
   // queued during the pre-renderer startup load (e.g. a corrupt sessions.json).
   flushSessionErrors();
-  return [...sessions].map(([id, s]) => ({
-    id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
-    archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
-    model: s.model || '',
-  }));
+  return sessionList();
 }, []));
+
+// One page of the session list, filtered by tab and an optional search query and
+// scoped to the open project. This is what a phone uses instead of `get-sessions`:
+// an archive of hundreds of sessions is never worth shipping in full to render a
+// screenful. Rows are deliberately slimmer than sessionList()'s — no tracked-file
+// array, which is the bulk of a row and which a phone's list doesn't draw.
+function sessionRow([id, s]) {
+  return {
+    id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
+    archived: !!s.archived, state: s.state || 'idle', model: s.model || '',
+    live: !!s.pty, controlled: !!s.controlledBy,
+  };
+}
+
+const NO_SESSIONS = { items: [], total: 0, counts: { active: 0, archived: 0, all: 0 } };
+
+bridge.handle('query-sessions', guard('reading saved sessions', (_e, opts) => {
+  flushSessionErrors();
+  const repo = getRepoPath();
+  if (!repo) return NO_SESSIONS; // no project open: nothing to list
+  const rows = [...sessions].map(sessionRow).filter((s) => s.repo === repo);
+  return querySessions(rows, opts || {});
+}, NO_SESSIONS));
+
+// The retained output of a live session, for a client attaching a terminal that has
+// no history of its own (a phone reopening the session screen). `seq` is the number
+// of the last chunk in `data`: live `pty-data` carries the same counter, so the
+// client can drop the chunks that raced the snapshot instead of printing them twice.
+bridge.handle('session-scrollback', guard('reading session output', (_e, id) => {
+  const s = sessions.get(id);
+  if (!s || !s.scroll) return { data: '', seq: 0 };
+  return { data: s.scroll.chunks.join(''), seq: s.scroll.seq };
+}, { data: '', seq: 0 }));
 
 // Availability gate: is the Claude Code CLI installed? The renderer calls this on
 // every launch and guides the user through installing it before any session can
@@ -509,18 +584,49 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', _seq: seqCounter++ });
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
+  broadcastSessions();
   return { id, repo };
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
+
+// Two people driving one PTY is a mess: the phone and the desktop would fight over
+// the same prompt. So a phone claims a session while its terminal screen is open,
+// and the desktop shows a "controlled by the phone" cover over that session instead
+// of its live output. Claiming is the phone's to do (`on`); releasing is anyone's —
+// the phone on leaving the screen, the desktop when it takes control back.
+function setControl(id, deviceId) {
+  const s = sessions.get(id);
+  if (!s || s.controlledBy === deviceId) return;
+  s.controlledBy = deviceId;
+  sendToRenderer('session-control', { id, controlled: !!deviceId });
+}
+
+bridge.on('session-control', guardOn('handing over a session', (e, { id, on }) => {
+  const deviceId = e && e.remote ? e.deviceId : null;
+  if (on) {
+    if (deviceId) setControl(id, deviceId); // only a phone can claim
+    return;
+  }
+  const s = sessions.get(id);
+  // The desktop takes control back from whoever holds it; a phone only drops its own.
+  if (s && s.controlledBy && (!deviceId || s.controlledBy === deviceId)) setControl(id, null);
+}));
+
+// A phone that drops off the network never gets to release what it held, so its
+// sessions would stay covered forever. The ws server calls this when a socket dies.
+function releaseDeviceControl(deviceId) {
+  for (const [id, s] of sessions) if (s.controlledBy === deviceId) setControl(id, null);
+}
 
 // Archive: kill the Claude process to free resources but keep the session entry
 // (and all its tracked-file state) so it can resume under the same id.
 bridge.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
   const s = sessions.get(id);
   if (!s) return;
+  setControl(id, null); // no PTY left to drive, so nobody holds it
   s.suspended = true;
   s.archived = true;
   // Archiving stops the agent: a session that was actively working can't keep
-  // running, so reflect it as interrupted (red) â€” same rule app-close uses
+  // running, so reflect it as interrupted (red) — same rule app-close uses
   // (persistedState). A session merely paused for input, and the settled states
   // (completed/pushed/idle), pass through as their green/settled colour.
   const stopped = persistedState(s.state);
@@ -528,6 +634,7 @@ bridge.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
   setSessionState(id, stopped);
   if (s.pty) { try { s.pty.kill(); } catch { /* already gone */ } s.pty = null; }
   persistSession(id);
+  broadcastSessions();
 }));
 
 // Restore: respawn the PTY (resuming the same Claude conversation) for an entry
@@ -539,11 +646,12 @@ bridge.handle('resume-session', guard('restoring a session', async (_e, { id, co
   s.archived = false;
   s.pty = await spawnPty(id, cols, rows, true);
   persistSession(id);
+  broadcastSessions();
   return { ok: true, repo: getRepoPath() };
 }, { ok: false }));
 
 // Change a session's model. Originally fixed at spawn
-// (ANTHROPIC_MODEL via sessionEnv), the model can now be retargeted live â€” the
+// (ANTHROPIC_MODEL via sessionEnv), the model can now be retargeted live — the
 // record is updated so it survives archive/resume and a restart (spawnPty re-applies
 // it), and if the PTY is live we drive the CLI's own `/model <id>` slash command so
 // the running session switches immediately. `default` maps to `/model default` (reset
@@ -591,10 +699,11 @@ bridge.on('kill-session', guardOn('closing a session', (_e, { id }) => {
   sessions.delete(id);
   if (persistTimers.has(id)) { clearTimeout(persistTimers.get(id)); persistTimers.delete(id); }
   removeSessionFile(id);
+  broadcastSessions();
 }));
 
 function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, guard };
+module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, releaseDeviceControl, guard };
