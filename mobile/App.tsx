@@ -10,7 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { Connection, ConnectionState } from './src/api/connection';
-import { loadCredentials, saveCredentials, clearCredentials, wsUrl, PairInfo } from './src/api/pairing';
+import { loadCredentials, saveCredentials, clearCredentials, dialOrder, PairInfo } from './src/api/pairing';
 import { ConnectionContext, useConnection } from './src/api/context';
 import ProjectDrawer, { basename } from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
@@ -126,7 +126,7 @@ export default function App() {
     (async () => {
       const creds = await loadCredentials();
       if (!creds) return;
-      const c = new Connection(creds.url, { deviceToken: creds.deviceToken });
+      const c = new Connection(dialOrder(creds.endpoints), { deviceToken: creds.deviceToken });
       c.onState(setState);
       c.connect();
       setConn(c);
@@ -134,9 +134,11 @@ export default function App() {
   }, []);
 
   const pair = useCallback((info: PairInfo) => {
-    const url = wsUrl(info.host, info.port);
-    const c = new Connection(url, { pairToken: info.pairToken, deviceName: 'IDE Remote' },
-      (deviceToken) => { saveCredentials(url, deviceToken); });
+    // Keep both endpoints, not just the one that pairs: pairing usually happens on
+    // the LAN (you are standing at the machine), but the phone leaves the network.
+    const endpoints = { lan: info.lan, relay: info.relay };
+    const c = new Connection(dialOrder(endpoints), { pairToken: info.pairToken, deviceName: 'IDE Remote' },
+      (deviceToken) => { saveCredentials(endpoints, deviceToken); });
     c.onState(setState);
     c.connect();
     setConn(c);

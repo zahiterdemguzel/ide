@@ -1,6 +1,8 @@
 // Dev-server port forwarding: type the port your dev server runs on (e.g. 3000
 // for a web app on the desktop) and open it in the phone's browser through the
-// desktop's LAN proxy. The URL carries a one-time auth token.
+// desktop's proxy. The URL carries a one-time auth token. On the same network it
+// points straight at the desktop; off it, at the relay, which splices the browser
+// through to that same proxy — either way the desktop decides whether to serve it.
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, FlatList, Pressable, Alert, StyleSheet, Linking } from 'react-native';
 import { useConnection } from '../api/context';
@@ -35,7 +37,8 @@ export default function PortsScreen() {
   return (
     <View style={styles.fill}>
       <Text style={styles.hint}>
-        Forward a dev server running on the desktop (e.g. localhost:3000) and test it in this phone's browser.
+        Forward a dev server running on the desktop (e.g. localhost:3000) and test it in this phone's browser —
+        on this network or away from it.
       </Text>
       <View style={styles.rowInput}>
         <TextInput
