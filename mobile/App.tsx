@@ -8,13 +8,14 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Connection, ConnectionState } from './src/api/connection';
 import { loadCredentials, saveCredentials, clearCredentials, Endpoints, PairInfo } from './src/api/pairing';
 import { Instance, instanceEndpoints } from './src/api/instances';
 import { ConnectionContext, useConnection } from './src/api/context';
 import ProjectDrawer, { basename } from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
+import UsageBar from './src/components/UsageBar';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import PairScreen from './src/screens/PairScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
@@ -77,9 +78,15 @@ function MainTabs() {
     <>
       <Tab.Navigator
         screenOptions={({ route }) => ({
-          headerStyle: { backgroundColor: '#161b22' },
           headerTitleAlign: 'center',
           headerShadowVisible: false,
+          // The usage line rides the bottom edge of the header on every tab, so it
+          // is painted with the header background rather than added to each screen.
+          headerBackground: () => (
+            <View style={styles.header}>
+              <UsageBar />
+            </View>
+          ),
           headerTitle: () => <ProjectTitle name={current} />,
           headerLeft: () => (
             <HeaderButton icon="folder-open-outline" color="#4da3ff" onPress={() => setDrawerOpen(true)} />
@@ -253,6 +260,7 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  header: { flex: 1, backgroundColor: '#161b22' },
   headerBtn: {
     width: 34,
     height: 34,
