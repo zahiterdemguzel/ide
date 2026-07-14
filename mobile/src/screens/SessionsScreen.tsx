@@ -8,11 +8,12 @@
 // and the search filters in main so only matching rows come over the wire.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, FlatList, Pressable, Alert, ActivityIndicator, StyleSheet,
+  View, Text, TextInput, FlatList, Pressable, Alert, ActivityIndicator, Modal, StyleSheet,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
+import { MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, modelSuffix } from '../api/models';
 
 const PAGE = 30;
 // Safety net behind the sessions-changed push: a dropped socket or a missed event
@@ -51,6 +52,12 @@ export default function SessionsScreen({ navigation }: any) {
   const [repo, setRepo] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('active');
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // The model a new session spawns with: the last one picked from the caret menu,
+  // shown under the button so it's clear what a plain tap will use.
+  const [model, setModel] = useState<string>(DEFAULT_MODEL);
+  const [menuOpen, setMenuOpen] = useState(false);
+  useEffect(() => { getSessionModel().then(setModel); }, []);
 
   // Raw input vs the query actually sent — debounced so a round trip isn't fired per
   // keystroke.
@@ -161,9 +168,12 @@ export default function SessionsScreen({ navigation }: any) {
     if (t !== 'archived') setSearch('');
   };
 
-  const newSession = async () => {
+  const newSession = async (chosen?: string) => {
+    const model = chosen ?? (await getSessionModel());
+    if (chosen) await setSessionModel(chosen);
+    setModel(model);
     try {
-      const r: any = await conn?.req('new-session', { cols: 80, rows: 30 });
+      const r: any = await conn?.req('new-session', { cols: 80, rows: 30, model });
       // The desktop wraps handler failures in { error } instead of rejecting.
       if (r?.error || !r?.id) {
         Alert.alert('Could not create session', r?.error ?? 'Unknown error');
@@ -296,14 +306,47 @@ export default function SessionsScreen({ navigation }: any) {
         }
       />
 
-      <Pressable
-        style={({ pressed }) => [styles.new, !repo && styles.newOff, pressed && repo && styles.newPressed]}
-        onPress={newSession}
-        disabled={!repo}
-      >
-        <Ionicons name="add" size={20} color={repo ? '#fff' : '#7d8590'} />
-        <Text style={[styles.newLabel, !repo && styles.newLabelOff]}>New session</Text>
-      </Pressable>
+      <View style={styles.newWrap}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.new, styles.newMain, !repo && styles.newOff, pressed && repo && styles.newPressed,
+          ]}
+          onPress={() => newSession()}
+          disabled={!repo}
+        >
+          <Ionicons name="add" size={20} color={repo ? '#fff' : '#7d8590'} />
+          <Text style={[styles.newLabel, !repo && styles.newLabelOff]} numberOfLines={1}>
+            New session{modelSuffix(model)}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.new, styles.newCaret, !repo && styles.newOff, pressed && repo && styles.newPressed,
+          ]}
+          onPress={() => setMenuOpen(true)}
+          disabled={!repo}
+          accessibilityLabel="Choose model"
+        >
+          <Ionicons name="chevron-up" size={18} color={repo ? '#fff' : '#7d8590'} />
+        </Pressable>
+      </View>
+
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)}>
+          <View style={styles.menu}>
+            {MODELS.filter((m) => m.id !== DEFAULT_MODEL).map((m) => (
+              <Pressable
+                key={m.id}
+                style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+                onPress={() => { setMenuOpen(false); newSession(m.id); }}
+              >
+                <Text style={[styles.menuLabel, m.id === model && styles.menuLabelOn]}>{m.name}</Text>
+                {m.id === model && <Ionicons name="checkmark" size={16} color="#4da3ff" />}
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -370,12 +413,31 @@ const styles = StyleSheet.create({
   empty: { color: '#7d8590', textAlign: 'center', marginTop: 48, paddingHorizontal: 24 },
   more: { paddingVertical: 16 },
 
+  // Split button: the wide half creates with the remembered model, the caret half
+  // opens the picker — same shape as the desktop's #new-session / caret pair.
+  newWrap: { flexDirection: 'row', gap: 2, margin: 12 },
   new: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    margin: 12, paddingVertical: 12, borderRadius: 8, backgroundColor: '#238636',
+    paddingVertical: 12, backgroundColor: '#238636',
   },
+  newMain: { flex: 1, borderTopLeftRadius: 8, borderBottomLeftRadius: 8 },
+  newCaret: { paddingHorizontal: 16, borderTopRightRadius: 8, borderBottomRightRadius: 8 },
   newPressed: { backgroundColor: '#2ea043' },
   newOff: { backgroundColor: '#161b22', borderWidth: StyleSheet.hairlineWidth, borderColor: '#30363d' },
   newLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
   newLabelOff: { color: '#7d8590' },
+
+  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: '#00000080' },
+  menu: {
+    margin: 12, marginBottom: 78, borderRadius: 8, overflow: 'hidden',
+    backgroundColor: '#161b22', borderWidth: StyleSheet.hairlineWidth, borderColor: '#30363d',
+  },
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 14, paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#21262d',
+  },
+  menuItemPressed: { backgroundColor: '#21262d' },
+  menuLabel: { color: '#e6edf3', fontSize: 15 },
+  menuLabelOn: { color: '#4da3ff', fontWeight: '600' },
 });

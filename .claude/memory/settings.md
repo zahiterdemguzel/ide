@@ -74,6 +74,15 @@ session model (the subagent model keeps the saved default). `sessions.js`'s
 `newSession(opts)` takes the override (falling back to the defaults when omitted)
 and passes `{ model, subagentModel }` through the `new-session` IPC.
 
+**Mobile.** `mobile/src/screens/SessionsScreen.tsx` mirrors the same split button:
+the wide half creates with the last-picked model (its label carries the suffix —
+"New session (Opus)"), the caret half opens a sheet listing the concrete models.
+Picking one both creates the session *and* becomes the remembered default. The
+list and the persistence live in `mobile/src/api/models.ts` (a copy of `MODELS`,
+stored in SecureStore under the same `ide.sessionModel` key — keep it in step with
+`src/renderer/settings.js`). The `model` rides on the existing `new-session` req,
+which main already accepts from remote clients — no protocol change.
+
 **Where it's applied.** Main stores the choice on the session record and turns it
 into the env at spawn time: `modelEnv()` (the pure, unit-tested
 `src/main/agent-models.js`) builds the `ANTHROPIC_MODEL` /
