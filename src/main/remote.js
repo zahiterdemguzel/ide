@@ -10,10 +10,12 @@ const { ipcMain, app } = require('electron');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
-const { sharedDataDir } = require('./instance');
+const { sharedDataDir, instanceId } = require('./instance');
 const { onBroadcast } = require('./window');
-const { invokeRemote } = require('./remote-bridge');
+const { handle, invokeRemote } = require('./remote-bridge');
 const { releaseDeviceControl } = require('./sessions');
+const { getRepoPath, onRepoChange } = require('./repo');
+const registry = require('./instance-registry');
 const { createHub } = require('../../server/hub');
 const { startRemoteServer } = require('../../server/ws-server');
 const { startRelayClient } = require('../../server/relay-client');
@@ -80,7 +82,9 @@ const forward = {
     const proxy = await proxyFor(targetPort);
     const token = proxy.issueUrlToken();
     if (ctx.via === 'relay') {
-      return `${config.relayUrl}/p/${config.room}/${targetPort}/?_ideauth=${token}`;
+      // Named down to this window, not just this machine: a sibling may be proxying
+      // the same target port, and the token is only good at the proxy that issued it.
+      return `${config.relayUrl}/p/${config.room}/${instanceId}/${targetPort}/?_ideauth=${token}`;
     }
     const host = lanAddresses()[0] || '127.0.0.1';
     return `http://${host}:${proxy.port}/?_ideauth=${token}`;
@@ -128,6 +132,8 @@ function status() {
   };
 }
 
+const publishInstance = () => registry.publish({ lanPort: server ? server.port : null, project: getRepoPath() });
+
 async function enable() {
   if (server) return status();
   hub = createHub({
@@ -158,17 +164,26 @@ async function enable() {
   relay = startRelayClient({
     relayUrl: config.relayUrl,
     room: config.room,
+    instance: instanceId,
     hub,
     tunnel,
     log: (msg) => console.log(msg),
   });
+  // Now reachable, so say so: this is what puts this window in the list a phone
+  // chooses from. The LAN port is published because it is the sibling instances that
+  // differ — they lost the race for the shared port and took an ephemeral one, and a
+  // phone has no other way to learn where they ended up.
+  publishInstance();
   if (!config.enabled) saveConfig({ ...config, enabled: true });
   return status();
 }
 
+// The list is what windows are *reachable*, not what windows exist, so an instance
+// with remote access off must not be in it — a phone could see it but never dial it.
 async function disable() {
   if (config.enabled) saveConfig({ ...config, enabled: false });
   if (!server) return status();
+  registry.remove();
   const s = server;
   server = null;
   if (relay) relay.close();
@@ -178,6 +193,24 @@ async function disable() {
   await s.close();
   return status();
 }
+
+// The project is the one thing in a window's entry that changes while it runs, and it
+// is the thing the phone picks by — so republish whenever it does.
+onRepoChange(() => { if (server) publishInstance(); });
+
+// Every window this machine is running, oldest first — what the phone's welcome screen
+// lists. Served by whichever window the phone's socket happens to land on: they have no
+// IPC between them, so they answer for each other out of the shared registry file.
+//
+// Bridged (not raw ipcMain) precisely because it must be remotely callable, unlike the
+// remote-* control channels below.
+handle('list-instances', () => registry.list().map((e) => ({
+  id: e.id,
+  startedAt: e.startedAt,
+  project: e.project || null,
+  lanPort: e.lanPort || null,
+  current: e.id === instanceId,
+})));
 
 // Remote access is a service, not a per-window toggle. A phone paired to this
 // machine reconnects on its own (backoff, stored device token) but has nothing to
@@ -234,6 +267,10 @@ ipcMain.handle('remote-revoke-device', (_e, id) => {
 });
 
 app.on('before-quit', () => {
+  // Drop out of the list before the socket goes: a phone must not be offered a window
+  // that is on its way out. A window that is killed or crashes never reaches this, so
+  // the reader prunes dead entries too (see instance-registry.js).
+  registry.remove();
   if (relay) relay.close();
   if (server) server.close();
   closeAllForwards();

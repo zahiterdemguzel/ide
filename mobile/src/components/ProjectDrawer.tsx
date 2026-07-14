@@ -22,18 +22,22 @@ export const basename = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ??
 type Props = { visible: boolean; onClose: () => void };
 
 export default function ProjectDrawer({ visible, onClose }: Props) {
-  const { conn, state, unpair } = useConnection();
+  const { conn, state, unpair, switchInstance } = useConnection();
   const { width } = useWindowDimensions();
   const panelWidth = Math.min(320, width * 0.82);
   const slide = useRef(new Animated.Value(-panelWidth)).current;
   const fade = useRef(new Animated.Value(0)).current;
   const [folders, setFolders] = useState<string[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
+  // How many desktop windows are open right now. Only worth offering the switch when
+  // there is somewhere to switch *to*, and that changes while the phone is connected.
+  const [windows, setWindows] = useState(1);
 
   const refresh = useCallback(async () => {
     if (!conn || state !== 'ready') return;
     setFolders(await conn.req('get-recent-folders'));
     setCurrent(await conn.req('get-repo-path'));
+    setWindows(((await conn.req<unknown[]>('list-instances').catch(() => [])) || []).length);
   }, [conn, state]);
 
   useEffect(() => {
@@ -117,7 +121,17 @@ export default function ProjectDrawer({ visible, onClose }: Props) {
             }
           />
 
-          <Pressable style={styles.unpair} onPress={unpair}>
+          {windows > 1 && (
+            <Pressable
+              style={({ pressed }) => [styles.footerRow, pressed && styles.rowPressed]}
+              onPress={() => { onClose(); switchInstance(); }}
+            >
+              <Ionicons name="desktop-outline" size={18} color="#4da3ff" />
+              <Text style={styles.switchText}>Switch window ({windows} open)</Text>
+            </Pressable>
+          )}
+
+          <Pressable style={styles.footerRow} onPress={unpair}>
             <Ionicons name="log-out-outline" size={18} color="#f85149" />
             <Text style={styles.unpairText}>Unpair</Text>
           </Pressable>
@@ -157,7 +171,7 @@ const styles = StyleSheet.create({
   nameActive: { color: '#4da3ff' },
   path: { color: '#7d8590', fontSize: 11 },
   empty: { color: '#7d8590', textAlign: 'center', marginTop: 32, paddingHorizontal: 16 },
-  unpair: {
+  footerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -166,5 +180,6 @@ const styles = StyleSheet.create({
     borderTopColor: '#30363d',
     borderTopWidth: StyleSheet.hairlineWidth,
   },
+  switchText: { color: '#4da3ff', fontSize: 14, fontWeight: '600' },
   unpairText: { color: '#f85149', fontSize: 14, fontWeight: '600' },
 });

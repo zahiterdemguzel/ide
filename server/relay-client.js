@@ -18,19 +18,23 @@ const F = require('./relay-frames');
 
 const MAX_BACKOFF_MS = 30000;
 
-// https://host → wss://host/?role=desktop&room=<id> (http → ws, for tests).
-function relayWsUrl(relayUrl, room) {
+// https://host → wss://host/?role=desktop&room=<id>&instance=<id> (http → ws, for
+// tests). The room is the machine; the instance is this window. Siblings share the
+// room, so without the instance id the relay could not tell them apart — and would
+// have to treat the second one as the first reconnecting, and evict it.
+function relayWsUrl(relayUrl, room, instance) {
   const u = new URL(relayUrl);
   u.protocol = u.protocol === 'http:' ? 'ws:' : 'wss:';
   u.pathname = '/';
   u.search = `role=desktop&room=${encodeURIComponent(room)}`;
+  if (instance) u.search += `&instance=${encodeURIComponent(instance)}`;
   return u.toString();
 }
 
-// opts: { relayUrl, room, hub, tunnel: { localPort(targetPort) → Promise<port> }, log }
+// opts: { relayUrl, room, instance, hub, tunnel: { localPort(targetPort) → Promise<port> }, log }
 // Returns { url, connected(), close() }. Reconnects with backoff until closed.
-function startRelayClient({ relayUrl, room, hub, tunnel, log = () => {} }) {
-  const url = relayWsUrl(relayUrl, room);
+function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {} }) {
+  const url = relayWsUrl(relayUrl, room, instance);
   const clients = new Map(); // clientId -> hub client
   const streams = new Map(); // streamId -> { socket, queue, connecting }
   let ws = null;

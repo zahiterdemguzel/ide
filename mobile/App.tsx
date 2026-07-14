@@ -10,7 +10,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { Connection, ConnectionState } from './src/api/connection';
-import { loadCredentials, saveCredentials, clearCredentials, dialOrder, PairInfo } from './src/api/pairing';
+import { loadCredentials, saveCredentials, clearCredentials, dialOrder, Endpoints, PairInfo } from './src/api/pairing';
+import { Instance, instanceEndpoints } from './src/api/instances';
 import { ConnectionContext, useConnection } from './src/api/context';
 import ProjectDrawer, { basename } from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
@@ -120,38 +121,95 @@ function MainTabs() {
 export default function App() {
   const [conn, setConn] = useState<Connection | null>(null);
   const [state, setState] = useState<ConnectionState>('closed');
+  // The pairing endpoints, kept after launch because choosing a *window* re-dials:
+  // each one listens on its own LAN port and is named separately inside the room.
+  const [creds, setCreds] = useState<{ endpoints: Endpoints; deviceToken: string } | null>(null);
+  const [instances, setInstances] = useState<Instance[] | null>(null); // non-null only while choosing
+  const [instance, setInstance] = useState<Instance | null>(null);
+  const [chosen, setChosen] = useState(false); // distinct from `instance`: an old desktop names no window
+
+  const open = useCallback((endpoints: Endpoints, auth: ConstructorParameters<typeof Connection>[1],
+    onDeviceToken?: (t: string) => void) => {
+    const c = new Connection(dialOrder(endpoints), auth, onDeviceToken);
+    c.onState(setState);
+    c.connect();
+    setConn(c);
+  }, []);
 
   // Reconnect with the stored credential on launch; fall back to the pair screen.
   useEffect(() => {
     (async () => {
-      const creds = await loadCredentials();
-      if (!creds) return;
-      const c = new Connection(dialOrder(creds.endpoints), { deviceToken: creds.deviceToken });
-      c.onState(setState);
-      c.connect();
-      setConn(c);
+      const stored = await loadCredentials();
+      if (!stored) return;
+      setCreds(stored);
+      open(stored.endpoints, { deviceToken: stored.deviceToken });
     })();
-  }, []);
+  }, [open]);
+
+  // Connected — but to *a* window, whichever one answered, and the machine may be
+  // running several. Ask which; the one we reached answers for its siblings too.
+  // The roster is never cached: an instance id lasts only as long as its process.
+  useEffect(() => {
+    if (!conn || state !== 'ready' || chosen) return;
+    let dropped = false;
+    conn.req<Instance[]>('list-instances')
+      .then((list) => {
+        if (dropped) return;
+        // Nothing to choose between: go straight in, exactly as before windows were
+        // selectable. (An empty list means the desktop is too old to know the channel.)
+        if (list.length > 1) return setInstances(list);
+        setInstance(list[0] ?? null);
+        setChosen(true);
+      })
+      .catch(() => { if (!dropped) setChosen(true); });
+    return () => { dropped = true; };
+  }, [conn, state, chosen]);
 
   const pair = useCallback((info: PairInfo) => {
     // Keep both endpoints, not just the one that pairs: pairing usually happens on
     // the LAN (you are standing at the machine), but the phone leaves the network.
     const endpoints = { lan: info.lan, relay: info.relay };
-    const c = new Connection(dialOrder(endpoints), { pairToken: info.pairToken, deviceName: 'IDE Remote' },
-      (deviceToken) => { saveCredentials(endpoints, deviceToken); });
-    c.onState(setState);
-    c.connect();
-    setConn(c);
-  }, []);
+    open(endpoints, { pairToken: info.pairToken, deviceName: 'IDE Remote' }, (deviceToken) => {
+      saveCredentials(endpoints, deviceToken);
+      setCreds({ endpoints, deviceToken });
+    });
+  }, [open]);
+
+  const selectInstance = useCallback((inst: Instance) => {
+    setInstance(inst);
+    setInstances(null);
+    setChosen(true);
+    // The window that served the roster is the one we are already on — no reconnect.
+    if (inst.current || !creds) return;
+    conn?.close();
+    open(instanceEndpoints(creds.endpoints, inst), { deviceToken: creds.deviceToken });
+  }, [conn, creds, open]);
+
+  // Re-list rather than reuse what we fetched at launch: windows open and close, and
+  // the one the user wants may be newer than this session.
+  const switchInstance = useCallback(async () => {
+    if (!conn || state !== 'ready') return;
+    const list = await conn.req<Instance[]>('list-instances').catch(() => [] as Instance[]);
+    if (!list.length) return;
+    setInstances(list);
+    setChosen(false);
+  }, [conn, state]);
 
   const unpair = useCallback(async () => {
     conn?.close();
     await clearCredentials();
     setConn(null);
     setState('closed');
+    setCreds(null);
+    setInstances(null);
+    setInstance(null);
+    setChosen(false);
   }, [conn]);
 
-  const ctx = useMemo(() => ({ conn, state, pair, unpair }), [conn, state, pair, unpair]);
+  const ctx = useMemo(
+    () => ({ conn, state, pair, unpair, instances, instance, selectInstance, switchInstance }),
+    [conn, state, pair, unpair, instances, instance, selectInstance, switchInstance],
+  );
   const paired = conn && state !== 'error';
 
   return (
@@ -165,6 +223,11 @@ export default function App() {
                 <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Pair" component={PairScreen} options={{ title: 'Scan QR code' }} />
               </>
+            ) : !chosen ? (
+              // Paired, but not driving a window yet: connecting, or picking one of
+              // several. Welcome is both — and dropping the Pair route here is what
+              // takes the camera off the screen the moment a scan lands.
+              <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
             ) : (
               <>
                 <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />

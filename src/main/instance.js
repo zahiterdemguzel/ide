@@ -1,6 +1,7 @@
 const { app } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { staleInstanceDirs } = require('./instance-lib');
 
 // Multiple instances must be able to run side by side. Two instances sharing one
@@ -14,6 +15,17 @@ const { staleInstanceDirs } = require('./instance-lib');
 // restarts and is common to all instances; the per-instance profile holds only
 // the disposable Chromium cache.
 const sharedDataDir = app.getPath('userData');
+
+// This instance's identity on the wire. A phone pairs with the *machine* but drives
+// one window, so every remote surface that has to name a window uses this id: the
+// relay keys a room's desktops by it (server/relay.js), and instance-registry.js
+// publishes it so a phone can list every window and pick one.
+//
+// Not the pid: pids are reused, and the id has to be unique across the machine's
+// history for as long as a phone might still be holding it. `startedAt` is what the
+// phone sorts that list by.
+const instanceId = crypto.randomUUID();
+const startedAt = Date.now();
 
 const instancesRoot = path.join(sharedDataDir, 'instances');
 const instanceDir = path.join(instancesRoot, String(process.pid));
@@ -123,4 +135,4 @@ app.on('quit', () => {
   try { fs.rmSync(instanceDir, { recursive: true, force: true }); } catch {}
 });
 
-module.exports = { sharedDataDir };
+module.exports = { sharedDataDir, instanceId, startedAt };

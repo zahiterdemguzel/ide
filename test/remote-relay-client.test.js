@@ -32,9 +32,17 @@ function openMobile(url) {
 }
 
 // One HTTP request, without following redirects — the redirects are what we assert.
+//
+// `agent: false` so each call is its own TCP connection, which is what the relay
+// assumes: it reads one request head, decides where the connection goes, and splices
+// it — so a *reused* socket keeps going wherever the first request on it went,
+// whatever cookie the later ones carry. A browser never notices, because the entry
+// redirect that changes the cookie is answered with `connection: close`. Node's global
+// agent keeps sockets alive, so without this a test would silently assert against the
+// previous request's tunnel.
 function get(port, path, headers = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path, headers }, (res) => {
+    const req = http.request({ host: '127.0.0.1', port, path, headers, agent: false }, (res) => {
       let body = '';
       res.on('data', (c) => { body += c; });
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
@@ -46,7 +54,7 @@ function get(port, path, headers = {}) {
 
 // A desktop: a hub, an outbound relay socket, and the port-forward proxies the
 // tunnel pipes into — the same wiring src/main/remote.js does.
-async function startDesktop({ relayPort, room, invoke = async () => 'ok' }) {
+async function startDesktop({ relayPort, room, instance = 'win-1', invoke = async () => 'ok' }) {
   const devices = [];
   const deviceStore = { load: () => devices, save: (list) => { devices.length = 0; devices.push(...list); } };
   const forwards = new Map();
@@ -66,8 +74,10 @@ async function startDesktop({ relayPort, room, invoke = async () => 'ok' }) {
       async open(targetPort, ctx) {
         const proxy = await proxyFor(targetPort);
         const token = proxy.issueUrlToken();
+        // Down to the window, not just the machine: a sibling may be proxying this
+        // same target port, and the token is only good at the proxy that issued it.
         return ctx.via === 'relay'
-          ? `${relayUrl}/p/${room}/${targetPort}/?_ideauth=${token}`
+          ? `${relayUrl}/p/${room}/${instance}/${targetPort}/?_ideauth=${token}`
           : `http://127.0.0.1:${proxy.port}/?_ideauth=${token}`;
       },
       async close(targetPort) {
@@ -78,7 +88,9 @@ async function startDesktop({ relayPort, room, invoke = async () => 'ok' }) {
     },
   });
 
-  const relay = startRelayClient({ relayUrl, room, hub, tunnel: { localPort: async (p) => (await proxyFor(p)).port } });
+  const relay = startRelayClient({
+    relayUrl, room, instance, hub, tunnel: { localPort: async (p) => (await proxyFor(p)).port },
+  });
   return {
     hub,
     close: async () => {
@@ -159,17 +171,18 @@ test('a browser reaches a loopback-only dev server through the relay tunnel', as
     const fwd = await phone.next();
     assert.equal(fwd.t, 'fwd-ok');
 
-    // The URL points at the relay, not at this machine — that is the whole point.
+    // The URL points at the relay, not at this machine — that is the whole point —
+    // and names the window, so the bytes land at the proxy that minted the token.
     const url = new URL(fwd.url);
     assert.equal(url.port, String(relay.port));
-    assert.equal(url.pathname, `/p/${room}/${devPort}/`);
+    assert.equal(url.pathname, `/p/${room}/win-1/${devPort}/`);
 
-    // 1. the entry URL parks room+port in a cookie and sends the browser to the root
+    // 1. the entry URL parks the target in a cookie and sends the browser to the root
     const entry = await get(relay.port, url.pathname + url.search);
     assert.equal(entry.status, 302);
     assert.equal(entry.headers.location, `/${url.search}`); // the site root, token intact
     const tunnelCookie = String(entry.headers['set-cookie'][0]).split(';')[0];
-    assert.equal(tunnelCookie, `_idetunnel=${room}.${devPort}`);
+    assert.equal(tunnelCookie, `_idetunnel=${room}.win-1.${devPort}`);
 
     // 2. the root, tunnelled to the desktop's proxy, which swaps the URL token for
     //    its own cookie — proxy logic we did not reimplement and did not touch
@@ -216,10 +229,16 @@ test('the tunnel is not an open door — the desktop proxy still refuses a stran
     phone.send({ t: 'fwd-open', port: devPort });
     await phone.next(); // the proxy now exists
 
-    // Right room, right port, no auth token: through the tunnel, and refused there.
-    const res = await get(relay.port, '/', { cookie: `_idetunnel=${room}.${devPort}` });
+    // Right room, right window, right port, no auth token: through the tunnel, and
+    // refused there — the relay splices bytes, the desktop's proxy is what guards them.
+    const res = await get(relay.port, '/', { cookie: `_idetunnel=${room}.win-1.${devPort}` });
     assert.equal(res.status, 403);
     assert.doesNotMatch(res.body, /secret/);
+
+    // And a cookie naming a window that isn't there never reaches a desktop at all,
+    // rather than falling back to whichever one happens to be in the room.
+    const wrong = await get(relay.port, '/', { cookie: `_idetunnel=${room}.win-9.${devPort}` });
+    assert.equal(wrong.status, 502);
   } finally {
     phone.ws.close();
     await desktop.close();

@@ -10,6 +10,10 @@ const PROTO_VERSION = 1;
 // git, explorer and terminal channels.
 const REMOTE_CHANNELS = {
   req: new Set([
+    // the desktop windows running on this machine, so the phone can pick which one it
+    // drives. Authed like everything else here — the relay never sees this list, and
+    // an open project's path is not something to hand out before a device proves itself.
+    'list-instances',
     // projects
     'get-repo-path',
     'get-recent-folders',
