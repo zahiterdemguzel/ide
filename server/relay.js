@@ -15,12 +15,17 @@
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
+const { HEALTH_PATH } = require('./keepalive');
 
 function startRelay({ port, host = '0.0.0.0' } = {}) {
   const rooms = new Map(); // roomId -> { desktop: ws|null, clients: Map<clientId, ws> }
 
   const httpServer = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/plain' });
+    if (req.url.split('?')[0] === HEALTH_PATH) {
+      res.end(`ide-relay ok rooms=${rooms.size}\n`);
+      return;
+    }
     res.end('ide-relay ok\n');
   });
   const wss = new WebSocketServer({ server: httpServer });
