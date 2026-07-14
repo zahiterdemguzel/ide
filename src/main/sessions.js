@@ -642,6 +642,11 @@ bridge.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
 bridge.handle('resume-session', guard('restoring a session', async (_e, { id, cols, rows }) => {
   const s = sessions.get(id);
   if (!s) return { ok: false };
+  // Already running: two clients can ask at once (a phone opening the session while
+  // the desktop selects its row), and a client's view of "is it live" is a moment
+  // stale by the time it arrives. Spawning a second PTY here would strand the first
+  // one — an orphaned claude process nothing can reach or kill.
+  if (s.pty) return { ok: true, repo: getRepoPath() };
   s.suspended = false;
   s.archived = false;
   s.pty = await spawnPty(id, cols, rows, true);

@@ -735,11 +735,18 @@ function syncSessions(list) {
       // usual "restore me" placeholder.
       if (meta.live) adoptSession(meta);
       else restoreSessionRow(meta);
-    } else if (meta.archived !== s.archived) {
-      s.archived = meta.archived;
-      // Main has already killed/respawned the PTY, so mirror it in the UI only.
-      if (meta.archived) suspendSessionUI(s, { notifyMain: false });
-      else if (s.suspended && meta.live) rebuildTerminalUI(s);
+    } else {
+      if (meta.archived !== s.archived) {
+        s.archived = meta.archived;
+        // Main has already killed the PTY, so mirror it in the UI only.
+        if (meta.archived) suspendSessionUI(s, { notifyMain: false });
+      }
+      // A session can come alive without its archived flag moving at all: a phone
+      // opening one that was restored from disk resumes it in main, and this row is
+      // still the startup placeholder (archived was false the whole time). So key the
+      // rebuild off the PTY being live rather than off an archive→active edge, or the
+      // desktop sits on "select to resume" while the session is already running.
+      if (meta.live && s.suspended) rebuildTerminalUI(s);
     }
     // The list carries who holds each session, so a renderer that reloaded (or a row
     // adopted mid-flight) still comes up covered if a phone is driving it.
