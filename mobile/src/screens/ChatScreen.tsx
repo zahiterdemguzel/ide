@@ -19,13 +19,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MessageView from '../components/chat/MessageView';
 import Composer, { Draft } from '../components/chat/Composer';
-import SessionOptions from '../components/chat/SessionOptions';
+import BadgeMenu from '../components/chat/BadgeMenu';
 import { useConnection } from '../api/context';
 import {
   Answer, Ask, AskQuestion, Message, Pending, SlashCommand, Transcript,
   answerAsk, pendingMessage, sendPrompt, settle, uploadImage, upsert,
 } from '../api/chat';
-import { DEFAULT_EFFORT, DEFAULT_MODEL, effortName, modelBadgeName } from '../api/models';
+import {
+  DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, MODELS, effortName, modelBadgeName,
+} from '../api/models';
 import { color, font, radius, space, stateColor } from '../theme';
 
 type DiffStat = { additions: number; deletions: number; files: number };
@@ -35,6 +37,11 @@ type DiffStat = { additions: number; deletions: number; files: number };
 // on a message that never landed — better a bubble that vanishes than a ghost that
 // stays forever next to the real one.
 const PENDING_TTL_MS = 60_000;
+
+// How far above the end still counts as "at the end". A reader who stopped a few pixels
+// short — or a scroll animation that hasn't quite landed — is still following along; only
+// a deliberate scroll up should stop the view from tracking the newest message.
+const BOTTOM_SLACK = 80;
 
 export default function ChatScreen({ route, navigation }: any) {
   const { id, name } = route.params as { id: string; name?: string };
@@ -59,12 +66,11 @@ export default function ChatScreen({ route, navigation }: any) {
   const [sending, setSending] = useState(false);
   const [stat, setStat] = useState<DiffStat | null>(null);
   const [committing, setCommitting] = useState(false);
-  // What this session is running. Both are switchable from the sheet below, and both can
-  // also be changed from the desktop (its badge menu, or a `/model` / `/effort` typed
-  // into its terminal) — main pushes either change, so the badge here follows.
+  // What this session is running. Both are switchable from their badge in the bar above,
+  // and both can also be changed from the desktop (its own badge menu, or a `/model` /
+  // `/effort` typed into its terminal) — main pushes either change, so the badges follow.
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [effort, setEffort] = useState(DEFAULT_EFFORT);
-  const [options, setOptions] = useState(false);
 
   const refreshStat = useCallback(async () => {
     if (!conn) return;
@@ -219,23 +225,26 @@ export default function ChatScreen({ route, navigation }: any) {
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
           <View style={styles.status}>
             <View style={[styles.dot, { backgroundColor: stateColor[state] || color.faint }]} />
-            {/* What the session is, and what it's running. Effort is named only when it
-                was actually set: "Auto" beside every session would be a word that never
-                changes and says nothing. */}
-            <Text style={styles.statusText} numberOfLines={1}>
-              {STATE_LABEL[state] || state} · {modelBadgeName(model)}
-              {effort && effort !== DEFAULT_EFFORT ? ` · ${effortName(effort)}` : ''}
-            </Text>
+            <Text style={styles.statusText} numberOfLines={1}>{STATE_LABEL[state] || state}</Text>
+            {/* What the session is running, and where you change it. The desktop keeps
+                the same two badges in the same place. Effort names "Auto" here even
+                though that's the default — a badge you can tap has to say what it is. */}
+            <BadgeMenu
+              label={modelBadgeName(model)}
+              items={MODELS.filter((m) => m.id !== DEFAULT_MODEL)}
+              current={model}
+              onPick={pickModel}
+              accessibilityLabel="Model"
+            />
+            <BadgeMenu
+              label={effortName(effort)}
+              items={EFFORTS}
+              current={effort || DEFAULT_EFFORT}
+              onPick={pickEffort}
+              accessibilityLabel="Reasoning effort"
+            />
           </View>
         </View>
-        <Pressable
-          onPress={() => setOptions(true)}
-          hitSlop={10}
-          accessibilityLabel="Model and effort"
-          style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
-        >
-          <Ionicons name="options-outline" size={16} color={color.muted} />
-        </Pressable>
         <Pressable
           onPress={stop}
           disabled={!working}
@@ -274,12 +283,19 @@ export default function ChatScreen({ route, navigation }: any) {
             keyExtractor={(m) => m.uuid}
             renderItem={({ item }) => <MessageView message={item} pending={(item as Pending).pending} />}
             contentContainerStyle={styles.listBody}
+            // Both are "the conversation grew or the room for it shrank": a new message,
+            // and the keyboard or the ask card taking the bottom of the screen. Either
+            // one leaves the last message above the fold unless we follow it down.
             onContentSizeChange={scrollToEnd}
+            onLayout={scrollToEnd}
             onScroll={(e) => {
               const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-              atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
+              atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - BOTTOM_SLACK;
             }}
-            scrollEventThrottle={200}
+            // The flag decides whether the *next* message yanks the view; reading it a
+            // fifth of a second late is how a reader who just scrolled up gets pulled
+            // back down anyway. Track the scroll as it happens.
+            scrollEventThrottle={16}
             keyboardDismissMode="interactive"
             ListEmptyComponent={<Empty />}
             ListFooterComponent={working ? <Working /> : null}
@@ -295,15 +311,6 @@ export default function ChatScreen({ route, navigation }: any) {
           onSend={send}
         />
       </KeyboardAvoidingView>
-
-      <SessionOptions
-        visible={options}
-        model={model}
-        effort={effort}
-        onPickModel={pickModel}
-        onPickEffort={pickEffort}
-        onClose={() => setOptions(false)}
-      />
     </SafeAreaView>
   );
 }
@@ -545,15 +552,10 @@ const styles = StyleSheet.create({
   back: { padding: space.xs },
   titleWrap: { flex: 1 },
   title: { color: color.text, fontSize: font.size.md, fontWeight: '600' },
-  status: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
+  status: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
   dot: { width: 7, height: 7, borderRadius: radius.pill },
-  statusText: { flex: 1, color: color.muted, fontSize: font.size.xs },
-  iconBtn: {
-    width: 34, height: 34, borderRadius: radius.sm,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
-  },
-  iconBtnPressed: { backgroundColor: color.raisedHi },
+  // The state label gives up its room to the badges rather than pushing them off the bar.
+  statusText: { flexShrink: 1, color: color.muted, fontSize: font.size.xs },
   stop: {
     width: 34, height: 34, borderRadius: radius.sm,
     alignItems: 'center', justifyContent: 'center',
