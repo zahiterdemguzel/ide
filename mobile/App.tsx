@@ -14,6 +14,7 @@ import { loadCredentials, saveCredentials, clearCredentials, wsUrl, PairInfo } f
 import { ConnectionContext, useConnection } from './src/api/context';
 import ProjectDrawer, { basename } from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
+import WelcomeScreen from './src/screens/WelcomeScreen';
 import PairScreen from './src/screens/PairScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
 import SessionTerminal from './src/screens/SessionTerminal';
@@ -158,7 +159,10 @@ export default function App() {
           <StatusBar style="light" />
           <Stack.Navigator>
             {!paired ? (
-              <Stack.Screen name="Pair" component={PairScreen} options={{ title: 'Pair with desktop' }} />
+              <>
+                <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Pair" component={PairScreen} options={{ title: 'Scan QR code' }} />
+              </>
             ) : (
               <>
                 <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
