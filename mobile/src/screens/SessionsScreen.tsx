@@ -8,7 +8,8 @@
 // and the search filters in main so only matching rows come over the wire.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, FlatList, Pressable, Alert, ActivityIndicator, Modal, StyleSheet,
+  View, Text, TextInput, FlatList, Pressable, Alert, ActivityIndicator, Modal,
+  Animated, Easing, StyleSheet,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -44,6 +45,9 @@ const STATE_COLORS: Record<string, string> = {
 
 const NO_COUNTS: Counts = { active: 0, archived: 0, all: 0 };
 
+// How collapsed the model menu starts, matching the desktop's `scaleY(0.85)`.
+const MENU_SCALE = 0.85;
+
 export default function SessionsScreen({ navigation }: any) {
   const { conn } = useConnection();
   const [items, setItems] = useState<Session[]>([]);
@@ -54,10 +58,45 @@ export default function SessionsScreen({ navigation }: any) {
   const [loadingMore, setLoadingMore] = useState(false);
 
   // The model a new session spawns with: the last one picked from the caret menu,
-  // shown under the button so it's clear what a plain tap will use.
+  // shown on the button so it's clear what a plain tap will use.
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
-  const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => { getSessionModel().then(setModel); }, []);
+
+  // The model menu, animated like the desktop's: a dropdown played in reverse —
+  // it grows *upward* out of the button it's anchored above. React Native ships no
+  // menu widget, so this is Modal + Animated (the official primitives) reproducing
+  // the CSS in layout.css: opacity 0→1, translateY(8px)→0, scaleY(0.85)→1 over
+  // 140ms. RN transforms are center-origin, so the bottom-origin of the CSS is
+  // faked by offsetting translateY by the height the scaleY collapse eats
+  // (h * (1 - 0.85) / 2) — hence the measured height.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuHeight, setMenuHeight] = useState(0);
+  const anim = useRef(new Animated.Value(0)).current;
+
+  const slide = (to: number, done?: () => void) => Animated.timing(anim, {
+    toValue: to,
+    duration: to ? 140 : 120,
+    easing: Easing.out(Easing.quad),
+    useNativeDriver: true,
+  }).start(done);
+
+  const openMenu = () => { setMenuOpen(true); slide(1); };
+  // Unmount only once the menu has finished collapsing, the way the desktop waits
+  // for transitionend before setting [hidden].
+  const closeMenu = (then?: () => void) => slide(0, () => { setMenuOpen(false); then?.(); });
+
+  const menuStyle = {
+    opacity: anim,
+    transform: [
+      {
+        translateY: anim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [8 + (menuHeight * (1 - MENU_SCALE)) / 2, 0],
+        }),
+      },
+      { scaleY: anim.interpolate({ inputRange: [0, 1], outputRange: [MENU_SCALE, 1] }) },
+    ],
+  };
 
   // Raw input vs the query actually sent — debounced so a round trip isn't fired per
   // keystroke.
@@ -329,7 +368,7 @@ export default function SessionsScreen({ navigation }: any) {
           style={({ pressed }) => [
             styles.new, styles.newCaret, !repo && styles.newOff, pressed && repo && styles.newPressed,
           ]}
-          onPress={() => setMenuOpen(true)}
+          onPress={openMenu}
           disabled={!repo}
           accessibilityLabel="Choose model"
         >
@@ -337,21 +376,25 @@ export default function SessionsScreen({ navigation }: any) {
         </Pressable>
       </View>
 
-      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
-        <Pressable style={styles.backdrop} onPress={() => setMenuOpen(false)}>
-          <View style={styles.menu}>
+      <Modal visible={menuOpen} transparent animationType="none" onRequestClose={() => closeMenu()}>
+        <Animated.View style={[styles.backdrop, { opacity: anim }]}>
+          <Pressable style={styles.fill} onPress={() => closeMenu()} />
+          <Animated.View
+            style={[styles.menu, menuStyle]}
+            onLayout={(e) => setMenuHeight(e.nativeEvent.layout.height)}
+          >
             {MODELS.filter((m) => m.id !== DEFAULT_MODEL).map((m) => (
               <Pressable
                 key={m.id}
                 style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
-                onPress={() => { setMenuOpen(false); newSession(m.id); }}
+                onPress={() => closeMenu(() => newSession(m.id))}
               >
                 <Text style={[styles.menuLabel, m.id === model && styles.menuLabelOn]}>{m.name}</Text>
                 {m.id === model && <Ionicons name="checkmark" size={16} color="#4da3ff" />}
               </Pressable>
             ))}
-          </View>
-        </Pressable>
+          </Animated.View>
+        </Animated.View>
       </Modal>
     </View>
   );
@@ -433,7 +476,9 @@ const styles = StyleSheet.create({
   newLabel: { color: '#fff', fontSize: 15, fontWeight: '600' },
   newLabelOff: { color: '#7d8590' },
 
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: '#00000080' },
+  // The tap-to-dismiss area fills everything above the menu, so the menu itself
+  // sits just above the button it grew out of.
+  backdrop: { flex: 1, backgroundColor: '#00000080' },
   menu: {
     margin: 12, marginBottom: 78, borderRadius: 8, overflow: 'hidden',
     backgroundColor: '#161b22', borderWidth: StyleSheet.hairlineWidth, borderColor: '#30363d',

@@ -76,7 +76,11 @@ and passes `{ model, subagentModel }` through the `new-session` IPC.
 
 **Mobile.** `mobile/src/screens/SessionsScreen.tsx` mirrors the same split button:
 the wide half creates with the last-picked model (its label carries the suffix —
-"New session (Opus)"), the caret half opens a sheet listing the concrete models.
+"New session (Opus)"), the caret half opens a menu listing the concrete models.
+React Native has no menu widget, so the menu is `Modal` + `Animated` reproducing
+the CSS reverse-dropdown by hand (opacity/translateY/scaleY over 140ms, and the
+menu is measured because RN transforms are center-origin where the CSS is
+bottom-origin).
 Picking one both creates the session *and* becomes the remembered default. The
 list and the persistence live in `mobile/src/api/models.ts` (a copy of `MODELS`,
 stored in SecureStore under the same `ide.sessionModel` key — keep it in step with
