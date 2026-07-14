@@ -1,4 +1,8 @@
 const { ipcMain, dialog } = require('electron');
+// Channels a paired mobile client may call go through the remote bridge
+// (registers with ipcMain AND the remote registry). Desktop-only channels
+// (native dialog, window title) stay on raw ipcMain.
+const { handle } = require('./remote-bridge');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
@@ -65,8 +69,8 @@ function repoRoot(dir) {
   });
 }
 
-ipcMain.handle('get-repo-path', () => repoPath);
-ipcMain.handle('get-recent-folders', () => recentFolders);
+handle('get-repo-path', () => repoPath);
+handle('get-recent-folders', () => recentFolders);
 
 ipcMain.handle('open-folder', async () => {
   try {
@@ -99,7 +103,13 @@ async function switchToFolder(dir) {
   }
 }
 
-ipcMain.handle('open-folder-path', (_e, dir) => switchToFolder(dir));
+handle('open-folder-path', async (_e, dir) => {
+  const r = await switchToFolder(dir);
+  // A remote switch must update the desktop UI too; in-app switches ignore the
+  // duplicate push (the renderer initiated them and re-renders on the result).
+  if (!r.canceled) sendToRenderer('folder-changed', { repo: r.repo });
+  return r;
+});
 
 // Forget a folder the user removed from the recent list. Persists and re-seeds
 // the OS-native recent menus; returns the trimmed list so the renderer can re-render.
@@ -110,7 +120,7 @@ function removeRecentFolder(dir) {
   return recentFolders;
 }
 
-ipcMain.handle('remove-recent-folder', (_e, dir) => removeRecentFolder(dir));
+handle('remove-recent-folder', (_e, dir) => removeRecentFolder(dir));
 
 // macOS Dock menu pick: switch the running app's folder and tell the renderer to
 // reload everything that depends on it, mirroring the in-app Open-folder flow.

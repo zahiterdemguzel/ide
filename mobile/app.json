@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "IDE Remote",
+    "slug": "ide-remote",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "ide",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan the pairing QR code shown by the desktop IDE.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA"
+      ],
+      "usesCleartextTraffic": true
+    },
+    "plugins": [
+      "expo-camera",
+      "expo-secure-store",
+      "expo-asset"
+    ]
+  }
+}

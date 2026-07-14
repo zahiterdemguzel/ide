@@ -25,6 +25,7 @@ require('./run-configs');
 require('./runners');
 require('./consoles');
 require('./onboarding-store');
+require('./remote');
 
 // Log every crash (uncaught exception, unhandled rejection, renderer/child-process
 // death) to a file under crashlogs/ — without exiting, so the app stays usable.
@@ -45,8 +46,9 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 // Merely unsandboxing it (disable-features=NetworkServiceSandbox) is not enough
 // — the separate process is still a target for injection and keeps dying.
 // Running the network service IN the main process removes the separate child
-// entirely, so there is nothing to crash and restart. The app does no
-// networking, so there is no security trade-off.
+// entirely, so there is nothing to crash and restart. This only affects
+// Chromium (renderer) networking; the Node ws server in main (remote access)
+// and outbound https calls are unaffected, so there is no security trade-off.
 app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess');
 app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
 

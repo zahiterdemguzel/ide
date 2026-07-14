@@ -1,0 +1,13 @@
+{
+  "name": "ide-remote-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Socket bridge for the IDE's mobile companion: LAN ws server (embedded by the desktop app) and standalone cloud relay entry",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

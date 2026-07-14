@@ -20,6 +20,7 @@
     "files": [
       "index.html",
       "src/**/*",
+      "server/**/*",
       "assets/**/*",
       ".vscode/**/*",
       "node_modules/**/*"
@@ -60,8 +61,10 @@
     "paper": "^0.12.18",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.624",
+    "qrcode-generator": "^2.0.4",
     "sql.js": "^1.14.1",
     "three": "^0.185.0",
+    "ws": "^8.21.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

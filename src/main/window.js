@@ -11,7 +11,15 @@ const getWin = () => win;
 // could be accessed". That throw escapes async callbacks (notably node-pty's
 // onData) as an unhandled main-process exception. Guard the known-bad states and
 // swallow the residual race where the frame dies between the check and the send.
+// Remote access (src/main/remote.js) mirrors renderer pushes to paired mobile
+// clients by subscribing here; sendToRenderer stays the single push chokepoint.
+const broadcastListeners = [];
+const onBroadcast = (fn) => broadcastListeners.push(fn);
+
 function sendToRenderer(channel, payload) {
+  for (const fn of broadcastListeners) {
+    try { fn(channel, payload); } catch (err) { console.error('[broadcast listener]', err); }
+  }
   if (!win || win.isDestroyed()) return false;
   const wc = win.webContents;
   if (!wc || wc.isDestroyed() || wc.isCrashed()) return false;
@@ -110,4 +118,4 @@ function createWindow() {
   return win;
 }
 
-module.exports = { createWindow, getWin, setWindowTitle, sendToRenderer };
+module.exports = { createWindow, getWin, setWindowTitle, sendToRenderer, onBroadcast };

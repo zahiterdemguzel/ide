@@ -10,6 +10,7 @@ Index of what's worth remembering about this project. Each line links to a detai
 - [Platform notes](platform-notes.md) — Windows gotchas (node-pty fork, PTY path resolution, sandbox flag). **Do not revert these.**
 - [Settings](settings.md) — the theme + language settings system (gear button), CSS-variable theming, and the i18n engine. How to add a theme, a language, or a translatable string.
 - [Onboarding](onboarding.md) — the first-time-user aids: the spotlight guided tour, keyboard cheat sheet, welcome screen, and contextual hints. How to add a tour step, a hint, or a shortcut row.
+- [Remote access](remote-access.md) — the mobile-companion feature: `server/` socket bridge (ws + relay + port-forward proxy), QR pairing, remote-bridge allowlist, the `mobile/` Expo app, and how to expose a channel to remote clients.
 - [Testing](testing.md) — the test + lint setup and the Windows/macOS/Linux build workflow: what's covered, the pure-logic split that makes it testable, and how to add a test or a lint rule.
 
 ## Preferences

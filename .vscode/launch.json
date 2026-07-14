@@ -21,6 +21,34 @@
       // into the renderer and the window stops responding to clicks/keys. Attach
       // to the main process only so the app stays interactive.
       "autoAttachChildProcesses": false
+    },
+    {
+      // The standalone relay from server/ (socket bridge only — LAN mode doesn't
+      // need it; the desktop app embeds the ws server itself). Local run for
+      // developing/testing relay mode; listens on PORT (default 8080).
+      "name": "Start backend (relay)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/server/index.js",
+      "cwd": "${workspaceFolder}/server",
+      "console": "integratedTerminal"
+    },
+    {
+      // Expo dev server for the companion app; open it in Expo Go on the phone.
+      // Requires a one-time `npm install` in mobile/ first.
+      "name": "Start mobile app",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start"],
+      "cwd": "${workspaceFolder}/mobile",
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Start all (IDE + backend + mobile)",
+      "configurations": ["Start IDE", "Start backend (relay)", "Start mobile app"]
     }
   ]
 }

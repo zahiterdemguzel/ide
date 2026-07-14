@@ -26,7 +26,8 @@ module.exports = [
   },
 
   {
-    files: ['src/main/**/*.js', 'src/preload/**/*.js'],
+    // server/ is the Electron-free remote-access backend — Node CommonJS like main/.
+    files: ['src/main/**/*.js', 'src/preload/**/*.js', 'server/**/*.js'],
     languageOptions: { sourceType: 'commonjs', globals: { ...globals.node } },
   },
   {

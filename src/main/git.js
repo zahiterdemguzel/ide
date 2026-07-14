@@ -1,4 +1,4 @@
-const { ipcMain } = require('electron');
+const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
@@ -13,7 +13,7 @@ const { validateRepoName, ghCreateArgs } = require('./repo-create');
 // core.quotePath=false: emit non-ASCII paths verbatim instead of C-quoting them
 // (e.g. "\303\251.txt"), so the porcelain paths we parse round-trip back to add/diff.
 // GIT_TERMINAL_PROMPT=0: a remote that wants credentials with no helper would
-// otherwise block forever on a prompt we can't answer (no tty) — fail fast instead.
+// otherwise block forever on a prompt we can't answer (no tty) â€” fail fast instead.
 // timeout: backstop so a stuck network op (push/pull/fetch) can't wedge the UI.
 function git(args, opts = {}) {
   return new Promise((resolve) => {
@@ -23,7 +23,7 @@ function git(args, opts = {}) {
     const child = execFile('git', ['-c', 'core.quotePath=false', ...args],
       { cwd: getRepoPath(), env, maxBuffer: 64 * 1024 * 1024, timeout: opts.timeout || 120000 },
       // git often reports failures on stdout (e.g. "nothing to commit"), so fall
-      // back to stdout before err.message — otherwise the UI shows a bare "Command failed".
+      // back to stdout before err.message â€” otherwise the UI shows a bare "Command failed".
       (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && (stdout.trim() || err.message)) || '' }));
     if (opts.input != null) child.stdin.end(opts.input);
   });
@@ -54,7 +54,7 @@ async function aheadCount() {
   return parseInt(r.stdout.trim(), 10) || 0;
 }
 
-// Commits on the upstream not yet on HEAD — i.e. what a pull would bring in.
+// Commits on the upstream not yet on HEAD â€” i.e. what a pull would bring in.
 // Reflects the last fetch's view of the remote, mirroring aheadCount(); returns
 // 0 when there is no upstream, so the pull badge stays hidden.
 async function behindCount() {
@@ -70,9 +70,9 @@ async function isRepo() {
   const r = await git(['rev-parse', '--is-inside-work-tree']);
   return r.ok && r.stdout.trim() === 'true';
 }
-ipcMain.handle('git-is-repo', () => isRepo());
+bridge.handle('git-is-repo', () => isRepo());
 
-ipcMain.handle('git-status', () => gitStatus());
+bridge.handle('git-status', () => gitStatus());
 
 // Run the GitHub CLI in the open folder. Mirrors git(): never rejects, returns
 // { ok, stdout, stderr }. A missing `gh` (ENOENT) is reported as a clear,
@@ -96,7 +96,7 @@ function gh(args) {
 }
 
 // Turn a plain folder into a git repo, make the initial commit, then create the
-// GitHub repository and push — the whole flow behind the create-repo panel's one
+// GitHub repository and push â€” the whole flow behind the create-repo panel's one
 // button. Default branch is `main` (set via symbolic-ref so it's honoured on git
 // versions predating `init -b`). Returns { ok, step, error } so the renderer can
 // say which stage failed.
@@ -123,17 +123,17 @@ async function createRepo({ name, description, isPrivate } = {}) {
   if (!created.ok) return { ok: false, step: 'github', error: created.stderr || 'GitHub repository creation failed' };
   return { ok: true };
 }
-ipcMain.handle('create-repo', (_e, opts) => createRepo(opts));
+bridge.handle('create-repo', (_e, opts) => createRepo(opts));
 
 // Branches for the branch selector. Both local (refs/heads) and remote-tracking
 // (refs/remotes) branches are returned so the search covers everything;
 // parseBranches drops remotes that duplicate a local name and the `origin/HEAD`
 // pointer. The for-each-ref `--sort=-committerdate` gives a latest-*edited* order,
 // then orderBranchesByUsage re-ranks by latest-*used* (last checkout) from the
-// HEAD reflog — so with an empty search the branches the user is most likely to
+// HEAD reflog â€” so with an empty search the branches the user is most likely to
 // switch to sit at the top. The current branch is flagged so the renderer can
 // mark/skip it.
-ipcMain.handle('git-branches', async () => {
+bridge.handle('git-branches', async () => {
   const local = await git(['for-each-ref', '--sort=-committerdate',
     '--format=%(refname:short)', 'refs/heads']);
   if (!local.ok) return { ok: false, error: local.stderr, branches: [], current: '' };
@@ -146,20 +146,20 @@ ipcMain.handle('git-branches', async () => {
 });
 
 // Switch branches. Fails cleanly (reported to the renderer) when the worktree
-// has changes that would be overwritten — git refuses rather than clobbering them.
-ipcMain.handle('git-checkout', (_e, branch) => git(['checkout', branch]));
+// has changes that would be overwritten â€” git refuses rather than clobbering them.
+bridge.handle('git-checkout', (_e, branch) => git(['checkout', branch]));
 
 // Create a new branch off the current HEAD and switch to it. Git rejects names
 // that break ref rules (spaces, '..', leading '-', etc.), reported to the renderer.
-ipcMain.handle('git-create-branch', (_e, branch) => git(['checkout', '-b', branch]));
+bridge.handle('git-create-branch', (_e, branch) => git(['checkout', '-b', branch]));
 
 // Delete a local branch. Force (`-D`) rather than `-d` because the renderer
-// already gates this behind a two-click confirm — the guard is the approval,
+// already gates this behind a two-click confirm â€” the guard is the approval,
 // not git's merged-only check, so the button reliably removes the branch the
 // user approved (git still refuses to delete the branch that's checked out).
-ipcMain.handle('git-delete-branch', (_e, branch) => git(['branch', '-D', branch]));
-ipcMain.handle('git-stage', (_e, file) => git(['add', '--', file]));
-ipcMain.handle('git-unstage', async (_e, file) => {
+bridge.handle('git-delete-branch', (_e, branch) => git(['branch', '-D', branch]));
+bridge.handle('git-stage', (_e, file) => git(['add', '--', file]));
+bridge.handle('git-unstage', async (_e, file) => {
   const r = await git(['reset', '-q', 'HEAD', '--', file]);
   // ponytail: initial commit has no HEAD; fall back to removing from index
   if (!r.ok) return git(['rm', '--cached', '--', file]);
@@ -168,13 +168,13 @@ ipcMain.handle('git-unstage', async (_e, file) => {
 
 // Untracked files have nothing to diff against, so compare to /dev/null
 // (git-for-windows accepts it); exit code 1 just means "they differ".
-ipcMain.handle('git-diff', (_e, { file, staged, untracked }) => {
+bridge.handle('git-diff', (_e, { file, staged, untracked }) => {
   if (untracked) return git(['diff', '--no-index', '--', '/dev/null', file]);
   return git(['diff', ...(staged ? ['--cached'] : []), '--', file]);
 });
 
 // Discard a file's changes: delete it if untracked, else restore index+worktree to HEAD.
-ipcMain.handle('git-revert', (_e, { file, untracked }) => {
+bridge.handle('git-revert', (_e, { file, untracked }) => {
   if (untracked) return git(['clean', '-fq', '--', file]);
   return git(['restore', '--staged', '--worktree', '--', file]);
 });
@@ -191,7 +191,7 @@ async function generateCommitMessage() {
 // Commit staged changes. If nothing is staged, stage everything first so a bare
 // Commit click behaves like "commit all" rather than failing with "nothing to commit".
 // An empty message triggers a one-shot Haiku call to author one from the staged diff.
-ipcMain.handle('git-commit', async (_e, msg) => {
+bridge.handle('git-commit', async (_e, msg) => {
   const nothingStaged = (await git(['diff', '--cached', '--quiet'])).ok;
   if (nothingStaged) await git(['add', '-A']);
   if (!msg || !msg.trim()) {
@@ -205,10 +205,10 @@ ipcMain.handle('git-commit', async (_e, msg) => {
 // one. Refuses when HEAD is already on the upstream: dropping a pushed commit would
 // diverge from the remote, so those must be reverted (a new commit) instead. With no
 // upstream, rev-list fails and nothing is pushed, so the undo is allowed.
-ipcMain.handle('git-undo', async () => {
+bridge.handle('git-undo', async () => {
   const pushed = await git(['rev-list', '--count', '@{u}..HEAD']);
   if (pushed.ok && (parseInt(pushed.stdout.trim(), 10) || 0) === 0) {
-    return { ok: false, stderr: 'Last commit is already pushed — revert it instead of undoing.' };
+    return { ok: false, stderr: 'Last commit is already pushed â€” revert it instead of undoing.' };
   }
   return git(['reset', '--soft', 'HEAD~1']);
 });
@@ -216,18 +216,18 @@ ipcMain.handle('git-undo', async () => {
 // Push. A branch with no upstream fails with "has no upstream branch"; retry once
 // with -u to create the tracking ref (the common first-push case) so the user
 // doesn't have to drop to a terminal.
-ipcMain.handle('git-push', async () => {
+bridge.handle('git-push', async () => {
   let r = await git(['push']);
   if (!r.ok && /no upstream|set-upstream|--set-upstream/i.test(r.stderr)) {
     r = await git(['push', '-u', 'origin', 'HEAD']);
   }
   // A rejection because the remote moved on (someone pushed first) is fixable by a
-  // pull/merge/push — flag it so the renderer can offer to hand that to a session.
+  // pull/merge/push â€” flag it so the renderer can offer to hand that to a session.
   return { ...r, needsMerge: !r.ok && pushNeedsMerge(r.stderr) };
 });
 
 // --- history (History tab) ---
-// Hashes of commits on HEAD not yet on the upstream — what the History tab tags as
+// Hashes of commits on HEAD not yet on the upstream â€” what the History tab tags as
 // "unpushed" (and the push badge counts). With no upstream (no remote-tracking
 // branch, or the rev-list otherwise fails) nothing has been pushed, so every listed
 // commit counts as unpushed.
@@ -237,7 +237,7 @@ async function unpushedHashes(commits) {
   return r.stdout.split('\n').map((l) => l.trim()).filter(Boolean);
 }
 
-// Commits on the upstream not yet on HEAD — what a pull would bring in. Same
+// Commits on the upstream not yet on HEAD â€” what a pull would bring in. Same
 // fields/format as gitLog so the History tab can render them with the regular
 // commit row (tagged `incoming`). Newest first, capped at 100. Empty when there is
 // no upstream, nothing is incoming, or the rev-list fails. Reflects the last
@@ -251,7 +251,7 @@ async function incomingCommits() {
 }
 
 // Recent commits for the History tab. Fields are unit-separator (\x1f) delimited,
-// one commit per line — subjects never contain newlines, so splitting on \n is safe.
+// one commit per line â€” subjects never contain newlines, so splitting on \n is safe.
 // Each local commit is tagged pushed/unpushed so the tab can show the split and pick
 // the right "undo" action (history rewrite vs. revert commit); `incoming` carries the
 // not-yet-pulled commits the tab previews above the local log.
@@ -262,23 +262,23 @@ async function gitLog() {
   const commits = parseLog(r.stdout);
   return { ok: true, commits: markPushed(commits, await unpushedHashes(commits)), incoming: await incomingCommits() };
 }
-ipcMain.handle('git-log', () => gitLog());
+bridge.handle('git-log', () => gitLog());
 
 // Full patch of one commit, for the center diff viewer (--format= drops the
 // commit metadata so only the unified diff comes back).
-ipcMain.handle('git-commit-diff', (_e, hash) => git(['show', '--format=', hash]));
+bridge.handle('git-commit-diff', (_e, hash) => git(['show', '--format=', hash]));
 
-// Revert a commit: create a new commit that undoes it. Non-destructive — it does
+// Revert a commit: create a new commit that undoes it. Non-destructive â€” it does
 // not rewrite history, so it's the right tool for commits already pushed to the remote.
-ipcMain.handle('git-revert-commit', (_e, hash) => git(['revert', '--no-edit', hash]));
+bridge.handle('git-revert-commit', (_e, hash) => git(['revert', '--no-edit', hash]));
 
 // Undo an UNPUSHED commit by dropping it from history. Safe to rewrite since it
 // isn't on the remote yet (the renderer only routes unpushed commits here). The
-// HEAD commit is a soft reset so its changes stay staged — mirroring the Undo
+// HEAD commit is a soft reset so its changes stay staged â€” mirroring the Undo
 // button; an older commit is excised by replaying everything after it onto its
 // parent. If that rebase can't apply cleanly (the commit conflicts with a later
 // one) we abort it so the worktree is left clean rather than mid-rebase.
-ipcMain.handle('git-undo-commit', async (_e, hash) => {
+bridge.handle('git-undo-commit', async (_e, hash) => {
   const head = await git(['rev-parse', 'HEAD']);
   if (head.ok && head.stdout.trim() === hash) return git(['reset', '--soft', hash + '^']);
   const r = await git(['rebase', '--onto', hash + '^', hash]);
@@ -288,7 +288,7 @@ ipcMain.handle('git-undo-commit', async (_e, hash) => {
 // --- stash ---
 // List stashes for the Stashes section. The selector (stash@{N}) is needed to
 // apply/pop/drop a specific one; the message + relative date fill the row.
-ipcMain.handle('git-stash-list', async () => {
+bridge.handle('git-stash-list', async () => {
   const r = await git(['stash', 'list', '--pretty=format:%gd%x1f%s%x1f%cr']);
   if (!r.ok) return { ok: false, error: r.stderr, stashes: [] };
   return { ok: true, stashes: parseStashList(r.stdout) };
@@ -296,27 +296,27 @@ ipcMain.handle('git-stash-list', async () => {
 
 // Stash the whole working tree so the user can set the changes aside.
 // --include-untracked saves new files too (the "put everything away" intent).
-// With nothing to stash, git exits 0 with "No local changes to save" — the
+// With nothing to stash, git exits 0 with "No local changes to save" â€” the
 // renderer reads that to report it rather than a misleading "stashed".
-ipcMain.handle('git-stash-push', () => git(['stash', 'push', '--include-untracked']));
+bridge.handle('git-stash-push', () => git(['stash', 'push', '--include-untracked']));
 
 // One stash's full patch for the center diff viewer (-p; no color/metadata noise).
-ipcMain.handle('git-stash-show', (_e, ref) => git(['stash', 'show', '-p', ref]));
+bridge.handle('git-stash-show', (_e, ref) => git(['stash', 'show', '-p', ref]));
 
 // Apply a stash and keep it (apply) or apply then delete it (pop). Either can
 // conflict if the working tree moved on; git reports it and the renderer surfaces it.
-ipcMain.handle('git-stash-apply', (_e, ref) => git(['stash', 'apply', ref]));
-ipcMain.handle('git-stash-pop', (_e, ref) => git(['stash', 'pop', ref]));
-// Delete a stash without applying it (two-click armed in the UI — it's destructive).
-ipcMain.handle('git-stash-drop', (_e, ref) => git(['stash', 'drop', ref]));
+bridge.handle('git-stash-apply', (_e, ref) => git(['stash', 'apply', ref]));
+bridge.handle('git-stash-pop', (_e, ref) => git(['stash', 'pop', ref]));
+// Delete a stash without applying it (two-click armed in the UI â€” it's destructive).
+bridge.handle('git-stash-drop', (_e, ref) => git(['stash', 'drop', ref]));
 
-ipcMain.handle('git-fetch', () => git(['fetch']));
+bridge.handle('git-fetch', () => git(['fetch']));
 // Fast-forward only: a plain `git pull` that needs a merge would try to open an
-// editor (no tty → hang) or leave conflicts. --ff-only fails cleanly when the
+// editor (no tty â†’ hang) or leave conflicts. --ff-only fails cleanly when the
 // branches diverged, and the user can hand the merge/conflict to a Claude session.
 // On a divergence failure, flag `needsMerge` so the renderer can offer to hand the
 // merge/conflict resolution to a Claude session instead of leaving the user stuck.
-ipcMain.handle('git-pull', async () => {
+bridge.handle('git-pull', async () => {
   const r = await git(['pull', '--ff-only']);
   return { ...r, needsMerge: !r.ok && pullNeedsMerge(r.stderr) };
 });

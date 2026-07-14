@@ -206,6 +206,15 @@ export default {
     'settings.panel.browser': 'Navegador',
     'settings.panel.usage': 'Métricas de uso',
 
+    'remote.title': 'Acceso remoto',
+    'remote.enable': 'Permitir dispositivos móviles en esta red',
+    'remote.hint': 'Escanea el código QR con la aplicación móvil para emparejar este dispositivo. La conexión no está cifrada — actívalo solo en una red de confianza.',
+    'remote.newCode': 'Nuevo código',
+    'remote.devices': 'Dispositivos emparejados',
+    'remote.noDevices': 'Aún no hay dispositivos emparejados.',
+    'remote.revoke': 'Revocar',
+    'remote.lastSeen': 'Última vez',
+
     'setup.title': 'Configurar Claude Code',
     'setup.intro': 'No tienes Claude Code instalado. Haz clic en Siguiente para instalarlo.',
     'setup.detected': 'Plataforma detectada: {os}',

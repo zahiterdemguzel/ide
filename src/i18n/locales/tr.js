@@ -206,6 +206,15 @@ export default {
     'settings.panel.browser': 'Tarayıcı',
     'settings.panel.usage': 'Kullanım ölçümleri',
 
+    'remote.title': 'Uzaktan erişim',
+    'remote.enable': 'Bu ağdaki mobil cihazlara izin ver',
+    'remote.hint': 'Bu cihazı eşleştirmek için QR kodu mobil uygulamayla tarayın. Bağlantı şifrelenmemiştir — yalnızca güvendiğiniz bir ağda etkinleştirin.',
+    'remote.newCode': 'Yeni kod',
+    'remote.devices': 'Eşleştirilmiş cihazlar',
+    'remote.noDevices': 'Henüz eşleştirilmiş cihaz yok.',
+    'remote.revoke': 'Kaldır',
+    'remote.lastSeen': 'Son görülme',
+
     'setup.title': "Claude Code'u kur",
     'setup.intro': 'Sisteminizde Claude Code kurulu değil. Kurmak için Sonraki’ye tıklayın.',
     'setup.detected': 'Algılanan platform: {os}',

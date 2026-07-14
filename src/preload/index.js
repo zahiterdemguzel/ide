@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('api', {
   ...require('./runners'),
   ...require('./consoles'),
   ...require('./onboarding'),
+  ...require('./remote'),
 });

@@ -1,4 +1,5 @@
-const { ipcMain, shell, clipboard, session } = require('electron');
+const { shell, clipboard, session } = require('electron');
+const bridge = require('./remote-bridge');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const fs = require('fs');
@@ -9,7 +10,7 @@ const { shouldSkipDir, GREP_EXCLUDE_PATHSPECS } = require('./search-ignore');
 const { sendToRenderer } = require('./window');
 const { withClipboardRetry } = require('./clipboard-lib');
 
-// Extension → MIME for the asset viewer (image preview / pixel editor / audio /
+// Extension â†’ MIME for the asset viewer (image preview / pixel editor / audio /
 // 3D model). The model MIMEs are only used to label the bytes; the three.js
 // loaders dispatch off the extension, not the MIME.
 const ASSET_MIME = {
@@ -23,8 +24,8 @@ const ASSET_MIME = {
 };
 
 // List one directory level for the file explorer (lazy: children fetched on
-// expand). Folders first, then alphabetical — VS Code order. `.git` is hidden.
-ipcMain.handle('list-dir', async (_e, rel) => {
+// expand). Folders first, then alphabetical â€” VS Code order. `.git` is hidden.
+bridge.handle('list-dir', async (_e, rel) => {
   try {
     const dir = path.join(getRepoPath(), rel || '');
     const entries = (await fs.promises.readdir(dir, { withFileTypes: true }))
@@ -38,7 +39,7 @@ ipcMain.handle('list-dir', async (_e, rel) => {
 // Create an empty file at a repo-relative path for the explorer's "New file"
 // action. Parent folders are created as needed; refuses to clobber an existing
 // file and guards against paths escaping the repo.
-ipcMain.handle('create-file', (_e, rel) => {
+bridge.handle('create-file', (_e, rel) => {
   try {
     const repoPath = getRepoPath();
     const abs = path.join(repoPath, rel || '');
@@ -57,7 +58,7 @@ ipcMain.handle('create-file', (_e, rel) => {
 // Create an empty folder at a repo-relative path for the explorer's "New folder"
 // action. Refuses to clobber an existing entry and guards against paths escaping
 // the repo.
-ipcMain.handle('create-folder', (_e, rel) => {
+bridge.handle('create-folder', (_e, rel) => {
   try {
     const repoPath = getRepoPath();
     const abs = path.join(repoPath, rel || '');
@@ -83,11 +84,11 @@ ipcMain.handle('create-folder', (_e, rel) => {
 // "*.png" or ".png" matches by extension; any other term is a substring of the
 // path (which includes the extension, so a bare "png" / "js" gathers that type too).
 // fold() here mirrors the renderer's text-fold: NFC so a query typed precomposed
-// ("ş") matches a filename the OS hands back decomposed ("s"+combining cedilla,
+// ("ÅŸ") matches a filename the OS hands back decomposed ("s"+combining cedilla,
 // as macOS volumes do), and lowercase for case-insensitivity. Indices don't
 // matter for substring matching, so the simple whole-string form is enough.
 const fold = (s) => String(s == null ? '' : s).normalize('NFC').toLowerCase();
-ipcMain.handle('search-names', async (_e, q) => {
+bridge.handle('search-names', async (_e, q) => {
   const needle = fold((q || '').trim());
   if (!needle) return { ok: true, files: [] };
   const terms = needle.split(/\s+/).map((t) => {
@@ -117,7 +118,7 @@ ipcMain.handle('search-names', async (_e, q) => {
 // Flat list of every file in the repo for the Quick Open palette (Ctrl/Cmd+P),
 // which fuzzy-matches client-side. Same async walk + skip dirs as search-names,
 // but unfiltered and capped higher (10k) so big repos still open instantly.
-ipcMain.handle('list-files', async () => {
+bridge.handle('list-files', async () => {
   const files = [];
   const repoPath = getRepoPath();
   async function walk(rel) {
@@ -140,9 +141,9 @@ ipcMain.handle('list-files', async () => {
 // blocks the main thread. --untracked also greps new (un-ignored) files; the
 // trailing pathspecs prune dependency/build dirs (search-ignore.js) so an
 // un-ignored node_modules doesn't drown out real hits. Capped at 500 matches.
-// ponytail: parse stdout regardless of exit code — grep exits 1 on no matches
+// ponytail: parse stdout regardless of exit code â€” grep exits 1 on no matches
 // (and when repoPath isn't a git repo, yielding empty results).
-ipcMain.handle('search-refs', async (_e, q) => {
+bridge.handle('search-refs', async (_e, q) => {
   if (!q) return { ok: true, matches: [] };
   const r = await git(['grep', '-n', '-I', '-F', '-i', '--untracked', '--', q, ...GREP_EXCLUDE_PATHSPECS]);
   const matches = [];
@@ -155,14 +156,14 @@ ipcMain.handle('search-refs', async (_e, q) => {
 });
 
 // Read a repo-relative text file for the explorer's file editor.
-ipcMain.handle('read-text', async (_e, file) => {
+bridge.handle('read-text', async (_e, file) => {
   try { return { ok: true, text: await fs.promises.readFile(path.join(getRepoPath(), file), 'utf8') }; }
   catch (e) { return { ok: false, error: e.message }; }
 });
 
 // Write a repo-relative text file back to disk (the editor's Save). Guards
 // against paths escaping the repo, same as create/rename/delete.
-ipcMain.handle('write-text', async (_e, { file, text }) => {
+bridge.handle('write-text', async (_e, { file, text }) => {
   try {
     const repoPath = getRepoPath();
     const abs = path.join(repoPath, file);
@@ -174,15 +175,15 @@ ipcMain.handle('write-text', async (_e, { file, text }) => {
 });
 
 // Resolve a path the user Ctrl+clicked in the terminal. Absolute paths are used
-// as-is; bare ones resolve against `baseDir` — the *originating* terminal's own
+// as-is; bare ones resolve against `baseDir` â€” the *originating* terminal's own
 // directory (a session's repo, or a console's cwd), which the renderer passes
 // per-terminal since it can differ from whichever folder is currently open in
 // the explorer. Falls back to the open folder when no baseDir is given (e.g.
 // the onboarding terminal, before any repo is open). Reports whether the
-// resolved path exists, is a file or dir, and sits inside the *open* repo —
+// resolved path exists, is a file or dir, and sits inside the *open* repo â€”
 // the renderer routes in-repo files to the explorer's viewer, directories to
 // the OS file browser, and anything else to the OS via open-external.
-ipcMain.handle('resolve-link-path', async (_e, raw, baseDir) => {
+bridge.handle('resolve-link-path', async (_e, raw, baseDir) => {
   try {
     const p = String(raw || '').trim();
     if (!p) return { ok: false };
@@ -198,7 +199,7 @@ ipcMain.handle('resolve-link-path', async (_e, raw, baseDir) => {
 
 // Open a web URL in the default browser, or a filesystem path in its OS handler
 // (used for the inline browser's "open externally" button and out-of-repo files).
-ipcMain.handle('open-external', async (_e, target) => {
+bridge.handle('open-external', async (_e, target) => {
   try {
     if (/^https?:\/\//i.test(target)) { await shell.openExternal(target); return { ok: true }; }
     const err = await shell.openPath(target);
@@ -209,7 +210,7 @@ ipcMain.handle('open-external', async (_e, target) => {
 // Resolve a repo-relative path to a file:// URL for the editor's HTML preview
 // webview. pathToFileURL handles the drive letter and percent-encodes spaces and
 // non-ASCII characters, so the webview loads it verbatim. Guarded to stay in-repo.
-ipcMain.handle('file-url', (_e, file) => {
+bridge.handle('file-url', (_e, file) => {
   try {
     const repoPath = getRepoPath();
     const abs = path.join(repoPath, file);
@@ -222,7 +223,7 @@ ipcMain.handle('file-url', (_e, file) => {
 // Clear the inline browser's cookies. The <webview> runs in the persistent
 // `persist:browser` partition (so cookies survive restarts); this wipes just
 // that partition's cookies, leaving the app's own session untouched.
-ipcMain.handle('clear-web-data', async () => {
+bridge.handle('clear-web-data', async () => {
   try {
     await session.fromPartition('persist:browser').clearStorageData({ storages: ['cookies'] });
     return { ok: true };
@@ -230,7 +231,7 @@ ipcMain.handle('clear-web-data', async () => {
 });
 
 // Rename a file or folder within the repo.
-ipcMain.handle('rename-file', (_e, oldRel, newRel) => {
+bridge.handle('rename-file', (_e, oldRel, newRel) => {
   try {
     const repoPath = getRepoPath();
     const oldAbs = path.join(repoPath, oldRel);
@@ -247,7 +248,7 @@ ipcMain.handle('rename-file', (_e, oldRel, newRel) => {
 
 // Delete a file or folder within the repo. Uses the OS trash (Recycle Bin) so
 // the action stays recoverable rather than a permanent unlink.
-ipcMain.handle('delete-file', async (_e, rel) => {
+bridge.handle('delete-file', async (_e, rel) => {
   try {
     const repoPath = getRepoPath();
     const abs = path.join(repoPath, rel);
@@ -258,11 +259,11 @@ ipcMain.handle('delete-file', async (_e, rel) => {
   } catch (e) { return { ok: false, error: e.message }; }
 });
 
-// Open a repo-relative file in the OS's default program for its type — the asset
+// Open a repo-relative file in the OS's default program for its type â€” the asset
 // viewer's "Open externally" button (a .glb in the system 3D viewer, an image in
-// the default image app, …). Resolves the path against repoPath here so the
+// the default image app, â€¦). Resolves the path against repoPath here so the
 // renderer never has to know the absolute path.
-ipcMain.handle('open-asset-external', async (_e, rel) => {
+bridge.handle('open-asset-external', async (_e, rel) => {
   try {
     const repoPath = getRepoPath();
     const abs = path.join(repoPath, rel);
@@ -275,7 +276,7 @@ ipcMain.handle('open-asset-external', async (_e, rel) => {
 
 // Reveal a repo-relative file or folder in the OS file browser (Explorer/Finder),
 // selecting it within its parent folder.
-ipcMain.handle('reveal-in-folder', (_e, rel) => {
+bridge.handle('reveal-in-folder', (_e, rel) => {
   try {
     const repoPath = getRepoPath();
     const abs = path.join(repoPath, rel);
@@ -288,7 +289,7 @@ ipcMain.handle('reveal-in-folder', (_e, rel) => {
 
 // Read/write a repo-relative binary asset as base64 for the viewer/editor.
 // Paths come from git porcelain (inside the repo), so no traversal guard.
-ipcMain.handle('read-asset', async (_e, file) => {
+bridge.handle('read-asset', async (_e, file) => {
   try {
     const abs = path.join(getRepoPath(), file);
     const ext = path.extname(abs).slice(1).toLowerCase();
@@ -296,7 +297,7 @@ ipcMain.handle('read-asset', async (_e, file) => {
       mime: ASSET_MIME[ext] || 'application/octet-stream' };
   } catch (e) { return { ok: false, error: e.message }; }
 });
-ipcMain.handle('write-asset', async (_e, { file, base64 }) => {
+bridge.handle('write-asset', async (_e, { file, base64 }) => {
   try { await fs.promises.writeFile(path.join(getRepoPath(), file), Buffer.from(base64, 'base64')); return { ok: true }; }
   catch (e) { return { ok: false, error: e.message }; }
 });
@@ -306,7 +307,7 @@ ipcMain.handle('write-asset', async (_e, { file, base64 }) => {
 // that path into the session (as an "@<path>" mention Claude can read). Returns
 // { ok: false } when the clipboard has no image, so the caller falls back to a
 // normal text paste.
-ipcMain.handle('paste-image', async () => {
+bridge.handle('paste-image', async () => {
   try {
     // Only the read can throw transiently (clipboard lock); an empty clipboard is
     // a valid "no image", so it returns null rather than retrying. fs work stays
@@ -333,9 +334,9 @@ ipcMain.handle('paste-image', async () => {
 // briefly hold, so a bare readText()/writeText() intermittently throws
 // "OpenClipboard failed". Without the retry that throw rejected the IPC call and
 // the renderer's paste() swallowed the rejection, silently dropping the paste.
-ipcMain.handle('clipboard-write', (_e, text) =>
+bridge.handle('clipboard-write', (_e, text) =>
   withClipboardRetry(() => { clipboard.writeText(text || ''); return true; }, { fallback: false }));
-ipcMain.handle('clipboard-read', () =>
+bridge.handle('clipboard-read', () =>
   withClipboardRetry(() => clipboard.readText(), { fallback: '' }));
 
 // Auto-refresh the explorer tree when the repo changes on disk, so the user
@@ -343,7 +344,7 @@ ipcMain.handle('clipboard-read', () =>
 // catches create/rename/delete/edit at any depth (recursive is native on
 // win32/darwin). Two cheap guards keep it from hurting performance:
 //   1. Events whose top path segment is a skipped dir (node_modules, .git, build
-//      output — see search-ignore.js) are dropped before they cost anything, so
+//      output â€” see search-ignore.js) are dropped before they cost anything, so
 //      a churning dependency/build dir never triggers a rebuild.
 //   2. The rest are debounced into a single `tree-changed` per quiet window, so a
 //      burst (git checkout, npm install of real source, save-all) collapses to

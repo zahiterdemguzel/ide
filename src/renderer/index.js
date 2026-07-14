@@ -14,6 +14,7 @@ import { loadToolbar } from './toolbar.js';
 import { initConsoles, resetConsoles } from './consoles.js';
 import { initClaudeSetup } from './claude-setup.js';
 import { initSettings, cycleTheme } from './settings.js';
+import { initRemotePane } from './remote-pane.js';
 import { initUsageMeter } from './usage-meter.js';
 import { initPanels } from './panels.js';
 import { initOnboarding, activateOnboarding, startTour, openCheatSheet } from './onboarding/index.js';
@@ -164,6 +165,7 @@ registerCommands([
 ]);
 
 initSettings();
+initRemotePane();
 // Toolbar meter for the user's remaining Claude subscription usage (after
 // initSettings so its labels are translated).
 initUsageMeter();
