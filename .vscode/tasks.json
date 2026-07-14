@@ -22,9 +22,9 @@
       "options": { "cwd": "${workspaceFolder}" }
     },
     {
-      "label": "Build macos",
+      "label": "Build android",
       "type": "shell",
-      "command": "npm run build:mac",
+      "command": "npm run build:android",
       "options": { "cwd": "${workspaceFolder}" }
     },
     {

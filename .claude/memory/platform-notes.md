@@ -4,6 +4,17 @@ Hard-won gotchas. Do not "fix" these back to the obvious-but-broken form.
 
 The app runs on all three desktop OSes. Platform-specific code is guarded by `process.platform === 'win32'` with a POSIX (macOS/Linux) fallthrough; native bits use the multiarch node-pty fork and Electron's cross-platform `shell.*` APIs, so no per-OS forking lives in app code. Distributables are built for all three: Windows `portable` `.exe`, macOS `.dmg`, Linux `AppImage` (the `build`/`build:mac`/`build:linux` scripts; CI builds and releases all three — see [testing.md](testing.md)). AppImage is chosen because it runs on any distro without a package manager.
 
+The mobile companion ships separately: `build:android` (`scripts/build-android.mjs`) runs `expo prebuild` on the app in `mobile/` and then Gradle's `assembleRelease`, leaving the APK at `dist/ide-remote.apk`. It needs a JDK and the Android SDK (`ANDROID_HOME`) locally, so CI does not run it.
+
+**The Android build must not run in-tree.** It stages `mobile/` into `%LOCALAPPDATA%\ide-android-build` (ASCII path, outside OneDrive) and builds there, because two things break otherwise and neither has a flag-level fix:
+
+- The Android Gradle Plugin hard-fails on **non-ASCII project paths** (this checkout lives under `Masaüstü`). `android.overridePathCheck=true` only silences the check and pushes the failure down into aapt/the NDK.
+- Gradle's temp-workspace moves fail intermittently inside **OneDrive-synced** folders (`Could not move temporary workspace`).
+
+Separately, `settings.gradle` shells out to `node --print` and decodes the output with the JVM's default charset — on a Turkish Windows locale that's `Cp1254`, which mangles UTF-8 paths into `Masa├╝st├╝`. Staging into an ASCII path sidesteps that too.
+
+`node_modules` is **copied** into the staging dir, not symlinked: Node resolves a junction back to its real path and would hand Gradle the non-ASCII source path straight back. The copy (and the prebuild) are re-done only when `package-lock.json` / `app.json` change, so the staging dir keeps Gradle's incremental caches warm. `mobile/app.json` pins `android.package` explicitly — left unset, prebuild derives an app id from the local username.
+
 The per-instance browser-partition link (`instance.js`) uses `fs.symlinkSync(target, link, 'junction')`: the `'junction'` type is honored on Windows and **ignored on macOS/Linux**, where Node creates an ordinary symlink — so the shared, persistent inline-browser profile works identically on every OS.
 
 ## macOS: Electron bundle re-signing (postinstall)

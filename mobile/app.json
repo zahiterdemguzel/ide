@@ -16,6 +16,7 @@
       }
     },
     "android": {
+      "package": "com.ideremote.app",
       "permissions": [
         "CAMERA"
       ],
