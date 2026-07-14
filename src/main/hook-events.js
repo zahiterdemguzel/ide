@@ -4,6 +4,11 @@
 // this — the heart of .claude/memory/status-detection.md — stays unit-tested
 // (test/hook-events.test.js).
 
+// The tools whose whole purpose is to block on the user: Claude asking a
+// multiple-choice question. The question itself is read off this same payload by
+// src/main/ask-lib.js.
+const { isAskTool } = require('./ask-lib');
+
 // Map a Claude Code hook payload to a session status, or null to leave it
 // unchanged. PostToolUse sniffs the command for a `git push` so the dot can flip
 // to "pushed"; everything else maps by event name.
@@ -30,8 +35,13 @@ function eventToState(payload) {
     // idle (gray) until the user submits the first prompt. Yellow ("working") is
     // reserved for an agent actively responding.
     case 'SessionStart': return 'idle';
-    case 'UserPromptSubmit':
-    case 'PreToolUse': return 'working';
+    case 'UserPromptSubmit': return 'working';
+    // Claude asking the user a multiple-choice question is a *tool call* — so the
+    // only hook it fires is an ordinary PreToolUse, and Claude Code sends no
+    // Notification for it. Left as `working` the session would sit yellow with a
+    // question on screen and nothing saying so, and the phone (which renders the
+    // session as a chat and never sees the terminal) would never learn to ask it.
+    case 'PreToolUse': return isAskTool(payload.tool_name) ? 'needs-input' : 'working';
     default: return null;
   }
 }

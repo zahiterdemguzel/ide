@@ -34,6 +34,9 @@ const REMOTE_CHANNELS = {
     // commands its composer autocompletes, and the images attached to a message.
     'session-transcript',
     'send-prompt',
+    // the answer to a question the TUI is drawing: the option's keystroke, and the
+    // text the "tell Claude what to do differently"/"Other" option asks for
+    'answer-ask',
     'list-slash-commands',
     'save-attachment',
     // git

@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from './Markdown';
-import { Block, Message } from '../../api/chat';
+import { Block, Message, messageText, splitAttachments } from '../../api/chat';
 import { color, font, radius, space } from '../../theme';
 
 const TOOL_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -89,17 +89,15 @@ function AssistantBlock({ block }: { block: Block }) {
 // What the user said. Attached images arrive as a path on its own line (that is how
 // Claude is handed a photo — see chat.js), so they're shown as an attachment chip
 // rather than as a wall of C:\Users\… noise.
-const PATH_LINE = /^"?([a-zA-Z]:[\\/]|\/)[^\n]*\.(png|jpe?g|gif|webp|heic)"?$/i;
-
-function UserMessage({ message }: { message: Message }) {
-  const text = message.blocks.filter((b) => b.t === 'text').map((b: any) => b.text).join('\n');
-  const lines = text.split('\n');
-  const files = lines.filter((l) => PATH_LINE.test(l.trim()));
-  const said = lines.filter((l) => !PATH_LINE.test(l.trim())).join('\n').trim();
-  const images = files.length + message.blocks.filter((b) => b.t === 'image').length;
+//
+// A message that hasn't reached the desktop yet is drawn the same, just dimmed: it is
+// on screen the instant you tap send, and the only thing still missing is the receipt.
+function UserMessage({ message, pending }: { message: Message; pending?: boolean }) {
+  const { said, files } = splitAttachments(messageText(message));
+  const images = files + message.blocks.filter((b) => b.t === 'image').length;
   return (
     <View style={styles.userRow}>
-      <View style={styles.bubble}>
+      <View style={[styles.bubble, pending && styles.bubblePending]}>
         {images > 0 && (
           <View style={styles.chip}>
             <Ionicons name="image-outline" size={13} color={color.accent} />
@@ -112,8 +110,8 @@ function UserMessage({ message }: { message: Message }) {
   );
 }
 
-function MessageView({ message }: { message: Message }) {
-  if (message.role === 'user') return <UserMessage message={message} />;
+function MessageView({ message, pending }: { message: Message; pending?: boolean }) {
+  if (message.role === 'user') return <UserMessage message={message} pending={pending} />;
   return (
     <View style={styles.assistant}>
       {message.blocks.map((b, i) => <AssistantBlock key={i} block={b} />)}
@@ -135,6 +133,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md, paddingVertical: space.sm,
     gap: space.xs,
   },
+  bubblePending: { opacity: 0.55 },
   userText: { color: color.text, fontSize: font.size.md, lineHeight: 21 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: space.xs,

@@ -20,6 +20,29 @@ test('eventToState: UserPromptSubmit and PreToolUse -> working', () => {
   assert.equal(eventToState({ hook_event_name: 'PreToolUse' }), 'working');
 });
 
+test('eventToState: the tool that asks the user a question -> needs-input', () => {
+  // Claude asking a multiple-choice question is a tool call, and Claude Code fires no
+  // Notification for it — so this PreToolUse is the only word we get that the session
+  // has stopped and is waiting on a menu. Called `working`, it would sit yellow with a
+  // question on screen and nothing to say so, and the phone would never be asked at all.
+  assert.equal(eventToState({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' }), 'needs-input');
+  // and it goes back to working the moment the answer comes in
+  assert.equal(eventToState({ hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion' }), 'working');
+  // a subagent's own question never drives the session's dot
+  assert.equal(
+    eventToState({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', agent_id: 'sub-1' }),
+    null,
+  );
+});
+
+test('deriveStatus: a question blocks the session, its answer releases it', () => {
+  let tracking;
+  let r = deriveStatus({ hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion' }, tracking);
+  assert.equal(r.state, 'needs-input');
+  r = deriveStatus({ hook_event_name: 'PostToolUse', tool_name: 'AskUserQuestion' }, r.tracking);
+  assert.equal(r.state, 'working');
+});
+
 test('eventToState: PostToolUse without a command -> working', () => {
   assert.equal(eventToState({ hook_event_name: 'PostToolUse' }), 'working');
   assert.equal(eventToState({ hook_event_name: 'PostToolUse', tool_input: {} }), 'working');

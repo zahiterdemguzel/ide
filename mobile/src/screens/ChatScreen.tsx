@@ -10,20 +10,29 @@
 // it lands here as a card above the composer, and its answer goes back as the
 // keystroke the menu expects. Without that, a session waiting for permission would
 // look idle forever.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform,
-  Pressable, StyleSheet, Text, View,
+  Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MessageView from '../components/chat/MessageView';
 import Composer, { Draft } from '../components/chat/Composer';
 import { useConnection } from '../api/context';
-import { Ask, Message, SlashCommand, Transcript, answerAsk, sendPrompt, uploadImage, upsert } from '../api/chat';
+import {
+  Answer, Ask, AskQuestion, Message, Pending, SlashCommand, Transcript,
+  answerAsk, pendingMessage, sendPrompt, settle, uploadImage, upsert,
+} from '../api/chat';
 import { color, font, radius, space, stateColor } from '../theme';
 
 type DiffStat = { additions: number; deletions: number; files: number };
+
+// How long a sent message may stay unconfirmed before we stop showing it. Claude writes
+// the transcript entry as soon as the TUI takes the prompt, so this only ever expires
+// on a message that never landed — better a bubble that vanishes than a ghost that
+// stays forever next to the real one.
+const PENDING_TTL_MS = 60_000;
 
 export default function ChatScreen({ route, navigation }: any) {
   const { id, name } = route.params as { id: string; name?: string };
@@ -34,8 +43,12 @@ export default function ChatScreen({ route, navigation }: any) {
   const buffered = useRef<{ seq: number; messages: Message[] }[]>([]);
   const ready = useRef(false);
   const atBottom = useRef(true);
+  const expire = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([]);
+  // What we've sent but not yet seen come back. They're shown at the tail of the list,
+  // so tapping send puts your words on screen at once instead of after a round trip.
+  const [pending, setPending] = useState<Pending[]>([]);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [title, setTitle] = useState(name || 'Session');
@@ -50,6 +63,13 @@ export default function ChatScreen({ route, navigation }: any) {
     try { setStat(await conn.req<DiffStat>('session-diff-stat', id)); } catch { /* offline */ }
   }, [conn, id]);
 
+  // Every message that arrives from the desktop also settles the pending copies: the
+  // transcript's own entry for a message we sent replaces the one we drew ourselves.
+  const absorb = useCallback((incoming: Message[]) => {
+    setMessages((m) => upsert(m, incoming));
+    setPending((p) => settle(p, incoming));
+  }, []);
+
   useEffect(() => {
     if (!conn) return;
     let dropped = false;
@@ -59,8 +79,9 @@ export default function ChatScreen({ route, navigation }: any) {
         const snap = await conn.req<Transcript>('session-transcript', id);
         if (dropped) return;
         setMessages(snap.messages || []);
+        setPending((p) => settle(p, snap.messages || []));
         setAsk(snap.ask || null);
-        for (const b of buffered.current) if (b.seq > (snap.seq ?? 0)) setMessages((m) => upsert(m, b.messages));
+        for (const b of buffered.current) if (b.seq > (snap.seq ?? 0)) absorb(b.messages);
       } catch { /* offline: live pushes alone still beat a dead screen */ }
       buffered.current = [];
       ready.current = true;
@@ -82,7 +103,7 @@ export default function ChatScreen({ route, navigation }: any) {
       conn.on('transcript-data', (p: any) => {
         if (p.id !== id) return;
         if (!ready.current) { buffered.current.push({ seq: p.seq ?? 0, messages: p.messages }); return; }
-        setMessages((m) => upsert(m, p.messages));
+        absorb(p.messages);
       }),
       conn.on('session-ask', (p: any) => { if (p.id === id) setAsk(p.ask); }),
       conn.on('status', (p: any) => { if (p.id === id) setState(p.state); }),
@@ -90,7 +111,7 @@ export default function ChatScreen({ route, navigation }: any) {
       conn.on('session-meta', (p: any) => { if (p.id === id) refreshStat(); }),
     ];
     return () => { dropped = true; offs.forEach((off) => off?.()); };
-  }, [conn, id, name, refreshStat]);
+  }, [absorb, conn, id, name, refreshStat]);
 
   // Hold the session while this screen is open, exactly as the terminal used to: the
   // desktop covers it, so the two of us can't type into one prompt.
@@ -100,24 +121,52 @@ export default function ChatScreen({ route, navigation }: any) {
     return () => { conn.send('session-control', { id, on: false }); };
   }, [conn, id]);
 
+  const drop = useCallback((uuid: string) => {
+    setPending((p) => p.filter((m) => m.uuid !== uuid));
+  }, []);
+  useEffect(() => () => { expire.current.forEach(clearTimeout); }, []);
+
   // Follow the conversation while the reader is at the bottom of it — but never yank
   // the view down while they are reading further up.
   const scrollToEnd = useCallback(() => {
     if (atBottom.current) list.current?.scrollToEnd({ animated: true });
   }, []);
 
+  const rows = useMemo(() => (pending.length ? [...messages, ...pending] : messages), [messages, pending]);
+
+  // The bubble goes up first and the wire runs behind it. Uploading the photos, typing
+  // the prompt into the TUI and waiting for Claude to write the transcript takes a
+  // second or two; none of that is a reason for the reader to watch their own message
+  // disappear into nothing. If the send fails, the bubble goes away with the alert.
   const send = async (text: string, images: Draft[]) => {
     if (!conn) return;
+    const mine = pendingMessage(text, images.length);
+    setPending((p) => [...p, mine]);
+    expire.current.push(setTimeout(() => drop(mine.uuid), PENDING_TTL_MS));
+    atBottom.current = true;
     setSending(true);
     try {
       const paths = [];
       for (const img of images) paths.push(await uploadImage(conn, img.name, img.base64));
       await sendPrompt(conn, id, text, paths);
-      atBottom.current = true;
     } catch (e: any) {
+      drop(mine.uuid);
       Alert.alert('Could not send', e?.message ?? String(e));
     } finally {
       setSending(false);
+    }
+  };
+
+  // The card goes the moment it is answered: the keystroke settles the menu, and a
+  // question you have already answered has no business still sitting on screen while
+  // the desktop catches up.
+  const answer = async (answers: Answer[]) => {
+    if (!conn) return;
+    setAsk(null);
+    try {
+      await answerAsk(conn, id, answers);
+    } catch (e: any) {
+      Alert.alert('Could not answer', e?.message ?? String(e));
     }
   };
 
@@ -187,9 +236,9 @@ export default function ChatScreen({ route, navigation }: any) {
         ) : (
           <FlatList
             ref={list}
-            data={messages}
+            data={rows}
             keyExtractor={(m) => m.uuid}
-            renderItem={({ item }) => <MessageView message={item} />}
+            renderItem={({ item }) => <MessageView message={item} pending={(item as Pending).pending} />}
             contentContainerStyle={styles.listBody}
             onContentSizeChange={scrollToEnd}
             onScroll={(e) => {
@@ -203,12 +252,7 @@ export default function ChatScreen({ route, navigation }: any) {
           />
         )}
 
-        {ask && (
-          <AskCard
-            ask={ask}
-            onAnswer={(key) => { if (conn) answerAsk(conn, id, key); setAsk(null); }}
-          />
-        )}
+        {ask && <AskCard ask={ask} onAnswer={answer} />}
 
         <Composer
           commands={commands}
@@ -230,25 +274,181 @@ const STATE_LABEL: Record<string, string> = {
   pushed: 'Committed',
 };
 
-// The permission prompt, as a card. Answering is a keystroke — the TUI menu takes the
-// option's number — so the card is the menu, redrawn as buttons.
-function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (key: string) => void }) {
+// The question the session is blocked on, as a card. Claude can ask several at once, so
+// the card holds an answer per question and sends them together — the terminal's own box
+// works the same way (pick, pick, submit), and answering half of it would leave the
+// session stuck on the rest.
+//
+// A permission prompt is the same card with one question and two answers. Its options are
+// only ever Yes and No: the terminal also offers "yes, and stop asking this session", but
+// that one is a standing grant, and a phone is the wrong place to hand one out.
+function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) => void }) {
+  const [answers, setAnswers] = useState<Answer[]>([]);
+  const [writingTo, setWritingTo] = useState<number | null>(null);
+  const [reply, setReply] = useState('');
+
+  // A new question is a new answer — never carry the last one's into it.
+  useEffect(() => { setAnswers([]); setWritingTo(null); setReply(''); }, [ask]);
+
+  const set = (i: number, a: Answer) => {
+    const next = ask.questions.map((_, j) => (j === i ? a : answers[j]));
+    setAnswers(next);
+    // A single question with nothing else to fill in is answered by the tap itself:
+    // making the user then press Send would be a button for its own sake.
+    if (ask.questions.length === 1) onAnswer(next);
+  };
+
+  const answered = (i: number) => {
+    const a = answers[i];
+    return Boolean(a && (a.key || a.text));
+  };
+  const ready = ask.questions.every((_, i) => answered(i));
+
+  const label = (i: number) => {
+    const a = answers[i];
+    if (a?.text) return a.text;
+    return ask.questions[i].options.find((o) => o.key === a?.key)?.label ?? '';
+  };
+
+  if (writingTo !== null) {
+    const q = ask.questions[writingTo];
+    return (
+      <View style={styles.ask}>
+        <View style={styles.askHead}>
+          <Ionicons name="create-outline" size={16} color={color.green} />
+          <Text style={styles.askText}>{q.question}</Text>
+        </View>
+        <TextInput
+          value={reply}
+          onChangeText={setReply}
+          placeholder="Tell Claude what you'd rather it did…"
+          placeholderTextColor={color.faint}
+          style={styles.askInput}
+          multiline
+          autoFocus
+        />
+        <View style={styles.askRow}>
+          <Pressable
+            onPress={() => { setWritingTo(null); setReply(''); }}
+            style={({ pressed }) => [styles.askBtn, styles.askBtnGhost, pressed && styles.askBtnPressed]}
+          >
+            <Text style={styles.askBtnText}>Back</Text>
+          </Pressable>
+          <Pressable
+            disabled={!reply.trim()}
+            onPress={() => { const i = writingTo; setWritingTo(null); setReply(''); set(i, { text: reply.trim() }); }}
+            style={({ pressed }) => [
+              styles.askBtn, styles.askBtnPrimary, styles.askBtnGrow, styles.askBtnCenter,
+              !reply.trim() && styles.askBtnDim, pressed && styles.askBtnPressed,
+            ]}
+          >
+            <Text style={[styles.askBtnText, styles.askBtnTextPrimary]}>Use this answer</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.ask}>
+      {ask.questions.map((q, i) => (
+        <AskQuestionView
+          key={`${q.header}:${q.question}`}
+          q={q}
+          index={i}
+          total={ask.questions.length}
+          chosen={answers[i]}
+          chosenLabel={label(i)}
+          onPick={(a) => set(i, a)}
+          onWrite={() => { setReply(''); setWritingTo(i); }}
+        />
+      ))}
+      {ask.questions.length > 1 && (
+        <Pressable
+          disabled={!ready}
+          onPress={() => onAnswer(answers)}
+          style={({ pressed }) => [
+            styles.askBtn, styles.askBtnPrimary, styles.askBtnCenter,
+            !ready && styles.askBtnDim, pressed && styles.askBtnPressed,
+          ]}
+        >
+          <Text style={[styles.askBtnText, styles.askBtnTextPrimary]}>
+            {ready ? 'Send answers' : `Answer all ${ask.questions.length} questions`}
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+// One question. Once it's answered it collapses to its answer, so a card carrying four of
+// them doesn't bury the ones still waiting — tap it to change your mind.
+function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite }: {
+  q: AskQuestion;
+  index: number;
+  total: number;
+  chosen?: Answer;
+  chosenLabel: string;
+  onPick: (a: Answer) => void;
+  onWrite: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const done = Boolean(chosen && (chosen.key || chosen.text));
+
+  if (done && !open) {
+    return (
+      <Pressable onPress={() => setOpen(true)} style={styles.askDone}>
+        <Ionicons name="checkmark-circle" size={16} color={color.green} />
+        <View style={styles.askBtnGrow}>
+          {total > 1 && <Text style={styles.askHeader}>{q.header || q.question}</Text>}
+          <Text style={styles.askDoneText} numberOfLines={2}>{chosenLabel}</Text>
+        </View>
+        <Ionicons name="chevron-down" size={14} color={color.faint} />
+      </Pressable>
+    );
+  }
+
+  const pick = (a: Answer) => { setOpen(false); onPick(a); };
+
+  return (
+    <View style={styles.askGroup}>
       <View style={styles.askHead}>
-        <Ionicons name="help-circle" size={16} color={color.green} />
-        <Text style={styles.askText}>{ask.question}</Text>
+        <Ionicons name={index === 0 ? 'help-circle' : 'ellipse-outline'} size={16} color={color.green} />
+        <Text style={styles.askText}>{q.question}</Text>
       </View>
       <View style={styles.askOptions}>
-        {ask.options.map((o, i) => (
+        {q.options.map((o, i) => (
           <Pressable
             key={o.key}
-            onPress={() => onAnswer(o.key)}
-            style={({ pressed }) => [styles.askBtn, i === 0 && styles.askBtnPrimary, pressed && styles.askBtnPressed]}
+            onPress={() => pick({ key: o.key })}
+            style={({ pressed }) => [
+              styles.askBtn,
+              i === 0 && styles.askBtnPrimary,
+              pressed && styles.askBtnPressed,
+            ]}
           >
-            <Text style={[styles.askBtnText, i === 0 && styles.askBtnTextPrimary]} numberOfLines={2}>{o.label}</Text>
+            <Text style={[styles.askBtnText, i === 0 && styles.askBtnTextPrimary]} numberOfLines={2}>
+              {o.label}
+            </Text>
+            {!!o.description && (
+              <Text
+                style={[styles.askDesc, i === 0 && styles.askDescPrimary]}
+                numberOfLines={2}
+              >
+                {o.description}
+              </Text>
+            )}
           </Pressable>
         ))}
+        {!!q.customKey && (
+          <Pressable
+            onPress={onWrite}
+            style={({ pressed }) => [styles.askBtn, styles.askBtnRow, pressed && styles.askBtnPressed]}
+          >
+            <Text style={[styles.askBtnText, styles.askBtnGrow]}>Write my own answer</Text>
+            <Ionicons name="create-outline" size={14} color={color.muted} />
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -339,16 +539,41 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     gap: space.md,
   },
+  askGroup: { gap: space.md },
   askHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
   askText: { flex: 1, color: color.text, fontSize: font.size.sm, lineHeight: 19, fontWeight: '600' },
+  askHeader: { color: color.faint, fontSize: font.size.xs, fontWeight: '600', marginBottom: 2 },
   askOptions: { gap: space.sm },
+  askDone: {
+    flexDirection: 'row', alignItems: 'center', gap: space.sm,
+    paddingHorizontal: space.md, paddingVertical: 10,
+    borderRadius: radius.sm,
+    backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
+  },
+  askDoneText: { color: color.text, fontSize: font.size.sm, fontWeight: '600' },
+  askDesc: { color: color.muted, fontSize: font.size.xs, lineHeight: 16, marginTop: 3 },
+  askDescPrimary: { color: 'rgba(255,255,255,0.75)' },
   askBtn: {
     paddingHorizontal: space.md, paddingVertical: 10,
     borderRadius: radius.sm,
     backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
   },
   askBtnPrimary: { backgroundColor: color.greenDeep, borderColor: color.greenDeep },
+  askBtnDim: { opacity: 0.45 },
+  askBtnGhost: { backgroundColor: 'transparent' },
   askBtnPressed: { opacity: 0.8 },
+  askBtnRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  askBtnGrow: { flex: 1 },
   askBtnText: { color: color.text, fontSize: font.size.sm, fontWeight: '600' },
   askBtnTextPrimary: { color: '#fff' },
+  askBtnCenter: { alignItems: 'center' },
+  askRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  askInput: {
+    color: color.text, fontSize: font.size.sm, lineHeight: 20,
+    minHeight: 68, maxHeight: 140,
+    paddingHorizontal: space.md, paddingVertical: space.sm,
+    textAlignVertical: 'top',
+    backgroundColor: color.raised,
+    borderWidth: 1, borderColor: color.border, borderRadius: radius.sm,
+  },
 });

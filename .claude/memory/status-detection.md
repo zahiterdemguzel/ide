@@ -8,7 +8,7 @@ Each session shows a colored dot driven automatically by Claude Code hooks — n
 |---|---|---|
 | Idle | gray | a freshly created session, or `SessionStart` — started, but no work in flight yet |
 | Working | yellow (spinning) | `UserPromptSubmit`, `PreToolUse` (and any non-push `PostToolUse`) |
-| Needs input | green (glowing) | `Notification`, `PermissionRequest` |
+| Needs input | green (glowing) | `Notification`, `PermissionRequest`, and `PreToolUse` for an **ask tool** (see below) |
 | Completed | green | `Stop`, or the PTY exits |
 | Committed / pushed | purple | a successful per-session **Commit changes**, or a `PostToolUse` whose Bash command matches `git push` |
 | Interrupted | red | the agent was stopped while actively **working**: ESC/Ctrl+C typed while working, archiving a working session, or reopening one that was working when the app closed (see [Interrupting a turn](#interrupting-a-turn) and [Persistence](#persistence-across-restarts)) |
@@ -16,6 +16,8 @@ Each session shows a colored dot driven automatically by Claude Code hooks — n
 A just-created session stays gray (idle) until the user submits the first prompt; yellow ("working") is reserved for an agent actively responding. Because "working" is the only ongoing state, its dot also **animates**: it turns into a ring spinner (a faint ring with one bright rotating segment) so an in-progress session is distinguishable from a paused one at a glance, not just by hue. A solid dot can't show rotation, so the gap in the ring is what makes the motion visible. It is intentionally **not** gated behind `prefers-reduced-motion` — it's the only liveness cue, and Windows reports "reduce" whenever the OS animation setting is off, which would silently hide it. (See `.dot.working` in `src/styles/sessions.css`.)
 
 "Needs input" and "Completed" share one green signal — both mean the session wants the user's attention; the glow on "Needs input" keeps an active prompt slightly more eye-catching. The two remain distinct states (and tooltips) in code.
+
+**Ask tools** (`isAskTool` in `ask-lib.js` — currently just `AskUserQuestion`). Claude *asking the user a multiple-choice question* is a tool call, not a notification: Claude Code fires no `Notification` for it, only an ordinary `PreToolUse`. Mapped like any other tool that would leave the session **yellow with a question on screen and nothing saying so** — and, worse, leave the phone (which renders the session as a chat and never sees the terminal) never knowing to ask it at all. So a `PreToolUse` naming an ask tool means `needs-input`; its `PostToolUse` — the answer landing — puts it back to `working` like any other tool. That same payload is where the question itself is read from (its `tool_input` carries every question and option), because the painted box cannot be read back; see [remote-access.md](remote-access.md).
 
 ## Finish notification
 

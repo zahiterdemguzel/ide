@@ -70,11 +70,17 @@ const INLINE = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|_[^_\n]+_|\[[^\]\n]+\]\([
 
 function Inline({ text, style }: { text: string; style?: any }) {
   const parts = text.split(INLINE).filter((p) => p !== '' && p !== undefined);
+  // A code span swaps the font family mid-sentence, and a run measured with taller
+  // metrics than the line box around it makes Android draw the paragraph's lines on top
+  // of each other. So it inherits the line box of whatever it sits in — which is the
+  // body's in a paragraph and a bigger one in a heading, and neither is a constant.
+  const inherited = StyleSheet.flatten(style)?.lineHeight;
+  const span = inherited ? { lineHeight: inherited } : null;
   return (
     <Text style={style}>
       {parts.map((p, i) => {
         if (p.startsWith('`') && p.endsWith('`')) {
-          return <Text key={i} style={styles.codeSpan}>{p.slice(1, -1)}</Text>;
+          return <Text key={i} style={[styles.codeSpan, span]}>{p.slice(1, -1)}</Text>;
         }
         if (p.startsWith('**') && p.endsWith('**')) {
           return <Text key={i} style={styles.bold}>{p.slice(2, -2)}</Text>;
@@ -142,20 +148,29 @@ export default function Markdown({ text, style }: { text: string; style?: any })
   );
 }
 
+// A line box has to be tall enough for the font that sits in it. RN draws lines exactly
+// `lineHeight` apart with no minimum, so a style that raises `fontSize` and inherits
+// someone else's `lineHeight` doesn't get a cramped line — it gets one line drawn on top
+// of the next. Every style below therefore carries the line height for its *own* size,
+// and a heading must never lean on `body`'s.
+const LINE = 22;      // the body's, at font.size.md
+const line = (size: number) => Math.round(size * 1.45);
+
 const styles = StyleSheet.create({
-  body: { color: color.text, fontSize: font.size.md, lineHeight: 22, marginBottom: space.sm },
+  body: { color: color.text, fontSize: font.size.md, lineHeight: LINE, marginBottom: space.sm },
   bold: { fontWeight: '700' },
   italic: { fontStyle: 'italic' },
   link: { color: color.accent, textDecorationLine: 'underline' },
   codeSpan: {
     fontFamily: font.mono, fontSize: font.size.sm,
     color: color.redSoft, backgroundColor: color.raised,
+    lineHeight: LINE, // the body's; `Inline` overrides it with the line box it lands in
   },
-  h1: { fontSize: 21, fontWeight: '700', marginTop: space.sm },
-  h2: { fontSize: 18, fontWeight: '700', marginTop: space.sm },
-  h3: { fontSize: font.size.md, fontWeight: '700', marginTop: space.xs },
+  h1: { fontSize: 21, lineHeight: line(21), fontWeight: '700', marginTop: space.sm },
+  h2: { fontSize: 18, lineHeight: line(18), fontWeight: '700', marginTop: space.sm },
+  h3: { fontSize: font.size.md, lineHeight: LINE, fontWeight: '700', marginTop: space.xs },
   li: { flexDirection: 'row', gap: space.sm, paddingLeft: space.xs },
-  marker: { color: color.muted, fontSize: font.size.md, lineHeight: 22, minWidth: 16 },
+  marker: { color: color.muted, fontSize: font.size.md, lineHeight: LINE, minWidth: 16 },
   liText: { flex: 1 },
   quote: { borderLeftWidth: 3, borderLeftColor: color.border, paddingLeft: space.md },
   quoteText: { color: color.muted },

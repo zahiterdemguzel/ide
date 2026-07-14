@@ -25,9 +25,13 @@ the left with the desktop's recent projects (and the Unpair action).
 A Claude session opens as a **chat**, not a terminal (`src/screens/ChatScreen.tsx`):
 messages, a composer, image attachments, and a `/` command menu. The messages come
 from Claude Code's own transcript, which the desktop tails and pushes — the phone
-never sees ANSI. A permission prompt, which only exists inside the TUI, is lifted out
-by the desktop and arrives as a card with its options as buttons. The one terminal
-left is the run console (a dev server's log), which really is a terminal.
+never sees ANSI. A question the session blocks on — one of Claude's multiple-choice
+questions (it can ask several in one go) or a permission prompt — arrives as a card:
+tap an option, or write your own answer, so you are never stuck picking from someone
+else's list. None of it is scraped from the terminal: the desktop reads the question
+off the hook that announces it and replays your answers as the keystrokes the box
+expects. The one terminal left is the run console (a dev server's log), which really
+is a terminal.
 
 The Files tab browses with breadcrumbs, shows files with the **desktop explorer's
 own icons**, and opens them **syntax-highlighted** (tap the pencil to edit, Save to
@@ -42,8 +46,9 @@ drifts. Don't hand-edit the generated file.
 package — `req`/`res` mirror the desktop's `ipcMain.handle` channels 1:1,
 `send` mirrors `ipcMain.on`, `ev` mirrors renderer pushes. Channels a phone may
 call are allowlisted in `server/protocol.js` (desktop side). The chat fetches
-`session-transcript`, follows `transcript-data` / `session-ask` pushes, and sends
-with `send-prompt`; the run console hosts xterm.js in a WebView (xterm can't run in
+`session-transcript`, follows `transcript-data` / `session-ask` pushes, sends with
+`send-prompt` and replies to a question with `answer-ask`; the run console hosts
+xterm.js in a WebView (xterm can't run in
 React Native) and streams `term-data`/`term-input` like the desktop renderer.
 
 Port forwarding: the Ports screen sends `fwd-open` with a port number; the

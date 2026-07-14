@@ -25,6 +25,7 @@ const statusline = require('./statusline');
 // transcript stream and the question the TUI is blocked on. It reads what we hand it
 // and never reaches back in here.
 const chat = require('./chat');
+const { keystrokes } = require('./ask-lib');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
 //         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
@@ -258,17 +259,7 @@ function setSessionState(id, state) {
   const s = sessions.get(id);
   if (!s || s.state === state) return;
   s.state = state;
-  // A phone sees the session as a chat, never as a terminal — so a question the TUI
-  // is drawing (a permission prompt) has to be lifted out of the PTY and pushed as a
-  // message. `needs-input` is the state that says one is on screen.
-  chat.onState(id, state, () => ptyTail(s));
   persistSession(id);
-}
-
-// The retained PTY output of a live session, as one string. Only chat.js's question
-// parser reads it — everything else streams the chunks as they arrive.
-function ptyTail(s) {
-  return s && s.scroll ? s.scroll.chunks.join('') : '';
 }
 
 // The session's current status-dot state (undefined for an unknown id). The hook
@@ -384,12 +375,20 @@ async function recordSessionActivity(payload) {
   let changed = false;
   // Every hook payload names the session's transcript file — the only place that
   // path is published. It's what the chat view reads, and it's persisted so an
-  // archived session's conversation can still be read back after a restart.
-  if (payload.transcript_path && s.transcript !== payload.transcript_path) {
+  // archived session's conversation can still be read back after a restart. Tell the
+  // chat on *every* payload, not only when the path changes: a session started from
+  // scratch is told the path before Claude has created the file, so this is also what
+  // brings the chat back once the file exists.
+  if (payload.transcript_path) {
+    const isNew = s.transcript !== payload.transcript_path;
     s.transcript = payload.transcript_path;
     chat.noteTranscript(payload.session_id, payload.transcript_path);
-    schedulePersist(payload.session_id); // not `changed`: no client's view of the session moved
+    if (isNew) schedulePersist(payload.session_id); // not `changed`: no client's view of the session moved
   }
+  // A phone sees the session as a chat, never as a terminal, so a question the TUI is
+  // drawing would be invisible to it. The payload that announces the question is the
+  // one place it can be read from whole (see ask-lib.js) — this is that seam.
+  chat.onHook(payload.session_id, payload);
   // Only a MAIN-THREAD prompt (no agent_id — Claude Code sets it only inside a
   // subagent's own context) may reset the tracker or name the session: a
   // subagent's UserPromptSubmit arrives while main-thread fs tools are still in
@@ -498,8 +497,7 @@ async function spawnPty(id, cols, rows, resume) {
   if (s) s.scroll = { chunks: [], chars: 0, seq: 0 };
   chat.ptyStarted(id); // start tailing the transcript this run appends to
   p.onData((data) => {
-    if (s) { appendScrollback(s, data); s.sawData = true; }
-    chat.onPtyData(id, () => ptyTail(s));
+    if (s) { appendScrollback(s, data); s.sawData = true; s.lastDataAt = Date.now(); }
     sendToRenderer('pty-data', { id, data, seq: s ? s.scroll.seq : 0 });
   });
   p.onExit(() => {
@@ -771,6 +769,50 @@ bridge.handle('send-prompt', guard('sending a message', async (e, { id, text, im
   await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
   if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
   s.pty.write('\r');
+  return { ok: true };
+}, (err) => ({ ok: false, error: err && err.message ? err.message : String(err) })));
+
+// Answer the question the TUI is drawing. The card is built from the hook that
+// announced the question, but the box on screen is still a menu, and keystrokes are the
+// only way to work one — so an answer is replayed as the keys a person would have
+// pressed (ask-lib.js decides which; it was told what they are by a live CLI).
+//
+// The hook that announces a question arrives *before* the TUI has painted it, and keys
+// pressed into a box that isn't on screen yet are simply lost — so wait for the paint
+// to land and go quiet before typing into it.
+const PAINT_QUIET_MS = 150;
+const PAINT_TIMEOUT_MS = 3000;
+// Between keystrokes: picking an option redraws the box around the next question, and a
+// key that arrives mid-redraw goes to the question that is on its way out.
+const KEY_DELAY_MS = 250;
+
+async function waitForPaint(s) {
+  const deadline = Date.now() + PAINT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (s.lastDataAt && Date.now() - s.lastDataAt >= PAINT_QUIET_MS) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+bridge.handle('answer-ask', guard('answering a question', async (e, { id, answers } = {}) => {
+  const s = sessions.get(id);
+  if (!s || !s.pty) return { ok: false, error: 'This session is not running.' };
+  if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
+  const steps = keystrokes(chat.currentAsk(id), answers);
+  if (!steps.length) return { ok: false, error: 'That answer does not fit the question.' };
+  // Settled the moment the keys go out: the hook that confirms it lands later, and a
+  // card still on screen until then invites a second answer into a menu that has moved on.
+  chat.clearAsk(id);
+  await waitForPaint(s);
+  for (let i = 0; i < steps.length; i += 1) {
+    if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
+    const step = steps[i];
+    s.pty.write(step.key !== undefined ? step.key : step.text);
+    // Typed words need the longer beat: the TUI ingests them over several ticks, and an
+    // Enter arriving with them submits the reply half-written.
+    const beat = step.text !== undefined ? ENTER_DELAY_MS : KEY_DELAY_MS;
+    if (i < steps.length - 1) await new Promise((r) => setTimeout(r, beat));
+  }
   return { ok: true };
 }, (err) => ({ ok: false, error: err && err.message ? err.message : String(err) })));
 

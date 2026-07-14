@@ -5,14 +5,15 @@
 //  - the messages. Claude Code appends every turn, tool call and result to its own
 //    JSONL transcript; its path arrives on every hook payload, so sessions.js hands
 //    it here and we tail the file. transcript-lib.js turns the bytes into messages.
-//  - the question it is blocked on. A permission prompt is drawn *in the TUI* and
-//    exists nowhere else (Claude records the tool call only once it's allowed), so a
-//    chat that ignored it would sit there looking idle. While the session is
-//    `needs-input` we lift the box out of the PTY tail (tui-prompt.js) and push it.
+//  - the question it is blocked on. Claude's multiple-choice questions and permission
+//    prompts are drawn *in the TUI*, and the transcript won't have them until they're
+//    answered — so a chat that ignored them would sit there looking idle. They are not
+//    read off the terminal (see ask-lib.js: an Ink repaint leaves nothing readable);
+//    they are lifted from the hook payload that announces them.
 //  - the slash commands and image attachments the composer needs.
 //
 // Everything stateful here is keyed by session id and torn down with the session.
-// The pure halves live in transcript-lib.js / tui-prompt.js / slash-commands-lib.js.
+// The pure halves live in transcript-lib.js / ask-lib.js / slash-commands-lib.js.
 
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -22,21 +23,20 @@ const { handle: bridgeHandle } = require('./remote-bridge');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { createState, feed, parseTranscript, MAX_MESSAGES } = require('./transcript-lib');
-const { parseAsk } = require('./tui-prompt');
+const { fromHook, clearsAsk } = require('./ask-lib');
 const { BUILTIN, commandName, commandDescription, mergeCommands } = require('./slash-commands-lib');
 
 // Claude writes a turn as one appended line, so a short debounce coalesces the burst
 // of writes a single message makes without making the chat feel laggy.
 const READ_DEBOUNCE_MS = 80;
-// The TUI repaints its box a few times as it appears; parse once it settles.
-const ASK_DEBOUNCE_MS = 250;
-// Only the last stretch of the PTY tail can hold the box that's currently on screen.
-const ASK_TAIL_CHARS = 8000;
+// A new session is handed its transcript path before Claude has created the file;
+// this is how often we look for it to appear.
+const WATCH_RETRY_MS = 500;
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 const paths = new Map();   // id -> transcript file path (known once any hook fires)
 const streams = new Map(); // id -> { state, seq, pos, watcher, timer }
-const asks = new Map();    // id -> { question, options } the session is blocked on
+const asks = new Map();    // id -> the question the session is blocked on
 const live = new Set();    // ids whose PTY is running — the only ones we watch
 
 // --- transcript ---
@@ -87,56 +87,51 @@ function startWatch(id) {
   // (messages, read position) means anything against it.
   if (st && st.file !== file) { stopWatch(id, { keepMessages: false }); st = null; }
   if (!st) {
-    st = { state: createState(), seq: 0, pos: 0, watcher: null, timer: null, file };
+    st = { state: createState(), seq: 0, pos: 0, watcher: null, timer: null, retry: null, file };
     streams.set(id, st);
   }
   if (st.watcher) return; // already tailing it
   readNew(id); // catch up on whatever is in the file already, then follow it
   try {
     st.watcher = fs.watch(file, () => scheduleRead(id));
-  } catch { /* no watcher: hook events still poke us, so the chat only lags a little */ }
+  } catch {
+    // The file isn't there yet. A session started from scratch is told its transcript
+    // path (by its very first hook) before Claude has written a line to it, so this is
+    // the normal case for a new session — not an error. Keep trying: without this the
+    // conversation would never be tailed at all, and its chat would stay empty for good.
+    if (!st.retry) st.retry = setTimeout(() => { st.retry = null; startWatch(id); }, WATCH_RETRY_MS);
+  }
 }
 
 function stopWatch(id, { keepMessages = true } = {}) {
   const st = streams.get(id);
   if (!st) return;
   if (st.timer) clearTimeout(st.timer);
+  if (st.retry) clearTimeout(st.retry);
   try { st.watcher?.close(); } catch {}
   st.watcher = null;
   st.timer = null;
+  st.retry = null;
   if (!keepMessages) streams.delete(id);
 }
 
 // --- the question the TUI is blocked on ---
 
 function setAsk(id, ask) {
-  const prev = asks.get(id);
-  if (!ask && !prev) return;
-  if (ask && prev && prev.question === ask.question && prev.options.length === ask.options.length) return;
+  if (!ask && !asks.has(id)) return;
   if (ask) asks.set(id, ask); else asks.delete(id);
   sendToRenderer('session-ask', { id, ask: ask || null });
-}
-
-// Sessions a hook has told us are waiting for the user.
-const pendingAsk = new Set();
-const askTimers = new Map();
-
-function scheduleAsk(id, getTail) {
-  if (askTimers.has(id)) return;
-  askTimers.set(id, setTimeout(() => {
-    askTimers.delete(id);
-    // The state can settle while we wait — don't announce a question that's answered.
-    if (!pendingAsk.has(id)) return;
-    setAsk(id, parseAsk(String(getTail() || '').slice(-ASK_TAIL_CHARS)));
-  }, ASK_DEBOUNCE_MS));
 }
 
 // --- the seams sessions.js drives ---
 
 // A hook payload named the session's transcript file. Every hook carries it, so this
-// is called constantly; only a *change* does any work.
+// is called constantly — and deliberately does its work every time, not only when the
+// path changes: startWatch is a no-op once the file is being tailed, but if the file
+// didn't exist yet (a session started from scratch), this is a second chance to pick
+// it up without waiting for the retry timer.
 function noteTranscript(id, file) {
-  if (!file || paths.get(id) === file) return;
+  if (!file) return;
   paths.set(id, file);
   startWatch(id);
 }
@@ -154,7 +149,6 @@ function ptyStarted(id) {
 function ptyStopped(id) {
   live.delete(id);
   stopWatch(id);
-  pendingAsk.delete(id);
   setAsk(id, null);
 }
 
@@ -165,24 +159,24 @@ function forget(id) {
   paths.delete(id);
 }
 
-// The session's status dot changed. `needs-input` is the one state that means the TUI
-// is asking something; any other state means whatever it asked has been answered.
-function onState(id, state, getTail) {
-  if (state === 'needs-input') {
-    pendingAsk.add(id);
-    scheduleAsk(id, getTail);
-  } else {
-    pendingAsk.delete(id);
-    setAsk(id, null);
-  }
+// A hook fired. It is the only thing that can tell us the session has started asking
+// something — and, just as importantly, that it has stopped: a prompt answered at the
+// desktop's own terminal produces no other signal, and a card left behind on the phone
+// would be a question nobody is waiting for an answer to.
+function onHook(id, payload) {
+  const ask = fromHook(payload);
+  if (ask) setAsk(id, ask);
+  else if (clearsAsk(payload)) setAsk(id, null);
 }
 
-// PTY output while the session is blocked: the box is being drawn (or redrawn with a
-// different option selected). Nothing to do otherwise — the chat comes from the
-// transcript, not from this stream.
-function onPtyData(id, getTail) {
-  if (pendingAsk.has(id)) scheduleAsk(id, getTail);
-}
+// The question the session is blocked on, for the client that fetches a snapshot and
+// for the handler that turns an answer into keystrokes.
+const currentAsk = (id) => asks.get(id) || null;
+
+// The user answered. The box is settled the instant the keystrokes go out — the hook
+// that confirms it lands later, and a card that lingered until then would invite a
+// second answer into a menu that has already moved on.
+const clearAsk = (id) => setAsk(id, null);
 
 // The transcript path is persisted with the session so an archived one can still be
 // read back after a restart, when no hook has fired for it.
@@ -195,7 +189,7 @@ const transcriptPath = (id) => paths.get(id) || '';
 // A session that isn't running has no stream — read its file straight off disk.
 bridgeHandle('session-transcript', async (_e, id) => {
   const st = streams.get(id);
-  if (st) return { messages: st.state.msgs, seq: st.seq, ask: asks.get(id) || null };
+  if (st) return { messages: st.state.msgs, seq: st.seq, ask: currentAsk(id) };
   const file = paths.get(id);
   if (!file) return { messages: [], seq: 0, ask: null };
   try {
@@ -252,5 +246,5 @@ bridgeHandle('save-attachment', async (_e, { name, data } = {}) => {
 });
 
 module.exports = {
-  noteTranscript, ptyStarted, ptyStopped, forget, onState, onPtyData, transcriptPath,
+  noteTranscript, ptyStarted, ptyStopped, forget, onHook, currentAsk, clearAsk, transcriptPath,
 };
