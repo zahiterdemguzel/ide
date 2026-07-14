@@ -18,6 +18,7 @@ const { installCrashLogging } = require('./crashlog');
 require('./repo');
 require('./git');
 require('./sessions');
+require('./chat'); // the chat view of a session (transcript, prompts, attachments)
 require('./session-commit');
 require('./explorer');
 require('./db');

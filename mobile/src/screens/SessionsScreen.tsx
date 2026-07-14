@@ -179,7 +179,7 @@ export default function SessionsScreen({ navigation }: any) {
         Alert.alert('Could not create session', r?.error ?? 'Unknown error');
         return;
       }
-      navigation.navigate('Terminal', { id: r.id, resume: false });
+      navigation.navigate('Chat', { id: r.id });
     } catch (e: any) {
       Alert.alert('Could not create session', e?.message ?? String(e));
     } finally {
@@ -187,15 +187,15 @@ export default function SessionsScreen({ navigation }: any) {
     }
   };
 
-  // A session with no Claude process behind it has nothing to stream and nowhere to
-  // put our keystrokes, so opening it as-is shows a dead terminal. That is not only
-  // the archived case: every session restored from disk comes back without a PTY, and
-  // the desktop only respawns one when someone clicks its row. Resume on `live`, not
-  // on `archived` — main spawns it headlessly and pushes sessions-changed, so the
-  // desktop follows along without anyone opening the session there.
+  // A session with no Claude process behind it has nowhere to put a message, so
+  // opening it as-is gives you a conversation you can read but not continue. That is
+  // not only the archived case: every session restored from disk comes back without a
+  // PTY, and the desktop only respawns one when someone clicks its row. Resume on
+  // `live`, not on `archived` — main spawns it headlessly and pushes sessions-changed,
+  // so the desktop follows along without anyone opening the session there.
   const open = async (s: Session) => {
     if (!s.live) await conn?.req('resume-session', { id: s.id, cols: 80, rows: 30 });
-    navigation.navigate('Terminal', { id: s.id, name: title(s), resume: false });
+    navigation.navigate('Chat', { id: s.id, name: title(s) });
   };
 
   const archive = (s: Session) => {

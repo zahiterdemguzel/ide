@@ -26,7 +26,14 @@
       "expo-camera",
       "expo-secure-store",
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach a screenshot or photo to a message you send Claude.",
+          "cameraPermission": "Take a photo to attach to a message you send Claude."
+        }
+      ]
     ]
   }
 }

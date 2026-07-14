@@ -134,7 +134,7 @@ export default function GitScreen({ navigation }: any) {
         onPress: async () => {
           try {
             const id = await newSessionWithPrompt(conn!, mergePrompt(operation, errorText));
-            navigation.navigate('Terminal', { id, resume: false });
+            navigation.navigate('Chat', { id });
           } catch (e: any) {
             Alert.alert('Session', String(e?.message ?? e));
           }

@@ -21,6 +21,10 @@ const { querySessions } = require('./session-query-lib');
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
 const statusline = require('./statusline');
+// The chat view of a session (what a phone renders instead of a terminal): the
+// transcript stream and the question the TUI is blocked on. It reads what we hand it
+// and never reaches back in here.
+const chat = require('./chat');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
 //         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
@@ -165,6 +169,10 @@ function loadPersistedSessions() {
       if (!isSessionPersistable(entry)) { removeSessionFile(obj.id); continue; }
       entry._seq = obj._seq || 0;
       sessions.set(obj.id, entry);
+      // No hook has fired for a restored session, so this is the only way its chat
+      // knows where its transcript is — and an archived session's conversation is
+      // readable without resuming it.
+      chat.noteTranscript(obj.id, entry.transcript);
       seqCounter = Math.max(seqCounter, entry._seq + 1);
     } catch (err) { reportSessionError('restoring a saved session', err); }
   }
@@ -250,7 +258,17 @@ function setSessionState(id, state) {
   const s = sessions.get(id);
   if (!s || s.state === state) return;
   s.state = state;
+  // A phone sees the session as a chat, never as a terminal — so a question the TUI
+  // is drawing (a permission prompt) has to be lifted out of the PTY and pushed as a
+  // message. `needs-input` is the state that says one is on screen.
+  chat.onState(id, state, () => ptyTail(s));
   persistSession(id);
+}
+
+// The retained PTY output of a live session, as one string. Only chat.js's question
+// parser reads it — everything else streams the chunks as they arrive.
+function ptyTail(s) {
+  return s && s.scroll ? s.scroll.chunks.join('') : '';
 }
 
 // The session's current status-dot state (undefined for an unknown id). The hook
@@ -364,6 +382,14 @@ async function recordSessionActivity(payload) {
   const s = sessions.get(payload.session_id);
   if (!s) return null;
   let changed = false;
+  // Every hook payload names the session's transcript file — the only place that
+  // path is published. It's what the chat view reads, and it's persisted so an
+  // archived session's conversation can still be read back after a restart.
+  if (payload.transcript_path && s.transcript !== payload.transcript_path) {
+    s.transcript = payload.transcript_path;
+    chat.noteTranscript(payload.session_id, payload.transcript_path);
+    schedulePersist(payload.session_id); // not `changed`: no client's view of the session moved
+  }
   // Only a MAIN-THREAD prompt (no agent_id — Claude Code sets it only inside a
   // subagent's own context) may reset the tracker or name the session: a
   // subagent's UserPromptSubmit arrives while main-thread fs tools are still in
@@ -470,12 +496,15 @@ async function spawnPty(id, cols, rows, resume) {
   // A fresh PTY draws its own screen from scratch, so anything retained from a
   // previous run of this session is stale — start the tail empty on every spawn.
   if (s) s.scroll = { chunks: [], chars: 0, seq: 0 };
+  chat.ptyStarted(id); // start tailing the transcript this run appends to
   p.onData((data) => {
-    if (s) appendScrollback(s, data);
+    if (s) { appendScrollback(s, data); s.sawData = true; }
+    chat.onPtyData(id, () => ptyTail(s));
     sendToRenderer('pty-data', { id, data, seq: s ? s.scroll.seq : 0 });
   });
   p.onExit(() => {
     const s = sessions.get(id);
+    chat.ptyStopped(id);
     // The PTY dying takes every agent (main + subagents) down with it, however it
     // died — exit, archive, or close — so the hook server's subagent bookkeeping
     // for this session is stale either way.
@@ -703,6 +732,48 @@ bridge.on('pty-input', guardOn('writing to a session', (e, { id, data }) => {
     sendToRenderer('status', { id, state: interrupted });
   }
 }));
+// Send a chat message to the session: type it into the TUI, then submit.
+//
+// The phone has no terminal, so this is the one way it speaks to Claude — and it
+// can't just write `text + '\r'`. The TUI ingests a multi-line paste over several
+// ticks, and an Enter bundled with it fires the prompt half-typed; so the Enter is a
+// separate write, a beat later. Same reason (and same timings) as the desktop's
+// newSessionWithPrompt. Attached images are passed as paths — the CLI reads an image
+// file the same way it reads a source file — quoted, since a temp path can contain
+// a space.
+const ENTER_DELAY_MS = 400;
+// A session opened the moment it was created may not have painted its input box yet,
+// and the TUI drops what arrives before it does. Its first output is the proof that
+// it has — so wait for that, but never hang a message on it.
+const TUI_READY_TIMEOUT_MS = 4000;
+
+async function waitForTui(s) {
+  const deadline = Date.now() + TUI_READY_TIMEOUT_MS;
+  while (!s.sawData && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+}
+
+function promptText(text, images) {
+  const files = (Array.isArray(images) ? images : [])
+    .filter((p) => typeof p === 'string' && p)
+    .map((p) => (/\s/.test(p) ? `"${p}"` : p));
+  return [...files, String(text || '').trim()].filter(Boolean).join('\n');
+}
+
+bridge.handle('send-prompt', guard('sending a message', async (e, { id, text, images } = {}) => {
+  const s = sessions.get(id);
+  if (!s || !s.pty) return { ok: false, error: 'This session is not running.' };
+  if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
+  const data = promptText(text, images);
+  if (!data) return { ok: false, error: 'Nothing to send.' };
+  await waitForTui(s);
+  if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
+  s.pty.write(data);
+  await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
+  if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
+  s.pty.write('\r');
+  return { ok: true };
+}, (err) => ({ ok: false, error: err && err.message ? err.message : String(err) })));
+
 bridge.on('pty-resize', guardOn('resizing a session', (e, { id, cols, rows }) => {
   const s = sessions.get(id);
   if (!s || !s.pty || heldByAnotherDevice(s, e)) return;
@@ -713,6 +784,7 @@ bridge.on('kill-session', guardOn('closing a session', (_e, { id }) => {
   if (!s) return;
   if (s.pty) try { s.pty.kill(); } catch { /* already gone */ }
   sessions.delete(id);
+  chat.forget(id);
   if (persistTimers.has(id)) { clearTimeout(persistTimers.get(id)); persistTimers.delete(id); }
   removeSessionFile(id);
   broadcastSessions();

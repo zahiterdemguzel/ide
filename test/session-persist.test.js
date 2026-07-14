@@ -3,14 +3,14 @@ const assert = require('node:assert/strict');
 const { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit } = require('../src/main/session-persist');
 
 // A live in-memory session entry the way sessions.js holds it.
-function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', model = '', subagentModel = '', edits = [], fileOps = [] } = {}) {
-  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, state, model, subagentModel, edits: new Map(edits), fileOps: new Map(fileOps) };
+function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', model = '', subagentModel = '', transcript = '', edits = [], fileOps = [] } = {}) {
+  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, state, model, subagentModel, transcript, edits: new Map(edits), fileOps: new Map(fileOps) };
 }
 
 test('serializeSession: drops runtime-only fields and flattens the Maps', () => {
   const s = liveSession({
     repo: '/projects/app', firstPrompt: 'fix the bug', name: 'Bug fix', archived: true, state: 'completed',
-    model: 'opus', subagentModel: 'haiku',
+    model: 'opus', subagentModel: 'haiku', transcript: '/home/u/.claude/projects/app/id-1.jsonl',
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });
@@ -24,6 +24,9 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
     state: 'completed',
     model: 'opus',
     subagentModel: 'haiku',
+    // Where Claude keeps this session's conversation — the phone renders it as a chat,
+    // and no hook fires for an archived session to name the file again.
+    transcript: '/home/u/.claude/projects/app/id-1.jsonl',
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });

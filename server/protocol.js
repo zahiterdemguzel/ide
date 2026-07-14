@@ -29,6 +29,13 @@ const REMOTE_CHANNELS = {
     'check-claude',
     // retained PTY output, so a phone reopening a session sees its scrollback
     'session-scrollback',
+    // the session as a *conversation* — what the phone renders instead of a terminal:
+    // the messages from Claude's own transcript, the prompt it is blocked on, the
+    // commands its composer autocompletes, and the images attached to a message.
+    'session-transcript',
+    'send-prompt',
+    'list-slash-commands',
+    'save-attachment',
     // git
     'git-is-repo',
     'git-status',
@@ -104,6 +111,9 @@ const REMOTE_EVENTS = new Set([
   'status',
   'session-meta',
   'sessions-changed',
+  // new/updated chat messages, and the question the TUI is blocked on (see chat.js)
+  'transcript-data',
+  'session-ask',
   'session-name',
   'session-error',
   'term-data',

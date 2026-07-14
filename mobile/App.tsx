@@ -18,7 +18,7 @@ import RunDrawer from './src/components/RunDrawer';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import PairScreen from './src/screens/PairScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
-import SessionTerminal from './src/screens/SessionTerminal';
+import ChatScreen from './src/screens/ChatScreen';
 import ConsoleTerminal from './src/screens/ConsoleTerminal';
 import GitScreen from './src/screens/GitScreen';
 import FilesScreen from './src/screens/FilesScreen';
@@ -231,7 +231,10 @@ export default function App() {
             ) : (
               <>
                 <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
-                <Stack.Screen name="Terminal" component={SessionTerminal} options={{ headerShown: false }} />
+                {/* A Claude session is a conversation, not a terminal — the phone
+                    renders it as a chat. The one terminal left is the run console
+                    (a dev server's log), which is a terminal by nature. */}
+                <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Console" component={ConsoleTerminal} options={{ headerShown: false }} />
               </>
             )}
