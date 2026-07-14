@@ -1,10 +1,9 @@
 // Desktop side of remote (mobile) access. Owns the paired-device store and, while
-// remote access is enabled, reaches phones two ways at once: the Electron-free ws
-// server from server/ listening on the LAN, and an outbound socket to the cloud
-// relay for phones that aren't on it. Both are driven by one hub (server/hub.js),
-// so a phone runs the same pair/auth machine and one broadcast reaches both.
-// Off by default. These desktop-control channels use raw ipcMain deliberately —
-// they must never be remotely callable.
+// remote access is enabled, reaches phones over one outbound socket to the cloud
+// relay (a machine behind NAT can't be dialled in to, but it can dial out). The
+// hub (server/hub.js) runs the pair/auth machine and one broadcast reaches every
+// phone in the room. Off by default. These desktop-control channels use raw
+// ipcMain deliberately — they must never be remotely callable.
 
 const { ipcMain, app } = require('electron');
 const os = require('os');
@@ -17,7 +16,6 @@ const { releaseDeviceControl } = require('./sessions');
 const { getRepoPath, onRepoChange } = require('./repo');
 const registry = require('./instance-registry');
 const { createHub } = require('../../server/hub');
-const { startRemoteServer } = require('../../server/ws-server');
 const { startRelayClient } = require('../../server/relay-client');
 const { startPortForward } = require('../../server/http-proxy');
 const { normalizeForwardPath } = require('../../server/http-proxy-lib');
@@ -42,9 +40,9 @@ const deviceStore = {
   },
 };
 
-// The paired devices outlive the process, so the *service* they dial has to as
-// well: on/off, the listening port and the relay room persist beside them (see
-// remote-config-lib.js for why neither the port nor the room can be ephemeral).
+// The paired devices outlive the process, so the *service* they reach has to as
+// well: on/off and the relay room persist beside them (see remote-config-lib.js
+// for why the room can't be ephemeral).
 const configFile = path.join(sharedDataDir, 'remote-config.json');
 function readConfigFile() {
   try { return JSON.parse(fs.readFileSync(configFile, 'utf8')); } catch { return null; }
@@ -72,8 +70,8 @@ const relayUrl = resolveRelayUrl({
 const phoneRelayUrl = () => relayUrlForPhone(relayUrl, lanAddresses()[0]);
 
 let hub = null;
-let server = null; // LAN ws server, while enabled
 let relay = null; // outbound socket to the cloud relay, while enabled
+let enabled = false;
 const forwards = new Map(); // targetPort -> proxy handle ({ port, issueUrlToken, close })
 
 async function proxyFor(targetPort) {
@@ -82,33 +80,23 @@ async function proxyFor(targetPort) {
 }
 
 // Dev-server port forwarding: one local reverse proxy per target port, opened in
-// the phone's browser through a one-time auth URL. The proxy is the same either
-// way — only the address the phone can reach it at differs, so `via` picks it:
-//
-//   lan    the proxy's own LAN address, straight to the desktop.
-//   relay  a /p/<room>/<port> entry URL on the relay, which splices the browser's
-//          raw bytes down our relay socket and into that same proxy. Off-LAN there
-//          is no other route: a phone on cellular cannot reach a 192.168.x address.
-//
-// Proxies die with the remote server (disable/quit).
+// the phone's browser through a /p/<room>/<instance>/<port> entry URL on the
+// relay, which splices the browser's raw bytes down our relay socket and into
+// that proxy. Proxies die with the remote service (disable/quit).
 //
 // The link lands on `path` ('/admin') if the phone asked for one, and on the site
 // root otherwise. Either way it is the whole site that is forwarded, not that one
 // page: the auth cookie the token swaps itself for is Path=/, so from there the
 // browser can walk to any other path on the same address.
 const forward = {
-  async open(targetPort, ctx = {}, path) {
+  async open(targetPort, _ctx, path) {
     const proxy = await proxyFor(targetPort);
     const token = proxy.issueUrlToken();
     const at = normalizeForwardPath(path) || '/';
     const auth = `${at.includes('?') ? '&' : '?'}_ideauth=${token}`;
-    if (ctx.via === 'relay') {
-      // Named down to this window, not just this machine: a sibling may be proxying
-      // the same target port, and the token is only good at the proxy that issued it.
-      return `${phoneRelayUrl()}/p/${config.room}/${instanceId}/${targetPort}${at}${auth}`;
-    }
-    const host = lanAddresses()[0] || '127.0.0.1';
-    return `http://${host}:${proxy.port}${at}${auth}`;
+    // Named down to this window, not just this machine: a sibling may be proxying
+    // the same target port, and the token is only good at the proxy that issued it.
+    return `${phoneRelayUrl()}/p/${config.room}/${instanceId}/${targetPort}${at}${auth}`;
   },
   async close(targetPort) {
     const proxy = forwards.get(targetPort);
@@ -119,8 +107,7 @@ const forward = {
 
 // What the relay client pipes a tunnelled browser connection into: the local
 // proxy for that port. It only ever hands back a port — all the HTTP, the auth
-// cookie and the HMR upgrade stay inside http-proxy.js, which cannot tell a
-// tunnelled browser from a LAN one.
+// cookie and the HMR upgrade stay inside http-proxy.js.
 const tunnel = { localPort: async (targetPort) => (await proxyFor(targetPort)).port };
 
 async function closeAllForwards() {
@@ -129,8 +116,9 @@ async function closeAllForwards() {
   await Promise.all(all.map((p) => p.close().catch(() => {})));
 }
 
-// Non-internal IPv4 addresses, best candidate first (prefer private ranges so
-// the QR points at the LAN IP, not a VPN/virtual adapter address).
+// Non-internal IPv4 addresses, best candidate first (prefer private ranges over a
+// VPN/virtual adapter address). Used only to rewrite a dev relay's `localhost`
+// into an address a phone on the network can reach (see relayUrlForPhone).
 function lanAddresses() {
   const addrs = [];
   for (const ifaces of Object.values(os.networkInterfaces())) {
@@ -144,44 +132,33 @@ function lanAddresses() {
 
 function status() {
   return {
-    enabled: !!server,
-    port: server ? server.port : null,
-    hosts: server ? lanAddresses() : [],
+    enabled,
     relayUrl: phoneRelayUrl(), // what the pane shows, so show what a phone dials
     room: config.room,
     relayConnected: !!relay && relay.connected(),
   };
 }
 
-const publishInstance = () => registry.publish({ lanPort: server ? server.port : null, project: getRepoPath() });
+// The entry names the relay this window dials: a dev run talks to the local relay
+// while an installed build talks to the hosted one, and both publish into the same
+// machine-wide file — a phone can only reach windows in *its* relay's room, so the
+// roster must not offer it the others.
+const publishInstance = () => registry.publish({ project: getRepoPath(), relay: relayUrl });
 
 async function enable() {
-  if (server) return status();
+  if (enabled) return status();
   hub = createHub({
     invoke: invokeRemote,
     deviceStore,
     appVersion: app.getVersion(),
     forward,
     // A phone holding a session can't release it if it just vanishes, so hand the
-    // session back to the desktop when its socket dies — on either transport.
+    // session back to the desktop when its socket dies.
     onDisconnect: releaseDeviceControl,
   });
-  try {
-    server = await startRemoteServer({ port: config.port, hub });
-  } catch (err) {
-    if (err.code !== 'EADDRINUSE') throw err;
-    // Almost always a sibling instance already listening on the shared port. It
-    // serves the same paired devices out of the same store, so the phones keep
-    // working against it; this instance just takes any free port so its own QR
-    // still pairs. The configured port is deliberately left alone — migrating it
-    // to a fallback would move the address every paired phone is holding.
-    server = await startRemoteServer({ port: 0, hub });
-    console.warn(`[remote] port ${config.port} is in use; listening on ${server.port} instead`);
-  }
-  // The LAN server only reaches phones on this network. The relay reaches the rest,
-  // so it runs alongside rather than instead: a paired phone tries the LAN address
-  // first and falls back to the room. Failing to reach the relay is not fatal —
-  // it retries in the background and same-network use is unaffected.
+  // The desktop dials out to the relay because a machine behind NAT can't be
+  // dialled in to; every phone in its room rides that one socket. Failing to reach
+  // the relay is not fatal — it retries in the background.
   console.log(`[remote] relay ${relayUrl}${app.isPackaged ? '' : ' (dev)'}`);
   relay = startRelayClient({
     relayUrl, // the desktop's own route to it: localhost in dev, no rewrite needed
@@ -191,10 +168,9 @@ async function enable() {
     tunnel,
     log: (msg) => console.log(msg),
   });
+  enabled = true;
   // Now reachable, so say so: this is what puts this window in the list a phone
-  // chooses from. The LAN port is published because it is the sibling instances that
-  // differ — they lost the race for the shared port and took an ephemeral one, and a
-  // phone has no other way to learn where they ended up.
+  // chooses from.
   publishInstance();
   if (!config.enabled) saveConfig({ ...config, enabled: true });
   return status();
@@ -204,21 +180,19 @@ async function enable() {
 // with remote access off must not be in it — a phone could see it but never dial it.
 async function disable() {
   if (config.enabled) saveConfig({ ...config, enabled: false });
-  if (!server) return status();
+  if (!enabled) return status();
   registry.remove();
-  const s = server;
-  server = null;
+  enabled = false;
   if (relay) relay.close();
   relay = null;
   hub = null;
   await closeAllForwards();
-  await s.close();
   return status();
 }
 
 // The project is the one thing in a window's entry that changes while it runs, and it
 // is the thing the phone picks by — so republish whenever it does.
-onRepoChange(() => { if (server) publishInstance(); });
+onRepoChange(() => { if (enabled) publishInstance(); });
 
 // Every window this machine is running, oldest first — what the phone's welcome screen
 // lists. Served by whichever window the phone's socket happens to land on: they have no
@@ -226,13 +200,18 @@ onRepoChange(() => { if (server) publishInstance(); });
 //
 // Bridged (not raw ipcMain) precisely because it must be remotely callable, unlike the
 // remote-* control channels below.
-handle('list-instances', () => registry.list().map((e) => ({
-  id: e.id,
-  startedAt: e.startedAt,
-  project: e.project || null,
-  lanPort: e.lanPort || null,
-  current: e.id === instanceId,
-})));
+// Only windows on *this window's* relay: the phone's socket rides one relay, and a
+// sibling on a different one (a dev run beside an installed build) is in a different
+// room there — offering it would be offering a window the phone can never dial.
+// Entries without a relay (written by a pre-relay-only build) are excluded too.
+handle('list-instances', () => registry.list()
+  .filter((e) => e.relay === relayUrl)
+  .map((e) => ({
+    id: e.id,
+    startedAt: e.startedAt,
+    project: e.project || null,
+    current: e.id === instanceId,
+  })));
 
 // Remote access is a service, not a per-window toggle. A phone paired to this
 // machine reconnects on its own (backoff, stored device token) but has nothing to
@@ -251,8 +230,8 @@ app.whenReady().then(() => {
 // page"). Shipping every session, archived ones included, on every list change is
 // exactly what the paging exists to avoid.
 onBroadcast((channel, payload) => {
-  if (!server) return;
-  server.broadcast(channel, channel === 'sessions-changed' ? null : payload);
+  if (!hub) return;
+  hub.broadcast(channel, channel === 'sessions-changed' ? null : payload);
 });
 
 ipcMain.handle('remote-status', () => status());
@@ -260,19 +239,13 @@ ipcMain.handle('remote-enable', () => enable());
 ipcMain.handle('remote-disable', () => disable());
 
 // A fresh single-use pairing token, encoded as the ide://pair URL the QR shows.
-// Reissuing invalidates the previous token (see server/auth-lib.js).
-//
-// It carries BOTH transports, because at scan time neither end knows which will
-// work: the LAN address is fast and survives the relay being down, the room works
-// from anywhere. The phone keeps both and prefers the LAN one whenever it answers.
+// Reissuing invalidates the previous token (see server/auth-lib.js). It carries
+// the relay origin and the room — the phone's address for this machine anywhere.
 ipcMain.handle('remote-new-pair-token', () => {
-  if (!server) return null;
-  const token = server.pairing.issue();
-  const host = lanAddresses()[0] || '127.0.0.1';
+  if (!enabled) return null;
+  const token = hub.pairing.issue();
   const q = [
     'v=1',
-    `host=${encodeURIComponent(host)}`,
-    `port=${server.port}`,
     `relay=${encodeURIComponent(phoneRelayUrl())}`,
     `room=${encodeURIComponent(config.room)}`,
     `tk=${token}`,
@@ -294,7 +267,6 @@ app.on('before-quit', () => {
   // the reader prunes dead entries too (see instance-registry.js).
   registry.remove();
   if (relay) relay.close();
-  if (server) server.close();
   closeAllForwards();
 });
 

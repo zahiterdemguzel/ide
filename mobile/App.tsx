@@ -1,7 +1,7 @@
 // IDE Remote — companion app. Pairs with the desktop IDE by scanning the QR
 // code in its Settings dialog, then drives it over the ws protocol (projects,
 // Claude sessions, git, files, forwarded ports).
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -10,7 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Pressable, StyleSheet, Text } from 'react-native';
 import { Connection, ConnectionState } from './src/api/connection';
-import { loadCredentials, saveCredentials, clearCredentials, dialOrder, Endpoints, PairInfo } from './src/api/pairing';
+import { loadCredentials, saveCredentials, clearCredentials, Endpoints, PairInfo } from './src/api/pairing';
 import { Instance, instanceEndpoints } from './src/api/instances';
 import { ConnectionContext, useConnection } from './src/api/context';
 import ProjectDrawer, { basename } from './src/components/ProjectDrawer';
@@ -122,16 +122,23 @@ export default function App() {
   const [conn, setConn] = useState<Connection | null>(null);
   const [state, setState] = useState<ConnectionState>('closed');
   // The pairing endpoints, kept after launch because choosing a *window* re-dials:
-  // each one listens on its own LAN port and is named separately inside the room.
+  // each is named separately inside the room by its instance id.
   const [creds, setCreds] = useState<{ endpoints: Endpoints; deviceToken: string } | null>(null);
   const [instances, setInstances] = useState<Instance[] | null>(null); // non-null only while choosing
   const [instance, setInstance] = useState<Instance | null>(null);
   const [chosen, setChosen] = useState(false); // distinct from `instance`: an old desktop names no window
 
+  // The replaced connection's socket dies *after* the new one is dialled, and its
+  // late 'closed' must not stomp the new connection's 'ready' — so only the current
+  // connection may feed `state`. Detach the old listener before dialling.
+  const stateUnsub = useRef<(() => void) | null>(null);
+
   const open = useCallback((endpoints: Endpoints, auth: ConstructorParameters<typeof Connection>[1],
     onDeviceToken?: (t: string) => void) => {
-    const c = new Connection(dialOrder(endpoints), auth, onDeviceToken);
-    c.onState(setState);
+    if (!endpoints.relay) return;
+    stateUnsub.current?.();
+    const c = new Connection(endpoints.relay, auth, onDeviceToken);
+    stateUnsub.current = c.onState(setState);
     c.connect();
     setConn(c);
   }, []);
@@ -166,9 +173,7 @@ export default function App() {
   }, [conn, state, chosen]);
 
   const pair = useCallback((info: PairInfo) => {
-    // Keep both endpoints, not just the one that pairs: pairing usually happens on
-    // the LAN (you are standing at the machine), but the phone leaves the network.
-    const endpoints = { lan: info.lan, relay: info.relay };
+    const endpoints = { relay: info.relay };
     open(endpoints, { pairToken: info.pairToken, deviceName: 'IDE Remote' }, (deviceToken) => {
       saveCredentials(endpoints, deviceToken);
       setCreds({ endpoints, deviceToken });
@@ -196,6 +201,8 @@ export default function App() {
   }, [conn, state]);
 
   const unpair = useCallback(async () => {
+    stateUnsub.current?.();
+    stateUnsub.current = null;
     conn?.close();
     await clearCredentials();
     setConn(null);

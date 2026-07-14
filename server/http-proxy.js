@@ -11,12 +11,17 @@
 const http = require('http');
 const net = require('net');
 const { createAuthState, rewriteResponseHeaders, HOP } = require('./http-proxy-lib');
+const { debugFor } = require('./debug');
+
+const debug = debugFor('proxy');
 
 function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
   const auth = createAuthState(now);
 
   const server = http.createServer((req, res) => {
     const verdict = auth.decide(req.url, req.headers.cookie);
+    // The URL carries the one-time auth token, so log the path without its query.
+    debug(verdict.action, { target: targetPort, method: req.method, path: req.url.split('?')[0] });
     if (verdict.action === 'deny') {
       res.writeHead(403, { 'content-type': 'text/plain' });
       return res.end('Forbidden: open this port from the IDE mobile app.\n');
@@ -30,8 +35,13 @@ function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
     headers.host = `127.0.0.1:${targetPort}`; // dev servers often check Host
     const upstream = http.request(
       { host: '127.0.0.1', port: targetPort, method: req.method, path: req.url, headers },
-      (ur) => { res.writeHead(ur.statusCode, rewriteResponseHeaders(ur.headers, targetPort)); ur.pipe(res); });
+      (ur) => {
+        debug('upstream', { target: targetPort, path: req.url.split('?')[0], status: ur.statusCode });
+        res.writeHead(ur.statusCode, rewriteResponseHeaders(ur.headers, targetPort));
+        ur.pipe(res);
+      });
     upstream.on('error', (err) => {
+      debug('upstream error', { target: targetPort, path: req.url.split('?')[0], error: err.code || err.message });
       if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' });
       res.end(`Bad gateway: nothing is listening on 127.0.0.1:${targetPort} (${err.code || err.message})\n`);
     });
@@ -41,7 +51,11 @@ function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
   // Websocket upgrades (Vite/webpack HMR): auth by cookie only (the browser
   // already holds it by the time a page opens a socket), then splice sockets.
   server.on('upgrade', (req, socket, head) => {
-    if (auth.decide(req.url, req.headers.cookie).action !== 'proxy') return socket.destroy();
+    if (auth.decide(req.url, req.headers.cookie).action !== 'proxy') {
+      debug('upgrade denied', { target: targetPort, path: req.url.split('?')[0] });
+      return socket.destroy();
+    }
+    debug('upgrade', { target: targetPort, path: req.url.split('?')[0] });
     const upstream = net.connect(targetPort, '127.0.0.1', () => {
       let raw = `${req.method} ${req.url} HTTP/1.1\r\n`;
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
@@ -59,12 +73,19 @@ function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
 
   return new Promise((resolve, reject) => {
     server.on('error', reject);
-    server.listen(0, host, () => resolve({
-      port: server.address().port,
-      targetPort,
-      issueUrlToken: () => auth.issueUrlToken(),
-      close: () => new Promise((res) => { server.closeAllConnections?.(); server.close(() => res()); }),
-    }));
+    server.listen(0, host, () => {
+      debug('listening', { port: server.address().port, target: targetPort, host });
+      resolve({
+        port: server.address().port,
+        targetPort,
+        issueUrlToken: () => auth.issueUrlToken(),
+        close: () => new Promise((res) => {
+          debug('closing', { target: targetPort });
+          server.closeAllConnections?.();
+          server.close(() => res());
+        }),
+      });
+    });
   });
 }
 

@@ -12,9 +12,11 @@ npm install
 npx expo start        # then open in Expo Go on the phone
 ```
 
-Phone and desktop must be on the same network. On the desktop: Settings →
-Remote access → enable, then scan the QR code from the Pair screen. The device
-credential is stored in SecureStore; unpair from the project drawer.
+On the desktop: Settings → Remote access → enable, then scan the QR code from the
+Pair screen. The phone reaches the desktop over the cloud relay, so a shipped
+build works from anywhere; an Expo dev run talks to the relay on your machine, so
+for that the phone must be on the same network. The device credential is stored in
+SecureStore; unpair from the project drawer.
 
 The app's destinations are the bottom tabs (Sessions, Git, Files, Ports), so the
 header title is free to show the active project's name instead of the screen's.
@@ -52,8 +54,8 @@ xterm.js in a WebView (xterm can't run in
 React Native) and streams `term-data`/`term-input` like the desktop renderer.
 
 Port forwarding: the Ports screen sends `fwd-open` with a port number (and an
-optional path); the desktop starts a LAN reverse proxy for `127.0.0.1:<port>`
-and returns a one-time-auth URL that is opened in the system browser. What is
+optional path); the desktop starts a reverse proxy for `127.0.0.1:<port>` and
+returns a one-time-auth URL (through the relay) opened in the system browser. What is
 forwarded is the whole site: the token becomes a `Path=/` cookie on first hit,
 so from there any path on that origin (`/login`, `/admin`) can just be typed —
 onto the base address the screen shows, not onto the opened link, which ends in

@@ -97,6 +97,10 @@ const REMOTE_CHANNELS = {
     // claim/release a session while the phone's terminal screen is open, so the
     // desktop can cover it instead of showing two people driving one PTY
     'session-control',
+    // which model runs the session, and how hard it thinks — retargeted live from the
+    // phone's chat, exactly as the desktop's session-bar badge does it
+    'set-session-model',
+    'set-session-effort',
     'pty-input',
     'pty-resize',
     'kill-session',
@@ -128,6 +132,7 @@ const REMOTE_EVENTS = new Set([
   'run-configs-changed',
   'session-evicted',
   'session-model',
+  'session-effort',
   'tree-changed',
 ]);
 

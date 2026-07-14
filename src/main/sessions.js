@@ -9,7 +9,8 @@ const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claud
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
-const { feedModelInput } = require('./model-parse');
+const { AUTO, cleanEffort, effortArgs } = require('./agent-effort');
+const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp } = require('./edit-ops');
 const { tracksFs, editedFilePath, TEXT_EDIT_TOOLS } = require('./fs-track');
 const { git } = require('./git');
@@ -482,7 +483,10 @@ async function spawnPty(id, cols, rows, resume) {
   // Spawn in the session's own project folder, not whatever folder is currently
   // open — a session always belongs to the repo it was created in.
   const s = sessions.get(id);
-  const p = pty.spawn(await resolveClaude(), [...startArg, '--settings', hookServer.hooksSettings()], {
+  // The session's reasoning effort is a *launch flag*, not an env var like the model —
+  // so it's re-applied here on every spawn, and a session resumed after a restart keeps
+  // the effort it was last set to (see agent-effort.js). `auto` passes no flag at all.
+  const p = pty.spawn(await resolveClaude(), [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings()], {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
@@ -528,7 +532,7 @@ function sessionList() {
   return [...sessions].map(([id, s]) => ({
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
-    model: s.model || '', live: !!s.pty, controlled: !!s.controlledBy,
+    model: s.model || '', effort: s.effort || '', live: !!s.pty, controlled: !!s.controlledBy,
   }));
 }
 
@@ -559,7 +563,7 @@ function sessionRow([id, s]) {
   return {
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, state: s.state || 'idle', model: s.model || '',
-    live: !!s.pty, controlled: !!s.controlledBy,
+    effort: s.effort || '', live: !!s.pty, controlled: !!s.controlledBy,
   };
 }
 
@@ -608,7 +612,9 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo. `model`/`subagentModel` are the per-session agent choice (see
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', _seq: seqCounter++ });
+  // `effort` starts unset (the model's own default): it's not picked at creation, only
+  // switched on a running session (set-session-effort), and re-applied on every spawn.
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: '', _seq: seqCounter++ });
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   broadcastSessions();
@@ -688,6 +694,10 @@ bridge.handle('resume-session', guard('restoring a session', async (_e, { id, co
 // it), and if the PTY is live we drive the CLI's own `/model <id>` slash command so
 // the running session switches immediately. `default` maps to `/model default` (reset
 // to the CLI default). The renderer owns the list of valid ids.
+//
+// The change is pushed back out because either client can make it (the desktop's badge
+// menu, or the phone's chat sheet) and both draw it: without the push, a switch made on
+// one leaves the other showing the model the session is no longer running.
 bridge.on('set-session-model', guardOn('changing session model', (_e, { id, model }) => {
   const s = sessions.get(id);
   if (!s) return;
@@ -696,6 +706,24 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
   s.model = chosen;
   persistSession(id);
   if (s.pty) s.pty.write(`/model ${chosen}\r`);
+  sendToRenderer('session-model', { id, model: chosen });
+}));
+
+// Change a session's reasoning effort — the same two-place story as the model above,
+// but the spawn half is a CLI flag rather than an env var (see agent-effort.js). An
+// unknown level is dropped rather than typed: `/effort gpt` would land in the TUI as a
+// prompt, and `--effort gpt` on the next resume wouldn't start at all. `auto` is a real
+// choice (reset to the model's default), so it's accepted here and passed to the CLI,
+// even though it's the one value that adds no spawn flag.
+bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, effort }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  const chosen = typeof effort === 'string' ? effort.trim().toLowerCase() : '';
+  if (!chosen || (chosen !== AUTO && !cleanEffort(chosen))) return;
+  s.effort = chosen;
+  persistSession(id);
+  if (s.pty) s.pty.write(`/effort ${chosen}\r`);
+  sendToRenderer('session-effort', { id, effort: chosen });
 }));
 
 // While a phone holds a session, only that phone may write to or resize the PTY.
@@ -712,15 +740,25 @@ bridge.on('pty-input', guardOn('writing to a session', (e, { id, data }) => {
   const s = sessions.get(id);
   if (!s || !s.pty || heldByAnotherDevice(s, e)) return;
   s.pty.write(data);
-  // Track a `/model <id>` typed into the chat (the badge's own dropdown writes
-  // via set-session-model, which bypasses this handler, so there's no echo to
-  // double-count).
-  const mdl = feedModelInput(s.modelInputBuf || '', data);
-  s.modelInputBuf = mdl.buf;
-  if (mdl.model && mdl.model !== s.model) {
-    s.model = mdl.model;
+  // Track a `/model <id>` or `/effort <level>` typed straight into the chat (the menus
+  // write via set-session-model / set-session-effort, which bypass this handler, so
+  // there's no echo to double-count).
+  const cmd = feedSessionCommand(s.cmdInputBuf || '', data);
+  s.cmdInputBuf = cmd.buf;
+  if (cmd.model && cmd.model !== s.model) {
+    s.model = cmd.model;
     persistSession(id);
-    sendToRenderer('session-model', { id, model: mdl.model });
+    // `typed` says this came from the keyboard at the desktop's own terminal, which is
+    // the only origin that also re-points the desktop's *next new session* at that model
+    // (see onSessionModel). A switch made from a phone must not: it is a choice about
+    // one session, made on another device, and the desktop's default is not the phone's
+    // to move.
+    sendToRenderer('session-model', { id, model: cmd.model, typed: true });
+  }
+  if (cmd.effort && cmd.effort !== s.effort) {
+    s.effort = cmd.effort;
+    persistSession(id);
+    sendToRenderer('session-effort', { id, effort: cmd.effort });
   }
   // ESC/Ctrl+C while the agent is working interrupts the turn (no hook fires for
   // it, so we read it off the input). Mirror the dot in the renderer and persist.

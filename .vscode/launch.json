@@ -16,6 +16,9 @@
       // The default ("internalConsole") routes Electron output to the Debug
       // Console, where it mostly doesn't show up.
       "console": "integratedTerminal",
+      // The desktop embeds the same backend modules (hub, relay dialer, port-forward
+      // proxy), so IDE_DEBUG traces those here too — silent until remote access is on.
+      "env": { "IDE_DEBUG": "*,-tunnel" },
       // Electron spawns Chromium renderer/GPU child processes. If VS Code
       // auto-attaches its debugger to them (the default), it injects an inspector
       // into the renderer and the window stops responding to clicks/keys. Attach
@@ -26,12 +29,19 @@
       // The standalone relay from server/ (socket bridge only — LAN mode doesn't
       // need it; the desktop app embeds the ws server itself). Local run for
       // developing/testing relay mode; listens on PORT (default 8080).
+      //
+      // Debug mode: IDE_DEBUG makes server/debug.js trace every operation the
+      // backend performs (sockets, rooms, protocol frames, routing decisions,
+      // tunnel bytes) to this terminal. Narrow it when the log is too loud —
+      // e.g. "relay,hub" for sockets + protocol only, or "*,-tunnel" to keep
+      // everything but the per-chunk byte traffic of a forwarded dev server.
       "name": "Start backend (relay)",
       "type": "node",
       "request": "launch",
       "program": "${workspaceFolder}/server/index.js",
       "cwd": "${workspaceFolder}/server",
-      "console": "integratedTerminal"
+      "console": "integratedTerminal",
+      "env": { "IDE_DEBUG": "*" }
     },
     {
       // Expo dev server for the companion app; open it in Expo Go on the phone.

@@ -30,6 +30,11 @@ const crypto = require('crypto');
 const { HEALTH_PATH } = require('./keepalive');
 const { parseHead, route, MAX_HEAD, DEFAULT_INSTANCE } = require('./relay-route');
 const F = require('./relay-frames');
+const { debugFor } = require('./debug');
+
+const debug = debugFor('relay');
+const debugRoute = debugFor('route');
+const debugTunnel = debugFor('tunnel');
 
 const HEAD_END = Buffer.from('\r\n\r\n');
 
@@ -56,6 +61,7 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
   const httpServer = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/plain' });
     if (req.url.split('?')[0] === HEALTH_PATH) {
+      debug('health', { rooms: rooms.size });
       res.end(`ide-relay ok rooms=${rooms.size}\n`);
       return;
     }
@@ -67,7 +73,10 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
     const url = new URL(req.url, 'http://relay');
     const role = url.searchParams.get('role');
     const roomId = url.searchParams.get('room');
-    if (!roomId || (role !== 'desktop' && role !== 'mobile')) return ws.close(4000, 'bad params');
+    if (!roomId || (role !== 'desktop' && role !== 'mobile')) {
+      debug('ws rejected', { role, room: roomId, reason: 'bad-params' });
+      return ws.close(4000, 'bad params');
+    }
     const r = room(roomId);
 
     if (role === 'desktop') {
@@ -78,45 +87,66 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
       // the stale one. A *sibling* window has a different id and is left alone: that
       // is the whole point of keying by instance.
       const prev = r.desktops.get(instance);
-      if (prev) prev.close(4001, 'replaced');
+      if (prev) {
+        debug('desktop replaced', { room: roomId, instance });
+        prev.close(4001, 'replaced');
+      }
       r.desktops.set(instance, ws);
       r.latest = instance;
+      debug('desktop joined', { room: roomId, instance, desktops: r.desktops.size, waiting: r.clients.size });
       // A desktop that restarts finds phones already holding sockets here. They
       // are waiting on a `hello` only the desktop can send, so re-announce the ones
       // bound to it: it greets each, and they re-auth without reconnecting. This is
       // also what lets a phone name a window that has not dialled in yet — it waits,
       // and is announced the moment that window arrives.
       for (const [id, c] of r.clients) {
-        if (c.instance === instance) toDesktop(r, instance, F.clientJoined(id));
+        if (c.instance === instance) {
+          debug('re-announce client', { room: roomId, instance, client: id });
+          toDesktop(r, instance, F.clientJoined(id));
+        }
       }
       ws.on('message', (raw) => {
         let msg;
-        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        try { msg = JSON.parse(raw.toString()); } catch {
+          debug('desktop frame dropped', { room: roomId, instance, reason: 'bad-json' });
+          return;
+        }
         if (F.isTunnelFrame(msg)) return fromDesktopTunnel(r, msg);
         if (!F.isClientFrame(msg)) return;
         // Route {c, d} back to the addressed client; d is opaque. Only to a client
         // that is actually bound to this window — a desktop must not be able to
         // reach a phone driving its sibling.
         const c = r.clients.get(msg.c);
-        if (c && c.instance === instance && alive(c.ws)) c.ws.send(JSON.stringify(msg.d));
+        if (c && c.instance === instance && alive(c.ws)) {
+          debug('desktop → client', { room: roomId, instance, client: msg.c, t: msg.d && msg.d.t, ch: msg.d && msg.d.ch });
+          c.ws.send(JSON.stringify(msg.d));
+          return;
+        }
+        debug('desktop → client dropped', { room: roomId, instance, client: msg.c, reason: c ? 'not-bound-or-dead' : 'unknown-client' });
       });
       ws.on('close', () => {
         if (r.desktops.get(instance) !== ws) return; // a reconnect already replaced us
         r.desktops.delete(instance);
         if (r.latest === instance) r.latest = [...r.desktops.keys()].pop() || null;
+        debug('desktop left', { room: roomId, instance, desktops: r.desktops.size });
         for (const [id, c] of r.clients) {
           if (c.instance !== instance) continue;
           r.clients.delete(id);
+          debug('client evicted', { room: roomId, instance, client: id, reason: 'desktop-gone' });
           c.ws.close(4002, 'desktop gone');
         }
         for (const [id, s] of r.streams) {
           if (s.instance !== instance) continue;
           r.streams.delete(id);
+          debugTunnel('stream destroyed', { room: roomId, instance, stream: id, reason: 'desktop-gone' });
           s.socket.destroy();
         }
         // Siblings may still be serving this machine's phones — the room outlives
         // any one window, and is only gone when the last one is.
-        if (r.desktops.size === 0) rooms.delete(roomId);
+        if (r.desktops.size === 0) {
+          rooms.delete(roomId);
+          debug('room closed', { room: roomId, rooms: rooms.size });
+        }
       });
       return;
     }
@@ -127,14 +157,22 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
     const instance = url.searchParams.get('instance') || r.latest || DEFAULT_INSTANCE;
     const clientId = crypto.randomUUID();
     r.clients.set(clientId, { ws, instance });
+    debug('client joined', {
+      room: roomId, instance, client: clientId, clients: r.clients.size, desktopHere: r.desktops.has(instance),
+    });
     toDesktop(r, instance, F.clientJoined(clientId));
     ws.on('message', (raw) => {
       let frame;
-      try { frame = JSON.parse(raw.toString()); } catch { return; }
+      try { frame = JSON.parse(raw.toString()); } catch {
+        debug('client frame dropped', { room: roomId, client: clientId, reason: 'bad-json' });
+        return;
+      }
+      debug('client → desktop', { room: roomId, instance, client: clientId, t: frame.t, ch: frame.ch, id: frame.id });
       toDesktop(r, instance, F.clientFrame(clientId, frame));
     });
     ws.on('close', () => {
       r.clients.delete(clientId);
+      debug('client left', { room: roomId, instance, client: clientId, clients: r.clients.size });
       toDesktop(r, instance, F.clientGone(clientId));
     });
   });
@@ -142,10 +180,24 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
   // Bytes coming back up a forwarded-port stream.
   function fromDesktopTunnel(r, msg) {
     const s = r.streams.get(msg.h);
-    if (!s) return;
-    if (msg.t === 'data') return void s.socket.write(F.tunnelBytes(msg));
-    if (msg.t === 'end') return void s.socket.end();
-    if (msg.t === 'close') { r.streams.delete(msg.h); s.socket.destroy(); }
+    if (!s) {
+      debugTunnel('upstream frame dropped', { stream: msg.h, t: msg.t, reason: 'unknown-stream' });
+      return;
+    }
+    if (msg.t === 'data') {
+      const bytes = F.tunnelBytes(msg);
+      debugTunnel('desktop → browser', { stream: msg.h, bytes: bytes.length });
+      return void s.socket.write(bytes);
+    }
+    if (msg.t === 'end') {
+      debugTunnel('desktop ended stream', { stream: msg.h });
+      return void s.socket.end();
+    }
+    if (msg.t === 'close') {
+      debugTunnel('desktop closed stream', { stream: msg.h, error: msg.error });
+      r.streams.delete(msg.h);
+      s.socket.destroy();
+    }
   }
 
   const reply = (socket, status, body, headers = {}) => {
@@ -172,6 +224,13 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
 
       const parsed = parseHead(head.subarray(0, end).toString('latin1'));
       const decision = parsed ? route(parsed) : { kind: 'deny' };
+      debugRoute(decision.kind, {
+        method: parsed && parsed.method,
+        target: parsed && parsed.target,
+        room: decision.room,
+        instance: decision.instance,
+        port: decision.port,
+      });
 
       if (decision.kind === 'ws' || decision.kind === 'health') {
         // Put the head back and let the HTTP server parse this connection as if
@@ -194,6 +253,7 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
       const r = rooms.get(decision.room);
       const desktop = r && r.desktops.get(decision.instance);
       if (!alive(desktop)) {
+        debugTunnel('open refused', { room: decision.room, instance: decision.instance, port: decision.port, reason: 'desktop-offline' });
         return reply(socket, '502 Bad Gateway', 'That desktop is offline. Open the IDE and try again.\n');
       }
 
@@ -201,13 +261,23 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
       // including the websocket upgrade a dev server's HMR client will make.
       const id = nextStream++;
       r.streams.set(id, { socket, instance: decision.instance });
+      debugTunnel('open', { stream: id, room: decision.room, instance: decision.instance, port: decision.port, head: head.length });
       toDesktop(r, decision.instance, F.tunnelOpen(id, decision.port));
       toDesktop(r, decision.instance, F.tunnelData(id, head)); // the head we read is part of the stream
 
-      socket.on('data', (b) => toDesktop(r, decision.instance, F.tunnelData(id, b)));
-      socket.on('end', () => toDesktop(r, decision.instance, F.tunnelEnd(id)));
+      socket.on('data', (b) => {
+        debugTunnel('browser → desktop', { stream: id, bytes: b.length });
+        toDesktop(r, decision.instance, F.tunnelData(id, b));
+      });
+      socket.on('end', () => {
+        debugTunnel('browser ended stream', { stream: id });
+        toDesktop(r, decision.instance, F.tunnelEnd(id));
+      });
       socket.on('close', () => {
-        if (r.streams.delete(id)) toDesktop(r, decision.instance, F.tunnelClose(id));
+        if (r.streams.delete(id)) {
+          debugTunnel('browser closed stream', { stream: id });
+          toDesktop(r, decision.instance, F.tunnelClose(id));
+        }
       });
       socket.resume();
     };
@@ -218,15 +288,19 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
 
   return new Promise((resolve, reject) => {
     demuxer.on('error', reject);
-    demuxer.listen(port, host, () => resolve({
-      port: demuxer.address().port,
-      close: () => new Promise((res) => {
-        for (const c of wss.clients) c.terminate();
-        for (const r of rooms.values()) for (const s of r.streams.values()) s.socket.destroy();
-        rooms.clear();
-        demuxer.close(() => res());
-      }),
-    }));
+    demuxer.listen(port, host, () => {
+      debug('listening', { port: demuxer.address().port, host });
+      resolve({
+        port: demuxer.address().port,
+        close: () => new Promise((res) => {
+          debug('shutting down', { rooms: rooms.size });
+          for (const c of wss.clients) c.terminate();
+          for (const r of rooms.values()) for (const s of r.streams.values()) s.socket.destroy();
+          rooms.clear();
+          demuxer.close(() => res());
+        }),
+      });
+    });
   });
 }
 

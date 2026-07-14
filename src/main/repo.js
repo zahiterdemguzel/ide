@@ -58,6 +58,10 @@ function setRepoPath(p) {
   try { fs.writeFileSync(recentFoldersFile, JSON.stringify(recentFolders)); } catch {}
   refreshNativeRecent(recentFolders, openRecentInPlace);
   for (const fn of repoChangeListeners) { try { fn(repoPath); } catch (err) { console.error('[repo-change listener]', err); } }
+  // Every open path lands here — dialog, recent menu, dock, remote — so this is the
+  // one place that tells paired phones (and the renderer, for switches it didn't
+  // initiate). The renderer's own opens just re-apply the same repo; harmless.
+  sendToRenderer('folder-changed', { repo: repoPath });
 }
 
 // Resolve the git repo root for a chosen dir so porcelain paths and add/reset
@@ -103,13 +107,7 @@ async function switchToFolder(dir) {
   }
 }
 
-handle('open-folder-path', async (_e, dir) => {
-  const r = await switchToFolder(dir);
-  // A remote switch must update the desktop UI too; in-app switches ignore the
-  // duplicate push (the renderer initiated them and re-renders on the result).
-  if (!r.canceled) sendToRenderer('folder-changed', { repo: r.repo });
-  return r;
-});
+handle('open-folder-path', (_e, dir) => switchToFolder(dir));
 
 // Forget a folder the user removed from the recent list. Persists and re-seeds
 // the OS-native recent menus; returns the trimmed list so the renderer can re-render.
@@ -127,8 +125,7 @@ handle('remove-recent-folder', (_e, dir) => removeRecentFolder(dir));
 // (The Windows Jump List can't message a running instance, so it relaunches the
 // exe with `--folder` instead — see native-recent.js.)
 async function openRecentInPlace(dir) {
-  const r = await switchToFolder(dir);
-  if (!r.canceled) sendToRenderer('folder-changed', { repo: r.repo });
+  await switchToFolder(dir);
 }
 
 // The renderer drives the title (on startup via refreshGit, and on Open folder)

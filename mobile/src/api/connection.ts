@@ -1,13 +1,7 @@
-// WebSocket client for the desktop's remote server (server/ws-server.js).
+// WebSocket client for the desktop, reached over the cloud relay (server/relay.js).
 // The protocol mirrors the desktop's IPC 1:1: req/res with id correlation,
-// fire-and-forget sends, and ev pushes. Reconnects with backoff and re-auths
-// using the stored device token.
-//
-// It is given the desktop's endpoints in dial order (LAN, then the cloud relay —
-// see pairing.ts) and works down the list until one answers. The desktop speaks
-// the same protocol on both, so nothing below this line knows which one is live.
-
-import { DIAL_TIMEOUT_MS } from './config';
+// fire-and-forget sends, and ev pushes. Reconnects to the relay with backoff and
+// re-auths using the stored device token.
 
 export type Ev = { t: 'ev'; ch: string; payload: unknown };
 
@@ -22,35 +16,26 @@ export class Connection {
   private listeners = new Map<string, Set<(payload: unknown) => void>>();
   private stateListeners = new Set<(s: ConnectionState) => void>();
   private retry = 0;
-  private idx = 0; // which endpoint we are dialling
   private closedByUser = false;
   state: ConnectionState = 'closed';
   deviceId: string | null = null;
   url: string;
 
   constructor(
-    public urls: string[],
+    url: string,
     private auth: { deviceToken?: string; pairToken?: string; deviceName?: string },
     private onDeviceToken?: (token: string) => void,
   ) {
-    this.url = urls[0];
+    this.url = url;
   }
 
   connect() {
     this.closedByUser = false;
     this.setState('connecting');
-    this.url = this.urls[this.idx] ?? this.urls[0];
     const ws = new WebSocket(this.url);
     this.ws = ws;
 
-    // Reached `ready` on *this* socket. Distinguishes "that endpoint is dead, try
-    // the next" from "a working link dropped, reconnect to it".
-    let live = false;
-    const markLive = () => { live = true; clearTimeout(dialTimer); };
-    // An endpoint that refuses connects fast, but one that black-holes packets —
-    // the LAN address while the phone is on cellular, typically — would hang here
-    // forever. Give each a bounded turn.
-    const dialTimer = setTimeout(() => { if (!live) ws.close(); }, DIAL_TIMEOUT_MS);
+    const markLive = () => { this.retry = 0; };
 
     ws.onmessage = (e) => {
       const msg = JSON.parse(String(e.data));
@@ -108,29 +93,15 @@ export class Connection {
     };
 
     ws.onclose = () => {
-      clearTimeout(dialTimer);
       for (const p of this.pending.values()) p.reject(new Error('connection closed'));
       this.pending.clear();
       for (const w of this.fwdWaiters.values()) w.reject(new Error('connection closed'));
       this.fwdWaiters.clear();
       if (this.closedByUser) { if (this.state !== 'error') this.setState('closed'); return; }
       this.setState('connecting');
-
-      let delay: number;
-      if (live) {
-        // A link that worked and dropped. Start the sweep again from the top rather
-        // than clinging to this endpoint: the phone may have changed networks, and
-        // the one that just died may not be the right one any more.
-        this.idx = 0;
-        this.retry = 0;
-        delay = 500;
-      } else if (this.idx + 1 < this.urls.length) {
-        this.idx++; // that endpoint never answered — try the next one at once
-        delay = 0;
-      } else {
-        this.idx = 0; // none of them answered; wait before sweeping the list again
-        delay = Math.min(1000 * 2 ** this.retry++, 15000);
-      }
+      // Reconnect to the relay with backoff. The relay may be cold-starting (free
+      // hosting), so the first few attempts can fail before it answers.
+      const delay = Math.min(1000 * 2 ** this.retry++, 15000);
       setTimeout(() => { if (!this.closedByUser) this.connect(); }, delay);
     };
     ws.onerror = () => ws.close();

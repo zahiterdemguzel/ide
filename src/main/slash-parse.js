@@ -2,7 +2,7 @@
 // slash command the user typed straight into the chat. The model badge tracks a
 // change made from the terminal (not just via its own dropdown), so this shared
 // engine keeps the buffer bookkeeping in one place and unit-tested
-// (test/slash-parse.test.js); model-parse.js layers its own command regex on top.
+// (test/slash-parse.test.js); session-cmd-parse.js layers its own command regexes on top.
 //
 // It maintains a per-session line buffer across input chunks: printable bytes
 // accumulate, backspace edits the tail, Enter closes the line (invoking `onLine`

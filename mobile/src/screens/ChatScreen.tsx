@@ -19,11 +19,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MessageView from '../components/chat/MessageView';
 import Composer, { Draft } from '../components/chat/Composer';
+import SessionOptions from '../components/chat/SessionOptions';
 import { useConnection } from '../api/context';
 import {
   Answer, Ask, AskQuestion, Message, Pending, SlashCommand, Transcript,
   answerAsk, pendingMessage, sendPrompt, settle, uploadImage, upsert,
 } from '../api/chat';
+import { DEFAULT_EFFORT, DEFAULT_MODEL, effortName, modelBadgeName } from '../api/models';
 import { color, font, radius, space, stateColor } from '../theme';
 
 type DiffStat = { additions: number; deletions: number; files: number };
@@ -57,6 +59,12 @@ export default function ChatScreen({ route, navigation }: any) {
   const [sending, setSending] = useState(false);
   const [stat, setStat] = useState<DiffStat | null>(null);
   const [committing, setCommitting] = useState(false);
+  // What this session is running. Both are switchable from the sheet below, and both can
+  // also be changed from the desktop (its badge menu, or a `/model` / `/effort` typed
+  // into its terminal) — main pushes either change, so the badge here follows.
+  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [effort, setEffort] = useState(DEFAULT_EFFORT);
+  const [options, setOptions] = useState(false);
 
   const refreshStat = useCallback(async () => {
     if (!conn) return;
@@ -89,11 +97,14 @@ export default function ChatScreen({ route, navigation }: any) {
     })();
 
     // The list gives us a name but never the state, and the Stop button needs it
-    // before the first status push lands.
+    // before the first status push lands. It's also where the session's model and effort
+    // come from: neither has a push to wait for until one of them changes.
     conn.req<any[]>('get-sessions').then((all) => {
       const s = all.find((x) => x.id === id);
       if (!s || dropped) return;
       setState(s.state);
+      setModel(s.model || DEFAULT_MODEL);
+      setEffort(s.effort || DEFAULT_EFFORT);
       if (!name) setTitle(s.name || s.firstPrompt || 'Session');
     }).catch(() => {});
     conn.req<SlashCommand[]>('list-slash-commands').then((c) => !dropped && setCommands(c)).catch(() => {});
@@ -109,6 +120,8 @@ export default function ChatScreen({ route, navigation }: any) {
       conn.on('status', (p: any) => { if (p.id === id) setState(p.state); }),
       conn.on('session-name', (p: any) => { if (p.id === id) setTitle(p.name || 'Session'); }),
       conn.on('session-meta', (p: any) => { if (p.id === id) refreshStat(); }),
+      conn.on('session-model', (p: any) => { if (p.id === id) setModel(p.model || DEFAULT_MODEL); }),
+      conn.on('session-effort', (p: any) => { if (p.id === id) setEffort(p.effort || DEFAULT_EFFORT); }),
     ];
     return () => { dropped = true; offs.forEach((off) => off?.()); };
   }, [absorb, conn, id, name, refreshStat]);
@@ -173,6 +186,13 @@ export default function ChatScreen({ route, navigation }: any) {
   const working = state === 'working';
   const stop = () => conn?.send('pty-input', { id, data: '\x1b' });
 
+  // The badge moves on the tap, not on the round trip: main is what actually applies the
+  // switch (and pushes it back to every client), but a picker that sat unchanged until
+  // the desktop answered would read as a picker that didn't work. A push that disagrees
+  // corrects it.
+  const pickModel = (m: string) => { setModel(m); conn?.send('set-session-model', { id, model: m }); };
+  const pickEffort = (e: string) => { setEffort(e); conn?.send('set-session-effort', { id, effort: e }); };
+
   const files = stat ? stat.files : 0;
   const commit = async () => {
     if (committing || !conn || !files) return;
@@ -199,9 +219,23 @@ export default function ChatScreen({ route, navigation }: any) {
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
           <View style={styles.status}>
             <View style={[styles.dot, { backgroundColor: stateColor[state] || color.faint }]} />
-            <Text style={styles.statusText}>{STATE_LABEL[state] || state}</Text>
+            {/* What the session is, and what it's running. Effort is named only when it
+                was actually set: "Auto" beside every session would be a word that never
+                changes and says nothing. */}
+            <Text style={styles.statusText} numberOfLines={1}>
+              {STATE_LABEL[state] || state} · {modelBadgeName(model)}
+              {effort && effort !== DEFAULT_EFFORT ? ` · ${effortName(effort)}` : ''}
+            </Text>
           </View>
         </View>
+        <Pressable
+          onPress={() => setOptions(true)}
+          hitSlop={10}
+          accessibilityLabel="Model and effort"
+          style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
+        >
+          <Ionicons name="options-outline" size={16} color={color.muted} />
+        </Pressable>
         <Pressable
           onPress={stop}
           disabled={!working}
@@ -261,6 +295,15 @@ export default function ChatScreen({ route, navigation }: any) {
           onSend={send}
         />
       </KeyboardAvoidingView>
+
+      <SessionOptions
+        visible={options}
+        model={model}
+        effort={effort}
+        onPickModel={pickModel}
+        onPickEffort={pickEffort}
+        onClose={() => setOptions(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -504,7 +547,13 @@ const styles = StyleSheet.create({
   title: { color: color.text, fontSize: font.size.md, fontWeight: '600' },
   status: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
   dot: { width: 7, height: 7, borderRadius: radius.pill },
-  statusText: { color: color.muted, fontSize: font.size.xs },
+  statusText: { flex: 1, color: color.muted, fontSize: font.size.xs },
+  iconBtn: {
+    width: 34, height: 34, borderRadius: radius.sm,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
+  },
+  iconBtnPressed: { backgroundColor: color.raisedHi },
   stop: {
     width: 34, height: 34, borderRadius: radius.sm,
     alignItems: 'center', justifyContent: 'center',

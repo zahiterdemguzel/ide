@@ -107,18 +107,46 @@ remembers it as the new default (`setSessionModel()`), and drives the CLI's own
 **`/model <id>`** slash command by writing it to the session's PTY (`set-session-model`
 IPC → `s.pty.write`), so the live session switches immediately (`default` → `/model
 default`). A `/model <id>` typed
-straight into the session is caught by `feedModelInput()` (the pure, unit-tested
-`model-parse.js`, which uses the line-buffer engine `slash-parse.js`) in
+straight into the session is caught by `feedSessionCommand()` (the pure, unit-tested
+`session-cmd-parse.js`, which uses the line-buffer engine `slash-parse.js`) in
 `pty-input`, which pushes a **`session-model`** event the
 renderer repaints from. Only the direct-argument form is detected — a bare `/model`
 opens an interactive picker whose result isn't in the input stream, so it's untracked.
 The badge label maps model ids to their `MODELS` names (the `default` inherit id shows
 the short "Default").
 
-Reasoning effort is **not** managed by the app: sessions no longer set
-`CLAUDE_CODE_EFFORT_LEVEL` at spawn, and there is no session-bar effort control. A
-user who wants to change effort runs the CLI's own `/effort` command inside the
-session.
+**A model change can now arrive from a phone**, which is why `set-session-model` pushes
+`session-model` back out at all (it used to be terminal-typed changes only): the two
+clients draw the same session, and a switch made on one that left the other showing the
+old model would be a badge that lies. The push carries **`typed`** — true only for a
+`/model` pressed at *this* machine's keyboard — and only that origin also moves the
+desktop's default for the **next new session**. A phone is choosing a model for one
+session, not for this machine.
+
+## Reasoning effort (per session)
+
+**Effort is a session's own setting, like its model** — how hard the model thinks before
+it answers. It is stored on the session record (`effort`), persisted, and applied in the
+CLI's two places, which is why it needs both: `--effort <level>` as a **spawn flag**
+(`effortArgs()`, the pure, unit-tested `src/main/agent-effort.js`), so a session resumed
+after a restart comes back thinking as hard as it was last told to; and the **`/effort
+<level>`** slash command written into a live PTY, so a running session switches at once.
+Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`, plus `auto` (reset to the
+model's own default, and the one value that adds no spawn flag).
+
+Unlike a model alias (which `agent-models.js` forwards verbatim, the CLI resolving it),
+an **unrecognized level is dropped rather than passed through**: an unknown `--effort`
+value is a hard CLI error, so forwarding one would leave the session unable to spawn at
+all — a session that won't start is worse than one running at the default effort.
+
+**The control for it is on the phone**, not the desktop: `set-session-effort` +
+`session-effort` mirror the model pair exactly, but the desktop's session bar has no
+effort badge (there is a terminal right there — type `/effort`). A `/effort <level>`
+typed into that terminal is tracked by the same `feedSessionCommand()` that tracks
+`/model`, off **one** line buffer (the user is typing one line; a second parser fed the
+same keystrokes would have to repeat the same backspace/kill bookkeeping to stay in step
+with it), so the phone's badge follows a change made at the machine. See
+[remote-access.md](remote-access.md) — "The session as a chat".
 
 ## General preferences
 

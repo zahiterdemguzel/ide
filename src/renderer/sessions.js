@@ -1096,13 +1096,16 @@ window.api.onSessionName(({ id, name }) => {
   s.label.textContent = name;
   if (id === activeId) updateSessionBar();
 });
-// A `/model <id>` the user typed straight into the terminal — mirror it onto the
-// badge and remember it as the default for the next session.
-window.api.onSessionModel(({ id, model }) => {
+// The session's model changed under us — mirror it onto the badge. Two origins reach
+// here: a `/model <id>` the user typed straight into the terminal (`typed`), and a
+// switch made on a paired phone's chat. Only the typed one also becomes the default for
+// the next new session: a phone picking a model for one session isn't choosing what this
+// machine's next session runs.
+window.api.onSessionModel(({ id, model, typed }) => {
   const s = sessions.get(id);
   if (!s) return;
   s.model = model;
-  setSessionModel(model);
+  if (typed) setSessionModel(model);
   if (id === activeId) renderModelBadge(s);
 });
 // Main evicted the oldest sessions to stay under the persisted-storage budget;

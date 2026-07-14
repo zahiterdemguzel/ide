@@ -12,24 +12,16 @@ export type Instance = {
   id: string;
   startedAt: number;
   project: string | null;
-  lanPort: number | null;
   // true for the window that served this very request — the one the bootstrap dial
   // happened to land on, so choosing it needs no reconnect.
   current: boolean;
 };
 
-// Where to reach one particular window, derived from the endpoints pairing gave us.
-// Both transports need narrowing, for different reasons:
-//
-//   lan    each window listens on its own port (only the first to start gets the
-//          configured one; the rest fall back to an ephemeral port), so the host is
-//          the machine's but the port is the window's.
-//   relay  every window shares the machine's room, and is told apart inside it by
-//          instance id.
+// Where to reach one particular window, derived from the relay endpoint pairing
+// gave us: every window shares the machine's room and is told apart inside it by
+// instance id.
 export function instanceEndpoints(bootstrap: Endpoints, inst: Instance): Endpoints {
   const out: Endpoints = {};
-  const host = bootstrap.lan?.match(/^wss?:\/\/([^:/]+)/)?.[1];
-  if (host && inst.lanPort) out.lan = `ws://${host}:${inst.lanPort}`;
   if (bootstrap.relay) out.relay = `${bootstrap.relay}&instance=${encodeURIComponent(inst.id)}`;
   return out;
 }

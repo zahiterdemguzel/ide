@@ -13,9 +13,3 @@ const HOSTED_RELAY_URL = 'https://ide-yj3x.onrender.com';
 // to reach yours: set EXPO_PUBLIC_RELAY_URL (e.g. http://192.168.1.42:8080 — a
 // phone cannot dial your machine's `localhost`). Ignored in a build, on purpose.
 export const DEFAULT_RELAY_URL = (__DEV__ && process.env.EXPO_PUBLIC_RELAY_URL) || HOSTED_RELAY_URL;
-
-// How long to wait for one endpoint before trying the next. The LAN address is
-// tried first and, off that network, usually fails fast (unreachable) — but a
-// network that black-holes the packets instead would otherwise hang the app, so
-// give up and fall back to the relay.
-export const DIAL_TIMEOUT_MS = 4000;

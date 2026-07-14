@@ -1,7 +1,7 @@
-// Remote access dialog: toggles the LAN ws server, shows the pairing QR, and
+// Remote access dialog: toggles the relay connection, shows the pairing QR, and
 // lists/revokes paired devices. The QR encodes the ide://pair URL from main
-// (host + port + single-use token); it is re-minted every time the dialog is
-// opened or "New code" is clicked, since tokens are single-use with a 5-minute TTL.
+// (relay origin + room + single-use token); it is re-minted every time the dialog
+// is opened or "New code" is clicked, since tokens are single-use with a 5-minute TTL.
 import { t } from '../i18n/index.js';
 import qrcode from 'qrcode-generator';
 
@@ -24,8 +24,8 @@ export function initRemotePane() {
     qrWrap.hidden = !url;
     if (!url) return;
     renderQr(qrEl, url);
-    const u = new URL(url);
-    addrEl.textContent = `${u.searchParams.get('host')}:${u.searchParams.get('port')}`;
+    const relay = new URL(url).searchParams.get('relay');
+    addrEl.textContent = relay ? new URL(relay).host : '';
   }
 
   async function refreshDevices() {

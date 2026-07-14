@@ -39,6 +39,7 @@ function serializeSession(id, s) {
     state: persistedState(s.state),
     model: s.model || '',              // per-session agent model choice (ANTHROPIC_MODEL)
     subagentModel: s.subagentModel || '', // and the subagent model (CLAUDE_CODE_SUBAGENT_MODEL)
+    effort: s.effort || '',            // reasoning effort, re-applied as `--effort` on the next spawn
     // Where Claude Code keeps this session's conversation. Only a hook payload ever
     // names it, and none fires for an archived session — so without this, restoring
     // the app would leave its chat unreadable until it was resumed.
@@ -64,6 +65,7 @@ function deserializeSession(obj) {
     archived: !!obj.archived,
     model: obj.model || '',
     subagentModel: obj.subagentModel || '',
+    effort: obj.effort || '',
     transcript: obj.transcript || '',
     // A restored session's process is gone, so a `working` state on disk reopens as
     // `interrupted`; a snapshot predating this field has no state and reopens idle.

@@ -69,16 +69,14 @@ async function startDesktop({ relayPort, room, instance = 'win-1', invoke = asyn
     deviceStore,
     appVersion: '1.2.3',
     forward: {
-      // The via-aware URL from remote.js: a relayed phone gets an entry URL on the
-      // relay, because it cannot reach this machine's own address.
-      async open(targetPort, ctx) {
+      // The entry URL from remote.js: a phone gets a URL on the relay, because it
+      // cannot reach this machine's own address.
+      async open(targetPort) {
         const proxy = await proxyFor(targetPort);
         const token = proxy.issueUrlToken();
         // Down to the window, not just the machine: a sibling may be proxying this
         // same target port, and the token is only good at the proxy that issued it.
-        return ctx.via === 'relay'
-          ? `${relayUrl}/p/${room}/${instance}/${targetPort}/?_ideauth=${token}`
-          : `http://127.0.0.1:${proxy.port}/?_ideauth=${token}`;
+        return `${relayUrl}/p/${room}/${instance}/${targetPort}/?_ideauth=${token}`;
       },
       async close(targetPort) {
         const p = forwards.get(targetPort);
@@ -123,19 +121,18 @@ test('a phone pairs, calls and is broadcast to, entirely over the relay', async 
     assert.equal(paired.t, 'paired');
     assert.ok(paired.deviceToken);
 
-    // An allowlisted channel reaches the desktop's IPC handler, and it can tell the
-    // call came in over the relay — which is what picks the port-forward URL.
+    // An allowlisted channel reaches the desktop's IPC handler, tagged with the
+    // device that called it.
     phone.send({ t: 'req', id: 1, ch: 'get-repo-path', args: { a: 1 } });
     const res = await phone.next();
     assert.deepEqual(res, { t: 'res', id: 1, ok: true, result: { echoed: { a: 1 } } });
-    assert.equal(calls[0].ctx.via, 'relay');
     assert.equal(calls[0].ctx.deviceId, paired.deviceId);
 
     // A channel that is not on the allowlist is refused at the hub, relay or no relay.
     phone.send({ t: 'req', id: 2, ch: 'open-folder', args: null });
     assert.deepEqual(await phone.next(), { t: 'res', id: 2, ok: false, error: 'channel-denied' });
 
-    // One broadcast reaches relayed clients, not just LAN ones.
+    // One broadcast reaches every relayed client.
     desktop.hub.broadcast('status', { id: 's1', state: 'working' });
     assert.deepEqual(await phone.next(), { t: 'ev', ch: 'status', payload: { id: 's1', state: 'working' } });
   } finally {

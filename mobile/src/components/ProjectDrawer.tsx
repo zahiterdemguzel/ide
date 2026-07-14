@@ -33,8 +33,10 @@ export default function ProjectDrawer({ visible, onClose }: Props) {
   // there is somewhere to switch *to*, and that changes while the phone is connected.
   const [windows, setWindows] = useState(1);
 
+  // Guard on the connection's own live state (like SessionsScreen), not the context
+  // snapshot: the snapshot can lag right after a window switch re-dials.
   const refresh = useCallback(async () => {
-    if (!conn || state !== 'ready') return;
+    if (!conn || conn.state !== 'ready') return;
     setFolders(await conn.req('get-recent-folders'));
     setCurrent(await conn.req('get-repo-path'));
     setWindows(((await conn.req<unknown[]>('list-instances').catch(() => [])) || []).length);
