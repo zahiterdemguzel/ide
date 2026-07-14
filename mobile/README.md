@@ -15,7 +15,13 @@ npx expo start        # then open in Expo Go on the phone
 
 Phone and desktop must be on the same network. On the desktop: Settings →
 Remote access → enable, then scan the QR code from the Pair screen. The device
-credential is stored in SecureStore; unpair from the Projects header.
+credential is stored in SecureStore; unpair from the project drawer.
+
+The app's destinations are the bottom tabs (Sessions, Git, Files, Ports), so the
+header title is free to show the active project's name instead of the screen's.
+Project switching is deliberately *not* a tab: the small square icon button at
+header-left opens `src/components/ProjectDrawer.tsx`, a panel that slides in from
+the left with the desktop's recent projects (and the Unpair action).
 
 ## How it talks to the desktop
 

@@ -19,7 +19,7 @@ Developers can drive the IDE from a phone: QR pairing, project switching, Claude
 
 ## mobile/ — Expo app (TypeScript, own package; NOT in electron-builder files)
 
-`src/api/connection.ts` (ws client: req/res correlation, reconnect+backoff, ev emitter, `forwardPort()`), `src/api/pairing.ts` (QR parse + SecureStore). Screens: Pair (expo-camera scan), Projects (recent list + hub), Sessions, Terminal (xterm.js in a WebView via CDN, base64-injected `pty-data`), Git, Files (list/read/write + plain editor), Ports (fwd-open → `Linking.openURL`). See `mobile/README.md`.
+`src/api/connection.ts` (ws client: req/res correlation, reconnect+backoff, ev emitter, `forwardPort()`), `src/api/pairing.ts` (QR parse + SecureStore). Navigation: after pairing, a bottom tab bar (`@react-navigation/bottom-tabs` + Ionicons, styled in App.tsx's `MainTabs`) hosts Sessions/Git/Files/Ports; Terminal sits above it in the root stack. Project switching is deliberately **not** a tab: a small square icon-only button at header-left opens `src/components/ProjectDrawer.tsx`, a left slide-in panel with the recent folders + Unpair, so it stays a side action rather than the app's home. The header *title* shows the active project's name (not the screen name — the tab bar already names the screen). Screens: Pair (expo-camera scan), Sessions (Active/Archived/All tabs, newest-first, state-dot + name only; archive = `suspend-session`, restore = `resume-session`, delete = `kill-session` — the same channels the desktop panel uses), Terminal (xterm.js in a WebView via CDN, base64-injected `pty-data`), Git, Files (list/read/write + plain editor), Ports (fwd-open → `Linking.openURL`). See `mobile/README.md`.
 
 ## Gotchas
 
