@@ -6,6 +6,13 @@ settings dialog (`#settings-dialog`), where the user picks a **theme**, a
 which **panels** are visible. Every choice applies instantly and persists across
 restarts.
 
+The dialog body is a **two-column grid** (`.settings-body` → two `.settings-col`,
+`settings.css`), split by a vertical rule so the form reads wide rather than tall:
+the left column holds language/theme/sound/volume + Agent models + General; the
+right holds Panels + Remote access (the pairing QR and paired-device list). It
+collapses to a single stacked column under ~560px, and the body scrolls while the
+header/footer stay pinned.
+
 ## Notification sound
 
 The **Notification sound** combobox (`#settings-sound`) picks the chime that

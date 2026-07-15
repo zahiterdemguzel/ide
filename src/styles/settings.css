@@ -23,9 +23,13 @@
 #settings-dialog {
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg-2); color: var(--fg);
-  padding: 0; width: 360px; max-width: 90vw;
+  padding: 0; width: 680px; max-width: 92vw; max-height: 90vh;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
+/* Pin the header/footer and scroll only the body, so the two-column form never
+   overflows the viewport on short screens. Scoped to [open] so the flex display
+   doesn't override the native dialog:not([open]) hide. */
+#settings-dialog[open] { display: flex; flex-direction: column; }
 #settings-dialog::backdrop { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
 
 .settings-head {
@@ -40,7 +44,28 @@
 }
 #settings-close:hover, #claude-setup-close:hover { color: var(--fg); }
 
-.settings-body { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+/* Two-column form: general prefs/models on the left, panels + remote (QR) on
+   the right. A vertical rule separates the columns; on narrow viewports it
+   collapses to a single stacked column. */
+.settings-body {
+  padding: 16px; overflow-y: auto;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px 0;
+  align-items: start;
+}
+/* The divider sits between the tracks with an equal 20px gutter on each side,
+   so both columns' content is inset the same distance from the rule. */
+.settings-body > .settings-col:first-child {
+  border-right: 1px solid var(--border); padding-right: 20px;
+}
+.settings-body > .settings-col:last-child { padding-left: 20px; }
+.settings-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (max-width: 560px) {
+  .settings-body { grid-template-columns: 1fr; gap: 14px; }
+  .settings-body > .settings-col:first-child {
+    border-right: none; padding-right: 0;
+  }
+  .settings-body > .settings-col:last-child { padding-left: 0; }
+}
 .settings-row { display: flex; flex-direction: column; gap: 6px; }
 .settings-row > span { font-size: 11px; color: var(--fg-dim); }
 .settings-row select {
@@ -194,9 +219,9 @@
 /* Remote access dialog: the QR needs a light quiet zone to scan reliably,
    regardless of theme. */
 #remote-qr {
-  width: 240px;
-  height: 240px;
-  margin: 12px auto 4px;
+  width: 200px;
+  height: 200px;
+  margin: 10px auto 4px;
   background: #fff;
   padding: 8px;
   border-radius: 6px;
