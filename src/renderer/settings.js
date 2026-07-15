@@ -226,15 +226,17 @@ export function initSettings() {
       getSound(),
     );
     volumeInput.value = String(Math.round(getVolume() * 100));
-    // Refresh installed Ollama models so the default-model dropdowns list them
-    // alongside the Claude models (and reflect an install/uninstall since last open).
-    await refreshOllamaModels();
+    // Fill the dropdowns from the cached Ollama list right away so the dialog can
+    // open instantly; the refresh below updates them if anything changed.
     fillModelSelects();
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();
     dialog.showModal();
-    // Refresh the Custom Models section (engine status + installed list) each open.
+    // Refresh installed Ollama models and the Custom Models section after the
+    // dialog is up — these touch the (possibly not-yet-running) engine, so keep
+    // them off the open path and re-fill the dropdowns when they resolve.
+    refreshOllamaModels().then(() => { if (dialog.open) fillModelSelects(); });
     refreshCustomModels();
   };
 

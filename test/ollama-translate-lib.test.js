@@ -48,7 +48,17 @@ test('anthropicToOllama: a tool_result becomes its own {role:tool} message', () 
 
 test('anthropicToOllama: max_tokens/temperature/stop go into options', () => {
   const body = anthropicToOllama({ messages: [], max_tokens: 256, temperature: 0.2, stop_sequences: ['STOP'] });
-  assert.deepEqual(body.options, { temperature: 0.2, num_predict: 256, stop: ['STOP'] });
+  assert.equal(body.options.temperature, 0.2);
+  assert.equal(body.options.num_predict, 256);
+  assert.deepEqual(body.options.stop, ['STOP']);
+});
+
+test('anthropicToOllama: always sets a large num_ctx so Claude Code’s prompt is not truncated', () => {
+  // Ollama's default context (~2-4k) truncates the CLI's huge system prompt/tools,
+  // making the model echo a tool template instead of working. num_ctx must always
+  // be present, even with no other options.
+  assert.ok(anthropicToOllama({ messages: [] }).options.num_ctx >= 32768);
+  assert.ok(anthropicToOllama({ messages: [], temperature: 0.5 }).options.num_ctx >= 32768);
 });
 
 test('ollamaChunkToAnthropicEvents: a streamed text turn produces the exact event order', () => {

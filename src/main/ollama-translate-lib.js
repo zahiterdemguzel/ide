@@ -5,6 +5,12 @@
 // All the shape-mapping lives in this file so it stays unit-tested
 // (test/ollama-translate-lib.test.js); the proxy is just socket plumbing.
 
+// The context window Claude Code needs to function: its system prompt + tool
+// schemas run well past Ollama's default (~2–4k), so the model must be given room
+// for the whole prompt or it can't see the task. 32k fits the CLI's prompt with
+// headroom for a real conversation; Ollama clamps it to the model's trained max.
+const CLAUDE_CODE_MIN_CTX = 32768;
+
 // --- request:  Anthropic /v1/messages  ->  Ollama /api/chat ------------------
 
 function systemToString(system) {
@@ -80,12 +86,19 @@ function anthropicToOllama(req = {}) {
     }));
   }
 
-  const options = {};
+  // Ollama defaults to a tiny context window (~2–4k tokens). Claude Code's system
+  // prompt + tool schemas dwarf that, so at the default the prompt is silently
+  // truncated and the model only sees the tail of the tool-format instructions —
+  // which it echoes back as a `{"name": <function-name>, "arguments": …}` template
+  // instead of doing the task. Always request a context large enough to hold the
+  // CLI's prompt so tool use actually works. (Ollama caps this at the model's own
+  // trained maximum, so an over-large value is safe.)
+  const options = { num_ctx: CLAUDE_CODE_MIN_CTX };
   if (typeof req.temperature === 'number') options.temperature = req.temperature;
   if (typeof req.top_p === 'number') options.top_p = req.top_p;
   if (typeof req.max_tokens === 'number') options.num_predict = req.max_tokens;
   if (Array.isArray(req.stop_sequences) && req.stop_sequences.length) options.stop = req.stop_sequences;
-  if (Object.keys(options).length) body.options = options;
+  body.options = options;
 
   return body;
 }

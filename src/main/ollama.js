@@ -162,9 +162,14 @@ function ollamaRequest(base, method, pathname, body, timeoutMs) {
   });
 }
 
+// List installed models WITHOUT starting the engine. Booting `ollama serve` just
+// to populate the model dropdowns is what made opening Settings (and every app
+// launch) block for seconds; the engine is started lazily — only when the user
+// sets up Custom Models or actually runs an `ollama:` session. When serve isn't
+// running yet we have nothing to list, so return empty.
 async function listInstalled() {
-  const base = await ensureServe();
-  const res = await ollamaGet(base, '/api/tags', 5000);
+  if (!isServeRunning()) return [];
+  const res = await ollamaGet(serveBase, '/api/tags', 5000);
   const models = Array.isArray(res.models) ? res.models : [];
   return models.map((m) => ({ name: m.name, size: typeof m.size === 'number' ? m.size : null }));
 }

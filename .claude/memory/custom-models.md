@@ -32,7 +32,9 @@ translates Anthropic ⇄ Ollama, set per-session via `ANTHROPIC_BASE_URL`.
 3. **Model management** — `src/main/ollama.js` registers the IPC (via
    `remote-bridge`): `ollama-status`/`ollama-ensure` (engine + detected RAM/VRAM),
    `ollama-catalog` (a curated browse list — Ollama has no search API), `ollama-list`
-   (installed), `ollama-pull`/`ollama-cancel-pull` (stream progress →
+   (installed — **never starts the engine**: `listInstalled()` returns `[]` unless
+   serve is already running, so filling dropdowns / warming the cache at startup or
+   on Settings-open stays instant), `ollama-pull`/`ollama-cancel-pull` (stream progress →
    `ollama-pull-progress`), `ollama-remove`, `ollama-remove-all`. Any change pushes
    `ollama-models-changed`. The renderer section is `src/renderer/custom-models.js`
    (Settings → **Custom models**), styled with the existing settings chrome.
