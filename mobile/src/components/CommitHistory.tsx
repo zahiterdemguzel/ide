@@ -223,12 +223,16 @@ function DiffSheet({ commit, onClose }: { commit: Commit | null; onClose: () => 
 
   useEffect(() => {
     if (!commit || !conn) return;
+    // Tapping A then B fires two fetches; if A resolves last it must not paint over B's
+    // patch. Drop a superseded run, exactly as the list's `gen` stamp does.
+    let cancelled = false;
     setPatch('');
     setLoading(true);
     conn.req<Res>('git-commit-diff', commit.hash)
-      .then((r) => setPatch(r?.ok ? (r.stdout || '') : (r?.stderr || 'Could not load the diff.')))
-      .catch((e) => setPatch(String(e?.message ?? e)))
-      .finally(() => setLoading(false));
+      .then((r) => { if (!cancelled) setPatch(r?.ok ? (r.stdout || '') : (r?.stderr || 'Could not load the diff.')); })
+      .catch((e) => { if (!cancelled) setPatch(String(e?.message ?? e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [commit, conn]);
 
   return (

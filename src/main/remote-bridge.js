@@ -26,7 +26,12 @@ async function invokeRemote(kind, channel, args, ctx) {
   if (!entry) throw new Error('unknown-channel');
   const event = { sender: null, remote: true, deviceId: ctx && ctx.deviceId };
   const result = entry.fn(event, args);
-  return kind === 'req' ? await result : undefined;
+  if (kind === 'req') return await result;
+  // A `send` (fire-and-forget) handler that returns a rejected promise would float as
+  // an unhandled rejection, since we don't await it. Swallow it here so the guarantee
+  // doesn't depend on every handler remembering to wrap itself in guardOn.
+  Promise.resolve(result).catch(() => {});
+  return undefined;
 }
 
 module.exports = { handle, on, invokeRemote };

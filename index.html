@@ -592,6 +592,21 @@
         <div id="remote-device-list"></div>
       </div>
       </div>
+      <div class="settings-col">
+      <div class="settings-group" id="custom-models">
+        <div class="settings-group-title" data-i18n="settings.customModels">Custom models</div>
+        <div class="settings-group-hint" data-i18n="settings.customModelsHint">Install open-source models via Ollama and run sessions with them.</div>
+        <div id="cm-status" class="cm-status"></div>
+        <div id="cm-body" hidden>
+          <div id="cm-system" class="cm-system"></div>
+          <input id="cm-search" class="cm-search" type="text" data-i18n-placeholder="settings.customModels.search" placeholder="Search models…" />
+          <div id="cm-catalog" class="cm-list"></div>
+          <div class="cm-installed-title" data-i18n="settings.customModels.installed">Installed models</div>
+          <div id="cm-installed" class="cm-list"></div>
+          <button id="cm-remove-all" class="cm-remove-all" data-i18n="settings.customModels.removeAll">Remove all Ollama data</button>
+        </div>
+      </div>
+      </div>
     </div>
     <div class="settings-actions">
       <button id="settings-done" class="settings-primary" data-i18n="settings.done">Done</button>

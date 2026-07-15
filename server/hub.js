@@ -37,6 +37,14 @@ function createHub(opts) {
       trace('rx', { t: msg.t, ch: msg.ch, id: msg.id, port: msg.port });
 
       if (msg.t === 'pair') {
+        // One socket carries one identity for its whole life. An already-identified
+        // client that re-pairs would swap `client.deviceId` to a fresh device, and
+        // `close()` would then release only the new one — stranding whatever the old
+        // identity held (session control, PTY claim) forever.
+        if (client.deviceId) {
+          trace('pair rejected', { reason: 'already-identified', device: client.deviceId });
+          return reply(proto.authErr(proto.ERR.BAD_MESSAGE));
+        }
         if (!pairing.consume(msg.pairToken)) {
           trace('pair rejected', { reason: proto.ERR.BAD_TOKEN });
           return reply(proto.authErr(proto.ERR.BAD_TOKEN));
@@ -52,6 +60,14 @@ function createHub(opts) {
         if (!device) {
           trace('auth rejected', { reason: proto.ERR.BAD_TOKEN });
           return reply(proto.authErr(proto.ERR.BAD_TOKEN));
+        }
+        // Re-auth on the same socket is legitimate — a desktop restart re-announces its
+        // phones with a fresh `hello` and they re-auth without reconnecting — but only
+        // to the SAME identity. A token resolving to a different device on an already
+        // identified socket is an identity swap; refuse it (see the pair note above).
+        if (client.deviceId && client.deviceId !== device.id) {
+          trace('auth rejected', { reason: 'identity-swap', from: client.deviceId, to: device.id });
+          return reply(proto.authErr(proto.ERR.BAD_MESSAGE));
         }
         client.deviceId = device.id;
         clients.add(client);
@@ -87,8 +103,13 @@ function createHub(opts) {
           trace('send denied', { ch: msg.ch, reason: proto.ERR.CHANNEL_DENIED });
           return;
         }
+        // `invoke` may return a promise; a `send` channel is fire-and-forget so it's
+        // not awaited, but an unhandled rejection can crash the process under strict
+        // mode — catch both the synchronous throw and the async rejection.
         try {
-          invoke('send', msg.ch, msg.args, ctx);
+          Promise.resolve(invoke('send', msg.ch, msg.args, ctx)).catch((err) => {
+            trace('send failed', { ch: msg.ch, error: String((err && err.message) || err) });
+          });
           trace('send', { ch: msg.ch });
         } catch (err) {
           trace('send failed', { ch: msg.ch, error: String((err && err.message) || err) });
@@ -146,7 +167,10 @@ function createHub(opts) {
     }
     debug('broadcast', { ch, clients: clients.size });
     const msg = proto.ev(ch, payload);
-    for (const c of clients) c.send(msg);
+    // The hub is transport-agnostic: one client's `send` throwing (a dead or
+    // backpressured socket in some transport) must not skip every client after it in
+    // the Set, nor propagate out of whatever emitted the event.
+    for (const c of clients) { try { c.send(msg); } catch (err) { debug('broadcast send failed', { ch, error: String((err && err.message) || err) }); } }
   }
 
   return {

@@ -16,7 +16,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
 import StateDot from '../components/StateDot';
 import { showError } from '../components/ErrorDialog';
-import { MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, modelSuffix } from '../api/models';
+import { MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, modelSuffix, OllamaModel } from '../api/models';
 
 const PAGE = 30;
 // Safety net behind the sessions-changed push: a dropped socket or a missed event
@@ -58,6 +58,17 @@ export default function SessionsScreen({ navigation }: any) {
   // shown on the button so it's clear what a plain tap will use.
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
   useEffect(() => { getSessionModel().then(setModel); }, []);
+
+  // Installed Ollama custom models the desktop set up — the phone can pick them for
+  // a new session but can't install/remove (management is desktop-only). Fetched
+  // read-only and refreshed when the desktop installs/removes one.
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
+  useEffect(() => {
+    if (!conn) return undefined;
+    const load = () => conn.req<OllamaModel[]>('ollama-list').then((l) => setOllamaModels(l || [])).catch(() => {});
+    load();
+    return conn.on('ollama-models-changed', load);
+  }, [conn]);
 
   // The model menu, animated like the desktop's: a dropdown played in reverse —
   // it grows *upward* out of the button it's anchored above. React Native ships no
@@ -392,6 +403,17 @@ export default function SessionsScreen({ navigation }: any) {
                 {m.id === model && <Ionicons name="checkmark" size={16} color="#4da3ff" />}
               </Pressable>
             ))}
+            {ollamaModels.length > 0 && <Text style={styles.menuDivider}>Ollama</Text>}
+            {ollamaModels.map((m) => (
+              <Pressable
+                key={m.id}
+                style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed]}
+                onPress={() => closeMenu(() => newSession(m.id))}
+              >
+                <Text style={[styles.menuLabel, m.id === model && styles.menuLabelOn]}>{m.name}</Text>
+                {m.id === model && <Ionicons name="checkmark" size={16} color="#4da3ff" />}
+              </Pressable>
+            ))}
           </Animated.View>
         </Animated.View>
       </Modal>
@@ -492,4 +514,8 @@ const styles = StyleSheet.create({
   menuItemPressed: { backgroundColor: '#21262d' },
   menuLabel: { color: '#e6edf3', fontSize: 15 },
   menuLabelOn: { color: '#4da3ff', fontWeight: '600' },
+  menuDivider: {
+    color: '#7d8590', fontSize: 11, fontWeight: '600', letterSpacing: 0.6,
+    paddingTop: 12, paddingBottom: 4, paddingHorizontal: 16, textTransform: 'uppercase',
+  },
 });

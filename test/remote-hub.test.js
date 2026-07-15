@@ -165,6 +165,71 @@ test('fwd-open routes to the injected forward hook; disabled without one', async
   assert.equal((await b.next()).t, 'fwd-err');
 });
 
+// One socket carries one identity for its life. Re-pairing to a fresh device would swap
+// the client's deviceId, and only the new one would be released on close — stranding
+// whatever the first identity held.
+test('an identified client cannot re-pair to a new identity', async () => {
+  const { hub, deviceStore } = makeHub();
+  const c = connect(hub);
+  await c.next(); // hello
+  c.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'A' });
+  await c.next(); // paired
+  c.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'B' });
+  assert.equal((await c.next()).t, 'auth-err');
+  assert.equal(auth.listDevices(deviceStore).length, 1); // token not consumed, no 2nd device
+});
+
+// A desktop restart re-announces its phones, which re-auth on the socket they already
+// hold — so re-auth to the SAME device is fine, but a different token on that socket is
+// an identity swap and must be refused.
+test('re-auth to the same device is allowed; a different token is refused', async () => {
+  const { hub } = makeHub();
+  const c1 = connect(hub); await c1.next();
+  c1.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'A' });
+  const a = await c1.next(); c1.close();
+  const c2 = connect(hub); await c2.next();
+  c2.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'B' });
+  const b = await c2.next(); c2.close();
+
+  const s = connect(hub); await s.next();
+  s.send({ t: 'auth', deviceToken: a.deviceToken });
+  assert.equal((await s.next()).deviceId, a.deviceId);
+  s.send({ t: 'auth', deviceToken: a.deviceToken });
+  assert.equal((await s.next()).t, 'auth-ok'); // idempotent, same identity
+  s.send({ t: 'auth', deviceToken: b.deviceToken });
+  assert.equal((await s.next()).t, 'auth-err'); // swap refused
+});
+
+// A blocked re-pair must not leak the original identity: the socket is still device A,
+// so its close reports A exactly once.
+test('a blocked re-pair leaves the original identity intact on disconnect', async () => {
+  const gone = [];
+  const { hub } = makeHub(undefined, { onDisconnect: (id) => gone.push(id) });
+  const c = connect(hub);
+  await c.next();
+  c.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'A' });
+  const a = await c.next();
+  c.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'B' });
+  await c.next(); // auth-err
+  c.close();
+  assert.deepEqual(gone, [a.deviceId]);
+});
+
+// One client's send throwing (a dead socket in some transport) must not skip the clients
+// after it in the set, nor propagate out of whatever emitted the event.
+test('a broadcast survives one client whose send throws', async () => {
+  const { hub } = makeHub();
+  const bad = hub.connect((msg) => { if (msg.t === 'ev') throw new Error('dead socket'); });
+  bad.handle(JSON.stringify({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'bad' }));
+  const good = connect(hub); // added to the set after `bad`
+  assert.equal((await good.next()).t, 'hello');
+  good.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'good' });
+  assert.equal((await good.next()).t, 'paired');
+
+  hub.broadcast('folder-changed', { repo: 'C:/x' });
+  assert.deepEqual(await good.next(), { t: 'ev', ch: 'folder-changed', payload: { repo: 'C:/x' } });
+});
+
 test('single-use pairing: second pair with same token fails', async () => {
   const { hub, deviceStore } = makeHub();
   const pairToken = hub.pairing.issue();

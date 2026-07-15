@@ -5,11 +5,12 @@
   "author": "zahiterdemguzel",
   "main": "src/main/index.js",
   "scripts": {
-    "postinstall": "node scripts/fix-electron-signature.js",
+    "postinstall": "node scripts/fix-electron-signature.js && node scripts/fetch-ollama.mjs --optional",
     "start": "electron .",
-    "build": "electron-builder --win nsis --publish never",
-    "build:mac": "electron-builder --mac --publish never",
-    "build:linux": "electron-builder --linux AppImage --publish never",
+    "fetch:ollama": "node scripts/fetch-ollama.mjs",
+    "build": "node scripts/fetch-ollama.mjs && electron-builder --win nsis --publish never",
+    "build:mac": "node scripts/fetch-ollama.mjs && electron-builder --mac --publish never",
+    "build:linux": "node scripts/fetch-ollama.mjs && electron-builder --linux AppImage --publish never",
     "build:android": "node scripts/build-android.mjs",
     "gen:mobile": "node scripts/gen-mobile-assets.mjs",
     "test": "node --test --test-reporter=./scripts/test-reporter.js",
@@ -30,6 +31,12 @@
     "directories": {
       "output": "dist"
     },
+    "extraResources": [
+      {
+        "from": "vendor/ollama",
+        "to": "ollama"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "assets/icon.png"
@@ -41,7 +48,8 @@
       "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "build/uninstall-ollama.nsh"
     },
     "mac": {
       "target": "dmg",

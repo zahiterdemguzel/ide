@@ -16,6 +16,14 @@ export const MODELS: Model[] = [
 
 export const DEFAULT_MODEL = 'default';
 
+// An installed Ollama custom model, its id namespaced `ollama:<name>` (the desktop
+// convention — see src/main/ollama-models-lib.js) so it never collides with a
+// Claude alias. The phone can *pick* these (fetched read-only via `ollama-list`)
+// but not install them — management is desktop-only.
+export type OllamaModel = { id: string; name: string; size?: number | null; fit?: { level: string } };
+export const isOllamaId = (v: string | null | undefined): boolean => typeof v === 'string' && v.startsWith('ollama:');
+export const ollamaLabel = (id: string): string => (isOllamaId(id) ? id.slice('ollama:'.length) : id);
+
 // How hard the model thinks before it answers. Unlike the model, this is never picked
 // up front — a session is created at its model's own default and the effort is switched
 // on it from the chat (set-session-effort), which is why nothing here is remembered for
@@ -42,14 +50,14 @@ const KEY_MODEL = 'ide.sessionModel';
 export async function getSessionModel(): Promise<string> {
   try {
     const v = await SecureStore.getItemAsync(KEY_MODEL);
-    return MODELS.some((m) => m.id === v) ? (v as string) : DEFAULT_MODEL;
+    return MODELS.some((m) => m.id === v) || isOllamaId(v) ? (v as string) : DEFAULT_MODEL;
   } catch {
     return DEFAULT_MODEL;
   }
 }
 
 export async function setSessionModel(id: string): Promise<void> {
-  const known = MODELS.some((m) => m.id === id) ? id : DEFAULT_MODEL;
+  const known = MODELS.some((m) => m.id === id) || isOllamaId(id) ? id : DEFAULT_MODEL;
   try {
     await SecureStore.setItemAsync(KEY_MODEL, known);
   } catch {
@@ -57,13 +65,15 @@ export async function setSessionModel(id: string): Promise<void> {
   }
 }
 
-// Suffix for the New session button: "(Opus)", "(Sonnet)", … for whatever was
-// picked last. Nothing has been picked yet on a fresh install (the CLI resolves
-// the model itself), and there's no name worth showing for that.
+// Suffix for the New session button: "(Opus)", "(Sonnet)", "(llama3.1:8b)", … for
+// whatever was picked last. Nothing has been picked yet on a fresh install (the CLI
+// resolves the model itself), and there's no name worth showing for that.
 export function modelSuffix(id: string): string {
   if (id === DEFAULT_MODEL) return '';
   const m = MODELS.find((x) => x.id === id);
-  return m ? ` (${m.name})` : '';
+  if (m) return ` (${m.name})`;
+  if (isOllamaId(id)) return ` (${ollamaLabel(id)})`;
+  return '';
 }
 
 // A running session's model, as the chat's badge says it. "Default (inherit)" is just
@@ -71,7 +81,7 @@ export function modelSuffix(id: string): string {
 // build doesn't know about still shows what it is running rather than lying about it.
 export function modelBadgeName(id: string): string {
   if (!id || id === DEFAULT_MODEL) return 'Default';
-  return MODELS.find((m) => m.id === id)?.name ?? id;
+  return MODELS.find((m) => m.id === id)?.name ?? (isOllamaId(id) ? ollamaLabel(id) : id);
 }
 
 export function effortName(id: string): string {

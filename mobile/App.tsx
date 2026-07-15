@@ -140,12 +140,18 @@ export default function App() {
   // late 'closed' must not stomp the new connection's 'ready' — so only the current
   // connection may feed `state`. Detach the old listener before dialling.
   const stateUnsub = useRef<(() => void) | null>(null);
+  // The live connection, tracked in a ref so `open` (which has no deps) can tear down
+  // the previous one. A Connection reconnects itself forever until `close()`d, so
+  // replacing one without closing it leaks a socket that keeps re-dialling the relay.
+  const connRef = useRef<Connection | null>(null);
 
   const open = useCallback((endpoints: Endpoints, auth: ConstructorParameters<typeof Connection>[1],
     onDeviceToken?: (t: string) => void) => {
     if (!endpoints.relay) return;
     stateUnsub.current?.();
-    const c = new Connection(endpoints.relay, auth, onDeviceToken);
+    connRef.current?.close();
+    const c = new Connection(endpoints.relay, auth, onDeviceToken, () => { clearCredentials(); });
+    connRef.current = c;
     stateUnsub.current = c.onState(setState);
     c.connect();
     setConn(c);
@@ -165,7 +171,11 @@ export default function App() {
   // running several. Ask which; the one we reached answers for its siblings too.
   // The roster is never cached: an instance id lasts only as long as its process.
   useEffect(() => {
-    if (!conn || state !== 'ready' || chosen) return;
+    // Bail if the chooser is already open (`instances` non-null): switchInstance opens
+    // it and flips `chosen` false, and without this guard that flip re-fires this effect
+    // — a duplicate list-instances, and if a window closed meanwhile so the list is now
+    // ≤1, it auto-selects and closes the chooser the user just opened.
+    if (!conn || state !== 'ready' || chosen || instances) return;
     let dropped = false;
     conn.req<Instance[]>('list-instances')
       .then((list) => {
@@ -178,7 +188,7 @@ export default function App() {
       })
       .catch(() => { if (!dropped) setChosen(true); });
     return () => { dropped = true; };
-  }, [conn, state, chosen]);
+  }, [conn, state, chosen, instances]);
 
   const pair = useCallback((info: PairInfo) => {
     const endpoints = { relay: info.relay };
@@ -211,7 +221,8 @@ export default function App() {
   const unpair = useCallback(async () => {
     stateUnsub.current?.();
     stateUnsub.current = null;
-    conn?.close();
+    connRef.current?.close();
+    connRef.current = null;
     await clearCredentials();
     setConn(null);
     setState('closed');

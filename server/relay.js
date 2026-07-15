@@ -28,7 +28,7 @@ const net = require('net');
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
 const { HEALTH_PATH } = require('./keepalive');
-const { parseHead, route, MAX_HEAD, DEFAULT_INSTANCE } = require('./relay-route');
+const { parseHead, route, isRoom, isInstance, MAX_HEAD, DEFAULT_INSTANCE } = require('./relay-route');
 const F = require('./relay-frames');
 const { debugFor } = require('./debug');
 
@@ -38,7 +38,16 @@ const debugTunnel = debugFor('tunnel');
 
 const HEAD_END = Buffer.from('\r\n\r\n');
 
-function startRelay({ port, host = '0.0.0.0' } = {}) {
+// Bounds so a stranger who knows the relay URL can't exhaust memory or FDs. The relay
+// is logic-free but not trust-free about *liveness*: a flood of junk rooms/clients, a
+// half-open socket, or an oversized frame are all denial-of-service without these.
+const MAX_ROOMS = 10000;
+const MAX_CLIENTS_PER_ROOM = 64;
+const MAX_FRAME_BYTES = 16 * 1024 * 1024; // one ws frame (base64 tunnel chunk + JSON)
+const HEARTBEAT_MS = 30000; // ping every 30s; a socket that misses two is terminated
+const HEAD_IDLE_MS = 15000; // a raw demuxer socket must send a full request head by now
+
+function startRelay({ port, host = '0.0.0.0', maxRooms = MAX_ROOMS, maxClientsPerRoom = MAX_CLIENTS_PER_ROOM } = {}) {
   // roomId -> { desktops: Map<instanceId, ws>, latest: instanceId|null,
   //             clients: Map<clientId, { ws, instance }>,
   //             streams: Map<streamId, { socket, instance }> }
@@ -67,22 +76,51 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
     }
     res.end('ide-relay ok\n');
   });
-  const wss = new WebSocketServer({ server: httpServer });
+  const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_FRAME_BYTES });
+
+  // Liveness sweep: a phone or desktop that loses the network without a TCP FIN (a
+  // locked phone, dropped Wi-Fi — the exact cases this feature must survive) would
+  // otherwise linger in its room until the OS TCP timeout, holding slots. Ping every
+  // socket; one that hasn't ponged since the last sweep is gone — terminate it so its
+  // close handler releases whatever it held.
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.isAlive === false) { ws.terminate(); continue; }
+      ws.isAlive = false;
+      try { ws.ping(); } catch { /* socket already closing */ }
+    }
+  }, HEARTBEAT_MS);
+  heartbeat.unref?.();
 
   wss.on('connection', (ws, req) => {
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
     const url = new URL(req.url, 'http://relay');
     const role = url.searchParams.get('role');
     const roomId = url.searchParams.get('room');
-    if (!roomId || (role !== 'desktop' && role !== 'mobile')) {
+    // Validate the room id the SAME way the HTTP-routing path does (isRoom) — the two
+    // must not disagree, or the socket path becomes an unbounded room-creation hole
+    // the routing path thinks it closed.
+    if (!isRoom(roomId || '') || (role !== 'desktop' && role !== 'mobile')) {
       debug('ws rejected', { role, room: roomId, reason: 'bad-params' });
       return ws.close(4000, 'bad params');
+    }
+    const reqInstance = url.searchParams.get('instance');
+    if (reqInstance && !isInstance(reqInstance)) {
+      debug('ws rejected', { role, room: roomId, instance: reqInstance, reason: 'bad-instance' });
+      return ws.close(4000, 'bad params');
+    }
+    // Cap total rooms: a new room past the ceiling is refused rather than vivified.
+    if (!rooms.has(roomId) && rooms.size >= maxRooms) {
+      debug('ws rejected', { role, room: roomId, reason: 'room-cap' });
+      return ws.close(4003, 'busy');
     }
     const r = room(roomId);
 
     if (role === 'desktop') {
       // A desktop from before instances existed sends no id; it is the room's only
       // window, so give it the same fixed one a phone falls back to.
-      const instance = url.searchParams.get('instance') || DEFAULT_INSTANCE;
+      const instance = reqInstance || DEFAULT_INSTANCE;
       // Same window dialling back in (its socket dropped and it reconnected) — drop
       // the stale one. A *sibling* window has a different id and is left alone: that
       // is the whole point of keying by instance.
@@ -151,10 +189,16 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
       return;
     }
 
+    // A room only holds so many phones — past the cap a new client is refused rather
+    // than admitted, so a flood can't grow the room without bound.
+    if (r.clients.size >= maxClientsPerRoom) {
+      debug('client rejected', { room: roomId, reason: 'client-cap' });
+      return ws.close(4003, 'busy');
+    }
     // The window this phone wants. It may name one it saw in the roster, or none at
     // all on its very first dial — before it has ever fetched a roster there is
     // nothing to name, so hand it the newest window and let it list from there.
-    const instance = url.searchParams.get('instance') || r.latest || DEFAULT_INSTANCE;
+    const instance = reqInstance || r.latest || DEFAULT_INSTANCE;
     const clientId = crypto.randomUUID();
     r.clients.set(clientId, { ws, instance });
     debug('client joined', {
@@ -212,6 +256,11 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
   const demuxer = net.createServer((socket) => {
     let head = Buffer.alloc(0);
 
+    // A raw socket that connects and then dribbles (or sends nothing) would hold an FD
+    // open forever — a slow-loris. Give it a deadline to deliver a full request head;
+    // the timeout is cleared once we've routed it (spliced sockets manage their own).
+    socket.setTimeout(HEAD_IDLE_MS, () => socket.destroy());
+
     const onData = (chunk) => {
       head = Buffer.concat([head, chunk]);
       const end = head.indexOf(HEAD_END);
@@ -221,6 +270,7 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
       }
       socket.removeListener('data', onData);
       socket.pause();
+      socket.setTimeout(0); // head arrived — a spliced tunnel/ws is long-lived by design
 
       const parsed = parseHead(head.subarray(0, end).toString('latin1'));
       const decision = parsed ? route(parsed) : { kind: 'deny' };
@@ -294,6 +344,7 @@ function startRelay({ port, host = '0.0.0.0' } = {}) {
         port: demuxer.address().port,
         close: () => new Promise((res) => {
           debug('shutting down', { rooms: rooms.size });
+          clearInterval(heartbeat);
           for (const c of wss.clients) c.terminate();
           for (const r of rooms.values()) for (const s of r.streams.values()) s.socket.destroy();
           rooms.clear();

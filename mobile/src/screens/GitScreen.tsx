@@ -104,6 +104,16 @@ export default function GitScreen({ navigation }: any) {
   // ever — refetch whenever the tab regains focus (the branch may have changed since).
   useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
 
+  // Refetch on reconnect and on a project switch, for parity with the Sessions screen.
+  // Without the reconnect refetch, opening this tab while the socket is down leaves it
+  // stuck on `—`: `refresh` early-returns on `state !== 'ready'` and nothing retries.
+  useEffect(() => {
+    if (!conn) return;
+    const offState = conn.onState((s) => { if (s === 'ready') refresh(); });
+    const offFolder = conn.on('folder-changed', () => refresh());
+    return () => { offState(); offFolder(); };
+  }, [conn, refresh]);
+
   // Every mutation funnels through here: it serializes on the busy flag, surfaces
   // git's stderr (git reports most failures as ok:false, not a throw), then refreshes.
   const run = async (label: string, fn: () => Promise<unknown>) => {

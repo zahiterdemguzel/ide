@@ -10,7 +10,10 @@ import { ensureClaude } from './claude-setup.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
-import { MODELS, getSessionModel, getSubagentModel, setSessionModel } from './settings.js';
+import {
+  getSessionModel, getSubagentModel, setSessionModel,
+  getMergedModels, getOllamaModels, modelLabel,
+} from './settings.js';
 import { t } from '../i18n/index.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -290,19 +293,75 @@ function updateSessionBar() {
 // session (see main's set-session-model), and a `/model <id>` typed straight into the
 // terminal is mirrored back onto the badge (see onSessionModel). An empty/absent
 // value means the CLI default, shown as "Default".
-const MODEL_NAME = new Map(MODELS.map((m) => [m.id, m.name]));
 function modelId(s) {
   const v = s && s.model;
-  return MODEL_NAME.has(v) ? v : 'default';
+  if (!v || v === 'default') return 'default';
+  // Known Claude alias or installed Ollama model; an unknown/uninstalled id shows
+  // as Default (the record still carries it — the menu self-heals when it lists).
+  return getMergedModels().some((m) => m.id === v) ? v : 'default';
 }
 // The pill keeps the "Default (inherit)" wording short — it's just "Default" here.
 function modelBadgeText(id) {
-  return id === 'default' ? 'Default' : (MODEL_NAME.get(id) || id);
+  return id === 'default' ? 'Default' : modelLabel(id);
+}
+// An installed Ollama model's fit level (from the shared cache), keyed by id.
+function ollamaFit(id) {
+  const row = getOllamaModels().find((m) => m.id === id);
+  return row ? row.fit : null;
+}
+// A red/yellow warning sign for a model that likely won't run here — same look and
+// tooltip as the Custom Models section (see custom-models.js).
+function modelFitWarning(id) {
+  const fit = ollamaFit(id);
+  if (!fit || fit.level === 'ok' || fit.level === 'unknown') return null;
+  const span = document.createElement('span');
+  span.className = `cm-warn cm-warn-${fit.level}`;
+  span.textContent = ' ⚠';
+  span.title = fit.level === 'fail'
+    ? 'This model might not work on your system'
+    : 'This model may run slowly on your system';
+  return span;
+}
+// Build the picker items shared by the session-bar badge menu and the New-session
+// caret menu: every concrete model (Claude then installed Ollama), the current one
+// marked, an "Ollama" divider before the first custom model, and a fit warning on
+// any custom model that won't fit this machine.
+function buildModelMenuItems(container, current, onPick, itemClass) {
+  container.replaceChildren();
+  let ollamaHeaderDone = false;
+  for (const m of getMergedModels()) {
+    if (m.id === 'default') continue; // inherit sentinel isn't a picker choice
+    const isOllama = m.id.startsWith('ollama:');
+    if (isOllama && !ollamaHeaderDone) {
+      ollamaHeaderDone = true;
+      const div = document.createElement('div');
+      div.className = 'model-menu-divider';
+      div.textContent = 'Ollama';
+      container.appendChild(div);
+    }
+    const item = document.createElement('button');
+    item.className = itemClass + (m.id === current ? ' current' : '');
+    const label = document.createElement('span');
+    label.textContent = modelLabel(m.id);
+    item.append(label);
+    const warn = isOllama ? modelFitWarning(m.id) : null;
+    if (warn) item.appendChild(warn);
+    item.onclick = () => onPick(m.id);
+    container.appendChild(item);
+  }
 }
 
 function renderModelBadge(s) {
   sessionModelLabel.textContent = modelBadgeText(modelId(s));
 }
+
+// The installed-Ollama list loads/refreshes asynchronously (startup, install,
+// uninstall). Re-render the active session's badge when it lands so a session on a
+// custom model shows its real name once the list is known, not "Default".
+window.addEventListener('ollama-models-updated', () => {
+  const s = sessions.get(activeId);
+  if (s) renderModelBadge(s);
+});
 
 function closeModelBadgeMenu() {
   if (sessionModelMenu.hidden) return;
@@ -314,17 +373,7 @@ function openModelBadgeMenu() {
   const s = sessions.get(activeId);
   if (!s) return;
   const current = modelId(s);
-  sessionModelMenu.replaceChildren();
-  for (const m of MODELS) {
-    if (m.id === 'default') continue; // inherit sentinel isn't a picker choice
-    const item = document.createElement('button');
-    item.className = 'effort-menu-item model-item' + (m.id === current ? ' current' : '');
-    const label = document.createElement('span');
-    label.textContent = m.name;
-    item.append(label);
-    item.onclick = () => { closeModelBadgeMenu(); chooseModel(m.id); };
-    sessionModelMenu.appendChild(item);
-  }
+  buildModelMenuItems(sessionModelMenu, current, (id) => { closeModelBadgeMenu(); chooseModel(id); }, 'effort-menu-item model-item');
   sessionModelMenu.hidden = false;
   sessionModelBtn.setAttribute('aria-expanded', 'true');
   requestAnimationFrame(() => sessionModelMenu.classList.add('open'));
@@ -965,16 +1014,8 @@ function closeModelMenu() {
 }
 function openModelMenu() {
   const current = getSessionModel();
-  modelMenu.replaceChildren();
   // Skip the inherit/default model — the plain New session button already uses it.
-  for (const m of MODELS) {
-    if (m.id === 'default') continue;
-    const item = document.createElement('button');
-    item.className = 'model-menu-item' + (m.id === current ? ' current' : '');
-    item.textContent = m.name;
-    item.onclick = () => { closeModelMenu(); newSession({ model: m.id }); };
-    modelMenu.appendChild(item);
-  }
+  buildModelMenuItems(modelMenu, current, (id) => { closeModelMenu(); newSession({ model: id }); }, 'model-menu-item');
   modelMenu.hidden = false;
   newSessionOptsBtn.setAttribute('aria-expanded', 'true');
   // Next frame so the un-hidden element transitions from the collapsed state.

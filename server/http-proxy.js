@@ -15,6 +15,8 @@ const { debugFor } = require('./debug');
 
 const debug = debugFor('proxy');
 
+const UPSTREAM_TIMEOUT_MS = 30000;
+
 function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
   const auth = createAuthState(now);
 
@@ -40,9 +42,16 @@ function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
         res.writeHead(ur.statusCode, rewriteResponseHeaders(ur.headers, targetPort));
         ur.pipe(res);
       });
+    // A hung dev server would otherwise pin this connection (and, over the relay, the
+    // spliced tunnel stream) open forever. Give the upstream a deadline.
+    upstream.setTimeout(UPSTREAM_TIMEOUT_MS, () => upstream.destroy(new Error('ETIMEDOUT')));
     upstream.on('error', (err) => {
       debug('upstream error', { target: targetPort, path: req.url.split('?')[0], error: err.code || err.message });
-      if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' });
+      // Once we've started piping the upstream body, the status line and headers are
+      // already on the wire — appending an error string here would corrupt the body a
+      // client is mid-read of. Reset the connection instead so it sees a clean failure.
+      if (res.headersSent) return res.destroy();
+      res.writeHead(502, { 'content-type': 'text/plain' });
       res.end(`Bad gateway: nothing is listening on 127.0.0.1:${targetPort} (${err.code || err.message})\n`);
     });
     req.pipe(upstream);

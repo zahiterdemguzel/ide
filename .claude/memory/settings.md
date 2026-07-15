@@ -72,6 +72,12 @@ model normally (subagents inherit the main model). A stored value no longer in
 `MODELS` (the `id` is the alias/model id the CLI gets; labels stay untranslated
 since they're product names).
 
+**Custom (Ollama) models.** Installed local open-source models are folded into the
+same dropdowns/caret menu/badge, namespaced `ollama:<name>`, via
+`getMergedModels()`/`getOllamaModels()`/`modelLabel()` in `settings.js` (re-rendered
+off the `ollama-models-updated` window event). They route through a local proxy
+rather than `ANTHROPIC_MODEL` alone — see [custom-models.md](custom-models.md).
+
 **Per-session override.** The New session button is a split button: the main
 action creates a session with the saved defaults, and the caret (`#new-session-opts`)
 opens a dropdown (`#session-model-menu`, one entry per `MODELS` item except the

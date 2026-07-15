@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Builds a release APK of the Expo mobile app (mobile/) and drops it in dist/.
+// Builds an APK of the Expo mobile app (mobile/) and drops it in dist/.
+// Defaults to a fast debug build; pass --release for a shippable minified APK.
 // Requires a JDK and the Android SDK (ANDROID_HOME).
 //
 // The build does not happen in-tree: the Android Gradle Plugin refuses project
@@ -19,8 +20,18 @@ const stageDir = join(process.env.LOCALAPPDATA || tmpdir(), 'ide-android-build')
 const androidDir = join(stageDir, 'android');
 const isWindows = process.platform === 'win32';
 
-const apkName = 'app-release.apk';
-const builtApk = join(androidDir, 'app', 'build', 'outputs', 'apk', 'release', apkName);
+// Debug builds skip R8/minification and Hermes bytecode compilation, so they
+// finish far faster — the default for iterating. Pass --release for a shippable APK.
+const isRelease = process.argv.includes('--release');
+const variant = isRelease ? 'release' : 'debug';
+
+// Pin Gradle's home (daemon + caches) to a stable ASCII path so the daemon and
+// build cache stay warm across runs instead of living under a non-ASCII repo path.
+const gradleHome = join(stageDir, '.gradle-home');
+process.env.GRADLE_USER_HOME = gradleHome;
+
+const apkName = `app-${variant}.apk`;
+const builtApk = join(androidDir, 'app', 'build', 'outputs', 'apk', variant, apkName);
 const distApk = join(repoDir, 'dist', 'ide-remote.apk');
 
 function run(command, args, cwd) {
@@ -65,8 +76,20 @@ if (!existsSync(androidDir) || staleConfig) {
   writeFileSync(configStamp, config);
 }
 
+// Give Gradle a large heap and turn on parallel + build caching. These live in
+// GRADLE_USER_HOME (not android/, which prebuild regenerates) so they survive.
+mkdirSync(gradleHome, { recursive: true });
+writeFileSync(join(gradleHome, 'gradle.properties'), [
+  'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8',
+  'org.gradle.parallel=true',
+  'org.gradle.caching=true',
+  'org.gradle.daemon=true',
+  '',
+].join('\n'));
+
 const gradlew = join(androidDir, isWindows ? 'gradlew.bat' : 'gradlew');
-run(isWindows ? `"${gradlew}"` : gradlew, ['assembleRelease'], androidDir);
+const assembleTask = `assemble${variant[0].toUpperCase()}${variant.slice(1)}`;
+run(isWindows ? `"${gradlew}"` : gradlew, [assembleTask, '--build-cache', '--parallel'], androidDir);
 
 mkdirSync(dirname(distApk), { recursive: true });
 cpSync(builtApk, distApk);

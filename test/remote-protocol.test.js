@@ -56,6 +56,9 @@ test('remote events filter', () => {
   // Open/closed terminals are pushed too — that's how a phone knows which launch
   // configs are running, since a config runs for as long as its terminal is open.
   assert.equal(proto.isRemoteEvent('terminals-changed'), true);
+  // Who holds a session is pushed too, so a phone other than the holder learns when it
+  // is claimed or released (including on a dropped socket).
+  assert.equal(proto.isRemoteEvent('session-control'), true);
   assert.equal(proto.isRemoteEvent('select-session'), false);
   // Specs for a phone-requested run go to the desktop renderer only — never back
   // out to the phone that asked.

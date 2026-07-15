@@ -21,6 +21,10 @@ const debug = debugFor('client');
 const debugTunnel = debugFor('tunnel');
 
 const MAX_BACKOFF_MS = 30000;
+// Pre-connect buffer bound per stream: bytes arrive before the local socket is up and
+// are queued, so a large upload against a slow-to-bind dev server would grow this
+// without limit. Past the cap the stream is aborted rather than buffered forever.
+const QUEUE_MAX_BYTES = 8 * 1024 * 1024;
 
 // https://host → wss://host/?role=desktop&room=<id>&instance=<id> (http → ws, for
 // tests). The room is the machine; the instance is this window. Siblings share the
@@ -89,7 +93,7 @@ function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {
   function onTunnelFrame(msg) {
     const id = msg.h;
     if (msg.t === 'open') {
-      const s = { socket: null, queue: [], ended: false };
+      const s = { socket: null, queue: [], queuedBytes: 0, ended: false };
       streams.set(id, s);
       debugTunnel('open', { stream: id, port: msg.port, streams: streams.size });
       Promise.resolve(tunnel.localPort(msg.port)).then((localPort) => {
@@ -139,7 +143,14 @@ function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {
     if (msg.t === 'data') {
       const bytes = F.tunnelBytes(msg);
       debugTunnel('relay → local', { stream: id, bytes: bytes.length, queued: !s.socket });
-      if (s.socket) s.socket.write(bytes); else s.queue.push(bytes);
+      if (s.socket) { s.socket.write(bytes); return; }
+      s.queue.push(bytes);
+      s.queuedBytes += bytes.length;
+      if (s.queuedBytes > QUEUE_MAX_BYTES) {
+        debugTunnel('stream aborted', { stream: id, queuedBytes: s.queuedBytes, reason: 'queue-overflow' });
+        streams.delete(id);
+        send(F.tunnelClose(id, 'queue overflow'));
+      }
       return;
     }
     if (msg.t === 'end') {

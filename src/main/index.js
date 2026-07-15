@@ -27,6 +27,7 @@ require('./runners');
 require('./consoles');
 require('./onboarding-store');
 require('./remote');
+require('./ollama'); // embedded Ollama engine + custom-models IPC (lazy — nothing starts here)
 
 // Log every crash (uncaught exception, unhandled rejection, renderer/child-process
 // death) to a file under crashlogs/ — without exiting, so the app stays usable.
@@ -77,9 +78,19 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   persistSessions();
   killAllSessions();
+  stopOllamaRuntime();
   if (process.platform !== 'darwin') app.quit();
 });
 
 // macOS keeps the app alive after the window closes; persist on the real quit too
 // so an active session that was never archived still survives the next launch.
-app.on('before-quit', () => persistSessions());
+// Also tear the engine/proxy down here so nothing leaks on the darwin quit path.
+app.on('before-quit', () => { persistSessions(); stopOllamaRuntime(); });
+
+// Kill the embedded Ollama engine (and its model-runner children) and close the
+// translation proxy. Lazy-required so a launch that never touches Ollama pays
+// nothing; both are no-ops when never started.
+function stopOllamaRuntime() {
+  try { require('./ollama').stopOllama(); } catch { /* never started */ }
+  try { require('./ollama-proxy').stopProxyServer(); } catch { /* never started */ }
+}

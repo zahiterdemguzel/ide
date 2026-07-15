@@ -89,12 +89,20 @@ export default function ChatScreen({ route, navigation }: any) {
   useEffect(() => {
     if (!conn) return;
     let dropped = false;
+    // This effect re-runs on every reconnect (a new `conn`). Re-arm the buffering gate:
+    // without resetting `ready`, pushes during the new snapshot fetch would bypass the
+    // seq gate and the in-flight snapshot would then replace them — wiping the newest
+    // message until some later push repeated it.
+    ready.current = false;
+    buffered.current = [];
 
     (async () => {
       try {
         const snap = await conn.req<Transcript>('session-transcript', id);
         if (dropped) return;
-        setMessages(snap.messages || []);
+        // Merge, don't replace: on a reconnect `messages` already holds rows absorbed
+        // before the snapshot resolved, and a blind replace would drop them.
+        setMessages((m) => upsert(m, snap.messages || []));
         setPending((p) => settle(p, snap.messages || []));
         setAsk(snap.ask || null);
         for (const b of buffered.current) if (b.seq > (snap.seq ?? 0)) absorb(b.messages);
@@ -138,8 +146,11 @@ export default function ChatScreen({ route, navigation }: any) {
   // desktop covers it, so the two of us can't type into one prompt.
   useEffect(() => {
     if (!conn) return;
-    conn.send('session-control', { id, on: true });
-    return () => { conn.send('session-control', { id, on: false }); };
+    // Queue both so they survive a reconnect: the claim re-asserts when a fresh socket
+    // reaches `ready` (the desktop released on the old socket's death), and the release
+    // isn't silently dropped if the screen is left mid-reconnect.
+    conn.send('session-control', { id, on: true }, { queue: true });
+    return () => { conn.send('session-control', { id, on: false }, { queue: true }); };
   }, [conn, id]);
 
   const drop = useCallback((uuid: string) => {
@@ -183,10 +194,14 @@ export default function ChatScreen({ route, navigation }: any) {
   // the desktop catches up.
   const answer = async (answers: Answer[]) => {
     if (!conn) return;
+    const prev = ask;
     setAsk(null);
     try {
       await answerAsk(conn, id, answers);
     } catch (e: any) {
+      // The answer never reached the desktop, so the session is still blocked on the
+      // question — put the card back rather than stranding it unanswerable.
+      setAsk(prev);
       showError('Could not answer', e);
     }
   };

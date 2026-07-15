@@ -94,6 +94,10 @@ const REMOTE_CHANNELS = {
     'get-run-configs',
     'run-config-start',
     'run-config-stop',
+    // custom models (Ollama): a phone can *list* installed models to populate its
+    // model picker, but cannot install/remove them — the management channels
+    // (ollama-ensure/pull/cancel-pull/remove/remove-all) are deliberately absent.
+    'ollama-list',
   ]),
   send: new Set([
     // claim/release a session while the phone's terminal screen is open, so the
@@ -120,6 +124,9 @@ const REMOTE_EVENTS = new Set([
   'status',
   'session-meta',
   'sessions-changed',
+  // who (if anyone) is driving a session's PTY right now — so a phone other than the
+  // one holding it learns when it's claimed or released (incl. on a dropped socket)
+  'session-control',
   // new/updated chat messages, and the question the TUI is blocked on (see chat.js)
   'transcript-data',
   'session-ask',
@@ -136,6 +143,8 @@ const REMOTE_EVENTS = new Set([
   'session-model',
   'session-effort',
   'tree-changed',
+  // the desktop installed/removed a model — phones refresh their picker
+  'ollama-models-changed',
 ]);
 
 const ERR = {

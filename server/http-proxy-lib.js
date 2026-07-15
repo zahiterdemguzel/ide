@@ -38,7 +38,9 @@ function createAuthState(now = Date.now) {
     //  { action: 'deny' }                          — neither
     decide(url, cookieHeader) {
       const cookies = parseCookies(cookieHeader);
-      if (cookies[COOKIE] === cookieValue) return { action: 'proxy' };
+      // Constant-time: this long-lived session secret is the more valuable of the two
+      // credentials, so it gets at least the same care as the short-lived URL token.
+      if (cookies[COOKIE] !== undefined && safeEqual(cookies[COOKIE], cookieValue)) return { action: 'proxy' };
       const [path, query = ''] = url.split('?');
       const params = new URLSearchParams(query);
       const token = params.get(TOKEN_PARAM);

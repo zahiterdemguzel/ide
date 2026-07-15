@@ -13,6 +13,7 @@ import {
   isSessionDiffBadgeEnabled, setSessionDiffBadge,
   isOsNotificationsEnabled, setOsNotificationsEnabled,
 } from './sessions.js';
+import { initCustomModels, refreshCustomModels } from './custom-models.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -62,12 +63,41 @@ export function setStatusLineEnabled(on) {
   window.api?.setStatusLineEnabled?.(on);
 }
 
+// An `ollama:<name>` model id (an installed custom model). Kept as an inline
+// check so the renderer doesn't reach into the main-process ollama-models-lib.
+const isOllamaId = (v) => typeof v === 'string' && v.startsWith('ollama:');
+
+// Installed Ollama custom models, cached for the dropdowns/caret menu/badge.
+// Each row is { id: 'ollama:<name>', name, size, req, fit }. Refreshed from main
+// on startup, on the Custom Models section, and on the `ollama-models-changed`
+// push; consumers re-render off the `ollama-models-updated` window event.
+let ollamaModels = [];
+export function getOllamaModels() { return ollamaModels; }
+export async function refreshOllamaModels() {
+  try { ollamaModels = (await window.api?.ollamaList?.()) || []; }
+  catch { ollamaModels = []; }
+  return ollamaModels;
+}
+// The full list the model UIs draw from: static Claude models, then installed
+// Ollama models. Ids are namespaced so they never collide.
+export function getMergedModels() { return [...MODELS, ...ollamaModels]; }
+// Human label for any model id (Claude alias or `ollama:<name>`).
+export function modelLabel(id) {
+  const claude = MODELS.find((m) => m.id === id);
+  if (claude) return claude.name;
+  if (isOllamaId(id)) return id.slice('ollama:'.length);
+  return id;
+}
+
 // The default model a new session spawns with, read by sessions.js at creation
-// (and pre-filled into the per-session picker). A stored value no longer in MODELS
-// (e.g. a model removed from the list) falls back to the inherit default.
+// (and pre-filled into the per-session picker). A stored value that's neither a
+// known Claude model nor an Ollama id (e.g. a model removed from the list) falls
+// back to the inherit default. An uninstalled Ollama id is left as-is here (we
+// can't check installs synchronously); the session simply fails to route and the
+// user re-picks — the menu self-heals when it re-renders from the live list.
 function readModel(key) {
   const v = localStorage.getItem(key);
-  return MODELS.some((m) => m.id === v) ? v : DEFAULT_MODEL;
+  return (MODELS.some((m) => m.id === v) || isOllamaId(v)) ? v : DEFAULT_MODEL;
 }
 export function getSessionModel() { return readModel(STORE.model); }
 export function getSubagentModel() { return readModel(STORE.subagentModel); }
@@ -75,7 +105,8 @@ export function getSubagentModel() { return readModel(STORE.subagentModel); }
 // Remember the last model chosen from the per-session picker so it sticks as the
 // default for the next session. Unknown ids fall back to the inherit default.
 export function setSessionModel(id) {
-  localStorage.setItem(STORE.model, MODELS.some((m) => m.id === id) ? id : DEFAULT_MODEL);
+  const ok = MODELS.some((m) => m.id === id) || isOllamaId(id);
+  localStorage.setItem(STORE.model, ok ? id : DEFAULT_MODEL);
 }
 
 function applyTheme(id) {
@@ -167,7 +198,15 @@ export function initSettings() {
   modelSel.onchange = () => localStorage.setItem(STORE.model, modelSel.value);
   subagentSel.onchange = () => localStorage.setItem(STORE.subagentModel, subagentSel.value);
 
-  const open = () => {
+  // Fill both default-model dropdowns from the merged Claude + Ollama list. Kept
+  // in one place so an Ollama install/uninstall re-renders both consistently.
+  const fillModelSelects = () => {
+    const opts = getMergedModels().map((m) => ({ value: m.id, label: modelLabel(m.id) }));
+    fillSelect(modelSel, opts, getSessionModel());
+    fillSelect(subagentSel, opts, getSubagentModel());
+  };
+
+  const open = async () => {
     fillSelect(
       langSel,
       availableLocales().map((m) => ({ value: m.code, label: m.name })),
@@ -187,16 +226,38 @@ export function initSettings() {
       getSound(),
     );
     volumeInput.value = String(Math.round(getVolume() * 100));
-    const modelOpts = MODELS.map((m) => ({ value: m.id, label: m.name }));
-    fillSelect(modelSel, modelOpts, getSessionModel());
-    fillSelect(subagentSel, modelOpts, getSubagentModel());
+    // Refresh installed Ollama models so the default-model dropdowns list them
+    // alongside the Claude models (and reflect an install/uninstall since last open).
+    await refreshOllamaModels();
+    fillModelSelects();
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();
     dialog.showModal();
+    // Refresh the Custom Models section (engine status + installed list) each open.
+    refreshCustomModels();
   };
 
   document.getElementById('settings-btn').onclick = open;
   document.getElementById('settings-close').onclick = () => dialog.close();
   document.getElementById('settings-done').onclick = () => dialog.close();
+
+  // The Custom Models section (install/uninstall Ollama models) lives in its own
+  // module; it calls back here to refresh the shared cache when the model set
+  // changes, and re-fills the default-model dropdowns if the dialog is open.
+  initCustomModels(async () => {
+    await refreshOllamaModels();
+    if (dialog.open) fillModelSelects();
+  });
+
+  // Keep the shared cache warm from startup so the New-session caret menu lists
+  // installed models before the settings dialog is ever opened. A model
+  // installed/removed anywhere (incl. from a phone-driven desktop) refreshes it.
+  refreshOllamaModels().then(() => window.dispatchEvent(new CustomEvent('ollama-models-updated')));
+  window.api?.onOllamaModelsChanged?.(() => {
+    refreshOllamaModels().then(() => {
+      if (dialog.open) fillModelSelects();
+      window.dispatchEvent(new CustomEvent('ollama-models-updated'));
+    });
+  });
 }

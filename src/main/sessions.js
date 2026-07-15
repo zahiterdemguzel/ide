@@ -9,6 +9,7 @@ const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claud
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
+const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { AUTO, cleanEffort, effortArgs } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp } = require('./edit-ops');
@@ -197,6 +198,9 @@ function evictOverBudget() {
     const s = sessions.get(id);
     if (s && s.pty) try { s.pty.kill(); } catch { /* already gone */ }
     sessions.delete(id);
+    // An evicted suspended session has no PTY, so no onExit fires to release its chat
+    // state — forget it explicitly or its watcher/messages/path leak permanently.
+    chat.forget(id);
     removeSessionFile(id);
   }
   sendToRenderer('session-evicted', { ids: evictedIds });
@@ -368,6 +372,28 @@ function sessionEnv(models) {
   return { ...cleanEnv(process.env), ...modelEnv(models) };
 }
 
+// A session whose model is an `ollama:<name>` id can't talk to Anthropic — the
+// `claude` CLI must be pointed at the local translation proxy instead. This
+// starts the embedded engine + proxy (lazy) and returns the env that routes the
+// CLI there: the base URL, a dummy key/token (the CLI insists on *a* credential,
+// but every request is redirected locally), and the bare model name for both the
+// main agent and its subagents (a subagent hitting api.anthropic.com with the
+// dummy key would fail). Returns {} for a normal Claude model. Kept in the shell,
+// not the pure modelEnv, because it starts processes.
+async function ollamaRoute(s) {
+  if (!s || !isOllamaId(s.model)) return {};
+  const { proxyPort } = await require('./ollama').ensureRuntime();
+  const bare = ollamaName(s.model);
+  const subagent = isOllamaId(s.subagentModel) ? ollamaName(s.subagentModel) : bare;
+  return {
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${proxyPort}`,
+    ANTHROPIC_API_KEY: 'ollama-local',
+    ANTHROPIC_AUTH_TOKEN: 'ollama-local',
+    ANTHROPIC_MODEL: bare,
+    CLAUDE_CODE_SUBAGENT_MODEL: subagent,
+  };
+}
+
 // Attribute the user's first prompt and any edited files to their session, so
 // we can later commit just that session's work. Returns updated meta, or null.
 async function recordSessionActivity(payload) {
@@ -431,8 +457,13 @@ async function recordSessionActivity(payload) {
   // count goes 0â†’1, diff once it returns to 0, against that one consistent
   // baseline — so every concurrent tool's changes are captured exactly once.
   if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
-    if ((s.fsInFlight || 0) === 0) s.preStatus = await statusMap();
+    // Decide "am I the first fs tool of this burst" and bump the count SYNCHRONOUSLY,
+    // before the await — otherwise two parallel Pre hooks both read 0, both snapshot,
+    // and the count settles at 1, so a Post drops to 0 one tool early and diffs while
+    // another tool is still writing.
+    const first = (s.fsInFlight || 0) === 0;
     s.fsInFlight = (s.fsInFlight || 0) + 1;
+    if (first) s.preStatus = await statusMap();
   } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload)) {
     s.fsInFlight = Math.max(0, (s.fsInFlight || 0) - 1);
     if (s.fsInFlight === 0 && s.preStatus) {
@@ -486,6 +517,9 @@ async function spawnPty(id, cols, rows, resume) {
   // The session's reasoning effort is a *launch flag*, not an env var like the model —
   // so it's re-applied here on every spawn, and a session resumed after a restart keeps
   // the effort it was last set to (see agent-effort.js). `auto` passes no flag at all.
+  // An Ollama model routes the CLI through the local proxy; a Claude model adds
+  // nothing. Computed before the spawn because it may start the engine (async).
+  const route = await ollamaRoute(s);
   const p = pty.spawn(await resolveClaude(), [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings()], {
     name: 'xterm-color',
     cols: cols || 80,
@@ -493,8 +527,9 @@ async function spawnPty(id, cols, rows, resume) {
     // Home as the last resort: with no project open yet, a null cwd would crash the spawn.
     cwd: (s && s.repo) || getRepoPath() || require('os').homedir(),
     // Re-apply the session's model choice on resume too, so a restored session
-    // keeps running the model it was created with.
-    env: sessionEnv(s),
+    // keeps running the model it was created with. `route` overrides ANTHROPIC_MODEL
+    // (bare name) and adds the base-url/auth for an Ollama session.
+    env: { ...sessionEnv(s), ...route },
   });
   // A fresh PTY draws its own screen from scratch, so anything retained from a
   // previous run of this session is stale — start the tail empty on every spawn.
@@ -512,14 +547,23 @@ async function spawnPty(id, cols, rows, resume) {
     // for this session is stale either way.
     hookServer.clearTracking(id);
     // A suspend (archive) kills the PTY on purpose but keeps the entry and its
-    // tracked-file state alive for a later resume — don't tear it down here.
-    if (s && s.suspended) return;
+    // tracked-file state alive for a later resume — don't tear it down here. Same
+    // for an in-place respawn (a Claude<->Ollama model switch, below): the old PTY
+    // is killed deliberately while a new one is already being spawned under the id.
+    if (s && (s.suspended || s.respawning)) return;
     sessions.delete(id);
+    // The session is gone from the map — release its chat state (watcher, retained
+    // messages, transcript path) too, or it leaks for the process lifetime.
+    chat.forget(id);
     // A non-persistable session that just exited is an empty husk — most often a
     // `claude --resume <id>` that failed with "No conversation found". Delete its
     // file so it doesn't come back on the next launch.
     if (s && !isSessionPersistable(s)) removeSessionFile(id);
     sendToRenderer('status', { id, state: 'completed' });
+    // The list just changed shape (a row vanished): every client reconciles against
+    // main, so it must hear about it. Without this the desktop and every phone keep
+    // showing the dead session as a live row until some unrelated event refetches.
+    broadcastSessions();
   });
   return p;
 }
@@ -528,12 +572,19 @@ async function spawnPty(id, cols, rows, resume) {
 // list drives the per-session commit button immediately, before the session is even
 // resumed. `live` says whether the Claude process is running right now, so a client
 // rebuilding a row knows whether to attach a terminal or a "restore me" placeholder.
-function sessionList() {
-  return [...sessions].map(([id, s]) => ({
+// The fields every client-facing row carries. Both the desktop's full list and the
+// phone's page derive from this one shaper, so a new field can't land on one view and
+// silently desync the other — the phone page differs only by omitting `files`.
+function baseRow(id, s) {
+  return {
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
-    archived: !!s.archived, state: s.state || 'idle', files: trackedFiles(s),
-    model: s.model || '', effort: s.effort || '', live: !!s.pty, controlled: !!s.controlledBy,
-  }));
+    archived: !!s.archived, state: s.state || 'idle', model: s.model || '',
+    effort: s.effort || '', live: !!s.pty, controlled: !!s.controlledBy,
+  };
+}
+
+function sessionList() {
+  return [...sessions].map(([id, s]) => ({ ...baseRow(id, s), files: trackedFiles(s) }));
 }
 
 // Main owns the session set; every client (the desktop renderer and any paired
@@ -560,11 +611,7 @@ bridge.handle('get-sessions', guard('reading saved sessions', () => {
 // screenful. Rows are deliberately slimmer than sessionList()'s — no tracked-file
 // array, which is the bulk of a row and which a phone's list doesn't draw.
 function sessionRow([id, s]) {
-  return {
-    id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
-    archived: !!s.archived, state: s.state || 'idle', model: s.model || '',
-    effort: s.effort || '', live: !!s.pty, controlled: !!s.controlledBy,
-  };
+  return baseRow(id, s);
 }
 
 const NO_SESSIONS = { items: [], total: 0, counts: { active: 0, archived: 0, all: 0 } };
@@ -630,7 +677,12 @@ function setControl(id, deviceId) {
   const s = sessions.get(id);
   if (!s || s.controlledBy === deviceId) return;
   s.controlledBy = deviceId;
+  // The discrete push covers the desktop cover and the holding phone; the list
+  // broadcast carries `controlled` to every OTHER client, so a phone that didn't
+  // make the change still reconciles (a stale flag would leave it showing a session
+  // as controlled forever after the holder drops off).
   sendToRenderer('session-control', { id, controlled: !!deviceId });
+  broadcastSessions();
 }
 
 bridge.on('session-control', guardOn('handing over a session', (e, { id, on }) => {
@@ -680,9 +732,19 @@ bridge.handle('resume-session', guard('restoring a session', async (_e, { id, co
   // stale by the time it arrives. Spawning a second PTY here would strand the first
   // one — an orphaned claude process nothing can reach or kill.
   if (s.pty) return { ok: true, repo: getRepoPath() };
+  // The `s.pty` guard alone is not enough: `spawnPty` awaits (resolving the claude
+  // binary), so two concurrent resumes both pass the guard before either assigns
+  // `s.pty`. Dedupe on the in-flight promise instead — set SYNCHRONOUSLY, so the
+  // second caller joins the first spawn rather than starting its own.
+  if (s.spawning) { await s.spawning; return { ok: !!s.pty, repo: getRepoPath() }; }
   s.suspended = false;
   s.archived = false;
-  s.pty = await spawnPty(id, cols, rows, true);
+  s.spawning = spawnPty(id, cols, rows, true);
+  try {
+    s.pty = await s.spawning;
+  } finally {
+    s.spawning = null;
+  }
   persistSession(id);
   broadcastSessions();
   return { ok: true, repo: getRepoPath() };
@@ -703,9 +765,28 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
   if (!s) return;
   const chosen = typeof model === 'string' ? model.trim() : '';
   if (!chosen) return;
+  const crossesOllamaBoundary = isOllamaId(s.model) !== isOllamaId(chosen);
   s.model = chosen;
   persistSession(id);
-  if (s.pty) s.pty.write(`/model ${chosen}\r`);
+  // A live `/model <id>` can't cross the Claude<->Ollama boundary: that switch
+  // needs a different ANTHROPIC_BASE_URL/auth, which only a respawn applies. So
+  // when the family changes, restart the PTY under the new model (resume keeps the
+  // conversation) instead of typing a slash command the CLI can't honour. A
+  // same-family switch keeps the fast in-place `/model` path.
+  if (s.pty && crossesOllamaBoundary) {
+    const cols = s.pty.cols; const rows = s.pty.rows;
+    // `respawning` makes the dying PTY's onExit skip teardown (see spawnPty); a
+    // resume keeps the same conversation under the new routing.
+    s.respawning = true;
+    try { s.pty.kill(); } catch { /* already gone */ }
+    s.pty = null;
+    spawnPty(id, cols, rows, true)
+      .then((p) => { const cur = sessions.get(id); if (cur) cur.pty = p; })
+      .catch((err) => reportSessionError('respawning for model switch', err))
+      .finally(() => { const cur = sessions.get(id); if (cur) cur.respawning = false; });
+  } else if (s.pty) {
+    s.pty.write(`/model ${chosen}\r`);
+  }
   sendToRenderer('session-model', { id, model: chosen });
 }));
 
@@ -803,9 +884,13 @@ bridge.handle('send-prompt', guard('sending a message', async (e, { id, text, im
   if (!data) return { ok: false, error: 'Nothing to send.' };
   await waitForTui(s);
   if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
+  // A phone can claim control during the waits above; re-check so the write can't
+  // land in a session someone else took over mid-send.
+  if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
   s.pty.write(data);
   await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
   if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
+  if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
   s.pty.write('\r');
   return { ok: true };
 }, (err) => ({ ok: false, error: err && err.message ? err.message : String(err) })));
@@ -844,6 +929,7 @@ bridge.handle('answer-ask', guard('answering a question', async (e, { id, answer
   await waitForPaint(s);
   for (let i = 0; i < steps.length; i += 1) {
     if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
+    if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
     const step = steps[i];
     s.pty.write(step.key !== undefined ? step.key : step.text);
     // Typed words need the longer beat: the TUI ingests them over several ticks, and an

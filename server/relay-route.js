@@ -102,4 +102,4 @@ function route({ target, headers }) {
   return { kind: 'health' };
 }
 
-module.exports = { parseHead, route, TUNNEL_COOKIE, MAX_HEAD, DEFAULT_INSTANCE };
+module.exports = { parseHead, route, isRoom, isInstance, isPort, TUNNEL_COOKIE, MAX_HEAD, DEFAULT_INSTANCE };

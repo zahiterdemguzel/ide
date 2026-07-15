@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# Bundled Ollama engine binaries, fetched at build time by scripts/fetch-ollama.mjs
+# and shipped via electron-builder extraResources. Too large to commit.
+vendor/
 *.log
 crashlogs/
 .DS_Store

@@ -5,9 +5,14 @@
 
 export type Ev = { t: 'ev'; ch: string; payload: unknown };
 
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
+type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
 
 export type ConnectionState = 'connecting' | 'pairing' | 'ready' | 'closed' | 'error';
+
+// A request whose response never arrives (a hung desktop handler, a dropped frame, a
+// relay wedged mid-stream) would otherwise leave its promise pending forever — and any
+// `busy`/`loading` guard keyed off it stuck true. Reject after this long instead.
+const REQ_TIMEOUT_MS = 20000;
 
 export class Connection {
   private ws: WebSocket | null = null;
@@ -17,6 +22,10 @@ export class Connection {
   private stateListeners = new Set<(s: ConnectionState) => void>();
   private retry = 0;
   private closedByUser = false;
+  // Fire-and-forget sends made while not `ready` are normally dropped. Callers that need
+  // one to survive a brief reconnect (a session-control release) opt in via `queue`, and
+  // these are flushed in order the next time the socket reaches `ready`.
+  private queued: string[] = [];
   state: ConnectionState = 'closed';
   deviceId: string | null = null;
   url: string;
@@ -25,6 +34,7 @@ export class Connection {
     url: string,
     private auth: { deviceToken?: string; pairToken?: string; deviceName?: string },
     private onDeviceToken?: (token: string) => void,
+    private onAuthError?: () => void,
   ) {
     this.url = url;
   }
@@ -38,7 +48,8 @@ export class Connection {
     const markLive = () => { this.retry = 0; };
 
     ws.onmessage = (e) => {
-      const msg = JSON.parse(String(e.data));
+      let msg: any;
+      try { msg = JSON.parse(String(e.data)); } catch { return; } // one bad frame can't wedge the socket
       switch (msg.t) {
         case 'hello':
           if (this.auth.deviceToken) {
@@ -55,21 +66,27 @@ export class Connection {
           this.retry = 0;
           markLive();
           this.setState('ready');
+          this.flushQueued();
           return;
         case 'auth-ok':
           this.deviceId = msg.deviceId;
           this.retry = 0;
           markLive();
           this.setState('ready');
+          this.flushQueued();
           return;
         case 'auth-err':
           this.closedByUser = true; // don't retry a bad credential in a loop
+          // The stored token is bad (revoked, or refused as an identity swap) — clear it
+          // so the app doesn't reload it and hit auth-err again on every launch.
+          this.onAuthError?.();
           this.setState('error');
           ws.close();
           return;
         case 'res': {
           const p = this.pending.get(msg.id);
           if (!p) return;
+          clearTimeout(p.timer);
           this.pending.delete(msg.id);
           if (msg.ok) p.resolve(msg.result); else p.reject(new Error(msg.error));
           return;
@@ -93,7 +110,7 @@ export class Connection {
     };
 
     ws.onclose = () => {
-      for (const p of this.pending.values()) p.reject(new Error('connection closed'));
+      for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('connection closed')); }
       this.pending.clear();
       for (const w of this.fwdWaiters.values()) w.reject(new Error('connection closed'));
       this.fwdWaiters.clear();
@@ -117,8 +134,13 @@ export class Connection {
     if (this.state !== 'ready' || !this.ws) return Promise.reject(new Error('not connected'));
     const id = this.nextId++;
     this.ws.send(JSON.stringify({ t: 'req', id, ch, args }));
-    return new Promise<T>((resolve, reject) =>
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject }));
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`request timed out: ${ch}`));
+      }, REQ_TIMEOUT_MS);
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
+    });
   }
 
   private fwdWaiters = new Map<number, { resolve: (url: string) => void; reject: (e: Error) => void }>();
@@ -136,8 +158,18 @@ export class Connection {
     if (this.state === 'ready' && this.ws) this.ws.send(JSON.stringify({ t: 'fwd-close', port }));
   }
 
-  send(ch: string, args?: unknown) {
-    if (this.state === 'ready' && this.ws) this.ws.send(JSON.stringify({ t: 'send', ch, args }));
+  send(ch: string, args?: unknown, opts?: { queue?: boolean }) {
+    const frame = JSON.stringify({ t: 'send', ch, args });
+    if (this.state === 'ready' && this.ws) { this.ws.send(frame); return; }
+    // Not ready: drop it unless the caller asked us to hold it across the reconnect.
+    if (opts?.queue) this.queued.push(frame);
+  }
+
+  private flushQueued() {
+    if (!this.queued.length || !this.ws) return;
+    const frames = this.queued;
+    this.queued = [];
+    for (const frame of frames) this.ws.send(frame);
   }
 
   on(ch: string, fn: (payload: any) => void): () => void {

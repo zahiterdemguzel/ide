@@ -22,6 +22,38 @@ function open(url) {
   });
 }
 
+function closeCode(url) {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(url);
+    ws.on('error', () => {}); // a rejected upgrade also emits error; the close code is what we want
+    ws.on('close', (code) => resolve(code));
+  });
+}
+
+// The ws accept path must validate the room the same way the HTTP-routing path does,
+// or it becomes an unbounded room-creation hole the routing path thinks it closed.
+test('a malformed room id is rejected, not vivified into a room', async () => {
+  const relay = await startRelay({ port: 0, host: '127.0.0.1' });
+  try {
+    assert.equal(await closeCode(`ws://127.0.0.1:${relay.port}/?room=r2&role=mobile`), 4000); // too short
+    assert.equal(await closeCode(`ws://127.0.0.1:${relay.port}/?room=has%20space&role=mobile`), 4000);
+    assert.equal(await closeCode(`ws://127.0.0.1:${relay.port}/?room=abcdefgh&role=bogus`), 4000);
+  } finally { await relay.close(); }
+});
+
+// A room admits only so many phones; past the cap a new client is refused, not buffered.
+test('a room refuses clients past its cap', async () => {
+  const relay = await startRelay({ port: 0, host: '127.0.0.1', maxClientsPerRoom: 2 });
+  try {
+    const base = `ws://127.0.0.1:${relay.port}/?room=capsroom&role=mobile`;
+    const a = await open(base);
+    const b = await open(base);
+    assert.equal(await closeCode(base), 4003); // third is turned away
+    a.ws.close();
+    b.ws.close();
+  } finally { await relay.close(); }
+});
+
 test('relay forwards frames both ways without inspecting them', async () => {
   const relay = await startRelay({ port: 0, host: '127.0.0.1' });
   try {
@@ -132,7 +164,7 @@ test('a phone that names no window gets the newest one', async () => {
 test('mobile sockets are closed when their own desktop leaves, and only theirs', async () => {
   const relay = await startRelay({ port: 0, host: '127.0.0.1' });
   try {
-    const base = `ws://127.0.0.1:${relay.port}/?room=r2`;
+    const base = `ws://127.0.0.1:${relay.port}/?room=siblings`;
     const one = await open(`${base}&role=desktop&instance=win-1`);
     await open(`${base}&role=desktop&instance=win-2`);
     const onOne = await open(`${base}&role=mobile&instance=win-1`);
