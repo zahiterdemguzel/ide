@@ -21,6 +21,7 @@ import MessageView from '../components/chat/MessageView';
 import Composer, { Draft } from '../components/chat/Composer';
 import BadgeMenu from '../components/chat/BadgeMenu';
 import StateDot from '../components/StateDot';
+import { showError } from '../components/ErrorDialog';
 import { useConnection } from '../api/context';
 import {
   Answer, Ask, AskQuestion, Message, Pending, SlashCommand, Transcript,
@@ -171,7 +172,7 @@ export default function ChatScreen({ route, navigation }: any) {
       await sendPrompt(conn, id, text, paths);
     } catch (e: any) {
       drop(mine.uuid);
-      Alert.alert('Could not send', e?.message ?? String(e));
+      showError('Could not send', e);
     } finally {
       setSending(false);
     }
@@ -186,7 +187,7 @@ export default function ChatScreen({ route, navigation }: any) {
     try {
       await answerAsk(conn, id, answers);
     } catch (e: any) {
-      Alert.alert('Could not answer', e?.message ?? String(e));
+      showError('Could not answer', e);
     }
   };
 
@@ -207,10 +208,10 @@ export default function ChatScreen({ route, navigation }: any) {
     setCommitting(true);
     try {
       const r = await conn.req<{ ok: boolean; stderr?: string }>('commit-session', id);
-      if (!r?.ok) Alert.alert('Commit failed', r?.stderr || 'Commit failed');
+      if (!r?.ok) showError('Commit failed', r?.stderr || 'Commit failed');
       else refreshStat();
     } catch (e: any) {
-      Alert.alert('Commit failed', e?.message ?? String(e));
+      showError('Commit failed', e);
     } finally {
       setCommitting(false);
     }

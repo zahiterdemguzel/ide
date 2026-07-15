@@ -13,6 +13,7 @@ import { useConnection } from '../api/context';
 import { newSessionWithPrompt } from '../api/session-prompt';
 import CommitHistory from '../components/CommitHistory';
 import FileIcon from '../components/FileIcon';
+import { showError } from '../components/ErrorDialog';
 
 type Entry = { status: string; file: string };
 type Status = {
@@ -109,9 +110,9 @@ export default function GitScreen({ navigation }: any) {
     setBusy(true);
     try {
       const r = (await fn()) as Res | undefined;
-      if (r && r.ok === false) Alert.alert(label, r.stderr || `${label} failed`);
+      if (r && r.ok === false) showError(label, r.stderr || `${label} failed`);
     } catch (e: any) {
-      Alert.alert(label, String(e?.message ?? e));
+      showError(label, e);
     }
     setBusy(false);
     refresh();
@@ -136,7 +137,7 @@ export default function GitScreen({ navigation }: any) {
             const id = await newSessionWithPrompt(conn!, mergePrompt(operation, errorText));
             navigation.navigate('Chat', { id });
           } catch (e: any) {
-            Alert.alert('Session', String(e?.message ?? e));
+            showError('Session', e);
           }
         },
       },

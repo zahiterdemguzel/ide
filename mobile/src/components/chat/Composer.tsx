@@ -12,6 +12,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { SlashCommand } from '../../api/chat';
+import { showError } from '../ErrorDialog';
 import { color, font, radius, space } from '../../theme';
 
 export type Draft = { uri: string; base64: string; name: string };
@@ -62,7 +63,7 @@ export default function Composer({
       const name = asset.fileName || `photo-${asset.assetId || 'attachment'}.jpg`;
       setImages((prev) => [...prev, { uri: asset.uri, base64: asset.base64!, name }]);
     } catch (e: any) {
-      Alert.alert('Could not attach', e?.message ?? String(e));
+      showError('Could not attach', e);
     }
   };
 

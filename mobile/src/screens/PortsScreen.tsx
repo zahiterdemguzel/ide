@@ -12,6 +12,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Button, FlatList, Pressable, Alert, StyleSheet, Linking } from 'react-native';
 import { useConnection } from '../api/context';
+import { showError } from '../components/ErrorDialog';
 
 type Fwd = { port: number; url: string; base: string };
 
@@ -38,7 +39,7 @@ export default function PortsScreen() {
       setForwards((prev) => [{ port, url, base: baseOf(url) }, ...prev.filter((f) => f.port !== port)]);
       await Linking.openURL(url);
     } catch (e: any) {
-      Alert.alert('Ports', String(e?.message ?? e));
+      showError('Ports', e);
     }
     setBusy(false);
   };

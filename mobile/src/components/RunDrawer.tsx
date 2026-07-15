@@ -10,7 +10,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Easing,
   Modal,
@@ -25,6 +24,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useConnection } from '../api/context';
+import { showError } from './ErrorDialog';
 
 type LaunchConfig = { name: string; compound?: boolean; members?: string[] };
 type RunConfigs = { launch: LaunchConfig[]; tasks: { name: string }[] };
@@ -103,9 +103,9 @@ export default function RunDrawer({ visible, onClose }: Props) {
     setBusy(name);
     try {
       const r = await conn.req<{ ok: boolean; error?: string }>('run-config-start', { kind, name });
-      if (!r?.ok) Alert.alert(name, r?.error || 'Could not start this config.');
+      if (!r?.ok) showError(name, r?.error || 'Could not start this config.');
     } catch (e: any) {
-      Alert.alert(name, e?.message ?? String(e));
+      showError(name, e);
     } finally {
       setBusy(null);
     }

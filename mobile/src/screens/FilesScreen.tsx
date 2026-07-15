@@ -16,6 +16,7 @@ import { useConnection } from '../api/context';
 import { langFor } from '../generated/desktop-assets';
 import FileIcon from '../components/FileIcon';
 import CodeView from '../components/CodeView';
+import { showError } from '../components/ErrorDialog';
 
 type Entry = { name: string; dir: boolean };
 
@@ -47,7 +48,7 @@ export default function FilesScreen() {
     try {
       const r: any = await conn.req('list-dir', rel);
       if (r?.ok) { setCwd(rel); setEntries(r.entries); }
-      else Alert.alert('Files', r?.error ?? 'Could not read that folder.');
+      else showError('Files', r?.error ?? 'Could not read that folder.');
     } catch {
       // Socket dropped mid-request; the reconnect re-lists on focus.
     } finally {
@@ -73,7 +74,7 @@ export default function FilesScreen() {
     setOpening(true);
     try {
       const r: any = await conn?.req('read-text', rel);
-      if (!r?.ok) return Alert.alert('Files', r?.error ?? 'That file cannot be opened as text.');
+      if (!r?.ok) return showError('Files', r?.error ?? 'That file cannot be opened as text.');
       setFile(rel);
       setText(r.text);
       setDirty(false);
@@ -85,7 +86,7 @@ export default function FilesScreen() {
     setSaving(true);
     try {
       const r: any = await conn?.req('write-text', { file, text });
-      if (!r?.ok) return Alert.alert('Files', r?.error ?? 'Save failed.');
+      if (!r?.ok) return showError('Files', r?.error ?? 'Save failed.');
       setDirty(false);
     } finally { setSaving(false); }
   };

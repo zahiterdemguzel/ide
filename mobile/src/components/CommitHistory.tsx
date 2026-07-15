@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
+import { showError } from './ErrorDialog';
 
 export type Commit = {
   hash: string; short: string; subject: string; author: string; relDate: string;
@@ -83,9 +84,9 @@ export default function CommitHistory({ onChanged }: { onChanged: () => void }) 
     setBusy(true);
     try {
       const r = await conn!.req<Res>(ch, hash);
-      if (r && r.ok === false) Alert.alert(label, r.stderr || `${label} failed`);
+      if (r && r.ok === false) showError(label, r.stderr || `${label} failed`);
     } catch (e: any) {
-      Alert.alert(label, String(e?.message ?? e));
+      showError(label, e);
     }
     setBusy(false);
     load(0);

@@ -15,6 +15,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
 import StateDot from '../components/StateDot';
+import { showError } from '../components/ErrorDialog';
 import { MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, modelSuffix } from '../api/models';
 
 const PAGE = 30;
@@ -211,12 +212,12 @@ export default function SessionsScreen({ navigation }: any) {
       const r: any = await conn?.req('new-session', { cols: 80, rows: 30, model });
       // The desktop wraps handler failures in { error } instead of rejecting.
       if (r?.error || !r?.id) {
-        Alert.alert('Could not create session', r?.error ?? 'Unknown error');
+        showError('Could not create session', r?.error ?? 'Unknown error');
         return;
       }
       navigation.navigate('Chat', { id: r.id });
     } catch (e: any) {
-      Alert.alert('Could not create session', e?.message ?? String(e));
+      showError('Could not create session', e);
     } finally {
       refresh();
     }

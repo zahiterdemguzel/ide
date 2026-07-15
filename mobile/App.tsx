@@ -16,6 +16,7 @@ import { ConnectionContext, useConnection } from './src/api/context';
 import ProjectDrawer, { basename } from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
 import UsageBar from './src/components/UsageBar';
+import ErrorDialog from './src/components/ErrorDialog';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import PairScreen from './src/screens/PairScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
@@ -254,6 +255,8 @@ export default function App() {
             )}
           </Stack.Navigator>
         </NavigationContainer>
+        {/* Sits above navigation so any error, on any screen, surfaces here. */}
+        <ErrorDialog />
       </SafeAreaProvider>
     </ConnectionContext.Provider>
   );
