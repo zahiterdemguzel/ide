@@ -2,7 +2,7 @@
 // code in its Settings dialog, then drives it over the ws protocol (projects,
 // Claude sessions, git, files, forwarded ports).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NavigationContainer, DarkTheme, useIsFocused } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme, useIsFocused, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ import RunDrawer from './src/components/RunDrawer';
 import { ChromeContext } from './src/components/ScreenHeader';
 import ErrorDialog from './src/components/ErrorDialog';
 import { AlertFeed } from './src/api/notifications';
+import { registerPush, onNotificationTap } from './src/api/push';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import PairScreen from './src/screens/PairScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
@@ -31,6 +32,10 @@ import NotificationsScreen from './src/screens/NotificationsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+// A ref, not the hook: a notification tap arrives outside any screen (App level),
+// and may arrive before the navigator exists (cold start from the notification).
+const navRef = createNavigationContainerRef();
 
 // React Navigation's own DarkTheme paints rgb(1,1,1) behind every screen — a black
 // that belongs to no token and reads as a hole beside the page's #0d1117. It shows
@@ -169,6 +174,25 @@ export default function App() {
     return () => sub.remove();
   }, []);
 
+  // Push notifications: once a connection is driving a window, hand the desktop
+  // this device's Expo push token so completed sessions notify the phone while the
+  // app is closed. Re-sent on every `ready` — cheap, and the desktop skips the
+  // write when nothing changed.
+  useEffect(() => {
+    if (conn && state === 'ready') registerPush(conn);
+  }, [conn, state]);
+
+  // A tapped notification names a session; hold it until the app is actually
+  // driving a window (cold start pairs + connects first), then open its chat.
+  const [pendingSession, setPendingSession] = useState<string | null>(null);
+  const [navReady, setNavReady] = useState(false);
+  useEffect(() => onNotificationTap((tap) => setPendingSession(tap.sessionId)), []);
+  useEffect(() => {
+    if (!pendingSession || !chosen || state !== 'ready' || !navReady) return;
+    setPendingSession(null);
+    (navRef.navigate as unknown as (name: string, params?: object) => void)('Chat', { id: pendingSession });
+  }, [pendingSession, chosen, state, navReady]);
+
   // Reconnect with the stored credential on launch; fall back to the pair screen.
   useEffect(() => {
     (async () => {
@@ -255,9 +279,13 @@ export default function App() {
       {/* Turns connection pushes into notification alerts, regardless of screen. */}
       <AlertFeed />
       <SafeAreaProvider>
-        <NavigationContainer theme={NAV_THEME}>
+        <NavigationContainer theme={NAV_THEME} ref={navRef} onReady={() => setNavReady(true)}>
           <StatusBar style="light" />
-          <Stack.Navigator>
+          {/* contentStyle paints the *native* screen container. The nav theme only
+              covers what React renders; during a push/pop the native container is
+              briefly visible on its own, and its default is white — one white frame
+              on every open and close until it's painted here. */}
+          <Stack.Navigator screenOptions={{ contentStyle: { backgroundColor: color.bg } }}>
             {!paired ? (
               <>
                 <Stack.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />

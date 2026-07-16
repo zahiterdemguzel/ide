@@ -59,6 +59,13 @@ So:
   space above the bar. Only full-screen routes with no tab bar (Notifications) clear
   it themselves.
 
+- **Three layers each need the dark background or a screen flashes white for a frame
+  on push/pop.** The nav theme (`NAV_THEME` in `App.tsx`) covers what React renders;
+  `contentStyle` on the stack's `screenOptions` paints the *native* screen container,
+  which is briefly visible on its own during transitions and defaults to white; and
+  `expo.backgroundColor` in `app.json` colours the window behind everything. Remove
+  any one and the flash comes back.
+
 If this app ever goes edge-to-edge, `insets.bottom` starts reporting a real number on
 Android and the tab bar absorbs it automatically — but `androidNavigationBar` stops
 applying, and the bar's own background becomes what shows through.
