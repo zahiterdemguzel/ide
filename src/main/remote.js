@@ -10,7 +10,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { sharedDataDir, instanceId } = require('./instance');
-const { onBroadcast } = require('./window');
+const { onBroadcast, sendToRenderer } = require('./window');
 const { handle, invokeRemote } = require('./remote-bridge');
 const { getRepoPath, onRepoChange } = require('./repo');
 const registry = require('./instance-registry');
@@ -156,6 +156,9 @@ async function enable() {
     deviceStore,
     appVersion: app.getVersion(),
     forward,
+    // The toolbar shows a phone icon while at least one paired device holds a
+    // live socket to this window.
+    onClientsChanged: (count) => sendToRenderer('remote-clients-changed', count),
   });
   // The desktop dials out to the relay because a machine behind NAT can't be
   // dialled in to; every phone in its room rides that one socket. Failing to reach
@@ -189,6 +192,7 @@ async function disable() {
   if (relay) relay.close();
   relay = null;
   hub = null;
+  sendToRenderer('remote-clients-changed', 0);
   await closeAllForwards();
   return status();
 }

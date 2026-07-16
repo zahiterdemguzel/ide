@@ -90,6 +90,34 @@ test('a device with another live socket is not reported as disconnected', async 
   assert.equal(gone.length, 1);
 });
 
+// The toolbar's phone icon rides this: it must hear every authed-client count
+// change, and an unauthed socket dropping must not fire it.
+test('onClientsChanged reports the authed client count', async () => {
+  const counts = [];
+  const { hub } = makeHub(undefined, { onClientsChanged: (n) => counts.push(n) });
+
+  const stranger = connect(hub); // never pairs/auths
+  await stranger.next();
+  stranger.close();
+  assert.deepEqual(counts, []);
+
+  const c = connect(hub);
+  await c.next();
+  c.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'Phone' });
+  const { deviceToken } = await c.next();
+  assert.deepEqual(counts, [1]);
+
+  const c2 = connect(hub);
+  await c2.next();
+  c2.send({ t: 'auth', deviceToken });
+  await c2.next();
+  assert.deepEqual(counts, [1, 2]);
+
+  c.close();
+  c2.close();
+  assert.deepEqual(counts, [1, 2, 1, 0]);
+});
+
 test('auth with paired device token works; bad token rejected', async () => {
   const { hub } = makeHub();
   const c1 = connect(hub);

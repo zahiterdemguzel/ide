@@ -12,11 +12,12 @@ const debug = debugFor('hub');
 
 let nextClientNo = 1;
 
-// opts: { invoke, deviceStore, appVersion, forward, onDisconnect, pairing }
+// opts: { invoke, deviceStore, appVersion, forward, onDisconnect, onClientsChanged, pairing }
 function createHub(opts) {
   const { invoke, deviceStore, appVersion = '' } = opts;
   const pairing = opts.pairing || auth.createPairingState();
   const clients = new Set(); // authed clients
+  const notifyClients = () => { if (opts.onClientsChanged) { try { opts.onClientsChanged(clients.size); } catch {} } };
 
   // Connect a transport. `send` takes a message object. Returns the client:
   // feed it raw frames, close it when the socket dies.
@@ -52,6 +53,7 @@ function createHub(opts) {
         const { device, token } = auth.createDevice(deviceStore, msg.deviceName);
         client.deviceId = device.id;
         clients.add(client);
+        notifyClients();
         trace('paired', { device: device.id, name: device.name, clients: clients.size });
         return reply(proto.paired(token, device.id));
       }
@@ -71,6 +73,7 @@ function createHub(opts) {
         }
         client.deviceId = device.id;
         clients.add(client);
+        notifyClients();
         trace('authed', { device: device.id, name: device.name, clients: clients.size });
         return reply(proto.authOk(device.id, appVersion));
       }
@@ -144,7 +147,7 @@ function createHub(opts) {
     function close() {
       if (!client.open) return;
       client.open = false;
-      clients.delete(client);
+      if (clients.delete(client)) notifyClients();
       // A device that vanishes (locked phone, dropped Wi-Fi) can't release what it
       // was holding, so tell the embedder which one left — but only once it's
       // really gone: the same device may hold another live socket (a reconnect).

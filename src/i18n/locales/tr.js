@@ -234,6 +234,7 @@ export default {
     'remote.noDevices': 'Henüz eşleştirilmiş cihaz yok.',
     'remote.revoke': 'Kaldır',
     'remote.lastSeen': 'Son görülme',
+    'remote.deviceConnected': 'Mobil cihaz bağlı',
 
     'setup.title': "Claude Code'u kur",
     'setup.intro': 'Sisteminizde Claude Code kurulu değil. Kurmak için Sonraki’ye tıklayın.',

@@ -13,6 +13,11 @@ function renderQr(el, text) {
 }
 
 export function initRemotePane() {
+  // Toolbar phone icon (left of the usage meter): visible while at least one
+  // paired mobile device holds a live socket to this window.
+  const phoneIndicator = document.getElementById('phone-indicator');
+  window.api.onRemoteClientsChanged?.((count) => { phoneIndicator.hidden = !count; });
+
   const enableBox = document.getElementById('remote-enable');
   const qrWrap = document.getElementById('remote-qr-wrap');
   const qrEl = document.getElementById('remote-qr');

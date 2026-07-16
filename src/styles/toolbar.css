@@ -60,6 +60,15 @@
    (label · bar · reset) with the rows sharing the auto columns, so both bars line
    up regardless of label width or locale. Hidden entirely when there's no data
    (no Claude Code / not signed in). */
+/* Phone icon shown while a paired mobile device is connected to this window —
+   sits just left of the usage meter, icon sized like the browser button's. */
+#phone-indicator {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--green); margin-right: 6px;
+}
+#phone-indicator[hidden] { display: none; }
+#phone-indicator svg { display: block; }
+
 #usage-meter {
   display: grid; grid-template-columns: auto 60px auto;
   align-content: center; column-gap: 8px; row-gap: 2px;

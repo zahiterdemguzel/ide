@@ -234,6 +234,7 @@ export default {
     'remote.noDevices': 'Aún no hay dispositivos emparejados.',
     'remote.revoke': 'Revocar',
     'remote.lastSeen': 'Última vez',
+    'remote.deviceConnected': 'Dispositivo móvil conectado',
 
     'setup.title': 'Configurar Claude Code',
     'setup.intro': 'No tienes Claude Code instalado. Haz clic en Siguiente para instalarlo.',

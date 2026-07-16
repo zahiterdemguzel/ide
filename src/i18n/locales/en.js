@@ -235,6 +235,7 @@ export default {
     'remote.noDevices': 'No devices paired yet.',
     'remote.revoke': 'Revoke',
     'remote.lastSeen': 'Last seen',
+    'remote.deviceConnected': 'Mobile device connected',
 
     'setup.title': 'Set up Claude Code',
     'setup.intro': 'You don’t have Claude Code installed. Click Next to install it.',
