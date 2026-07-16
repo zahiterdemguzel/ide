@@ -44,7 +44,7 @@ export function initRemotePane() {
       const label = document.createElement('span');
       label.textContent = `${d.name} — ${t('remote.lastSeen')} ${new Date(d.lastSeen).toLocaleString()}`;
       const revoke = document.createElement('button');
-      revoke.className = 'confirm-btn-secondary';
+      revoke.className = 'settings-secondary';
       revoke.textContent = t('remote.revoke');
       revoke.onclick = async () => {
         await window.api.remoteRevokeDevice(d.id);

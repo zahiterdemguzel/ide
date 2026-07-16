@@ -1,6 +1,7 @@
 import { runSpecInConsole, runningConfigNames, stopConfig, onConsolesChanged } from './consoles.js';
 import { isPanelEnabled, onPanelsChanged } from './panels.js';
-import { promptText } from './shared/prompt.js';
+import { promptText, pickOption } from './shared/prompt.js';
+import { showError } from './shared/warn.js';
 import { getActiveFile } from './viewer/file.js';
 
 // --- top run toolbar (.vscode/launch.json + tasks.json) ---
@@ -112,59 +113,11 @@ async function collectInputs(configName, needs) {
   return values;
 }
 
-// A minimal pickString modal: one button per option (options may be plain strings
-// or { label, value }), Escape/backdrop cancels. Resolves to the picked value.
-function pickOption({ title, label, options, def }) {
-  return new Promise((resolve) => {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop';
-    const box = document.createElement('div');
-    box.className = 'modal';
-    const titleEl = document.createElement('div');
-    titleEl.className = 'modal-title';
-    titleEl.textContent = title || '';
-    const labelEl = document.createElement('div');
-    labelEl.className = 'modal-label';
-    labelEl.textContent = label || '';
-    box.append(titleEl, labelEl);
-    function close(result) {
-      window.removeEventListener('keydown', onKey, true);
-      backdrop.remove();
-      resolve(result);
-    }
-    function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); close(null); } }
-    for (const opt of options) {
-      const value = typeof opt === 'object' && opt !== null ? opt.value : opt;
-      const text = typeof opt === 'object' && opt !== null ? (opt.label || opt.value) : opt;
-      const btn = document.createElement('button');
-      btn.className = 'modal-ok pick-option';
-      btn.textContent = text + (value === def ? ' (default)' : '');
-      btn.onclick = () => close(value);
-      box.appendChild(btn);
-    }
-    const actions = document.createElement('div');
-    actions.className = 'modal-actions';
-    const cancel = document.createElement('button');
-    cancel.className = 'modal-cancel';
-    cancel.textContent = 'Cancel';
-    cancel.onclick = () => close(null);
-    actions.appendChild(cancel);
-    box.appendChild(actions);
-    backdrop.onclick = (e) => { if (e.target === backdrop) close(null); };
-    window.addEventListener('keydown', onKey, true);
-    backdrop.appendChild(box);
-    document.body.appendChild(backdrop);
-  });
-}
-
 // A config the app can't translate into a terminal command (e.g. a browser/attach
 // launch config) surfaces here instead of failing silently in the dev console.
 function showRunError(message) {
-  document.getElementById('run-error-msg').textContent = message;
-  document.getElementById('run-error-dialog').showModal();
+  showError(message, "Can't run this config", { mono: false });
 }
-document.getElementById('run-error-ok').onclick = () =>
-  document.getElementById('run-error-dialog').close();
 
 // Main watches .vscode/launch.json + tasks.json and pushes this when either
 // changes (created/edited/deleted), so the buttons track the files live.

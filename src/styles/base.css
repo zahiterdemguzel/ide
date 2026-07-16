@@ -51,34 +51,77 @@ body {
   flex-direction: column;
 }
 
-/* Modal text prompt (shared/prompt.js) */
+/* --- Dialogs -----------------------------------------------------------
+ * One chrome for every modal that asks the user something or reports an
+ * error: confirm, prompt, warning, error, pickString. They're all built by
+ * src/renderer/shared/dialog.js as a native <dialog class="dlg"> — there is
+ * no dialog markup in index.html and no second dialog family to drift from.
+ * Style .dlg; a rule targeting a dialog's #id is the regression.
+ *
+ * .modal-backdrop is unrelated to .dlg — it's the overlay for quick-open and
+ * the command palette, which anchor their own box near the top. */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 1000;
   background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center;
 }
-.modal {
-  background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
-  padding: 16px; width: 320px; max-width: 90vw;
+.dlg {
+  background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 20px 24px; width: min(420px, 90vw);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
-.modal-title { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
-.modal-label { font-size: 11px; color: var(--fg-dim); margin-bottom: 4px; }
-.modal-input {
-  width: 100%; box-sizing: border-box; padding: 7px 8px;
+.dlg::backdrop { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
+.dlg-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--fg); }
+/* Error/warning dialogs carry the alarm in the title only — a wall of red
+ * monospace body text is louder than the message ever warrants. */
+.dlg.is-error .dlg-title { color: var(--red); }
+.dlg-body {
+  font-size: 12px; line-height: 1.5; color: var(--fg-dim);
+  white-space: pre-wrap; word-break: break-word; margin-bottom: 16px;
+}
+.dlg-body.is-mono {
+  font-family: Consolas, monospace; color: var(--fg);
+  max-height: 240px; overflow-y: auto;
+}
+.dlg-label { font-size: 11px; color: var(--fg-dim); margin-bottom: 4px; }
+.dlg-input {
+  width: 100%; padding: 7px 8px;
   background: var(--bg-3); color: var(--fg);
   border: 1px solid var(--border); border-radius: 5px; font-size: 13px;
   transition: border-color .12s ease, box-shadow .12s ease;
 }
-.modal-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
-.modal-error { color: var(--red); font-size: 11px; margin-top: 6px; min-height: 0; }
-.modal-error:empty { display: none; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-.modal-actions button {
-  padding: 6px 14px; border-radius: 5px; cursor: pointer; font-size: 12px;
-  border: 1px solid var(--border); background: var(--bg-3); color: var(--fg);
-  transition: background .12s ease, border-color .12s ease, color .12s ease;
+.dlg-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.dlg-error { color: var(--red); font-size: 11px; margin-top: 6px; }
+.dlg-error:empty { display: none; }
+
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.dlg-btn {
+  border: 1px solid transparent; border-radius: 5px;
+  padding: 6px 18px; cursor: pointer; font-size: 13px;
+  transition: background .12s ease, border-color .12s ease, filter .12s ease;
 }
-.modal-cancel:hover { background: var(--border); }
-.modal-ok { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.modal-ok:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
+.dlg-btn:disabled { opacity: .55; cursor: default; }
+/* showModal() autofocuses the first button, so the ring is on screen every time
+ * a dialog opens — the UA default paints it in the OS accent, which is the one
+ * colour in the dialog that doesn't come from the theme. */
+.dlg-btn:focus-visible, .dlg-option:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+.dlg-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.dlg-btn-primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
+.dlg-btn-secondary { background: var(--bg-3); border-color: var(--border); color: var(--fg); }
+.dlg-btn-secondary:hover:not(:disabled) { background: var(--border); }
+.dlg-btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
+.dlg-btn-danger:hover:not(:disabled) { filter: brightness(1.1); }
+
+/* pickString options: a stacked list, not a row of accent buttons — only the
+ * commit action in a dialog gets accent weight. */
+.dlg-option {
+  display: block; width: 100%; margin-top: 6px; text-align: left;
+  padding: 8px 10px; font-size: 13px;
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.dlg-option:hover { background: var(--list-sel); border-color: var(--accent); }

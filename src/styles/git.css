@@ -204,62 +204,7 @@
   content: '✓'; color: var(--green); font-weight: 700;
 }
 
-/* push error dialog */
-#git-error-dialog {
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-2); color: var(--fg);
-  padding: 20px 24px; max-width: 420px; width: 90%;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
-}
-#git-error-dialog::backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
-#git-error-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--red); }
-#git-error-msg { font-size: 12px; font-family: Consolas, monospace; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; margin-bottom: 16px; }
-#git-error-ok {
-  float: right; background: var(--accent); color: var(--on-accent); border: none;
-  border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px;
-  transition: background .12s ease;
-}
-#git-error-ok:hover { background: var(--accent-hi); }
-
-/* confirm dialog (e.g. change folder) — shares the error dialog's chrome */
-#confirm-dialog {
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-2); color: var(--fg);
-  padding: 20px 24px; max-width: 420px; width: 90%;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
-}
-#confirm-dialog::backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
-#confirm-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--fg); }
-#confirm-msg { font-size: 12px; white-space: pre-wrap; word-break: break-word; margin-bottom: 16px; color: var(--fg-dim); }
-.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.confirm-actions button {
-  border: none; border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px;
-  transition: background .12s ease, filter .12s ease;
-}
-.confirm-btn-primary { background: var(--accent); color: var(--on-accent); }
-.confirm-btn-primary:hover { background: var(--accent-hi); }
-.confirm-btn-secondary { background: var(--bg-3); color: var(--fg); border: 1px solid var(--border); }
-.confirm-btn-secondary:hover { background: var(--border); }
-.confirm-btn-danger { background: var(--red); color: #fff; }
-.confirm-btn-danger:hover { filter: brightness(1.1); }
-
-/* warning dialog — non-fatal errors (e.g. a session failing to save/load); shares
-   the error/confirm chrome but shows the error text in red with OK + Copy */
-#warn-dialog {
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-2); color: var(--fg);
-  padding: 20px 24px; max-width: 480px; width: 90%;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.55);
-}
-#warn-dialog::backdrop { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
-#warn-dialog h3 { margin: 0 0 10px; font-size: 14px; color: var(--red); }
-#warn-msg {
-  font-size: 12px; font-family: Consolas, monospace; color: var(--red);
-  white-space: pre-wrap; word-break: break-word;
-  max-height: 240px; overflow-y: auto; margin-bottom: 16px;
-}
-.warn-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.warn-actions button { border: none; border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px; }
+/* The push-error, confirm and warning dialogs are plain .dlg (see base.css). */
 .git-ahead-badge, .git-behind-badge {
   position: absolute; top: -6px; right: -6px; z-index: 2;
   min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box;

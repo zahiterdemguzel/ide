@@ -116,10 +116,17 @@ it uses the `.effort-badge`/`.effort-menu` pill+dropdown chrome for size/look, w
 the neutral default `--ec`, and the dropdown omits the `default` inherit sentinel —
 only the concrete models are pickable).
 Choosing a model updates the record + badge,
-remembers it as the new default (`setSessionModel()`), and drives the CLI's own
-**`/model <id>`** slash command by writing it to the session's PTY (`set-session-model`
-IPC → `s.pty.write`), so the live session switches immediately (`default` → `/model
-default`). A `/model <id>` typed
+remembers it as the new default (`setSessionModel()`), and switches the live session by
+**driving the CLI's Alt+P model picker with keystrokes** (`set-session-model` IPC →
+`drivePicker` in `sessions.js`, plan built by the pure `model-picker.js`) — a typed
+`/model` sits in the composer queue until the current turn ends, while the picker is an
+overlay the TUI applies **mid-turn**, and its `s` key applies session-only. The moves
+are *relative* (the picker's lists wrap), computed from the session record (else the CLI
+default in `~/.claude/settings.json`); a row the table can't place (Ollama ids, unknown
+models) — or a session blocked on an ask, whose box would eat the keys — falls back to
+typing `/model <id>` as before. Established live against CLI 2.1.211 (rows: default,
+opus, fable, sonnet, haiku; never send Enter or a number key — both save the pick as the
+*global* default). A `/model <id>` typed
 straight into the session is caught by `feedSessionCommand()` (the pure, unit-tested
 `session-cmd-parse.js`, which uses the line-buffer engine `slash-parse.js`) in
 `pty-input`, which pushes a **`session-model`** event the
@@ -142,10 +149,18 @@ session, not for this machine.
 it answers. It is stored on the session record (`effort`), persisted, and applied in the
 CLI's two places, which is why it needs both: `--effort <level>` as a **spawn flag**
 (`effortArgs()`, the pure, unit-tested `src/main/agent-effort.js`), so a session resumed
-after a restart comes back thinking as hard as it was last told to; and the **`/effort
-<level>`** slash command written into a live PTY, so a running session switches at once.
-Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`, plus `auto` (reset to the
-model's own default, and the one value that adds no spawn flag).
+after a restart comes back thinking as hard as it was last told to; and, on a live PTY,
+**the Alt+P picker's effort slider driven by arrow keystrokes** (same `drivePicker` /
+`model-picker.js` path as the model above), so a running session switches **at once,
+mid-turn included** — a typed `/effort` queues behind the current turn. The slider's
+stops are `low`…`max` plus `ultracode` (which no client of ours offers but the table
+must know, or every plan past a terminal-set ultracode lands one stop off), it wraps at
+both ends, and an applied effort persists to `~/.claude/settings.json`'s `effortLevel`
+(exactly as a typed `/effort` does) — which is how a session whose record has no effort
+learns the slider's current stop (`cliSettings()` in sessions.js). An unknown starting
+stop, a record of `auto`, a target of `auto`, or a pending ask falls back to typing
+`/effort <level>`. Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`, plus
+`auto` (reset to the model's own default, and the one value that adds no spawn flag).
 
 Unlike a model alias (which `agent-models.js` forwards verbatim, the CLI resolving it),
 an **unrecognized level is dropped rather than passed through**: an unknown `--effort`

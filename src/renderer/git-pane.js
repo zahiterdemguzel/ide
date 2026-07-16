@@ -2,6 +2,7 @@ import { openGitFile, openCommit, openStash } from './viewer/center.js';
 import { statusLabel, normalizeBranchName } from './shared/git-status.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { confirmDialog } from './shared/confirm.js';
+import { showError } from './shared/warn.js';
 import { newSessionWithPrompt, refreshAllDiffStats } from './sessions.js';
 import { t } from '../i18n/index.js';
 
@@ -660,13 +661,8 @@ function clearGitMsg() {
 }
 
 function showGitErrorDialog(message, title = 'Push failed') {
-  document.getElementById('git-error-title').textContent = title;
-  document.getElementById('git-error-msg').textContent = message;
-  document.getElementById('git-error-dialog').showModal();
+  showError(message, title);
 }
-document.getElementById('git-error-ok').onclick = () => {
-  document.getElementById('git-error-dialog').close();
-};
 
 // Sync folds the old Fetch + Pull into one action: fetch to refresh the
 // ahead/behind counts, then pull to fast-forward/merge the remote in.

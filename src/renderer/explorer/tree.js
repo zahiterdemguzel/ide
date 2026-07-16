@@ -2,7 +2,7 @@ import { fileColor } from '../shared/ext.js';
 import { fileIcon, folderIcon, setFolderIcon } from '../shared/file-icon-img.js';
 import { openFromTree } from '../viewer/center.js';
 import { promptText } from '../shared/prompt.js';
-import { confirmDialog } from '../shared/confirm.js';
+import { confirmDialog, noticeDialog } from '../shared/confirm.js';
 import { sendToActiveSession } from '../sessions.js';
 
 // --- file explorer (left, below sessions) ---
@@ -32,7 +32,7 @@ async function deleteEntry(rel, dir) {
   if (!okToDelete) return;
   const r = await window.api.deleteFile(rel);
   if (!r.ok) {
-    await confirmDialog({ title: 'Delete failed', message: r.error || 'Could not delete.', ok: 'OK' });
+    await noticeDialog({ title: 'Delete failed', message: r.error || 'Could not delete.' });
     return;
   }
   if (selected && selected.rel === rel) selected = null;
@@ -107,7 +107,7 @@ ctxMenu.addEventListener('click', async (e) => {
     const newRel = parts.slice(0, -1).concat(newName).join('/');
     const r = await window.api.renameFile(rel, newRel);
     if (!r.ok) {
-      await confirmDialog({ title: 'Rename failed', message: r.error || 'Could not rename.', ok: 'OK' });
+      await noticeDialog({ title: 'Rename failed', message: r.error || 'Could not rename.' });
       return;
     }
     if (selected && selected.rel === rel) selected = { rel: newRel, dir };

@@ -1,52 +1,34 @@
-// A minimal modal text prompt. Resolves to the trimmed input, or null if the
-// user cancels (Cancel button, backdrop click, or Escape). Only one is open at a
-// time. Enter confirms, Escape cancels.
+import { openDialog } from './dialog.js';
+
+// A modal text prompt. Resolves to the trimmed input, or null if the user
+// cancels (Cancel button, backdrop click, or Escape). Enter confirms.
 export function promptText({ title, label, placeholder = '', value = '', error = '', ok = 'Create' } = {}) {
-  return new Promise((resolve) => {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop';
+  return openDialog({
+    title,
+    label,
+    input: { placeholder, value, error },
+    cancelValue: null,
+    buttons: [
+      { label: 'Cancel', value: null, variant: 'secondary' },
+      // Empty input reads as "no name given", i.e. the same as cancelling.
+      { label: ok, value: (text) => text || null, variant: 'primary' },
+    ],
+  });
+}
 
-    const box = document.createElement('div');
-    box.className = 'modal';
-    box.innerHTML =
-      `<div class="modal-title"></div>` +
-      (label ? `<div class="modal-label"></div>` : '') +
-      `<input class="modal-input" type="text" />` +
-      `<div class="modal-error"></div>` +
-      `<div class="modal-actions">` +
-        `<button class="modal-cancel">Cancel</button>` +
-        `<button class="modal-ok"></button>` +
-      `</div>`;
-    box.querySelector('.modal-title').textContent = title || '';
-    if (label) box.querySelector('.modal-label').textContent = label;
-    if (error) box.querySelector('.modal-error').textContent = error;
-    box.querySelector('.modal-ok').textContent = ok;
-
-    const input = box.querySelector('.modal-input');
-    input.placeholder = placeholder;
-    input.value = value;
-
-    function close(result) {
-      window.removeEventListener('keydown', onKey, true);
-      backdrop.remove();
-      resolve(result);
-    }
-    function confirm() {
-      const v = input.value.trim();
-      close(v || null);
-    }
-    function onKey(e) {
-      if (e.key === 'Escape') { e.preventDefault(); close(null); }
-      else if (e.key === 'Enter') { e.preventDefault(); confirm(); }
-    }
-
-    box.querySelector('.modal-ok').onclick = confirm;
-    box.querySelector('.modal-cancel').onclick = () => close(null);
-    backdrop.onclick = (e) => { if (e.target === backdrop) close(null); };
-    window.addEventListener('keydown', onKey, true);
-
-    backdrop.appendChild(box);
-    document.body.appendChild(backdrop);
-    input.focus();
+// A modal option list (pickString run-config inputs): one row per option, which
+// may be a plain string or { label, value }. Resolves to the picked value, or
+// null if cancelled. `def` marks the default option.
+export function pickOption({ title, label, options = [], def } = {}) {
+  return openDialog({
+    title,
+    label,
+    cancelValue: null,
+    options: options.map((opt) => {
+      const value = typeof opt === 'object' && opt !== null ? opt.value : opt;
+      const text = typeof opt === 'object' && opt !== null ? (opt.label || opt.value) : opt;
+      return { label: text + (value === def ? ' (default)' : ''), value };
+    }),
+    buttons: [{ label: 'Cancel', value: null, variant: 'secondary' }],
   });
 }

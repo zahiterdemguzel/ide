@@ -444,24 +444,9 @@
     }
   </script>
   <script type="module" src="src/renderer/index.js"></script>
-  <dialog id="git-error-dialog">
-    <h3 id="git-error-title">Push failed</h3>
-    <div id="git-error-msg"></div>
-    <button id="git-error-ok">OK</button>
-  </dialog>
-  <dialog id="run-error-dialog">
-    <h3>Can't run this config</h3>
-    <div id="run-error-msg"></div>
-    <button id="run-error-ok">OK</button>
-  </dialog>
-  <dialog id="warn-dialog">
-    <h3 id="warn-title" data-i18n="warn.title">Something went wrong</h3>
-    <div id="warn-msg"></div>
-    <div class="warn-actions">
-      <button id="warn-copy" class="confirm-btn-secondary" data-i18n="warn.copy">Copy</button>
-      <button id="warn-ok" class="confirm-btn-primary" data-i18n="warn.ok">OK</button>
-    </div>
-  </dialog>
+  <!-- The confirm/prompt/warning/error dialogs aren't here: they're built by
+       src/renderer/shared/dialog.js, which owns their layout. -->
+
   <!-- Per-session model picker, opened by the New session split-button caret.
        Pre-filled from the settings defaults; the choice applies to just this one
        new session (see src/renderer/sessions.js). -->
@@ -586,7 +571,7 @@
         <div id="remote-qr-wrap" hidden>
           <div id="remote-qr"></div>
           <div id="remote-addr" class="settings-group-hint"></div>
-          <button id="remote-new-code" class="confirm-btn-secondary" data-i18n="remote.newCode">New code</button>
+          <button id="remote-new-code" class="settings-secondary" data-i18n="remote.newCode">New code</button>
         </div>
         <div class="settings-group-title" data-i18n="remote.devices">Paired devices</div>
         <div id="remote-device-list"></div>
@@ -610,14 +595,6 @@
     </div>
     <div class="settings-actions">
       <button id="settings-done" class="settings-primary" data-i18n="settings.done">Done</button>
-    </div>
-  </dialog>
-  <dialog id="confirm-dialog">
-    <h3 id="confirm-title"></h3>
-    <div id="confirm-msg"></div>
-    <div class="confirm-actions">
-      <button id="confirm-cancel" class="confirm-btn-secondary">Cancel</button>
-      <button id="confirm-ok" class="confirm-btn-primary">Open</button>
     </div>
   </dialog>
   <!-- Setup gate: a step-by-step wizard shown when the Claude Code CLI isn't

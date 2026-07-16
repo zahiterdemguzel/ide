@@ -29,6 +29,7 @@ const statusline = require('./statusline');
 // and never reaches back in here.
 const chat = require('./chat');
 const { keystrokes } = require('./ask-lib');
+const { PICKER_OPEN, PICKER_APPLY, modelMoves, effortMoves } = require('./model-picker');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
 //         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
@@ -779,6 +780,42 @@ bridge.handle('resume-session', guard('restoring a session', async (_e, { id, co
   return { ok: true, repo: getRepoPath() };
 }, { ok: false }));
 
+// The CLI's own settings file. The picker's effort slider starts wherever the last
+// applied effort left it, and the CLI persists that here ("saved as your default for
+// new sessions" — a typed /effort writes it too), so this is where a session whose
+// record carries no effort learns the slider's current stop. Read fresh per switch:
+// the CLI rewrites it behind our back.
+function cliSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(require('os').homedir(), '.claude', 'settings.json'), 'utf8')) || {};
+  } catch {
+    return {};
+  }
+}
+
+// Drive the Alt+P model picker (see model-picker.js): open, move, apply session-only.
+// Serialized per session so two quick badge taps can't interleave their arrows — the
+// moves are relative, so the second plan (computed against the record the first tap
+// already updated) is only right if the first plan's keys have landed.
+function drivePicker(s, id, moves) {
+  const run = async () => {
+    await waitForTui(s);
+    if (!sessions.get(id) || !s.pty) return;
+    s.pty.write(PICKER_OPEN);
+    // The picker has to be on screen before the arrows arrive — same wait as an ask.
+    await waitForPaint(s);
+    if (!sessions.get(id) || !s.pty) return;
+    if (moves) {
+      s.pty.write(moves);
+      await new Promise((r) => setTimeout(r, KEY_DELAY_MS));
+      if (!sessions.get(id) || !s.pty) return;
+    }
+    s.pty.write(PICKER_APPLY);
+  };
+  // A death mid-sequence (pty gone between guard and write) must not wedge the queue.
+  s.pickerQueue = (s.pickerQueue || Promise.resolve()).then(run).catch(() => {});
+}
+
 // Change a session's model. Originally fixed at spawn
 // (ANTHROPIC_MODEL via sessionEnv), the model can now be retargeted live — the
 // record is updated so it survives archive/resume and a restart (spawnPty re-applies
@@ -795,6 +832,9 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
   const chosen = typeof model === 'string' ? model.trim() : '';
   if (!chosen) return;
   const crossesOllamaBoundary = isOllamaId(s.model) !== isOllamaId(chosen);
+  // The row the picker's cursor sits on now: this switch's starting point. An unset
+  // record means the session inherited the CLI default (settings.json's `model`).
+  const prevModel = s.model || cliSettings().model;
   s.model = chosen;
   persistSession(id);
   // A live `/model <id>` can't cross the Claude<->Ollama boundary: that switch
@@ -814,7 +854,14 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
       .catch((err) => reportSessionError('respawning for model switch', err))
       .finally(() => { const cur = sessions.get(id); if (cur) cur.respawning = false; });
   } else if (s.pty) {
-    s.pty.write(`/model ${chosen}\r`);
+    // Prefer the Alt+P picker: a typed /model waits in the composer queue until the
+    // current turn ends; the picker is an overlay the TUI applies mid-turn, and its
+    // `s` key applies session-only (matching what this handler means). Rows we can't
+    // place — and a session blocked on a question, whose box would eat the keys —
+    // fall back to the typed command.
+    const moves = chat.currentAsk(id) ? null : modelMoves(prevModel, chosen);
+    if (moves === null) s.pty.write(`/model ${chosen}\r`);
+    else drivePicker(s, id, moves);
   }
   sendToRenderer('session-model', { id, model: chosen });
 }));
@@ -830,9 +877,20 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
   if (!s) return;
   const chosen = typeof effort === 'string' ? effort.trim().toLowerCase() : '';
   if (!chosen || (chosen !== AUTO && !cleanEffort(chosen))) return;
+  // Where the slider sits now: the record if this session was ever set, else the
+  // CLI-wide level every applied effort persists to settings.json. A record of
+  // `auto` means the CLI reset to the model's own default — a stop we can't name,
+  // so that (like a missing settings level) falls back to the typed command.
+  const prevEffort = s.effort === AUTO ? '' : (cleanEffort(s.effort) || cliSettings().effortLevel);
   s.effort = chosen;
   persistSession(id);
-  if (s.pty) s.pty.write(`/effort ${chosen}\r`);
+  if (s.pty) {
+    // Same story as the model above: the picker applies mid-turn, `/effort` queues.
+    // `auto` has no slider stop, so it keeps the typed path.
+    const moves = (chosen === AUTO || chat.currentAsk(id)) ? null : effortMoves(prevEffort, chosen);
+    if (moves === null) s.pty.write(`/effort ${chosen}\r`);
+    else drivePicker(s, id, moves);
+  }
   sendToRenderer('session-effort', { id, effort: chosen });
 }));
 
