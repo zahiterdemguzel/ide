@@ -76,6 +76,25 @@ if (!existsSync(androidDir) || staleConfig) {
   writeFileSync(configStamp, config);
 }
 
+// Every APK this script produces must run standalone. React Native's gradle
+// plugin skips JS bundling for "debuggable" variants (it expects a Metro dev
+// server on the same network), so a stock debug APK installed on a phone dies
+// with "Unable to load script … index.android.bundle". Emptying
+// debuggableVariants makes the debug variant bundle + Hermes-compile its JS
+// like release does, while still skipping R8 minification — so it stays the
+// fast build. Re-applied after every prebuild because prebuild regenerates
+// build.gradle.
+const appGradle = join(androidDir, 'app', 'build.gradle');
+const gradleSrc = readFileSync(appGradle, 'utf8');
+if (!gradleSrc.includes('debuggableVariants = []')) {
+  const anchor = 'bundleCommand = "export:embed"';
+  if (!gradleSrc.includes(anchor)) {
+    console.error(`Could not find react{} bundleCommand anchor in ${appGradle}`);
+    process.exit(1);
+  }
+  writeFileSync(appGradle, gradleSrc.replace(anchor, `${anchor}\n    debuggableVariants = []`));
+}
+
 // Give Gradle a large heap and turn on parallel + build caching. These live in
 // GRADLE_USER_HOME (not android/, which prebuild regenerates) so they survive.
 mkdirSync(gradleHome, { recursive: true });
