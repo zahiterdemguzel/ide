@@ -45,6 +45,10 @@ const PENDING_TTL_MS = 60_000;
 // a deliberate scroll up should stop the view from tracking the newest message.
 const BOTTOM_SLACK = 80;
 
+// How long the revert button stays armed after its first tap, waiting for the
+// confirming second one.
+const ARM_MS = 3000;
+
 export default function ChatScreen({ route, navigation }: any) {
   const { id, name } = route.params as { id: string; name?: string };
   const { conn } = useConnection();
@@ -68,6 +72,9 @@ export default function ChatScreen({ route, navigation }: any) {
   const [sending, setSending] = useState(false);
   const [stat, setStat] = useState<DiffStat | null>(null);
   const [committing, setCommitting] = useState(false);
+  const [reverting, setReverting] = useState(false);
+  const [armed, setArmed] = useState(false);
+  const disarm = useRef<ReturnType<typeof setTimeout>>();
   // What this session is running. Both are switchable from their badge in the bar above,
   // and both can also be changed from the desktop (its own badge menu, or a `/model` /
   // `/effort` typed into its terminal) — main pushes either change, so the badges follow.
@@ -145,7 +152,7 @@ export default function ChatScreen({ route, navigation }: any) {
   const drop = useCallback((uuid: string) => {
     setPending((p) => p.filter((m) => m.uuid !== uuid));
   }, []);
-  useEffect(() => () => { expire.current.forEach(clearTimeout); }, []);
+  useEffect(() => () => { expire.current.forEach(clearTimeout); clearTimeout(disarm.current); }, []);
 
   // Follow the conversation while the reader is at the bottom of it — but never yank
   // the view down while they are reading further up.
@@ -221,6 +228,36 @@ export default function ChatScreen({ route, navigation }: any) {
     }
   };
 
+  // Revert throws work away, so it takes two taps: the first arms the button and
+  // relabels it, the second fires. The arming lapses on its own so a stray tap
+  // can't leave a live trigger sitting under the user's thumb.
+  const revert = async () => {
+    if (reverting || !conn || !files) return;
+    if (!armed) {
+      setArmed(true);
+      clearTimeout(disarm.current);
+      disarm.current = setTimeout(() => setArmed(false), ARM_MS);
+      return;
+    }
+    clearTimeout(disarm.current);
+    setArmed(false);
+    setReverting(true);
+    try {
+      const r = await conn.req<{ ok: boolean; stderr?: string; skipped?: string[] }>('revert-session', id);
+      if (!r?.ok) showError('Revert failed', r?.stderr || 'Revert failed');
+      else {
+        // A skip isn't a failure — another live session owns those files, and
+        // saying nothing would read as "reverted" for changes still on disk.
+        if (r.skipped?.length) showError('Some files kept', `Still changed by another session:\n${r.skipped.join('\n')}`);
+        refreshStat();
+      }
+    } catch (e: any) {
+      showError('Revert failed', e);
+    } finally {
+      setReverting(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.fill} edges={['top']}>
       <View style={styles.bar}>
@@ -264,17 +301,32 @@ export default function ChatScreen({ route, navigation }: any) {
       </View>
 
       {files > 0 && (
-        <Pressable
-          onPress={commit}
-          disabled={committing}
-          style={({ pressed }) => [styles.commit, pressed && !committing && styles.commitPressed]}
-        >
-          {committing && <ActivityIndicator size="small" color="#fff" />}
-          <Ionicons name="git-commit-outline" size={15} color="#fff" />
-          <Text style={styles.commitText}>
-            {committing ? 'Writing commit message…' : `Commit ${files} file${files > 1 ? 's' : ''}`}
-          </Text>
-        </Pressable>
+        <View style={styles.actions}>
+          <Pressable
+            onPress={commit}
+            disabled={committing || reverting}
+            style={({ pressed }) => [styles.commit, pressed && !committing && styles.commitPressed]}
+          >
+            {committing && <ActivityIndicator size="small" color="#fff" />}
+            <Ionicons name="git-commit-outline" size={15} color="#fff" />
+            <Text style={styles.commitText}>
+              {committing ? 'Writing commit message…' : `Commit ${files} file${files > 1 ? 's' : ''}`}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={revert}
+            disabled={committing || reverting}
+            accessibilityLabel={armed ? 'Confirm revert' : 'Revert session changes'}
+            style={({ pressed }) => [styles.revert, armed && styles.revertArmed, pressed && !reverting && styles.revertPressed]}
+          >
+            <View style={styles.revertIcon}>
+              {reverting
+                ? <ActivityIndicator size="small" color={color.redSoft} />
+                : <Ionicons name="arrow-undo-outline" size={15} color={color.redSoft} />}
+            </View>
+            <Text style={styles.revertText}>{armed ? 'Sure?' : 'Revert'}</Text>
+          </Pressable>
+        </View>
       )}
 
       <KeyboardAvoidingView
@@ -639,16 +691,34 @@ const styles = StyleSheet.create({
   stopPressed: { backgroundColor: color.raisedHi },
   stopOff: { backgroundColor: 'transparent', borderColor: color.border },
 
+  actions: { flexDirection: 'row', alignItems: 'stretch', gap: space.sm, marginHorizontal: space.md, marginTop: 10 },
+
   // A banner, not a bar: it floats over the transcript with the green shadow every
   // commit action in the system carries.
   commit: {
+    flex: 1,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm,
-    marginHorizontal: space.md, marginTop: 10,
     paddingVertical: 11, borderRadius: 12, backgroundColor: color.greenDeep,
     ...shadow.button,
   },
   commitPressed: { backgroundColor: color.green },
   commitText: { color: '#fff', fontSize: font.size.sm, fontWeight: '700' },
+
+  // Outlined, not filled: reverting is the destructive twin of commit, and it
+  // shouldn't compete with it for the tap.
+  revert: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.xs,
+    paddingHorizontal: space.md, paddingVertical: 11, borderRadius: 12,
+    backgroundColor: color.raised, borderWidth: 1, borderColor: tint.line(color.red),
+  },
+  revertArmed: { backgroundColor: tint.line(color.red), borderColor: color.red },
+  revertPressed: { backgroundColor: color.raisedHi },
+  // Fixed slots, both of them: this button flexes with its content and Commit takes
+  // the rest of the row, so a narrower label ("Sure?") or a wider glyph (the spinner)
+  // would slide the Commit button sideways under a thumb already on its way down.
+  // The width is the resting label's, the wider of the two.
+  revertIcon: { width: 15, alignItems: 'center' },
+  revertText: { minWidth: 48, textAlign: 'center', color: color.redSoft, fontSize: font.size.sm, fontWeight: '700' },
 
   listBody: { paddingVertical: space.md, flexGrow: 1 },
 
