@@ -107,11 +107,24 @@ test('salvageToolCall: recovers a fenced/bare/wrapped JSON call for a known tool
   );
 });
 
-test('salvageToolCall: refuses prose+JSON, unknown tools, and non-calls', () => {
+test('salvageToolCall: extracts a call buried in prose (the real weak-model case)', () => {
+  const names = ['Glob', 'Read'];
+  const reply = 'Great! Here\'s how you can use the Glob tool:\n\n{\n  "name": "Glob",\n  "arguments": { "pattern": "**/styles/**/*.css" }\n}\n\nThis will find the files.';
+  assert.deepEqual(
+    salvageToolCall(reply, names),
+    [{ function: { name: 'Glob', arguments: { pattern: '**/styles/**/*.css' } } }],
+  );
+  // braces inside a JSON string don't break the balanced-object scan
+  assert.deepEqual(
+    salvageToolCall('do this: {"name":"Read","arguments":{"path":"a{b}.txt"}} ok', names),
+    [{ function: { name: 'Read', arguments: { path: 'a{b}.txt' } } }],
+  );
+});
+
+test('salvageToolCall: refuses unknown tools and non-calls', () => {
   const names = ['Edit'];
-  assert.equal(salvageToolCall('Sure! {"name":"Edit","arguments":{}}', names), null); // not the whole reply
-  assert.equal(salvageToolCall('{"name":"Nope","arguments":{}}', names), null); // unknown tool
-  assert.equal(salvageToolCall('{"foo":"bar"}', names), null); // no name
+  assert.equal(salvageToolCall('Sure! {"name":"Nope","arguments":{}} done', names), null); // unknown tool
+  assert.equal(salvageToolCall('here is data {"foo":"bar"}', names), null); // no name
   assert.equal(salvageToolCall('{"name":"Edit","arguments":[1,2]}', names), null); // args not an object
   assert.equal(salvageToolCall('just a normal answer', names), null);
   assert.equal(salvageToolCall('{"name":"Edit"}', []), null); // no tools offered

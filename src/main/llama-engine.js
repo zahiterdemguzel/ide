@@ -188,17 +188,21 @@ async function chat(ollamaBody = {}, { onChunk, signal } = {}) {
     });
 
     let toolCalls = toToolCalls(res.functionCalls);
-    let heldAsCall = false;
+    let salvaged = false;
     if (!toolCalls.length && toolNames.length) {
-      const salvaged = salvageToolCall(text, toolNames);
-      if (salvaged) { toolCalls = salvaged; heldAsCall = true; }
+      const s = salvageToolCall(text, toolNames);
+      if (s) { toolCalls = s; salvaged = true; }
     }
-    if (!heldAsCall) flushPending(); // deliver buffered text unless it *was* the tool call
+    // Suppress the reply text only when we HELD it as a pure tool call (never streamed
+    // it). If the call was buried in prose we already streamed, keep the prose and just
+    // append the tool_use.
+    const suppressText = salvaged && mode === 'hold';
+    if (!suppressText) flushPending();
 
     const reason = doneReason(res.metadata && res.metadata.stopReason);
     emit({ model: name, message: { role: 'assistant', content: '', tool_calls: toolCalls.length ? toolCalls : undefined }, done: true, done_reason: reason, prompt_eval_count: 0, eval_count: 0 });
 
-    return { model: name, message: { role: 'assistant', content: heldAsCall ? '' : text, tool_calls: toolCalls }, done: true, done_reason: reason, prompt_eval_count: 0, eval_count: 0 };
+    return { model: name, message: { role: 'assistant', content: suppressText ? '' : text, tool_calls: toolCalls }, done: true, done_reason: reason, prompt_eval_count: 0, eval_count: 0 };
   });
 }
 

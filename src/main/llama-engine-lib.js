@@ -97,30 +97,68 @@ function looksLikeToolCallStart(text) {
   return t.startsWith('```') || t.startsWith('{') || t.startsWith('<tool_call>');
 }
 
-// Salvage a single tool call from model TEXT when the native parser found none but
-// tools were offered — so small models that print `{"name":…,"arguments":…}` (often
-// in a ```json fence or <tool_call> wrapper) instead of calling natively are still
-// usable as agents. Deliberately strict: the whole reply must be exactly one JSON
-// object naming a KNOWN tool — never prose mixed with JSON — so a normal answer that
-// merely contains braces is never mistaken for a call. Returns Ollama-shaped
-// tool_calls (`[{ function: { name, arguments } }]`) or null.
-function salvageToolCall(text, toolNames) {
-  if (!text || !Array.isArray(toolNames) || !toolNames.length) return null;
-  let s = String(text).trim();
-  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(s);
-  if (fence) s = fence[1].trim();
-  const wrapped = /^<tool_call>\s*([\s\S]*?)\s*<\/tool_call>$/i.exec(s);
-  if (wrapped) s = wrapped[1].trim();
-  if (!s.startsWith('{') || !s.endsWith('}')) return null;
-  let obj;
-  try { obj = JSON.parse(s); } catch { return null; }
-  if (!obj || typeof obj !== 'object') return null;
+// A parsed `{ name, arguments }` object -> an Ollama tool_call, but only when it
+// actually names a KNOWN tool (so a random JSON object in a normal answer is never
+// mistaken for a call). `arguments` may be an object or absent (a no-arg tool).
+function asToolCall(obj, toolNames) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
   const name = typeof obj.name === 'string' ? obj.name : null;
   if (!name || !toolNames.includes(name)) return null;
-  // arguments may be an object, or absent (a no-arg tool); anything else isn't a call.
   const args = obj.arguments === undefined ? {} : obj.arguments;
   if (args === null || typeof args !== 'object' || Array.isArray(args)) return null;
-  return [{ function: { name, arguments: args } }];
+  return { function: { name, arguments: args } };
+}
+
+// Every top-level balanced `{...}` substring, honoring string literals so a brace
+// inside a JSON string doesn't throw off the nesting. Used to find a tool-call
+// object even when the model buried it in prose.
+function jsonObjectCandidates(text) {
+  const s = String(text);
+  const out = [];
+  for (let i = 0; i < s.length; i += 1) {
+    if (s[i] !== '{') continue;
+    let depth = 0; let inStr = false; let esc = false;
+    for (let j = i; j < s.length; j += 1) {
+      const ch = s[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+      } else if (ch === '"') inStr = true;
+      else if (ch === '{') depth += 1;
+      else if (ch === '}') { depth -= 1; if (depth === 0) { out.push(s.slice(i, j + 1)); i = j; break; } }
+    }
+  }
+  return out;
+}
+
+// Salvage a tool call from model TEXT when the native parser found none but tools
+// were offered — so small models that print `{"name":…,"arguments":…}` instead of
+// calling natively are still usable as agents. It scans, in order of confidence, the
+// whole trimmed reply, any ```json fence / <tool_call> wrapper, and finally any bare
+// balanced `{...}` object embedded in prose ("Here's how you can use the Glob tool:
+// {…}"), returning the first object that names a KNOWN tool. Requiring a known tool
+// name keeps a normal answer that merely contains JSON from being read as a call.
+// Returns Ollama-shaped tool_calls (`[{ function: { name, arguments } }]`) or null.
+function salvageToolCall(text, toolNames) {
+  if (!text || !Array.isArray(toolNames) || !toolNames.length) return null;
+  const raw = String(text);
+  const candidates = [];
+  const trimmed = raw.trim();
+  candidates.push(trimmed);
+  const push = (re) => { let m; while ((m = re.exec(raw)) !== null) candidates.push(m[1].trim()); };
+  push(/```(?:json)?\s*([\s\S]*?)```/gi);
+  push(/<tool_call>\s*([\s\S]*?)<\/tool_call>/gi);
+  for (const obj of jsonObjectCandidates(raw)) candidates.push(obj);
+
+  for (const c of candidates) {
+    if (!c || c[0] !== '{') continue;
+    let obj;
+    try { obj = JSON.parse(c); } catch { continue; }
+    const call = asToolCall(obj, toolNames);
+    if (call) return [call];
+  }
+  return null;
 }
 
 module.exports = {

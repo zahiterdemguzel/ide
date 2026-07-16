@@ -63,15 +63,18 @@ Anthropic ⇄ the model, set per-session via `ANTHROPIC_BASE_URL`.
 
    **Weak models: tool calls printed as text are salvaged.** Small models (1.5–3B)
    often can't emit the native tool-call tokens and instead print `{"name":…,
-   "arguments":…}` as text (often in a ```json fence), so the CLI never executes the
-   tool. When the native parser returns no calls but tools were offered, `chat()`
-   withholds streaming a reply that *starts* like a call (`looksLikeToolCallStart`) and,
-   if the whole reply is exactly one JSON object naming a known tool
-   (`salvageToolCall`, both pure + tested in `llama-engine-lib.js`), converts it into a
-   real `tool_use` — so even weak models drive the agent loop. Verified end-to-end
-   against the real `claude` CLI (a salvaged `Read` call executed and its result came
-   back on the next turn). Bigger tool-capable models (Qwen2.5-Coder-7B+) emit native
-   calls and are far more reliable; catalog models all have a 32k+ context.
+   "arguments":…}` as text — either the whole reply, or **buried in prose** ("Here's
+   how you can use the Glob tool: {…}") — so the CLI never executes the tool. When the
+   native parser returns no calls but tools were offered, `salvageToolCall` scans the
+   reply (whole reply, ```json fences, `<tool_call>` wrappers, and any bare balanced
+   `{…}` object) for the first JSON object naming a **known** tool and converts it into
+   a real `tool_use`; a pure-call reply is also withheld from the stream
+   (`looksLikeToolCallStart` → `mode='hold'`) so the raw JSON isn't shown, while a
+   prose-wrapped call keeps the prose and just appends the `tool_use`. Both helpers are
+   pure + tested in `llama-engine-lib.js`. Verified end-to-end against the real `claude`
+   CLI (salvaged `Read`/`Glob` calls executed and their results came back on the next
+   turn). Bigger tool-capable models (Qwen2.5-Coder-7B+) emit native calls and are far
+   more reliable; catalog models all have a 32k+ context.
 3. **Model management** — `src/main/ollama.js` is the thin IPC shell (via
    `remote-bridge`), delegating to the engine: `ollama-status`/`ollama-ensure`
    (starts the proxy + reports detected RAM/VRAM), `ollama-catalog` (a curated browse
