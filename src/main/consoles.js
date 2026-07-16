@@ -139,6 +139,9 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env, name, ki
     scroll: newScroll(),
   };
   consoles.set(id, entry);
+  // A restart reuses the id, so a phone already attached to this terminal keeps
+  // listening — tell it the fresh PTY's dimensions (a no-op for a brand-new id).
+  sendToRenderer('term-resized', { id, cols: p.cols, rows: p.rows });
   // Run `command` only once the shell is ready to accept it. Writing it the instant
   // the PTY spawns races the shell's startup: zsh in particular hasn't initialised
   // its line editor (ZLE) until it has sourced its rc files and printed its first
@@ -192,8 +195,11 @@ bridge.handle('term-list', () => terminalList());
 // can drop live chunks it already has.
 bridge.handle('term-scrollback', (_e, id) => {
   const c = consoles.get(id);
-  if (!c) return { data: '', seq: 0 };
-  return { data: c.scroll.chunks.join(''), seq: c.scroll.seq };
+  if (!c) return { data: '', seq: 0, cols: 0, rows: 0 };
+  // cols/rows ride along so a phone can mirror the PTY's geometry: the retained
+  // bytes were painted for these dimensions, and replaying them into an xterm
+  // fitted to phone width lands every cursor move in the wrong cell.
+  return { data: c.scroll.chunks.join(''), seq: c.scroll.seq, cols: c.pty.cols, rows: c.pty.rows };
 });
 bridge.on('term-input', (_e, { id, data }) => {
   const c = consoles.get(id);
@@ -201,7 +207,11 @@ bridge.on('term-input', (_e, { id, data }) => {
 });
 bridge.on('term-resize', (_e, { id, cols, rows }) => {
   const c = consoles.get(id);
-  if (c) try { c.pty.resize(cols, rows); } catch { /* race on close */ }
+  if (!c) return;
+  try { c.pty.resize(cols, rows); } catch { return; /* race on close */ }
+  // An attached phone mirrors the PTY's geometry, so it must follow a desktop-side
+  // resize or its rendering drifts back into misplaced cursor moves.
+  sendToRenderer('term-resized', { id, cols, rows });
 });
 bridge.on('term-kill', (_e, { id }) => killConsole(id));
 

@@ -59,6 +59,9 @@ test('remote events filter', () => {
   // Who holds a session is pushed too, so a phone other than the holder learns when it
   // is claimed or released (including on a dropped socket).
   assert.equal(proto.isRemoteEvent('session-control'), true);
+  // PTY geometry changes are pushed so an attached phone keeps mirroring the grid
+  // the byte stream is painted for.
+  assert.equal(proto.isRemoteEvent('term-resized'), true);
   assert.equal(proto.isRemoteEvent('select-session'), false);
   // Specs for a phone-requested run go to the desktop renderer only — never back
   // out to the phone that asked.

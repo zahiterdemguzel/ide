@@ -52,7 +52,43 @@ const TERMINAL_HTML = `<!doctype html><html><head>
   fit.fit();
   const post = (m) => window.ReactNativeWebView.postMessage(JSON.stringify(m));
   term.onData((data) => post({ t: 'input', data }));
-  window.addEventListener('resize', () => { fit.fit(); post({ t: 'resize', cols: term.cols, rows: term.rows }); });
+
+  // --- Fixed geometry ---------------------------------------------------------
+  // The PTY keeps its desktop dimensions (this screen never resizes it — see
+  // ConsoleTerminal), and its byte stream is painted for exactly that grid: every
+  // cursor move, \\x1b[K rewrite and progress-bar repaint targets those columns.
+  // Fitting the terminal to the phone's width instead put all of that in the wrong
+  // cell — output landed mid-screen, on top of earlier text. So once the parent
+  // learns the PTY's cols/rows it pins the terminal to them, and we shrink the font
+  // until that many columns fit across the phone. Small text beats scrambled text.
+  let dims = null;
+  const gauge = document.createElement('canvas').getContext('2d');
+  const cellW = (fs) => {
+    gauge.font = fs + 'px ' + term.options.fontFamily;
+    // xterm rounds each cell up to whole device pixels, so match that.
+    return Math.ceil(gauge.measureText('W').width * devicePixelRatio) / devicePixelRatio;
+  };
+  const applyDims = () => {
+    if (!dims) return;
+    const avail = host.clientWidth || window.innerWidth;
+    let fs = 14;
+    while (fs > 6 && dims.cols * cellW(fs) > avail) fs--;
+    term.options.fontSize = fs;
+    term.resize(dims.cols, dims.rows);
+    term.scrollToBottom();
+  };
+  window.__setDims = (cols, rows) => {
+    if (dims && dims.cols === cols && dims.rows === rows) return;
+    dims = { cols, rows };
+    applyDims();
+  };
+
+  window.addEventListener('resize', () => {
+    // While pinned to the PTY's grid, a viewport change (keyboard, rotation) only
+    // re-derives the font size — never the cols/rows, which belong to the PTY.
+    if (dims) applyDims(); else fit.fit();
+    post({ t: 'resize', cols: term.cols, rows: term.rows });
+  });
   post({ t: 'resize', cols: term.cols, rows: term.rows });
   // RN injects output via window.__write(base64) — base64 survives quoting.
   window.__write = (b64) => term.write(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
@@ -195,6 +231,11 @@ export type XtermHandle = {
   write: (data: string) => void;
   copy: () => void;
   setSelect: (on: boolean) => void;
+  // Pin the terminal to the PTY's own cols/rows (font shrinks to fit the width).
+  // Without this the terminal fits itself to the phone and every cursor-positioned
+  // byte in the stream paints in the wrong cell.
+  setDims: (cols: number, rows: number) => void;
+  toBottom: () => void;
 };
 
 type Props = {
@@ -225,6 +266,14 @@ export default forwardRef<XtermHandle, Props>(function XtermWebView(
     },
     setSelect(on: boolean) {
       web.current?.injectJavaScript(`window.__setSelect(${on ? 'true' : 'false'}); true;`);
+    },
+    setDims(cols: number, rows: number) {
+      if (cols > 0 && rows > 0) {
+        web.current?.injectJavaScript(`window.__setDims(${Math.floor(cols)}, ${Math.floor(rows)}); true;`);
+      }
+    },
+    toBottom() {
+      web.current?.injectJavaScript('window.__toBottom(); true;');
     },
   }), []);
 

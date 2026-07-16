@@ -12,14 +12,14 @@
 //     people can't type into one PTY), a run terminal is a shared shell; both ends
 //     stay live, exactly as two panes onto one tmux window would.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import XtermWebView, { XtermHandle } from '../components/XtermWebView';
 import { useConnection } from '../api/context';
 
-type Snapshot = { data: string; seq: number };
+type Snapshot = { data: string; seq: number; cols?: number; rows?: number };
 
 export default function ConsoleTerminal({ route, navigation }: any) {
   const { id, name } = route.params as { id: string; name?: string };
@@ -31,6 +31,18 @@ export default function ConsoleTerminal({ route, navigation }: any) {
   const [exited, setExited] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [input, setInput] = useState('');
+
+  // Typing goes through a native input bar, not xterm's hidden textarea: mobile
+  // IMEs (Android especially) feed the WebView composition events that xterm
+  // mangles or drops, so keystrokes typed "into" the terminal never reliably reach
+  // the PTY. A native TextInput has none of that — the line lands whole, and the
+  // Enter is part of the same write, exactly as a desktop keystroke sequence would.
+  const sendLine = () => {
+    conn?.send('term-input', { id, data: input + '\r' });
+    setInput('');
+    term.current?.toBottom();
+  };
 
   const write = useCallback((data: string) => term.current?.write(data), []);
 
@@ -43,6 +55,10 @@ export default function ConsoleTerminal({ route, navigation }: any) {
     let seq = 0;
     try {
       const snap = await conn.req<Snapshot>('term-scrollback', id);
+      // Pin the terminal to the PTY's grid *before* replaying: the retained bytes
+      // were painted for those dimensions, and replaying them into a phone-fitted
+      // terminal puts every cursor move in the wrong cell (text over text).
+      if (snap?.cols && snap?.rows) term.current?.setDims(snap.cols, snap.rows);
       if (snap?.data) write(snap.data);
       seq = snap?.seq ?? 0;
     } catch { /* offline — live output alone beats a dead screen */ }
@@ -62,6 +78,11 @@ export default function ConsoleTerminal({ route, navigation }: any) {
       // The shell exited, or the config was stopped from either end. Keep the output
       // on screen — it's usually the error you came to read.
       conn?.on('term-exit', (p: any) => { if (p.id === id) setExited(true); }),
+      // The PTY was resized at the desktop (or restarted under the same id) — follow
+      // it, since the byte stream is painted for exactly that grid.
+      conn?.on('term-resized', (p: any) => {
+        if (p.id === id && p.cols && p.rows) term.current?.setDims(p.cols, p.rows);
+      }),
     ];
     return () => offs.forEach((off) => off?.());
   }, [conn, id, write]);
@@ -119,12 +140,42 @@ export default function ConsoleTerminal({ route, navigation }: any) {
         </Text>
       )}
 
-      <XtermWebView
-        ref={term}
-        onInput={(data) => conn?.send('term-input', { id, data })}
-        onReady={attach}
-        onCopy={onCopy}
-      />
+      <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <XtermWebView
+          ref={term}
+          onInput={(data) => conn?.send('term-input', { id, data })}
+          onReady={attach}
+          onCopy={onCopy}
+        />
+        {!exited && (
+          <View style={styles.inputBar}>
+            {/* Ctrl+C — the one control key a shared shell needs from a phone:
+                stopping the running command without killing the whole terminal. */}
+            <Pressable
+              onPress={() => conn?.send('term-input', { id, data: '\x03' })}
+              hitSlop={8}
+              style={({ pressed }) => [styles.ctrlBtn, pressed && styles.chipPressed]}
+            >
+              <Text style={styles.ctrlText}>^C</Text>
+            </Pressable>
+            <TextInput
+              style={styles.input}
+              value={input}
+              onChangeText={setInput}
+              onSubmitEditing={sendLine}
+              placeholder="Type a command…"
+              placeholderTextColor="#7d8590"
+              autoCapitalize="none"
+              autoCorrect={false}
+              blurOnSubmit={false}
+              returnKeyType="send"
+            />
+            <Pressable onPress={sendLine} hitSlop={8} style={({ pressed }) => [styles.sendBtn, pressed && styles.chipPressed]}>
+              <Ionicons name="arrow-up" size={16} color="#e6edf3" />
+            </Pressable>
+          </View>
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -157,5 +208,25 @@ const styles = StyleSheet.create({
   hint: {
     color: '#7d8590', fontSize: 11, paddingHorizontal: 12, paddingVertical: 6,
     backgroundColor: '#161b22', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#30363d',
+  },
+  inputBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 8, paddingVertical: 6,
+    backgroundColor: '#161b22', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#30363d',
+  },
+  ctrlBtn: {
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6,
+    backgroundColor: '#21262d', borderWidth: 1, borderColor: '#30363d',
+  },
+  ctrlText: { color: '#7d8590', fontSize: 12, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  input: {
+    flex: 1, color: '#e6edf3', fontSize: 13,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    backgroundColor: '#0d1117', borderWidth: 1, borderColor: '#30363d', borderRadius: 6,
+    paddingHorizontal: 10, paddingVertical: 7,
+  },
+  sendBtn: {
+    padding: 8, borderRadius: 6,
+    backgroundColor: '#1f6feb', alignItems: 'center', justifyContent: 'center',
   },
 });

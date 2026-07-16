@@ -134,6 +134,9 @@ const REMOTE_EVENTS = new Set([
   'session-error',
   'term-data',
   'term-exit',
+  // the PTY's dimensions changed (desktop resize or restart) — an attached phone
+  // mirrors them, since the byte stream is painted for exactly that geometry
+  'term-resized',
   // the open terminals changed (opened/closed/restarted) — also how a phone tells
   // which launch configs are running, and 'run-configs-changed' when the .vscode
   // files themselves are edited
