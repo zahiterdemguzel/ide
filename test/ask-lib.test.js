@@ -75,6 +75,25 @@ test('keystrokes: a custom answer is the extra option, the words, then Enter', (
   ]);
 });
 
+test('keystrokes: a multiSelect question toggles each pick, then commits with Enter', () => {
+  // A multiSelect question does not auto-advance: its numbers toggle rows on and off, and
+  // Enter is what commits the set ("Enter to select"). The phone's card is the only client
+  // that produces `keys` — the desktop answers the box at its own terminal.
+  const ask = fromHook({
+    ...ASK,
+    tool_input: { questions: [{ ...ASK.tool_input.questions[0], multiSelect: true }] },
+  });
+  assert.deepEqual(keystrokes(ask, [{ keys: ['1', '2'] }]),
+    [{ key: '1' }, { key: '2' }, { key: '\r' }, { key: '1' }]);
+  // Options the question doesn't have are dropped, and a set of only those is no answer.
+  assert.deepEqual(keystrokes(ask, [{ keys: ['2', '9'] }]),
+    [{ key: '2' }, { key: '\r' }, { key: '1' }]);
+  assert.deepEqual(keystrokes(ask, [{ keys: [] }]), []);
+  // Words beat the toggles: a custom answer is still the "Type something." row.
+  assert.deepEqual(keystrokes(ask, [{ keys: ['1'], text: 'Neither' }]),
+    [{ key: '3' }, { text: 'Neither' }, { key: '\r' }, { key: '1' }]);
+});
+
 test('keystrokes: a half-answered box is not answered at all', () => {
   const ask = fromHook(ASK);
   // The submit keystroke would otherwise land on a question still waiting for an answer,

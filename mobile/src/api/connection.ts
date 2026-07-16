@@ -22,6 +22,12 @@ export class Connection {
   private stateListeners = new Set<(s: ConnectionState) => void>();
   private retry = 0;
   private closedByUser = false;
+  // App backgrounded: the OS freezes JS and the relay reaps the silent socket anyway,
+  // so we close it on purpose (zero battery cost) and reconnect the instant the app
+  // is foregrounded again — instead of coming back to a half-open socket that still
+  // claims `ready` while every request times out.
+  private suspended = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   // Fire-and-forget sends made while not `ready` are normally dropped. Callers that need
   // one to survive a brief reconnect opt in via `queue`, and
   // these are flushed in order the next time the socket reaches `ready`.
@@ -41,6 +47,8 @@ export class Connection {
 
   connect() {
     this.closedByUser = false;
+    this.suspended = false;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     this.setState('connecting');
     const ws = new WebSocket(this.url);
     this.ws = ws;
@@ -110,34 +118,63 @@ export class Connection {
     };
 
     ws.onclose = () => {
+      if (this.ws !== ws) return; // a replaced socket's late close must not touch the live one
       for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('connection closed')); }
       this.pending.clear();
       for (const w of this.fwdWaiters.values()) w.reject(new Error('connection closed'));
       this.fwdWaiters.clear();
       if (this.closedByUser) { if (this.state !== 'error') this.setState('closed'); return; }
+      if (this.suspended) { this.setState('closed'); return; } // resume() reconnects on foreground
       this.setState('connecting');
       // Reconnect to the relay with backoff. The relay may be cold-starting (free
       // hosting), so the first few attempts can fail before it answers.
       const delay = Math.min(1000 * 2 ** this.retry++, 15000);
-      setTimeout(() => { if (!this.closedByUser) this.connect(); }, delay);
+      this.reconnectTimer = setTimeout(() => { if (!this.closedByUser && !this.suspended) this.connect(); }, delay);
     };
     ws.onerror = () => ws.close();
   }
 
   close() {
     this.closedByUser = true;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     this.ws?.close();
     this.setState('closed');
+  }
+
+  // App went to background. The OS will freeze our JS and the relay's heartbeat will
+  // reap the silent socket regardless — holding it open buys nothing and costs radio
+  // wakeups. Drop it deliberately so resume() starts from a clean, known-dead state.
+  suspend() {
+    if (this.closedByUser) return; // unpaired / auth-err: stay closed
+    this.suspended = true;
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    this.ws?.close();
+  }
+
+  // App is foregrounded: reconnect immediately, with the backoff reset — the user is
+  // looking at the screen right now, so the first attempt should not inherit a delay
+  // accumulated while the app slept.
+  resume() {
+    if (this.closedByUser) return;
+    this.retry = 0;
+    if (this.state !== 'ready') { this.connect(); return; }
+    this.suspended = false;
   }
 
   req<T = unknown>(ch: string, args?: unknown): Promise<T> {
     if (this.state !== 'ready' || !this.ws) return Promise.reject(new Error('not connected'));
     const id = this.nextId++;
-    this.ws.send(JSON.stringify({ t: 'req', id, ch, args }));
+    const ws = this.ws;
+    ws.send(JSON.stringify({ t: 'req', id, ch, args }));
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`request timed out: ${ch}`));
+        // A timeout usually means the socket is half-open (Wi-Fi↔cell switch, NAT
+        // reset) — the OS won't tell us for minutes. Close it so onclose fires and
+        // the normal reconnect path heals it, instead of every later request also
+        // burning 20s. Event-driven: no keepalive pings, no battery cost.
+        if (this.ws === ws && this.state === 'ready') ws.close();
       }, REQ_TIMEOUT_MS);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
     });

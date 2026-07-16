@@ -76,6 +76,36 @@ function toolTitle(name, input, cwd) {
   }
 }
 
+// An Edit/Write result entry carries the CLI's own `structuredPatch` (unified-diff
+// hunks with real line numbers). Reduced here to the rows a chat card draws: signed
+// lines with the number they land on, plus the +N/−N totals for the header badge.
+const MAX_DIFF_LINES = 40;
+
+function diffFromPatch(patch) {
+  if (!Array.isArray(patch) || !patch.length) return null;
+  const lines = [];
+  let added = 0;
+  let removed = 0;
+  for (const h of patch) {
+    if (!h || !Array.isArray(h.lines)) continue;
+    let oldN = Number(h.oldStart) || 1;
+    let newN = Number(h.newStart) || 1;
+    for (const raw of h.lines) {
+      const s = String(raw);
+      const sign = s[0] === '+' || s[0] === '-' ? s[0] : ' ';
+      if (sign === '+') added += 1;
+      if (sign === '-') removed += 1;
+      if (lines.length < MAX_DIFF_LINES) {
+        lines.push({ n: sign === '-' ? oldN : newN, sign, text: clip(s.slice(1), 200) });
+      }
+      if (sign !== '+') oldN += 1;
+      if (sign !== '-') newN += 1;
+    }
+  }
+  if (!added && !removed) return null;
+  return { added, removed, lines };
+}
+
 // A tool_result's content is a string on some CLI versions and a content-block array
 // on others; an error result is flagged rather than typed.
 function resultText(content) {
@@ -153,6 +183,8 @@ function applyEntry(state, e) {
         if (!target) continue;
         target.block.status = r.is_error ? 'error' : 'ok';
         target.block.output = clip(resultText(r.content).trim(), MAX_OUTPUT);
+        const diff = diffFromPatch(e.toolUseResult?.structuredPatch);
+        if (diff) target.block.diff = diff;
         touched = target.msg;
       }
       return touched;

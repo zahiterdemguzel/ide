@@ -8,11 +8,16 @@ import { Connection } from './connection';
 
 export type ToolStatus = 'running' | 'ok' | 'error';
 
+// An Edit/Write call arrives with the CLI's own diff of what it changed: signed lines
+// with the line number each lands on, plus the +N/−N totals for the header badge.
+export type DiffLine = { n: number; sign: '+' | '-' | ' '; text: string };
+export type Diff = { added: number; removed: number; lines: DiffLine[] };
+
 export type Block =
   | { t: 'text'; text: string }
   | { t: 'thinking'; text: string }
   | { t: 'image' }
-  | { t: 'tool'; id: string; name: string; title: string; status: ToolStatus; output: string };
+  | { t: 'tool'; id: string; name: string; title: string; status: ToolStatus; output: string; diff?: Diff };
 
 export type Message = { uuid: string; role: 'user' | 'assistant'; ts: string; blocks: Block[] };
 
@@ -32,8 +37,9 @@ export type AskQuestion = {
 };
 export type Ask = { kind: 'question' | 'permission'; questions: AskQuestion[]; submitKey: string };
 
-// One answer per question: an option's key, or words typed instead of picking one.
-export type Answer = { key?: string; text?: string };
+// One answer per question: an option's key, several keys when the question is
+// multiSelect, or words typed instead of picking any.
+export type Answer = { key?: string; keys?: string[]; text?: string };
 
 export type Transcript = { messages: Message[]; seq: number; ask: Ask | null };
 

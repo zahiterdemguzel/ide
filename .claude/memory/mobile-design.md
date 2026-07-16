@@ -192,12 +192,18 @@ Worth knowing before "fixing" one of these back:
   back chevron (so: pushed) but never mocks an entry point, and every other mock shows a
   strictly 4-tab bar. The bell in `ScreenHeader` is that entry point — invented, because
   the design left the hole.
-- **Alerts are two kinds, not the mock's five.** `3e` draws waiting-for-answer,
-  session-finished, committed-and-pushed, push-rejected and approaching-usage-limit;
-  `AlertKind` keeps only `error` and `usage`. An alerts list is for what needs attention:
+- **Alerts are three kinds, not the mock's five — and they're real, not a fixture.**
+  `3e` draws waiting-for-answer, session-finished, committed-and-pushed, push-rejected
+  and approaching-usage-limit; `AlertKind` keeps `input` (green), `error` (red) and
+  `usage` (yellow) — one colour per kind. An alerts list is for what needs attention:
   a run finishing or a push landing is routine good news, already visible on the sessions
-  list, and three of those five would bury the one that actually went wrong. This is a
-  decision, not an omission — restoring them re-opens it.
+  list, and would bury the one that actually went wrong. This is a decision, not an
+  omission — restoring them re-opens it. `AlertFeed` (mounted once in `App.tsx`, inside
+  the provider) derives alerts on the phone from what the connection already pushes:
+  `status` transitions into `needs-input`/`interrupted` (deduped per session; a stale
+  `input` alert is dropped when the session moves on) and a 60s `get-usage` poll that
+  warns once per 5-hour window above 75%. The store is in-memory only; a protocol-side
+  alert log (`query-notifications`/`notifications-changed`) would replace only AlertFeed.
 - **The usage ring keeps the green→yellow→red ramp** rather than the mock's flat green,
   and carries a **centre label**: the arc is how much of the 5-hour window is spent, the
   middle is when it comes back. Fitting a label is why it's 30px with a 2.5 stroke rather

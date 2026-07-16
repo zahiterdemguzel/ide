@@ -2,8 +2,8 @@
 // happened while the phone was in your pocket. Tapping one goes to the session it
 // came from.
 //
-// The alerts themselves are still a fixture: see the TODO at the top of
-// api/notifications.ts for what wiring them to the desktop actually needs.
+// The alerts are real: AlertFeed (api/notifications.ts) derives them from the
+// connection's own pushes — nothing here is a fixture.
 
 import React, { useEffect } from 'react';
 import { View, Text, Pressable, SectionList, StyleSheet } from 'react-native';

@@ -13,7 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform,
-  Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
+  Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -30,7 +30,7 @@ import {
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, MODELS, effortName, modelBadgeName,
 } from '../api/models';
-import { color, font, radius, space, shadow, tint } from '../theme';
+import { color, font, radius, space, shadow, tint, type } from '../theme';
 
 type DiffStat = { additions: number; deletions: number; files: number };
 
@@ -291,9 +291,13 @@ export default function ChatScreen({ route, navigation }: any) {
             keyExtractor={(m) => m.uuid}
             renderItem={({ item }) => <MessageView message={item} pending={(item as Pending).pending} />}
             contentContainerStyle={styles.listBody}
-            // Both are "the conversation grew or the room for it shrank": a new message,
-            // and the keyboard or the ask card taking the bottom of the screen. Either
-            // one leaves the last message above the fold unless we follow it down.
+            // The ask card lives in the footer, so its buttons must survive an open
+            // keyboard (answering right after typing a custom reply).
+            keyboardShouldPersistTaps="handled"
+            // Both are "the conversation grew or the room for it shrank": a new message
+            // (or the ask card growing the footer), and the keyboard taking the bottom
+            // of the screen. Either one leaves the last message above the fold unless
+            // we follow it down.
             onContentSizeChange={scrollToEnd}
             onLayout={scrollToEnd}
             onScroll={(e) => {
@@ -306,11 +310,17 @@ export default function ChatScreen({ route, navigation }: any) {
             scrollEventThrottle={16}
             keyboardDismissMode="interactive"
             ListEmptyComponent={<Empty />}
-            ListFooterComponent={working ? <Working /> : null}
+            // The ask card scrolls *with* the conversation: it grows to whatever the
+            // question needs, and a reader gets back to earlier messages by scrolling
+            // the one list — a pinned card would wall them off behind it.
+            ListFooterComponent={
+              <>
+                {working && <Working />}
+                {ask && <AskCard ask={ask} onAnswer={answer} />}
+              </>
+            }
           />
         )}
-
-        {ask && <AskCard ask={ask} onAnswer={answer} />}
 
         <Composer
           commands={commands}
@@ -344,12 +354,6 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [writingTo, setWritingTo] = useState<number | null>(null);
   const [reply, setReply] = useState('');
-  // The card yields to the conversation, never the other way around: cap it well under
-  // half the screen so the transcript behind it stays readable and scrollable, and let
-  // anything past the cap scroll *inside* the card. The inner ScrollView also owns the
-  // touch handoff — a drag that starts on an option becomes a scroll, not a tap.
-  const { height } = useWindowDimensions();
-  const maxHeight = Math.round(height * 0.45);
 
   // A new question is a new answer — never carry the last one's into it.
   useEffect(() => { setAnswers([]); setWritingTo(null); setReply(''); }, [ask]);
@@ -364,30 +368,27 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
 
   const answered = (i: number) => {
     const a = answers[i];
-    return Boolean(a && (a.key || a.text));
+    return Boolean(a && (a.key || a.text || a.keys?.length));
   };
   const ready = ask.questions.every((_, i) => answered(i));
 
   const label = (i: number) => {
     const a = answers[i];
     if (a?.text) return a.text;
-    return ask.questions[i].options.find((o) => o.key === a?.key)?.label ?? '';
+    const keys = a?.keys ?? (a?.key ? [a.key] : []);
+    return ask.questions[i].options
+      .filter((o) => keys.includes(o.key))
+      .map((o) => o.label)
+      .join(', ');
   };
 
   if (writingTo !== null) {
     const q = ask.questions[writingTo];
     return (
-      <View style={[styles.ask, { maxHeight }]}>
-        <ScrollView
-          bounces={false}
-          nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.askBody}
-        >
-        <View style={styles.askHead}>
-          <Ionicons name="create-outline" size={16} color={color.green} />
-          <Text style={styles.askText}>{q.question}</Text>
-        </View>
+      <View style={styles.ask}>
+        <AskCardHeader icon="create-outline" label="Your answer" />
+        <View style={styles.askBody}>
+        <Text style={[styles.askText, styles.askTextTight]}>{q.question}</Text>
         <TextInput
           value={reply}
           onChangeText={setReply}
@@ -415,19 +416,18 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
             <Text style={[styles.askBtnText, styles.askBtnTextPrimary]}>Use this answer</Text>
           </Pressable>
         </View>
-        </ScrollView>
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={[styles.ask, { maxHeight }]}>
-      <ScrollView
-        bounces={false}
-        nestedScrollEnabled
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.askBody}
-      >
+    <View style={styles.ask}>
+      <AskCardHeader
+        icon="help-circle"
+        label={ask.questions.length > 1 ? `Claude is asking · ${ask.questions.length} questions` : 'Claude is asking'}
+      />
+      <View style={styles.askBody}>
       {ask.questions.map((q, i) => (
         <AskQuestionView
           key={`${q.header}:${q.question}`}
@@ -454,7 +454,19 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
           </Text>
         </Pressable>
       )}
-      </ScrollView>
+      </View>
+    </View>
+  );
+}
+
+// The strip every face of the card opens with, so the question list and the
+// write-your-own view read as one surface: a green category label — the same
+// role the app's NEEDS YOU headers play — over the card body.
+function AskCardHeader({ icon, label }: { icon: any; label: string }) {
+  return (
+    <View style={styles.askCardHead}>
+      <Ionicons name={icon} size={15} color={color.green} />
+      <Text style={styles.askCardHeadText}>{label.toUpperCase()}</Text>
     </View>
   );
 }
@@ -471,7 +483,10 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite
   onWrite: () => void;
 }) {
   const [open, setOpen] = useState(true);
-  const done = Boolean(chosen && (chosen.key || chosen.text));
+  // A multiSelect question can't commit on a tap: the tap is a toggle, and only the
+  // reader knows when the set is complete.
+  const [picked, setPicked] = useState<string[]>([]);
+  const done = Boolean(chosen && (chosen.key || chosen.text || chosen.keys?.length));
 
   if (done && !open) {
     return (
@@ -490,34 +505,62 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite
 
   return (
     <View style={styles.askGroup}>
-      <View style={styles.askHead}>
-        <Ionicons name={index === 0 ? 'help-circle' : 'ellipse-outline'} size={16} color={color.green} />
-        <View style={styles.askBtnGrow}>
-          {total > 1 && <Text style={styles.askHeader}>{q.header || `Question ${index + 1} of ${total}`}</Text>}
-          <Text style={[styles.askText, styles.askTextTight]}>{q.question}</Text>
-        </View>
+      <View>
+        {total > 1 && <Text style={styles.askHeader}>{q.header || `Question ${index + 1} of ${total}`}</Text>}
+        <Text style={[styles.askText, styles.askTextTight]}>{q.question}</Text>
       </View>
       <View style={styles.askOptions}>
-        {q.options.map((o, i) => (
+        {q.options.map((o, i) => {
+          // Single-select highlights the first option, which is the one Claude leads with.
+          // Multi-select highlights what *you* have toggled on — a standing "recommended"
+          // tint would be indistinguishable from a row you had already chosen.
+          const on = q.multiSelect ? picked.includes(o.key) : i === 0;
+          return (
+            <Pressable
+              key={o.key}
+              onPress={() => (q.multiSelect
+                ? setPicked((p) => (p.includes(o.key) ? p.filter((k) => k !== o.key) : [...p, o.key]))
+                : pick({ key: o.key }))}
+              style={({ pressed }) => [
+                styles.askBtn,
+                on && styles.askBtnOn,
+                pressed && styles.askBtnPressed,
+              ]}
+            >
+              <View style={styles.askBtnRow}>
+                {q.multiSelect && (
+                  <Ionicons
+                    name={on ? 'checkbox' : 'square-outline'}
+                    size={16}
+                    color={on ? color.green : color.muted}
+                  />
+                )}
+                <Text style={[styles.askBtnText, styles.askBtnGrow, on && styles.askBtnTextOn]}>
+                  {o.label}
+                </Text>
+              </View>
+              {!!o.description && (
+                <Text style={styles.askDesc}>
+                  {o.description}
+                </Text>
+              )}
+            </Pressable>
+          );
+        })}
+        {q.multiSelect && (
           <Pressable
-            key={o.key}
-            onPress={() => pick({ key: o.key })}
+            disabled={!picked.length}
+            onPress={() => pick({ keys: picked })}
             style={({ pressed }) => [
-              styles.askBtn,
-              i === 0 && styles.askBtnPrimary,
-              pressed && styles.askBtnPressed,
+              styles.askBtn, styles.askBtnCenter,
+              !picked.length && styles.askBtnDim, pressed && styles.askBtnPressed,
             ]}
           >
-            <Text style={[styles.askBtnText, i === 0 && styles.askBtnTextPrimary]}>
-              {o.label}
+            <Text style={styles.askBtnText}>
+              {picked.length ? `Choose ${picked.length} selected` : 'Select one or more'}
             </Text>
-            {!!o.description && (
-              <Text style={[styles.askDesc, i === 0 && styles.askDescPrimary]} numberOfLines={3}>
-                {o.description}
-              </Text>
-            )}
           </Pressable>
-        ))}
+        )}
         {!!q.customKey && (
           <Pressable
             onPress={onWrite}
@@ -620,9 +663,10 @@ const styles = StyleSheet.create({
   emptyText: { color: color.muted, fontSize: font.size.sm, textAlign: 'center', lineHeight: 20 },
 
   // The one card in the app that glows: a blocked session is the only thing here
-  // that is actively waiting on you.
+  // that is actively waiting on you. It lives at the tail of the transcript and takes
+  // whatever height its question needs — the chat scrolls, the card never does.
   ask: {
-    marginHorizontal: space.md, marginBottom: 10,
+    marginHorizontal: space.md, marginTop: space.xs, marginBottom: space.sm,
     backgroundColor: color.surface,
     borderWidth: 1, borderColor: tint.glowLine(color.green),
     borderRadius: radius.card,
@@ -630,11 +674,15 @@ const styles = StyleSheet.create({
     shadowColor: color.green, shadowOpacity: 0.07, shadowRadius: 18,
     shadowOffset: { width: 0, height: 0 }, elevation: 3,
   },
-  // The scrollable inside of the card: the padding and gap live here so the card's
-  // rounded border clips the content instead of the content overflowing it.
+  askCardHead: {
+    flexDirection: 'row', alignItems: 'center', gap: space.sm,
+    paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: tint.fill(color.green),
+    borderBottomWidth: 1, borderBottomColor: tint.line(color.green),
+  },
+  askCardHeadText: { ...type.category, color: color.green },
   askBody: { padding: 14, gap: space.md },
   askGroup: { gap: space.md },
-  askHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
   askText: { flex: 1, color: color.text, fontSize: font.size.sm, lineHeight: 19, fontWeight: '600' },
   // The same question text when it sits inside a column that already flexes — `flex: 1`
   // there would collapse the line instead of wrapping it.
@@ -649,13 +697,17 @@ const styles = StyleSheet.create({
   },
   askDoneText: { color: color.text, fontSize: font.size.sm, fontWeight: '600' },
   askDesc: { color: color.muted, fontSize: font.size.xs, lineHeight: 16, marginTop: 3 },
-  askDescPrimary: { color: 'rgba(255,255,255,0.75)' },
   askBtn: {
     paddingHorizontal: space.md, paddingVertical: 10,
     borderRadius: radius.md,
     backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
   },
+  // The send CTA is the solid green every commit action carries; a *selected option*
+  // is the system's tint trio instead (wash fill, stronger line, solid text), so a
+  // choice reads as a state, not a second send button.
   askBtnPrimary: { backgroundColor: color.greenDeep, borderColor: color.greenDeep },
+  askBtnOn: { backgroundColor: tint.fillStrong(color.green), borderColor: tint.line(color.green) },
+  askBtnTextOn: { color: color.green },
   askBtnDim: { opacity: 0.45 },
   askBtnGhost: { backgroundColor: 'transparent' },
   askBtnPressed: { opacity: 0.8 },

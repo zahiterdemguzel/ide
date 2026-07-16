@@ -8,7 +8,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { StyleSheet, View } from 'react-native';
+import { AppState, StyleSheet, View } from 'react-native';
 import { color, TAB_BAR_HEIGHT } from './src/theme';
 import { Connection, ConnectionState } from './src/api/connection';
 import { loadCredentials, saveCredentials, clearCredentials, Endpoints, PairInfo } from './src/api/pairing';
@@ -18,6 +18,7 @@ import ProjectDrawer from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
 import { ChromeContext } from './src/components/ScreenHeader';
 import ErrorDialog from './src/components/ErrorDialog';
+import { AlertFeed } from './src/api/notifications';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import PairScreen from './src/screens/PairScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
@@ -153,6 +154,21 @@ export default function App() {
     setConn(c);
   }, []);
 
+  // Persistency without battery drain: no background keepalive — the OS freezes JS in
+  // background and the relay reaps the silent socket anyway. Instead the socket is
+  // dropped on purpose when the app backgrounds and re-dialled the moment it is
+  // foregrounded, so coming back is one instant reconnect instead of minutes of a
+  // half-open socket timing out every request.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      const c = connRef.current;
+      if (!c) return;
+      if (s === 'active') c.resume();
+      else if (s === 'background') c.suspend();
+    });
+    return () => sub.remove();
+  }, []);
+
   // Reconnect with the stored credential on launch; fall back to the pair screen.
   useEffect(() => {
     (async () => {
@@ -236,6 +252,8 @@ export default function App() {
 
   return (
     <ConnectionContext.Provider value={ctx}>
+      {/* Turns connection pushes into notification alerts, regardless of screen. */}
+      <AlertFeed />
       <SafeAreaProvider>
         <NavigationContainer theme={NAV_THEME}>
           <StatusBar style="light" />

@@ -39,6 +39,35 @@ test('feed: an errored tool result is marked as one', () => {
   assert.equal(st.msgs[0].blocks[0].output, 'boom');
 });
 
+test('feed: an edit result attaches the CLI structuredPatch as a diff with real line numbers', () => {
+  const st = createState();
+  feed(st, assistant([{ type: 'tool_use', id: 'tu_1', name: 'Edit', input: { file_path: '/repo/relay-client.js' } }], { cwd: '/repo' }));
+  feed(st, line({
+    type: 'user', uuid: 'u2',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'ok' }] },
+    toolUseResult: {
+      structuredPatch: [{ oldStart: 42, newStart: 42, lines: ['-this.retry = 1', '+if (!this.closed)', '+this.retry = 1'] }],
+    },
+  }));
+  const block = st.msgs[0].blocks[0];
+  assert.equal(block.status, 'ok');
+  assert.deepEqual(block.diff, {
+    added: 2, removed: 1,
+    lines: [
+      { n: 42, sign: '-', text: 'this.retry = 1' },
+      { n: 42, sign: '+', text: 'if (!this.closed)' },
+      { n: 43, sign: '+', text: 'this.retry = 1' },
+    ],
+  });
+});
+
+test('feed: a result without a patch leaves the tool block diff-free', () => {
+  const st = createState();
+  feed(st, assistant([{ type: 'tool_use', id: 'tu_1', name: 'Read', input: {} }]));
+  feed(st, line({ type: 'user', uuid: 'u2', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'body' }] }, toolUseResult: { structuredPatch: [] } }));
+  assert.equal(st.msgs[0].blocks[0].diff, undefined);
+});
+
 test('feed: a line torn across two reads is parsed once it is whole', () => {
   const st = createState();
   const whole = user('hello');
