@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
   isOllamaId, toOllamaId, ollamaName, mergeModels, parsePullProgress, CATALOG, catalogFilter,
+  resolvePullTarget, deriveName,
 } = require('../src/main/ollama-models-lib');
 
 test('id namespacing round-trips and never collides with Claude aliases', () => {
@@ -39,13 +40,32 @@ test('parsePullProgress: an error line is terminal', () => {
   assert.deepEqual(parsePullProgress({ error: 'model not found' }), { phase: 'error', pct: null, done: true, error: 'model not found' });
 });
 
-test('CATALOG entries all carry numeric RAM/VRAM requirements', () => {
+test('CATALOG entries carry numeric RAM/VRAM, a filename-safe name, and a source URI', () => {
   assert.ok(CATALOG.length > 0);
   for (const m of CATALOG) {
     assert.equal(typeof m.name, 'string');
+    assert.ok(!/[:/\\]/.test(m.name), `name ${m.name} must be filename-safe`);
     assert.equal(typeof m.minRam, 'number');
     assert.equal(typeof m.minVram, 'number');
+    assert.match(m.source, /^(hf:|https?:\/\/)/);
   }
+});
+
+test('resolvePullTarget: catalog name -> its source; raw URI -> derived name; unknown -> null', () => {
+  const first = CATALOG[0];
+  assert.deepEqual(resolvePullTarget(first.name), { source: first.source, name: first.name });
+  assert.deepEqual(
+    resolvePullTarget('hf:bartowski/Some-Model-GGUF:Q4_K_M'),
+    { source: 'hf:bartowski/Some-Model-GGUF:Q4_K_M', name: 'Q4_K_M' },
+  );
+  assert.equal(resolvePullTarget('https://example.com/path/my-model.gguf').name, 'my-model');
+  assert.equal(resolvePullTarget('some-unknown-model'), null);
+  assert.equal(resolvePullTarget(''), null);
+});
+
+test('deriveName: strips .gguf, keeps filename-safe chars', () => {
+  assert.equal(deriveName('https://x/y/Model.Name.gguf'), 'Model.Name');
+  assert.equal(deriveName('hf:user/repo:Q8_0'), 'Q8_0');
 });
 
 test('catalogFilter: case-insensitive substring; empty query returns all', () => {

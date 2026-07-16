@@ -65,23 +65,46 @@ function parsePullProgress(line) {
 }
 
 // A small curated set of tool-capable models the search box shows by default —
-// Ollama has no official search API, so this doubles as the browse list (users
-// can still type an exact `name:tag` to pull anything). minRam/minVram are GB,
-// approximated from parameter count × Q4 quantization + runtime overhead, and
-// feed the fit check (src/main/ollama-fit-lib.js).
+// this doubles as the browse list (users can still type an exact GGUF URI/URL to
+// pull anything). Each entry's `source` is a node-llama-cpp model URI (`hf:` or a
+// direct URL) that the engine resolves + downloads; `name` is the filename-safe
+// local id (colons are illegal in Windows filenames, so we use hyphens, not the
+// old Ollama `model:tag` style). minRam/minVram are GB, approximated from
+// parameter count × Q4 quantization + runtime overhead, and feed the fit check
+// (src/main/ollama-fit-lib.js).
 const CATALOG = [
-  { name: 'llama3.2:3b', label: 'Llama 3.2 3B', description: 'Small, fast general model for low-end machines.', minRam: 4, minVram: 3 },
-  { name: 'qwen2.5-coder:1.5b', label: 'Qwen2.5 Coder 1.5B', description: 'Tiny coding model.', minRam: 4, minVram: 2 },
-  { name: 'qwen2.5-coder:7b', label: 'Qwen2.5 Coder 7B', description: 'Strong coding model with good tool use.', minRam: 8, minVram: 6 },
-  { name: 'qwen2.5-coder:14b', label: 'Qwen2.5 Coder 14B', description: 'Larger coding model.', minRam: 16, minVram: 12 },
-  { name: 'qwen2.5-coder:32b', label: 'Qwen2.5 Coder 32B', description: 'High-end coding model.', minRam: 32, minVram: 24 },
-  { name: 'llama3.1:8b', label: 'Llama 3.1 8B', description: 'General model with tool-calling support.', minRam: 8, minVram: 6 },
-  { name: 'llama3.1:70b', label: 'Llama 3.1 70B', description: 'Very large general model.', minRam: 48, minVram: 40 },
-  { name: 'mistral:7b', label: 'Mistral 7B', description: 'Fast general model with function calling.', minRam: 8, minVram: 6 },
-  { name: 'qwen2.5:7b', label: 'Qwen2.5 7B', description: 'General model with tool use.', minRam: 8, minVram: 6 },
-  { name: 'gemma2:9b', label: 'Gemma 2 9B', description: "Google's general model.", minRam: 10, minVram: 7 },
-  { name: 'deepseek-coder-v2:16b', label: 'DeepSeek Coder V2 16B', description: 'MoE coding model.', minRam: 16, minVram: 12 },
+  { name: 'llama3.2-3b', label: 'Llama 3.2 3B', description: 'Small, fast general model for low-end machines.', minRam: 4, minVram: 3, source: 'hf:bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M' },
+  { name: 'qwen2.5-coder-1.5b', label: 'Qwen2.5 Coder 1.5B', description: 'Tiny coding model.', minRam: 4, minVram: 2, source: 'hf:bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF:Q4_K_M' },
+  { name: 'qwen2.5-coder-7b', label: 'Qwen2.5 Coder 7B', description: 'Strong coding model with good tool use.', minRam: 8, minVram: 6, source: 'hf:bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M' },
+  { name: 'qwen2.5-coder-14b', label: 'Qwen2.5 Coder 14B', description: 'Larger coding model.', minRam: 16, minVram: 12, source: 'hf:bartowski/Qwen2.5-Coder-14B-Instruct-GGUF:Q4_K_M' },
+  { name: 'qwen2.5-coder-32b', label: 'Qwen2.5 Coder 32B', description: 'High-end coding model.', minRam: 32, minVram: 24, source: 'hf:bartowski/Qwen2.5-Coder-32B-Instruct-GGUF:Q4_K_M' },
+  { name: 'llama3.1-8b', label: 'Llama 3.1 8B', description: 'General model with tool-calling support.', minRam: 8, minVram: 6, source: 'hf:bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M' },
+  { name: 'mistral-7b', label: 'Mistral 7B', description: 'Fast general model with function calling.', minRam: 8, minVram: 6, source: 'hf:bartowski/Mistral-7B-Instruct-v0.3-GGUF:Q4_K_M' },
+  { name: 'qwen2.5-7b', label: 'Qwen2.5 7B', description: 'General model with tool use.', minRam: 8, minVram: 6, source: 'hf:bartowski/Qwen2.5-7B-Instruct-GGUF:Q4_K_M' },
+  // NOTE: every catalog model must have a >= 24k train context (CTX_MIN in
+  // llama-engine.js) or it can't hold Claude Code's system prompt + tool schemas.
+  // Gemma 2 (8k context) was dropped for this reason.
 ];
+
+// Resolve a pull request (from the catalog `name`, or a raw URI/URL a user typed)
+// to { source, name }: the node-llama-cpp model URI to download and the local
+// filename-safe id to store it under. A catalog name maps to its `source`; a URI
+// keeps itself as the source and derives a local name from its last path segment.
+function resolvePullTarget(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+  const cat = CATALOG.find((m) => m.name === raw);
+  if (cat) return { source: cat.source, name: cat.name };
+  if (/^(hf:|https?:\/\/)/i.test(raw)) return { source: raw, name: deriveName(raw) };
+  return null; // a bare name we don't know and can't resolve to a source
+}
+
+// Turn a model URI into a filename-safe local id: the last `:`- or `/`-delimited
+// segment, minus a `.gguf` extension, with unsafe chars collapsed to hyphens.
+function deriveName(uri) {
+  const tail = String(uri).split(/[/:]/).filter(Boolean).pop() || 'model';
+  return tail.replace(/\.gguf$/i, '').replace(/[^a-zA-Z0-9._-]+/g, '-');
+}
 
 // Case-insensitive substring filter over name/label/description; empty query
 // returns the whole catalog.
@@ -103,4 +126,6 @@ module.exports = {
   parsePullProgress,
   CATALOG,
   catalogFilter,
+  resolvePullTarget,
+  deriveName,
 };

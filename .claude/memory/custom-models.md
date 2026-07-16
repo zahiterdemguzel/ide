@@ -1,94 +1,144 @@
-# Custom models (Ollama)
+# Custom models (local, via node-llama-cpp)
 
 Lets a user run **local open-source models** from the same New-session dropdown as
 the Claude models. Because the whole app is a front-end for the `claude` CLI — and
-that CLI speaks **only** the Anthropic Messages API — an Ollama model can't be
-driven directly. The feature works by pointing the CLI at a **local proxy** that
-translates Anthropic ⇄ Ollama, set per-session via `ANTHROPIC_BASE_URL`.
+that CLI speaks **only** the Anthropic Messages API — a local model can't be driven
+directly. The feature works by pointing the CLI at a **local proxy** that translates
+Anthropic ⇄ the model, set per-session via `ANTHROPIC_BASE_URL`.
 
-## The five parts
+> **Naming note.** The engine is [node-llama-cpp](https://node-llama-cpp.withcat.ai)
+> (in-process GGUF inference), **not** Ollama. The `ollama:` model-id prefix, the
+> `ollama-*` IPC channel names, the `ollama-*-lib.js` files, and the "Ollama" UI
+> labels are kept as historical names so saved sessions and the phone bridge don't
+> break — they're just names now. It used to embed an `ollama serve` sidecar; that
+> was replaced (no external binary to download at install/build time, no child
+> process). If you see "Ollama" in code/UI, read "the local model engine."
 
-1. **Translation proxy** — `src/main/ollama-proxy.js`, an in-process `http` server
-   on an ephemeral `127.0.0.1` port (mirrors [hook-server.js](architecture.md)).
-   It speaks `POST /v1/messages` (streaming SSE + `tool_use`) and forwards to the
-   engine's `/api/chat`. All shape-mapping is the pure, unit-tested
+## The parts
+
+1. **Translation proxy** — `src/main/ollama-proxy.js`, an in-process `http` server on
+   an ephemeral `127.0.0.1` port (mirrors [hook-server.js](architecture.md)). It
+   speaks `POST /v1/messages` (streaming SSE + `tool_use`) and calls the in-process
+   engine directly (no upstream HTTP). All shape-mapping is the pure, unit-tested
    `ollama-translate-lib.js` (`anthropicToOllama`, `ollamaChunkToAnthropicEvents`,
-   `ollamaDoneToStopReason`, `nonStreamToAnthropic`); the proxy is only sockets.
-2. **Embedded engine** — the Ollama binary is **bundled in the installer**
-   (electron-builder `extraResources: vendor/ollama → resources/ollama`), fetched
-   by `scripts/fetch-ollama.mjs` into the gitignored `vendor/ollama/<subdir>/`. It
-   runs from **`postinstall`** (with `--optional`, so an offline `npm install`
-   warns but doesn't abort — retry with `npm run fetch:ollama`) **and** from
-   `npm run build*` (without the flag, so packaging fails hard if it can't fetch).
-   It's idempotent (skips when the binary is present). The Windows asset is a
-   `.zip` extracted with PowerShell `Expand-Archive` (Git Bash's GNU `tar` can't
-   read a zip and misparses `C:\`); macOS/Linux assets are `.tgz` via `tar`.
-   `src/main/ollama.js` `resolveOllamaBin()` finds it under
-   `process.resourcesPath/ollama/<subdir>` (packaged) or `vendor/ollama/<subdir>`
-   (dev), falling back to a system `ollama` on PATH. `ensureServe()` runs one
-   `ollama serve` with `OLLAMA_MODELS` pointed at `sharedDataDir/ollama/models`
-   (via `cleanEnv`) so models live in a dir we control. **Lazy** — nothing starts
-   at boot; first pull or first Ollama session spawns it.
-3. **Model management** — `src/main/ollama.js` registers the IPC (via
-   `remote-bridge`): `ollama-status`/`ollama-ensure` (engine + detected RAM/VRAM),
-   `ollama-catalog` (a curated browse list — Ollama has no search API), `ollama-list`
-   (installed — **never starts the engine**: `listInstalled()` returns `[]` unless
-   serve is already running, so filling dropdowns / warming the cache at startup or
-   on Settings-open stays instant), `ollama-pull`/`ollama-cancel-pull` (stream progress →
-   `ollama-pull-progress`), `ollama-remove`, `ollama-remove-all`. Any change pushes
-   `ollama-models-changed`. The renderer section is `src/renderer/custom-models.js`
-   (Settings → **Custom models**), styled with the existing settings chrome.
-4. **RAM/VRAM fit warning** — `detectSystem()` probes RAM (`os.totalmem()`) + VRAM
-   (Windows `Win32_VideoController`, macOS `system_profiler`; Apple Silicon =
-   unified memory). The pure `ollama-fit-lib.js` `modelFit(model, sys)` returns
-   `ok`/`tight`/`fail`/`unknown`; each catalog/installed row carries `req`
-   (`formatReq`) + `fit`. A `fail` shows a red ⚠, `tight` a yellow ⚠, with a native
-   `title` tooltip — same look in the New-session caret menu and session badge
-   (`src/renderer/sessions.js` `modelFitWarning`). Requirements come from the
-   catalog's per-model `minRam`/`minVram` in `ollama-models-lib.js`.
-5. **Dropdown merge + routing** — Ollama ids are namespaced **`ollama:<name>`**
-   (`ollama-models-lib.js`), so they never collide with `opus`/`sonnet`. The
-   renderer caches the installed list (`settings.js` `getOllamaModels` /
-   `refreshOllamaModels` / `getMergedModels` / `modelLabel`) and re-renders the
-   settings selects, the caret menu, and the session badge off the
-   `ollama-models-updated` window event. At spawn, `sessions.js` `ollamaRoute(s)`
-   detects an `ollama:` model, calls `ensureRuntime()` (engine + proxy), and merges
-   `{ ANTHROPIC_BASE_URL: proxy, ANTHROPIC_API_KEY/AUTH_TOKEN: 'ollama-local',
-   ANTHROPIC_MODEL: bareName, CLAUDE_CODE_SUBAGENT_MODEL: bareName }` over
-   `sessionEnv(s)`. Kept in the shell, not the pure `agent-models.js`.
+   `ollamaDoneToStopReason`, `nonStreamToAnthropic`); the engine emits the same
+   **Ollama `/api/chat` chunk shape** those functions already consume, so the
+   translation is unchanged. An `AbortController` tied to `res` close cancels a
+   running generation if the CLI hangs up mid-turn. The streaming path **defers the
+   `200`/event-stream header until the first chunk arrives**, so a failure *before*
+   any output (e.g. the model isn't installed) is returned as a normal non-200 JSON
+   error the CLI can display — not a 200 stream with only an error event, which the
+   CLI reports as "empty or malformed response".
+2. **Engine** — `src/main/llama-engine.js` wraps **node-llama-cpp** (an npm dep that
+   ships its own prebuilt llama.cpp binaries; no app-specific download). It's ESM +
+   main-process only, so it's loaded lazily via dynamic `import()` from this CommonJS
+   module and cached. `getLlama()` once; a loaded model is kept in an **LRU-of-1**
+   cache (loading a GGUF is the expensive step) with a per-engine generation **mutex**
+   (one context sequence can't run two generations at once). `chat(ollamaBody,
+   {onChunk, signal})` runs ONE **stateless** turn via the low-level `LlamaChat`
+   class's `generateResponse(history, {functions, onTextChunk})`, which **returns**
+   function calls without executing them — the CLI executes tools itself and re-sends
+   the full history each request, so we rebuild history from scratch every call and
+   never run handlers. Models live under `sharedDataDir/llama/models/<name>.gguf`.
+   All the fiddly pure shaping is `llama-engine-lib.js` (`buildHistory` folds each
+   `{role:'tool'}` result back into its assistant turn; `buildFunctions`,
+   `buildGenOptions`, `toToolCalls`, `doneReason`).
+
+   **Context size is sized to the actual prompt, not auto and not fixed.** Measured
+   with the real CLI, Claude Code's prompt is **~29k tokens** (system prompt + every
+   tool/MCP schema) and grows past **39k** once tool results come back — far bigger
+   than a guessed fixed size, and node-llama-cpp's default auto-sizes to *available
+   VRAM* (a tiny context on a busy GPU). Either way the prompt overflows and
+   `generateResponse` throws "context shift strategy did not return a history that
+   fits" → the CLI shows an empty/502 reply. So each `chat()` **tokenizes the incoming
+   prompt** (`estimatePromptTokens`) and `ensureContext` (re)creates a context sized to
+   it (`desiredContextSize`: prompt + reserve, ×1.15, clamped `CTX_MIN` 8192 …
+   `CTX_MAX` 65536, preferring not to exceed the model's train context unless the
+   prompt truly needs it). GPU first (`flashAttention` shrinks the KV cache); if that
+   size won't fit VRAM it reloads on `gpuLayers: 0` (CPU/system RAM), which always has
+   room — slower, correct. The context grows across turns as the prompt grows (so a
+   long agent loop may migrate GPU→CPU). If the prompt exceeds `CTX_MAX`, `chat()`
+   throws a clear "disable some MCP servers/tools" error instead of a cryptic 502.
+   Don't revert this to a fixed `createContext({contextSize})`.
+
+   **Weak models: tool calls printed as text are salvaged.** Small models (1.5–3B)
+   often can't emit the native tool-call tokens and instead print `{"name":…,
+   "arguments":…}` as text (often in a ```json fence), so the CLI never executes the
+   tool. When the native parser returns no calls but tools were offered, `chat()`
+   withholds streaming a reply that *starts* like a call (`looksLikeToolCallStart`) and,
+   if the whole reply is exactly one JSON object naming a known tool
+   (`salvageToolCall`, both pure + tested in `llama-engine-lib.js`), converts it into a
+   real `tool_use` — so even weak models drive the agent loop. Verified end-to-end
+   against the real `claude` CLI (a salvaged `Read` call executed and its result came
+   back on the next turn). Bigger tool-capable models (Qwen2.5-Coder-7B+) emit native
+   calls and are far more reliable; catalog models all have a 32k+ context.
+3. **Model management** — `src/main/ollama.js` is the thin IPC shell (via
+   `remote-bridge`), delegating to the engine: `ollama-status`/`ollama-ensure`
+   (starts the proxy + reports detected RAM/VRAM), `ollama-catalog` (a curated browse
+   list), `ollama-list` (installed GGUFs), `ollama-pull`/`ollama-cancel-pull` (stream
+   download progress → `ollama-pull-progress`), `ollama-remove`, `ollama-remove-all`.
+   Any change pushes `ollama-models-changed`. The renderer section is
+   `src/renderer/custom-models.js` (Settings → **Custom models**). Pulls resolve a
+   catalog `name` (or a raw `hf:`/URL a user pastes) to a `{source, name}` via
+   `resolvePullTarget`; the engine downloads with node-llama-cpp's
+   `createModelDownloader` and reports the same `{phase, pct, done, error}` shape (run
+   through the unchanged `parsePullProgress`).
+4. **RAM/VRAM fit warning** — `llama-engine.js` `detectSystem()` probes RAM
+   (`os.totalmem()`) + VRAM (node-llama-cpp `llama.getVramState()`; a non-zero
+   `unifiedSize` marks Apple-Silicon unified memory). The pure `ollama-fit-lib.js`
+   `modelFit(model, sys)` returns `ok`/`tight`/`fail`/`unknown`; each catalog/installed
+   row carries `req` (`formatReq`) + `fit`. A `fail` shows a red ⚠, `tight` a yellow ⚠,
+   same look in the New-session caret menu and session badge (`src/renderer/sessions.js`
+   `modelFitWarning`). Requirements come from the catalog's per-model `minRam`/`minVram`
+   in `ollama-models-lib.js`.
+5. **Dropdown merge + routing** — local ids are namespaced **`ollama:<name>`**
+   (`ollama-models-lib.js`), so they never collide with `opus`/`sonnet`. The renderer
+   caches the installed list (`settings.js` `getOllamaModels` / `refreshOllamaModels` /
+   `getMergedModels` / `modelLabel`) and re-renders the settings selects, the caret
+   menu, and the session badge off the `ollama-models-updated` window event. At spawn,
+   `sessions.js` `ollamaRoute(s)` detects an `ollama:` model, calls `ensureRuntime()`
+   (starts the proxy), and merges `{ ANTHROPIC_BASE_URL: proxy, ANTHROPIC_API_KEY/
+   AUTH_TOKEN: 'ollama-local', ANTHROPIC_MODEL: bareName, CLAUDE_CODE_SUBAGENT_MODEL:
+   bareName }` over `sessionEnv(s)`. The bare `<name>` maps to `<name>.gguf` on disk.
 
 ## Live model switch across the boundary
 
-A live `/model <id>` **cannot** cross Claude↔Ollama: the base-url/auth env only
-changes on a respawn. `sessions.js` `set-session-model` detects a boundary crossing
-(`isOllamaId(old) !== isOllamaId(new)`) and **respawns** the PTY (`claude --resume`,
-so the conversation continues) instead of typing `/model`; the dying PTY's `onExit`
-skips teardown while `s.respawning` is set (same idea as `s.suspended`). Same-family
-switches keep the fast in-place `/model` path.
+A live `/model <id>` **cannot** cross Claude↔local: the base-url/auth env only changes
+on a respawn. `sessions.js` `set-session-model` detects a boundary crossing
+(`isOllamaId(old) !== isOllamaId(new)`) and **respawns** the PTY (`claude --resume`, so
+the conversation continues) instead of typing `/model`; the dying PTY's `onExit` skips
+teardown while `s.respawning` is set. Same-family switches keep the fast in-place path.
 
 ## Lifecycle / cleanup (no leaks)
 
 `index.js`'s `window-all-closed` **and** `before-quit` call `stopOllamaRuntime()` →
-`ollama.stopOllama()` (kills serve **and its runner children** — Windows
-`taskkill /T /F`, POSIX kills the process group) + `ollama-proxy.stopProxyServer()`.
-**Uninstall:** Windows NSIS (`build/uninstall-ollama.nsh`, wired via `nsis.include`)
-kills `ollama.exe` and `RMDir /r`s `%APPDATA%\Claude Session Editor\ollama` — only
-the ollama subdir, so `deleteAppDataOnUninstall` stays false. macOS has no
-uninstaller hook, so **Remove all Ollama data** (`ollama-remove-all`) is the
-supported reclaim path (also the general reset).
+`ollama.stopOllama()` (→ engine `stop()`: cancels in-flight downloads, disposes the
+loaded model + context) + `ollama-proxy.stopProxyServer()`. There's no external process
+to kill anymore. **Uninstall:** Windows NSIS (`build/uninstall-ollama.nsh`, wired via
+`nsis.include`) `RMDir /r`s `%APPDATA%\Claude Session Editor\llama` — only the model
+dir, so `deleteAppDataOnUninstall` stays false. macOS has no uninstaller hook, so
+**Remove all Ollama data** (`ollama-remove-all`) is the supported reclaim path.
+
+## Build / install
+
+No download step: `node-llama-cpp` is a normal dependency whose own install pulls the
+prebuilt binaries (platform packages under `node_modules/@node-llama-cpp/*`). electron-
+builder asar-packs `node_modules`, so the native addons must be **`asarUnpack`**'d
+(`node_modules/node-llama-cpp/**`, `node_modules/@node-llama-cpp/**`) — they can't load
+from inside an asar. `npmRebuild` stays false. The old `scripts/fetch-ollama.mjs`,
+`vendor/ollama` `extraResources`, and `ollama-bin-lib.js` are gone.
 
 ## Mobile (selection only)
 
-A paired phone can **pick** an installed Ollama model but not manage them. Enforced
-at the `server/protocol.js` allowlist: only `ollama-list` (req) +
-`ollama-models-changed` (event) are exposed; the management channels are absent.
-`mobile/src/api/models.ts` + `SessionsScreen.tsx` fetch `ollama-list`, show the
-models under an "Ollama" divider in the split-button menu, and refresh on the push.
-The `model` rides the existing `new-session` req; main routes/respawns identically
-regardless of origin.
+A paired phone can **pick** an installed local model but not manage them. Enforced at
+the `server/protocol.js` allowlist: only `ollama-list` (req) + `ollama-models-changed`
+(event) are exposed; the management channels are absent. `mobile/src/api/models.ts` +
+`SessionsScreen.tsx` fetch `ollama-list`, show the models under an "Ollama" divider in
+the split-button menu, and refresh on the push. The `model` rides the existing
+`new-session` req; main routes/respawns identically regardless of origin.
 
 ## Pure libs (tested)
 
 `ollama-translate-lib.js`, `ollama-models-lib.js`, `ollama-fit-lib.js`,
-`ollama-bin-lib.js` — see [testing.md](testing.md). The shells (`ollama.js`,
-`ollama-proxy.js`) stay thin per the testability rule.
+`llama-engine-lib.js` — see [testing.md](testing.md). The shells (`ollama.js`,
+`ollama-proxy.js`, `llama-engine.js`) stay thin per the testability rule.

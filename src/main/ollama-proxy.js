@@ -1,9 +1,10 @@
-// A tiny in-process HTTP server that makes a local Ollama engine look like the
-// Anthropic Messages API, so the `claude` CLI — pointed here via ANTHROPIC_BASE_URL
-// — can drive a local open-source model. It speaks POST /v1/messages (streaming
-// SSE + tool_use) and forwards to `ollama serve`'s /api/chat. All the shape
-// translation lives in the pure, unit-tested ollama-translate-lib.js; this file is
-// only socket plumbing. Mirrors the structure of hook-server.js.
+// A tiny in-process HTTP server that makes the local node-llama-cpp engine look
+// like the Anthropic Messages API, so the `claude` CLI — pointed here via
+// ANTHROPIC_BASE_URL — can drive a local open-source model. It speaks POST
+// /v1/messages (streaming SSE + tool_use) and calls the in-process engine
+// (llama-engine.js) directly. All the shape translation lives in the pure,
+// unit-tested ollama-translate-lib.js; this file is only socket plumbing. Mirrors
+// the structure of hook-server.js.
 
 const http = require('http');
 const {
@@ -71,68 +72,60 @@ async function handleMessages(req, res) {
   let anthropicReq;
   try { anthropicReq = JSON.parse(raw); } catch { return anthropicError(res, 400, 'invalid JSON body'); }
 
-  // Lazy require avoids a load-order cycle (ollama.js starts this server).
-  const base = require('./ollama').getServeBase();
-  if (!base) return anthropicError(res, 503, 'ollama engine not running');
+  // Lazy require avoids a load-order cycle (ollama.js requires this module).
+  const engine = require('./llama-engine');
 
   const streaming = anthropicReq.stream !== false;
   const ollamaBody = anthropicToOllama(anthropicReq);
   const messageId = `msg_${++msgSeq}_${Date.now()}`;
 
-  const u = new URL('/api/chat', base);
-  const upstream = http.request(
-    { hostname: u.hostname, port: u.port, path: u.pathname, method: 'POST', headers: { 'content-type': 'application/json' } },
-    (oRes) => {
-      oRes.setEncoding('utf8');
-      if (streaming) streamResponse(oRes, res, { messageId, model: anthropicReq.model });
-      else bufferResponse(oRes, res, { messageId, model: anthropicReq.model });
-    },
-  );
-  upstream.on('error', (err) => anthropicError(res, 502, err && err.message ? err.message : String(err)));
-  // If the CLI hangs up (session killed mid-turn), stop pulling from the engine.
-  res.on('close', () => upstream.destroy());
+  // If the CLI hangs up (session killed mid-turn), abort the running generation.
+  const abort = new AbortController();
+  res.on('close', () => abort.abort());
 
-  upstream.write(JSON.stringify(ollamaBody));
-  upstream.end();
-  return undefined;
+  if (streaming) return runStreaming(engine, ollamaBody, res, { messageId, model: anthropicReq.model, signal: abort.signal });
+  return runBuffered(engine, ollamaBody, res, { messageId, model: anthropicReq.model, signal: abort.signal });
 }
 
-function streamResponse(oRes, res, seed) {
-  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+async function runStreaming(engine, ollamaBody, res, seed) {
   const state = { messageId: seed.messageId, model: seed.model };
-  let buf = '';
-  const drain = (line) => {
-    const s = line.trim();
-    if (!s) return;
-    let obj;
-    try { obj = JSON.parse(s); } catch { return; }
-    if (obj.error) { sseEvent(res, { type: 'error', error: { type: 'api_error', message: String(obj.error) } }); return; }
-    for (const ev of ollamaChunkToAnthropicEvents(obj, state)) sseEvent(res, ev);
+  // Defer the 200/event-stream header until the first chunk actually arrives. A
+  // failure *before* any output (most often: the model isn't installed) then comes
+  // back as a normal non-200 JSON error the CLI can display — not a 200 stream with
+  // only an error event, which the CLI reports as "empty or malformed response".
+  let headersSent = false;
+  const ensureHead = () => {
+    if (headersSent) return;
+    headersSent = true;
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
   };
-  oRes.on('data', (chunk) => {
-    buf += chunk;
-    let nl;
-    while ((nl = buf.indexOf('\n')) >= 0) {
-      drain(buf.slice(0, nl));
-      buf = buf.slice(nl + 1);
-    }
-  });
-  oRes.on('end', () => { drain(buf); res.end(); });
-  oRes.on('error', () => res.end());
+  try {
+    await engine.chat(ollamaBody, {
+      signal: seed.signal,
+      onChunk: (chunk) => {
+        ensureHead();
+        for (const ev of ollamaChunkToAnthropicEvents(chunk, state)) sseEvent(res, ev);
+      },
+    });
+    ensureHead();
+    res.end();
+  } catch (err) {
+    if (seed.signal.aborted) { res.end(); return; }
+    const message = err && err.message ? err.message : String(err);
+    if (!headersSent) anthropicError(res, 502, message);
+    else { sseEvent(res, { type: 'error', error: { type: 'api_error', message } }); res.end(); }
+  }
 }
 
-function bufferResponse(oRes, res, seed) {
-  let body = '';
-  oRes.on('data', (c) => { body += c; });
-  oRes.on('end', () => {
-    let obj;
-    try { obj = JSON.parse(body); } catch { return anthropicError(res, 502, 'invalid upstream response'); }
-    if (obj.error) return anthropicError(res, 502, String(obj.error));
+async function runBuffered(engine, ollamaBody, res, seed) {
+  try {
+    const full = await engine.chat({ ...ollamaBody, stream: false }, { signal: seed.signal });
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(nonStreamToAnthropic(obj, { id: seed.messageId, model: seed.model })));
-    return undefined;
-  });
-  oRes.on('error', () => anthropicError(res, 502, 'upstream stream error'));
+    res.end(JSON.stringify(nonStreamToAnthropic(full, { id: seed.messageId, model: seed.model })));
+  } catch (err) {
+    if (!seed.signal.aborted) anthropicError(res, 502, err && err.message ? err.message : String(err));
+    else res.end();
+  }
 }
 
 module.exports = { startProxyServer, stopProxyServer, getProxyPort };

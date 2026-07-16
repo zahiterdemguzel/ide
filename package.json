@@ -5,12 +5,11 @@
   "author": "zahiterdemguzel",
   "main": "src/main/index.js",
   "scripts": {
-    "postinstall": "node scripts/fix-electron-signature.js && node scripts/fetch-ollama.mjs --optional",
+    "postinstall": "node scripts/fix-electron-signature.js",
     "start": "electron .",
-    "fetch:ollama": "node scripts/fetch-ollama.mjs",
-    "build": "node scripts/fetch-ollama.mjs && electron-builder --win nsis --publish never",
-    "build:mac": "node scripts/fetch-ollama.mjs && electron-builder --mac --publish never",
-    "build:linux": "node scripts/fetch-ollama.mjs && electron-builder --linux AppImage --publish never",
+    "build": "electron-builder --win nsis --publish never",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:linux": "electron-builder --linux AppImage --publish never",
     "build:android": "node scripts/build-android.mjs",
     "gen:mobile": "node scripts/gen-mobile-assets.mjs",
     "test": "node --test --test-reporter=./scripts/test-reporter.js",
@@ -31,11 +30,9 @@
     "directories": {
       "output": "dist"
     },
-    "extraResources": [
-      {
-        "from": "vendor/ollama",
-        "to": "ollama"
-      }
+    "asarUnpack": [
+      "node_modules/node-llama-cpp/**",
+      "node_modules/@node-llama-cpp/**"
     ],
     "win": {
       "target": "nsis",
@@ -68,6 +65,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
+    "node-llama-cpp": "^3.19.0",
     "paper": "^0.12.18",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.624",
