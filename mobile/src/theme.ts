@@ -26,6 +26,7 @@ export const color = {
   accent: '#4da3ff',      // the app's blue: links, focus, the send button
   accentDim: '#1f6feb',
   green: '#3fb950',
+  greenSoft: '#7ee787',   // added diff lines — the soft twin of `green`, as `redSoft` is to `red`
   greenDeep: '#238636',
   red: '#f85149',
   redSoft: '#ffa198',

@@ -106,6 +106,37 @@ function diffFromPatch(patch) {
   return { added, removed, lines };
 }
 
+// The same diff built from the edit's *input*, so the removed/added code is on the
+// card the moment the call appears — the result's structuredPatch only upgrades it
+// with real line numbers (`n: 0` means "unknown", drawn as no number). A Write has
+// no pre-image: its whole content is additions.
+function diffFromInput(name, input) {
+  const i = input && typeof input === 'object' ? input : {};
+  const edits =
+    name === 'Edit' ? [i] :
+    name === 'MultiEdit' && Array.isArray(i.edits) ? i.edits :
+    name === 'Write' && typeof i.content === 'string' ? [{ new_string: i.content }] :
+    null;
+  if (!edits) return null;
+  const lines = [];
+  let added = 0;
+  let removed = 0;
+  const take = (s, sign) => {
+    if (typeof s !== 'string' || !s) return;
+    for (const text of s.split('\n')) {
+      if (sign === '+') added += 1; else removed += 1;
+      if (lines.length < MAX_DIFF_LINES) lines.push({ n: 0, sign, text: clip(text, 200) });
+    }
+  };
+  for (const e of edits) {
+    if (!e || typeof e !== 'object') continue;
+    take(e.old_string, '-');
+    take(e.new_string, '+');
+  }
+  if (!added && !removed) return null;
+  return { added, removed, lines };
+}
+
 // A tool_result's content is a string on some CLI versions and a content-block array
 // on others; an error result is flagged rather than typed.
 function resultText(content) {
@@ -136,14 +167,18 @@ function contentBlocks(content, cwd) {
       const text = String(b.thinking || b.text || '').trim();
       if (text) out.push({ t: 'thinking', text: clip(text, MAX_TEXT) });
     } else if (b.type === 'tool_use') {
-      out.push({
+      const name = String(b.name || 'tool');
+      const tool = {
         t: 'tool',
         id: String(b.id || ''),
-        name: String(b.name || 'tool'),
-        title: clip(toolTitle(String(b.name || ''), b.input, cwd), 200),
+        name,
+        title: clip(toolTitle(name, b.input, cwd), 200),
         status: 'running',
         output: '',
-      });
+      };
+      const diff = diffFromInput(name, b.input);
+      if (diff) tool.diff = diff;
+      out.push(tool);
     } else if (b.type === 'image') {
       out.push({ t: 'image' });
     }

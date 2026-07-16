@@ -8,8 +8,10 @@ import { Connection } from './connection';
 
 export type ToolStatus = 'running' | 'ok' | 'error';
 
-// An Edit/Write call arrives with the CLI's own diff of what it changed: signed lines
-// with the line number each lands on, plus the +N/−N totals for the header badge.
+// An Edit/Write call arrives with a diff of what it changed: signed lines with the
+// line number each lands on, plus the +N/−N totals for the header badge. The call
+// itself carries a diff built from its input (`n: 0` — no line number yet); the
+// result upgrades it to the CLI's own patch with real numbers.
 export type DiffLine = { n: number; sign: '+' | '-' | ' '; text: string };
 export type Diff = { added: number; removed: number; lines: DiffLine[] };
 

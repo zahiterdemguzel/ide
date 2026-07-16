@@ -28,19 +28,20 @@ const TOOL_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   TodoWrite: 'checkbox-outline',
 };
 
-// An edit's diff is the card's payload, shown open the way Claude Code's own TUI
-// shows it: signed rows on red/green washes, line numbers in the gutter.
+// An edit's diff is the card's payload, shown open the way the design's chat mock
+// (4a) draws it: each row is `<n>  <sign> <code>` on a red/green wash, the number
+// faint and inline rather than a ruled gutter, the sign part of the text.
 function DiffView({ diff }: { diff: Diff }) {
   return (
     <View style={styles.diff}>
       {diff.lines.map((l, i) => (
         <View key={i} style={[styles.diffRow, l.sign === '+' && styles.diffAdd, l.sign === '-' && styles.diffDel]}>
-          <Text style={styles.diffNum}>{l.n}</Text>
           <Text
             style={[styles.diffText, l.sign === '+' && styles.diffTextAdd, l.sign === '-' && styles.diffTextDel]}
             numberOfLines={1}
           >
-            {l.sign === ' ' ? '  ' : `${l.sign} `}{l.text}
+            {l.n > 0 && <Text style={styles.diffNum}>{l.n}{'  '}</Text>}
+            {l.sign === ' ' ? ' ' : l.sign} {l.text}
           </Text>
         </View>
       ))}
@@ -48,15 +49,21 @@ function DiffView({ diff }: { diff: Diff }) {
   );
 }
 
+// An Edit's diff is the card's payload and is never collapsed. Any other tool's
+// body — a Write's diff (the whole file), a Read/Bash output — waits behind the
+// chevron, or every card in the chat would be a wall.
+const DIFF_OPEN = new Set(['Edit', 'MultiEdit', 'NotebookEdit']);
+
 function ToolCard({ block }: { block: Extract<Block, { t: 'tool' }> }) {
   const [open, setOpen] = useState(false);
-  const hasOutput = !!block.output && !block.diff;
+  const diffOpen = !!block.diff && DIFF_OPEN.has(block.name);
+  const expandable = !diffOpen && (!!block.diff || !!block.output);
   return (
     <View style={[styles.tool, block.status === 'error' && styles.toolError]}>
       <Pressable
-        style={({ pressed }) => [styles.toolHead, pressed && hasOutput && styles.pressed]}
-        onPress={() => hasOutput && setOpen((o) => !o)}
-        disabled={!hasOutput}
+        style={({ pressed }) => [styles.toolHead, pressed && expandable && styles.pressed]}
+        onPress={() => expandable && setOpen((o) => !o)}
+        disabled={!expandable}
       >
         <Ionicons
           name={TOOL_ICON[block.name] || 'construct-outline'}
@@ -66,20 +73,17 @@ function ToolCard({ block }: { block: Extract<Block, { t: 'tool' }> }) {
         <Text style={styles.toolName}>{block.name}</Text>
         <Text style={styles.toolTitle} numberOfLines={1}>{block.title}</Text>
         {block.diff && (
-          <Text style={styles.diffBadge}>
-            <Text style={styles.diffBadgeAdd}>+{block.diff.added}</Text>
-            {' '}
-            <Text style={styles.diffBadgeDel}>−{block.diff.removed}</Text>
-          </Text>
+          <Text style={styles.diffBadge}>+{block.diff.added} −{block.diff.removed}</Text>
         )}
         {block.status === 'running'
           ? <ActivityIndicator size="small" color={color.muted} />
-          : hasOutput
+          : expandable
             ? <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={color.faint} />
             : null}
       </Pressable>
-      {block.diff && <DiffView diff={block.diff} />}
-      {open && (
+      {diffOpen && <DiffView diff={block.diff!} />}
+      {open && !diffOpen && block.diff && <DiffView diff={block.diff} />}
+      {open && !block.diff && (
         <ScrollView style={styles.toolOut} nestedScrollEnabled>
           <Text style={styles.toolOutText} selectable>{block.output}</Text>
         </ScrollView>
@@ -196,24 +200,21 @@ const styles = StyleSheet.create({
   },
   toolOutText: { color: color.muted, fontSize: font.size.xs, fontFamily: font.mono, lineHeight: 17 },
 
-  diffBadge: { fontSize: font.size.xs, fontFamily: font.mono },
-  diffBadgeAdd: { color: color.green },
-  diffBadgeDel: { color: color.red },
+  // The edit card's diff, drawn to the design mock (4a): a green `+6 −2` in the
+  // header, then rows on the card's own surface — a 10%-alpha wash under soft
+  // red/green code, the line number faint and inline before the sign.
+  diffBadge: { color: color.green, fontSize: font.size.xs, fontWeight: '600' },
   diff: {
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.border,
-    backgroundColor: color.bg,
-    paddingVertical: space.xs,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.borderSoft,
+    paddingVertical: space.sm,
   },
-  diffRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: space.md },
-  diffAdd: { backgroundColor: 'rgba(63, 185, 80, 0.14)' },
-  diffDel: { backgroundColor: 'rgba(248, 81, 73, 0.14)' },
-  diffNum: {
-    width: 30, textAlign: 'right', marginRight: space.sm,
-    color: color.faint, fontSize: font.size.xs, fontFamily: font.mono, lineHeight: 18,
-  },
-  diffText: { flex: 1, color: color.muted, fontSize: font.size.xs, fontFamily: font.mono, lineHeight: 18 },
-  diffTextAdd: { color: color.green },
-  diffTextDel: { color: color.red },
+  diffRow: { paddingHorizontal: 13 },
+  diffAdd: { backgroundColor: 'rgba(63, 185, 80, 0.1)' },
+  diffDel: { backgroundColor: 'rgba(248, 81, 73, 0.1)' },
+  diffNum: { color: color.faint },
+  diffText: { color: color.muted, fontSize: 11.5, fontFamily: font.mono, lineHeight: 18 },
+  diffTextAdd: { color: color.greenSoft },
+  diffTextDel: { color: color.redSoft },
 
   thinking: {
     backgroundColor: color.surface,
