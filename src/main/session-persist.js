@@ -44,6 +44,11 @@ function serializeSession(id, s) {
     // names it, and none fires for an archived session — so without this, restoring
     // the app would leave its chat unreadable until it was resumed.
     transcript: s.transcript || '',
+    // When the session was created and when it last did anything, for the relative
+    // time on a session row. The in-flight `tool` is not here on purpose: a restored
+    // session has no process, so it is by definition running nothing.
+    startedAt: s.startedAt || 0,
+    lastActiveAt: s.lastActiveAt || 0,
     edits: [...s.edits.entries()],     // [ [absPath, op[]], ... ]
     fileOps: [...s.fileOps.entries()], // [ [absPath, 'add'|'delete'], ... ]
   };
@@ -67,6 +72,11 @@ function deserializeSession(obj) {
     subagentModel: obj.subagentModel || '',
     effort: obj.effort || '',
     transcript: obj.transcript || '',
+    // A snapshot predating these fields has no timestamps; 0 means "unknown", which
+    // a row renders as no time rather than as 1970.
+    startedAt: obj.startedAt || 0,
+    lastActiveAt: obj.lastActiveAt || 0,
+    tool: null,
     // A restored session's process is gone, so a `working` state on disk reopens as
     // `interrupted`; a snapshot predating this field has no state and reopens idle.
     state: persistedState(obj.state),

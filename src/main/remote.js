@@ -12,7 +12,6 @@ const fs = require('fs');
 const { sharedDataDir, instanceId } = require('./instance');
 const { onBroadcast } = require('./window');
 const { handle, invokeRemote } = require('./remote-bridge');
-const { releaseDeviceControl } = require('./sessions');
 const { getRepoPath, onRepoChange } = require('./repo');
 const registry = require('./instance-registry');
 const { createHub } = require('../../server/hub');
@@ -152,9 +151,6 @@ async function enable() {
     deviceStore,
     appVersion: app.getVersion(),
     forward,
-    // A phone holding a session can't release it if it just vanishes, so hand the
-    // session back to the desktop when its socket dies.
-    onDisconnect: releaseDeviceControl,
   });
   // The desktop dials out to the relay because a machine behind NAT can't be
   // dialled in to; every phone in its room rides that one socket. Failing to reach

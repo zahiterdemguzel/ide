@@ -24,7 +24,16 @@ function eventToState(payload) {
   if (payload.agent_id) return null;
   switch (payload.hook_event_name) {
     case 'Stop': return 'completed';
+    // Claude Code fires Notification for two very different things: a permission
+    // prompt ("Claude needs your permission to use Bash") and the generic idle
+    // notice ("Claude is waiting for your input"), which follows *every* finished
+    // turn once it sits unattended — including turns that merely end with a prose
+    // question. Only the permission one actually blocks the session, so only it may
+    // light the green "needs you" cue; agents end turns with questions all the
+    // time, and needs-input is reserved for real blocking asks (this, the
+    // PermissionRequest event, and the ask tool's PreToolUse below).
     case 'Notification':
+      return /permission/i.test(String(payload.message || '')) ? 'needs-input' : null;
     case 'PermissionRequest': return 'needs-input';
     case 'PostToolUse': {
       const c = payload.tool_input && payload.tool_input.command;

@@ -13,7 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform,
-  Pressable, StyleSheet, Text, TextInput, View,
+  Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -30,7 +30,7 @@ import {
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, MODELS, effortName, modelBadgeName,
 } from '../api/models';
-import { color, font, radius, space } from '../theme';
+import { color, font, radius, space, shadow, tint } from '../theme';
 
 type DiffStat = { additions: number; deletions: number; files: number };
 
@@ -141,17 +141,6 @@ export default function ChatScreen({ route, navigation }: any) {
     ];
     return () => { dropped = true; offs.forEach((off) => off?.()); };
   }, [absorb, conn, id, name, refreshStat]);
-
-  // Hold the session while this screen is open, exactly as the terminal used to: the
-  // desktop covers it, so the two of us can't type into one prompt.
-  useEffect(() => {
-    if (!conn) return;
-    // Queue both so they survive a reconnect: the claim re-asserts when a fresh socket
-    // reaches `ready` (the desktop released on the old socket's death), and the release
-    // isn't silently dropped if the screen is left mid-reconnect.
-    conn.send('session-control', { id, on: true }, { queue: true });
-    return () => { conn.send('session-control', { id, on: false }, { queue: true }); };
-  }, [conn, id]);
 
   const drop = useCallback((uuid: string) => {
     setPending((p) => p.filter((m) => m.uuid !== uuid));
@@ -355,6 +344,12 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [writingTo, setWritingTo] = useState<number | null>(null);
   const [reply, setReply] = useState('');
+  // The card yields to the conversation, never the other way around: cap it well under
+  // half the screen so the transcript behind it stays readable and scrollable, and let
+  // anything past the cap scroll *inside* the card. The inner ScrollView also owns the
+  // touch handoff — a drag that starts on an option becomes a scroll, not a tap.
+  const { height } = useWindowDimensions();
+  const maxHeight = Math.round(height * 0.45);
 
   // A new question is a new answer — never carry the last one's into it.
   useEffect(() => { setAnswers([]); setWritingTo(null); setReply(''); }, [ask]);
@@ -382,7 +377,13 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
   if (writingTo !== null) {
     const q = ask.questions[writingTo];
     return (
-      <View style={styles.ask}>
+      <View style={[styles.ask, { maxHeight }]}>
+        <ScrollView
+          bounces={false}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={styles.askBody}
+        >
         <View style={styles.askHead}>
           <Ionicons name="create-outline" size={16} color={color.green} />
           <Text style={styles.askText}>{q.question}</Text>
@@ -414,12 +415,19 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
             <Text style={[styles.askBtnText, styles.askBtnTextPrimary]}>Use this answer</Text>
           </Pressable>
         </View>
+        </ScrollView>
       </View>
     );
   }
 
   return (
-    <View style={styles.ask}>
+    <View style={[styles.ask, { maxHeight }]}>
+      <ScrollView
+        bounces={false}
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={styles.askBody}
+      >
       {ask.questions.map((q, i) => (
         <AskQuestionView
           key={`${q.header}:${q.question}`}
@@ -446,6 +454,7 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
           </Text>
         </Pressable>
       )}
+      </ScrollView>
     </View>
   );
 }
@@ -483,7 +492,10 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite
     <View style={styles.askGroup}>
       <View style={styles.askHead}>
         <Ionicons name={index === 0 ? 'help-circle' : 'ellipse-outline'} size={16} color={color.green} />
-        <Text style={styles.askText}>{q.question}</Text>
+        <View style={styles.askBtnGrow}>
+          {total > 1 && <Text style={styles.askHeader}>{q.header || `Question ${index + 1} of ${total}`}</Text>}
+          <Text style={[styles.askText, styles.askTextTight]}>{q.question}</Text>
+        </View>
       </View>
       <View style={styles.askOptions}>
         {q.options.map((o, i) => (
@@ -496,14 +508,11 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite
               pressed && styles.askBtnPressed,
             ]}
           >
-            <Text style={[styles.askBtnText, i === 0 && styles.askBtnTextPrimary]} numberOfLines={2}>
+            <Text style={[styles.askBtnText, i === 0 && styles.askBtnTextPrimary]}>
               {o.label}
             </Text>
             {!!o.description && (
-              <Text
-                style={[styles.askDesc, i === 0 && styles.askDescPrimary]}
-                numberOfLines={2}
-              >
+              <Text style={[styles.askDesc, i === 0 && styles.askDescPrimary]} numberOfLines={3}>
                 {o.description}
               </Text>
             )}
@@ -562,32 +571,38 @@ const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: color.bg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
+  // The gradient the tabs' ScreenHeader draws is overkill for a bar this short —
+  // its far end alone reads the same against the transcript below.
   bar: {
-    flexDirection: 'row', alignItems: 'center', gap: space.sm,
-    paddingHorizontal: space.sm, paddingVertical: space.sm,
-    backgroundColor: color.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: color.border,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: space.md, paddingVertical: 10,
+    backgroundColor: color.surfaceDeep,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: color.borderSoft,
   },
   back: { padding: space.xs },
   titleWrap: { flex: 1 },
-  title: { color: color.text, fontSize: font.size.md, fontWeight: '600' },
-  status: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
+  title: { color: color.text, fontSize: 16, fontWeight: '700' },
+  status: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
   // Fixed slot: the working ring is wider than the resting dot, and without this the
   // status label would nudge sideways every time a session started or stopped.
   dotSlot: { width: 11, alignItems: 'center' },
   // The state label gives up its room to the badges rather than pushing them off the bar.
   statusText: { flexShrink: 1, color: color.muted, fontSize: font.size.xs },
   stop: {
-    width: 34, height: 34, borderRadius: radius.sm,
+    width: 36, height: 36, borderRadius: radius.md,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: color.raised, borderWidth: 1, borderColor: '#f8514933',
+    backgroundColor: color.raised, borderWidth: 1, borderColor: tint.line(color.red),
   },
   stopPressed: { backgroundColor: color.raisedHi },
   stopOff: { backgroundColor: 'transparent', borderColor: color.border },
 
+  // A banner, not a bar: it floats over the transcript with the green shadow every
+  // commit action in the system carries.
   commit: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm,
-    paddingVertical: 10, backgroundColor: color.greenDeep,
+    marginHorizontal: space.md, marginTop: 10,
+    paddingVertical: 11, borderRadius: 12, backgroundColor: color.greenDeep,
+    ...shadow.button,
   },
   commitPressed: { backgroundColor: color.green },
   commitText: { color: '#fff', fontSize: font.size.sm, fontWeight: '700' },
@@ -604,22 +619,32 @@ const styles = StyleSheet.create({
   emptyTitle: { color: color.text, fontSize: font.size.lg, fontWeight: '700' },
   emptyText: { color: color.muted, fontSize: font.size.sm, textAlign: 'center', lineHeight: 20 },
 
+  // The one card in the app that glows: a blocked session is the only thing here
+  // that is actively waiting on you.
   ask: {
-    margin: space.md, padding: space.md,
+    marginHorizontal: space.md, marginBottom: 10,
     backgroundColor: color.surface,
-    borderWidth: 1, borderColor: '#3fb95055',
-    borderRadius: radius.md,
-    gap: space.md,
+    borderWidth: 1, borderColor: tint.glowLine(color.green),
+    borderRadius: radius.card,
+    overflow: 'hidden',
+    shadowColor: color.green, shadowOpacity: 0.07, shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 }, elevation: 3,
   },
+  // The scrollable inside of the card: the padding and gap live here so the card's
+  // rounded border clips the content instead of the content overflowing it.
+  askBody: { padding: 14, gap: space.md },
   askGroup: { gap: space.md },
   askHead: { flexDirection: 'row', alignItems: 'flex-start', gap: space.sm },
   askText: { flex: 1, color: color.text, fontSize: font.size.sm, lineHeight: 19, fontWeight: '600' },
+  // The same question text when it sits inside a column that already flexes — `flex: 1`
+  // there would collapse the line instead of wrapping it.
+  askTextTight: { flex: 0 },
   askHeader: { color: color.faint, fontSize: font.size.xs, fontWeight: '600', marginBottom: 2 },
   askOptions: { gap: space.sm },
   askDone: {
     flexDirection: 'row', alignItems: 'center', gap: space.sm,
     paddingHorizontal: space.md, paddingVertical: 10,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
   },
   askDoneText: { color: color.text, fontSize: font.size.sm, fontWeight: '600' },
@@ -627,7 +652,7 @@ const styles = StyleSheet.create({
   askDescPrimary: { color: 'rgba(255,255,255,0.75)' },
   askBtn: {
     paddingHorizontal: space.md, paddingVertical: 10,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
   },
   askBtnPrimary: { backgroundColor: color.greenDeep, borderColor: color.greenDeep },

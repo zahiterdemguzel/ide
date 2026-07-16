@@ -2,21 +2,25 @@
 // read-text / write-text channels (repo-relative paths, {ok,...} results), and
 // reuses its file icons and its syntax highlighting — see FileIcon and CodeView.
 //
-// Deliberately does NOT call navigation.setOptions({title}): in a bottom-tab
-// navigator `title` feeds the tab bar label as well as the header, so setting it
-// to the current folder renamed the "Files" tab button as you browsed.
+// The browser is one card of rows under a breadcrumb; opening a file replaces the
+// whole screen with the viewer, which keeps its own compact bar (a large title
+// would cost the file half its height).
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, Pressable, TextInput, Alert, StyleSheet, ActivityIndicator,
   ScrollView, KeyboardAvoidingView, Platform, BackHandler,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useConnection } from '../api/context';
 import { langFor } from '../generated/desktop-assets';
 import FileIcon from '../components/FileIcon';
 import CodeView from '../components/CodeView';
+import ScreenHeader from '../components/ScreenHeader';
+import { Divider } from '../components/ui';
 import { showError } from '../components/ErrorDialog';
+import { color, radius, font, inset } from '../theme';
 
 type Entry = { name: string; dir: boolean };
 
@@ -25,6 +29,7 @@ const parent = (rel: string) => rel.split('/').slice(0, -1).join('/');
 
 export default function FilesScreen() {
   const { conn } = useConnection();
+  const insets = useSafeAreaInsets();
   const [cwd, setCwd] = useState('');
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,9 +124,11 @@ export default function FilesScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}
       >
-        <View style={styles.bar}>
+        {/* Measured like every other frame — the design's 54 is an iPhone notch and
+            would sit this bar too low on Android. */}
+        <View style={[styles.bar, { paddingTop: Math.max(insets.top, inset.minTop) }]}>
           <Pressable style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]} hitSlop={8} onPress={closeFile}>
-            <Ionicons name="chevron-back" size={20} color="#4da3ff" />
+            <Ionicons name="chevron-back" size={20} color={color.accent} />
           </Pressable>
           <FileIcon name={name} size={16} />
           <View style={styles.barTitle}>
@@ -133,7 +140,7 @@ export default function FilesScreen() {
             hitSlop={8}
             onPress={() => setEditing((v) => !v)}
           >
-            <Ionicons name={editing ? 'eye-outline' : 'create-outline'} size={19} color="#4da3ff" />
+            <Ionicons name={editing ? 'eye-outline' : 'create-outline'} size={19} color={color.accent} />
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.saveBtn, !dirty && styles.saveBtnOff, pressed && dirty && styles.savePressed]}
@@ -141,7 +148,7 @@ export default function FilesScreen() {
             onPress={save}
           >
             {saving
-              ? <ActivityIndicator size="small" color="#ffffff" />
+              ? <ActivityIndicator size="small" color="#fff" />
               : <Text style={[styles.saveLabel, !dirty && styles.saveLabelOff]}>{dirty ? 'Save' : 'Saved'}</Text>}
           </Pressable>
         </View>
@@ -168,29 +175,24 @@ export default function FilesScreen() {
 
   return (
     <View style={styles.fill}>
-      <View style={styles.bar}>
-        <Pressable
-          style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed, !cwd && styles.iconBtnOff]}
-          hitSlop={8}
-          disabled={!cwd}
-          onPress={() => { setLoading(true); list(parent(cwd)); }}
-        >
-          <Ionicons name="chevron-back" size={20} color={cwd ? '#4da3ff' : '#484f58'} />
-        </Pressable>
+      <ScreenHeader title="Files">
+        {/* The breadcrumb doubles as the up control — every segment is a target, so
+            a dedicated back button would only repeat the second-to-last crumb. */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={styles.crumbBar}
           contentContainerStyle={styles.crumbs}
           ref={(r) => r?.scrollToEnd({ animated: false })}
         >
           <Pressable style={({ pressed }) => [styles.crumb, pressed && styles.pressed]} onPress={() => list('')}>
-            <Ionicons name="home-outline" size={14} color={cwd ? '#7d8590' : '#e6edf3'} />
+            <Ionicons name="home-outline" size={14} color={cwd ? color.muted : color.text} />
           </Pressable>
           {crumbs.map((seg, i) => {
             const last = i === crumbs.length - 1;
             return (
               <View key={`${seg}-${i}`} style={styles.crumbWrap}>
-                <Ionicons name="chevron-forward" size={12} color="#484f58" />
+                <Ionicons name="chevron-forward" size={12} color={color.iconFaint} />
                 <Pressable
                   style={({ pressed }) => [styles.crumb, pressed && !last && styles.pressed]}
                   disabled={last}
@@ -202,21 +204,24 @@ export default function FilesScreen() {
             );
           })}
         </ScrollView>
-      </View>
+      </ScreenHeader>
 
       {loading ? (
-        <View style={styles.center}><ActivityIndicator color="#4da3ff" /></View>
+        <View style={styles.center}><ActivityIndicator color={color.accent} /></View>
       ) : (
         <FlatList
           data={entries}
           keyExtractor={(e) => e.name}
           refreshing={refreshing}
           onRefresh={() => { setRefreshing(true); list(cwd); }}
-          ItemSeparatorComponent={() => <View style={styles.sep} />}
-          contentContainerStyle={entries.length ? undefined : styles.grow}
+          ItemSeparatorComponent={() => <Divider inset={46} />}
+          style={styles.listOuter}
+          // The card IS the content container, so it grows with the rows and scrolls
+          // with them rather than clipping them at a fixed height.
+          contentContainerStyle={entries.length ? styles.card : styles.grow}
           ListEmptyComponent={
             <View style={styles.center}>
-              <Ionicons name="folder-open-outline" size={34} color="#30363d" />
+              <Ionicons name="folder-open-outline" size={34} color={color.border} />
               <Text style={styles.empty}>This folder is empty.</Text>
             </View>
           }
@@ -229,72 +234,93 @@ export default function FilesScreen() {
                 <FileIcon name={item.name} dir={item.dir} size={18} />
               </View>
               <Text style={[styles.rowName, item.dir && styles.rowDir]} numberOfLines={1}>{item.name}</Text>
-              {item.dir && <Ionicons name="chevron-forward" size={16} color="#484f58" />}
+              {item.dir && <Ionicons name="chevron-forward" size={16} color={color.iconFaint} />}
             </Pressable>
           )}
         />
       )}
 
-      {opening && <View style={styles.scrim}><ActivityIndicator color="#4da3ff" /></View>}
+      {opening && <View style={styles.scrim}><ActivityIndicator color={color.accent} /></View>}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#0d1117' },
+  fill: { flex: 1, backgroundColor: color.bg },
   grow: { flexGrow: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
-  empty: { color: '#6e7681', fontSize: 13 },
+  empty: { color: color.faint, fontSize: 13 },
 
+  // The viewer's bar: compact on purpose — it sits above the file, not above a
+  // screen, so it keeps the old chrome rather than a ScreenHeader.
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingBottom: 8,
     gap: 6,
-    backgroundColor: '#161b22',
+    backgroundColor: color.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#30363d',
+    borderBottomColor: color.border,
   },
-  iconBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-  iconBtnOff: { opacity: 0.5 },
-  pressed: { backgroundColor: '#21262d' },
+  iconBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
+  pressed: { backgroundColor: color.raised },
 
-  crumbs: { alignItems: 'center', paddingRight: 8 },
+  crumbBar: {
+    backgroundColor: color.bg,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.md,
+    marginBottom: 12,
+    flexGrow: 0,
+  },
+  crumbs: { alignItems: 'center', paddingHorizontal: 6, paddingVertical: 3 },
   crumbWrap: { flexDirection: 'row', alignItems: 'center' },
-  crumb: { paddingHorizontal: 6, paddingVertical: 5, borderRadius: 6, maxWidth: 160 },
-  crumbText: { color: '#7d8590', fontSize: 13 },
-  crumbCurrent: { color: '#e6edf3', fontWeight: '600' },
+  crumb: { paddingHorizontal: 4, paddingVertical: 4, borderRadius: radius.sm, maxWidth: 160 },
+  crumbText: { color: color.muted, fontSize: 13 },
+  crumbCurrent: { color: color.text, fontWeight: '600' },
 
-  sep: { height: StyleSheet.hairlineWidth, backgroundColor: '#21262d', marginLeft: 46 },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, height: 48 },
-  rowPressed: { backgroundColor: '#161b22' },
-  rowIcon: { width: 18, marginRight: 14, alignItems: 'center' },
-  rowName: { color: '#c9d1d9', fontSize: 15, flex: 1 },
-  rowDir: { color: '#e6edf3', fontWeight: '500' },
+  listOuter: { paddingHorizontal: 16, paddingTop: 14 },
+  card: {
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.borderSoft,
+    borderRadius: radius.card,
+    overflow: 'hidden',
+    // No gesture inset: this is a tab screen, and the tab bar below already reserves
+    // whatever the device needs. This is just the card's own breathing room.
+    marginBottom: 16,
+  },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, height: 50 },
+  rowPressed: { backgroundColor: color.raised },
+  rowIcon: { width: 18, marginRight: 12, alignItems: 'center' },
+  rowName: { color: color.body, fontSize: font.size.md, flex: 1 },
+  rowDir: { color: color.text, fontWeight: '500' },
 
   barTitle: { flex: 1, minWidth: 0 },
-  fileName: { color: '#e6edf3', fontSize: 14, fontWeight: '600' },
-  filePath: { color: '#6e7681', fontSize: 11 },
+  fileName: { color: color.text, fontSize: 14, fontWeight: '600' },
+  filePath: { color: color.faint, fontSize: 11 },
   saveBtn: {
     minWidth: 62,
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#238636',
+    borderRadius: radius.md,
+    backgroundColor: color.greenDeep,
   },
-  saveBtnOff: { backgroundColor: 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: '#30363d' },
+  saveBtnOff: { backgroundColor: 'transparent', borderWidth: StyleSheet.hairlineWidth, borderColor: color.border },
   savePressed: { backgroundColor: '#2ea043' },
-  saveLabel: { color: '#ffffff', fontSize: 13, fontWeight: '600' },
-  saveLabelOff: { color: '#6e7681' },
+  saveLabel: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  saveLabelOff: { color: color.faint },
 
+  // The editor keeps CodeView's own surface: the two swap in place, and a GitHub-dark
+  // TextInput behind VS-Code-themed syntax would make editing look like a different file.
   editor: {
     flex: 1,
     color: '#d4d4d4',
     backgroundColor: '#1e1e1e',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: font.mono,
     fontSize: 13,
     lineHeight: 19,
     padding: 12,

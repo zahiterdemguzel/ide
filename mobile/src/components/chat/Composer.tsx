@@ -168,22 +168,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm, paddingVertical: space.sm,
   },
   iconBtn: {
-    width: 36, height: 36, borderRadius: radius.pill,
+    width: 38, height: 38, borderRadius: radius.pill,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: color.raised,
   },
   iconBtnPressed: { backgroundColor: color.raisedHi },
+  // 19 is half of 38: the field is a true pill at one line and stays rounded as it
+  // grows, rather than snapping to a rectangle with rounded ends.
   input: {
     flex: 1,
     color: color.text, fontSize: font.size.md, lineHeight: 20,
     backgroundColor: color.raised,
-    borderRadius: radius.lg,
-    paddingHorizontal: space.md, paddingTop: space.sm, paddingBottom: space.sm,
+    borderRadius: 19,
+    paddingHorizontal: 14, paddingTop: 9, paddingBottom: 9,
     maxHeight: 140,
-    minHeight: 36,
+    minHeight: 38,
   },
   send: {
-    width: 36, height: 36, borderRadius: radius.pill,
+    width: 38, height: 38, borderRadius: radius.pill,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: color.accentDim,
   },

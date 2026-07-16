@@ -125,28 +125,30 @@ export default React.memo(MessageView);
 const styles = StyleSheet.create({
   assistant: { paddingHorizontal: space.lg, paddingVertical: space.xs },
   userRow: { paddingHorizontal: space.lg, paddingVertical: space.xs, alignItems: 'flex-end' },
+  // Your own words are the one thing here you already know — so the bubble is solid
+  // blue and squared off at the corner nearest you, and everything Claude says is
+  // left plain on the page.
   bubble: {
-    maxWidth: '88%',
-    backgroundColor: color.raised,
-    borderWidth: 1, borderColor: color.border,
-    borderRadius: radius.lg, borderBottomRightRadius: radius.sm,
-    paddingHorizontal: space.md, paddingVertical: space.sm,
+    maxWidth: '86%',
+    backgroundColor: color.accentDim,
+    borderRadius: 18, borderBottomRightRadius: 6,
+    paddingHorizontal: 13, paddingVertical: 9,
     gap: space.xs,
   },
   bubblePending: { opacity: 0.55 },
-  userText: { color: color.text, fontSize: font.size.md, lineHeight: 21 },
+  userText: { color: '#fff', fontSize: font.size.md, lineHeight: 21 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: space.xs,
     alignSelf: 'flex-start',
-    backgroundColor: color.bg, borderRadius: radius.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)', borderRadius: radius.sm,
     paddingHorizontal: space.sm, paddingVertical: 3,
   },
-  chipText: { color: color.accent, fontSize: font.size.xs, fontWeight: '600' },
+  chipText: { color: '#fff', fontSize: font.size.xs, fontWeight: '600' },
 
   tool: {
     backgroundColor: color.surface,
     borderWidth: 1, borderColor: color.borderSoft,
-    borderRadius: radius.sm,
+    borderRadius: 12,
     marginVertical: 3,
     overflow: 'hidden',
   },
@@ -169,7 +171,7 @@ const styles = StyleSheet.create({
   thinking: {
     backgroundColor: color.surface,
     borderWidth: 1, borderColor: color.borderSoft,
-    borderRadius: radius.sm, marginVertical: 3,
+    borderRadius: 12, marginVertical: 3,
     paddingBottom: 2,
   },
   thinkingLabel: { flex: 1, color: color.purple, fontSize: font.size.sm, fontWeight: '600' },

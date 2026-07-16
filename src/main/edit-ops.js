@@ -76,4 +76,54 @@ function inverseEdits(working, ops) {
   return { content: s, clean };
 }
 
-module.exports = { editOp, replayEdits, commitContent, inverseEdits };
+// Added/removed line counts for a session's ops, for the "+124 −38" pill on a
+// session row.
+//
+// Counted from the ops themselves rather than from `git diff`, for two reasons.
+// The cheap one: the sessions list is paged and polled, and the ops are already in
+// memory, so this costs nothing. The real one: a working-tree diff is GLOBAL and
+// cannot tell two sessions apart (see the fileOps note in sessions.js), while ops
+// are per-session by construction — so this is the only source that can attribute
+// lines to the session that actually wrote them.
+//
+// The count is a magnitude, not a patch stat. Two ops touching the same lines are
+// counted twice (there is no base to collapse them against), and a `write` has no
+// pre-image, so its removals are invisible and its whole content reads as added.
+// Files tracked via `fileOps` (binary, renamed, deleted) carry no line counts at
+// all and contribute nothing.
+function diffStat(ops) {
+  let added = 0, removed = 0;
+  for (const op of ops) {
+    if (op.t === 'opaque') continue;
+    if (op.t === 'write') { added += lines(op.content).length; continue; }
+    for (const e of (op.t === 'multi' ? op.edits : [op])) {
+      const d = diffPair(e.old, e.new);
+      added += d.added;
+      removed += d.removed;
+    }
+  }
+  return { added, removed };
+}
+
+function lines(s) {
+  return s === '' ? [] : s.split('\n');
+}
+
+// Line delta between two versions of a hunk, ignoring the lines they share at each
+// end — so re-indenting one line inside a 40-line replacement reads as 1 changed
+// line, not 40. Anything the common prefix/suffix doesn't cover is counted whole;
+// this deliberately doesn't LCS the middle, which is what keeps it O(n).
+function diffPair(oldStr, newStr) {
+  const a = lines(oldStr), b = lines(newStr);
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head++;
+  let tail = 0;
+  while (
+    tail < a.length - head
+    && tail < b.length - head
+    && a[a.length - 1 - tail] === b[b.length - 1 - tail]
+  ) tail++;
+  return { removed: a.length - head - tail, added: b.length - head - tail };
+}
+
+module.exports = { editOp, replayEdits, commitContent, inverseEdits, diffStat };

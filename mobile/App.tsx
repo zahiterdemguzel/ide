@@ -2,20 +2,21 @@
 // code in its Settings dialog, then drives it over the ws protocol (projects,
 // Claude sessions, git, files, forwarded ports).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NavigationContainer, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme, useIsFocused } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StyleSheet, View } from 'react-native';
+import { color, TAB_BAR_HEIGHT } from './src/theme';
 import { Connection, ConnectionState } from './src/api/connection';
 import { loadCredentials, saveCredentials, clearCredentials, Endpoints, PairInfo } from './src/api/pairing';
 import { Instance, instanceEndpoints } from './src/api/instances';
 import { ConnectionContext, useConnection } from './src/api/context';
-import ProjectDrawer, { basename } from './src/components/ProjectDrawer';
+import ProjectDrawer from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
-import UsageBar from './src/components/UsageBar';
+import { ChromeContext } from './src/components/ScreenHeader';
 import ErrorDialog from './src/components/ErrorDialog';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import PairScreen from './src/screens/PairScreen';
@@ -25,9 +26,20 @@ import ConsoleTerminal from './src/screens/ConsoleTerminal';
 import GitScreen from './src/screens/GitScreen';
 import FilesScreen from './src/screens/FilesScreen';
 import PortsScreen from './src/screens/PortsScreen';
+import NotificationsScreen from './src/screens/NotificationsScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+// React Navigation's own DarkTheme paints rgb(1,1,1) behind every screen — a black
+// that belongs to no token and reads as a hole beside the page's #0d1117. It shows
+// wherever a screen doesn't paint its own background, which is easy to miss and was
+// the actual cause of two "why is this black?" bugs. Fix it once, at the source, so
+// a new screen can't inherit it.
+const NAV_THEME = {
+  ...DarkTheme,
+  colors: { ...DarkTheme.colors, background: color.bg },
+};
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Sessions: 'chatbubbles-outline',
@@ -36,34 +48,20 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Ports: 'globe-outline',
 };
 
-// The tab bar already names the current screen, so the header title says which
-// project you're driving instead. The switcher itself is a side action: a small
-// icon-only button that opens ProjectDrawer, not a tab of its own.
-function ProjectTitle({ name }: { name: string | null }) {
-  return (
-    <Text style={styles.projectName} numberOfLines={1}>
-      {name ? basename(name) : 'Select project'}
-    </Text>
-  );
-}
-
-// The two side actions bracket the header: project switcher on the left, the run
-// panel (launch configs, tasks, and the terminals they opened) on the right.
-function HeaderButton({ icon, color, onPress }: { icon: any; color: string; onPress: () => void }) {
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.headerBtn, pressed && styles.headerBtnPressed]}
-      hitSlop={10}
-      onPress={onPress}
-    >
-      <Ionicons name={icon} size={18} color={color} />
-    </Pressable>
-  );
-}
-
 // Main hub after pairing: iOS/Android-style bottom tab bar.
+//
+// The navigator's header is off: each screen draws its own (ScreenHeader), because
+// the design puts a large title under the project row and a stock header has no
+// room for it. The drawers stay here — one of each for the whole hub — and the
+// screens open them through ChromeContext.
 function MainTabs() {
   const { conn, state } = useConnection();
+  const insets = useSafeAreaInsets();
+  // Whether the Main hub itself is the focused stack screen. The drawers are
+  // Modals, which float above *pushed* screens too — so while a terminal opened
+  // from the Run panel has focus we hide the modal but keep its open state,
+  // and backing out of the terminal lands on the panel again.
+  const isFocused = useIsFocused();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
@@ -75,43 +73,41 @@ function MainTabs() {
     return conn?.on('folder-changed', ({ repo }: any) => setCurrent(repo));
   }, [conn, state]);
 
+  const chrome = useMemo(
+    () => ({ project: current, openProjects: () => setDrawerOpen(true), openRun: () => setRunOpen(true) }),
+    [current],
+  );
+
   return (
-    <>
+    <ChromeContext.Provider value={chrome}>
       <Tab.Navigator
         screenOptions={({ route }) => ({
-          headerTitleAlign: 'center',
-          headerShadowVisible: false,
-          // The usage line rides the bottom edge of the header on every tab, so it
-          // is painted with the header background rather than added to each screen.
-          headerBackground: () => (
-            <View style={styles.header}>
-              <UsageBar />
-            </View>
-          ),
-          headerTitle: () => <ProjectTitle name={current} />,
-          headerLeft: () => (
-            <HeaderButton icon="folder-open-outline" color="#4da3ff" onPress={() => setDrawerOpen(true)} />
-          ),
-          headerRight: () => (
-            <HeaderButton icon="play" color="#3fb950" onPress={() => setRunOpen(true)} />
-          ),
+          headerShown: false,
+          // The bar reserves exactly the gesture inset the device reports — never a
+          // constant. On Android that's 0 (the system's own bar sits below our
+          // window and is painted to match via `androidNavigationBar` in app.json),
+          // so a hardcoded iPhone 40 here left a dead strip above a black one.
           tabBarStyle: {
-            backgroundColor: '#161b22',
-            borderTopColor: '#30363d',
+            backgroundColor: color.surface,
+            borderTopColor: color.border,
             borderTopWidth: StyleSheet.hairlineWidth,
-            height: 62,
-            paddingTop: 6,
-            paddingBottom: 8,
+            height: TAB_BAR_HEIGHT + insets.bottom,
+            paddingTop: 8,
+            paddingBottom: insets.bottom,
           },
-          tabBarActiveTintColor: '#4da3ff',
-          tabBarInactiveTintColor: '#7d8590',
+          tabBarActiveTintColor: color.accent,
+          tabBarInactiveTintColor: color.muted,
           tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? (TAB_ICONS[route.name].replace('-outline', '') as any) : TAB_ICONS[route.name]}
-              size={size - 2}
-              color={color}
-            />
+          // The active tab's icon sits in a tinted pill — the one place the tab bar
+          // says which screen you're on beyond the label's colour.
+          tabBarIcon: ({ color: tint, focused }) => (
+            <View style={[styles.tabIcon, focused && styles.tabIconOn]}>
+              <Ionicons
+                name={focused ? (TAB_ICONS[route.name].replace('-outline', '') as any) : TAB_ICONS[route.name]}
+                size={21}
+                color={tint}
+              />
+            </View>
           ),
         })}
       >
@@ -121,8 +117,8 @@ function MainTabs() {
         <Tab.Screen name="Ports" component={PortsScreen} />
       </Tab.Navigator>
       <ProjectDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />
-      <RunDrawer visible={runOpen} onClose={() => setRunOpen(false)} />
-    </>
+      <RunDrawer visible={runOpen && isFocused} onClose={() => setRunOpen(false)} />
+    </ChromeContext.Provider>
   );
 }
 
@@ -241,7 +237,7 @@ export default function App() {
   return (
     <ConnectionContext.Provider value={ctx}>
       <SafeAreaProvider>
-        <NavigationContainer theme={DarkTheme}>
+        <NavigationContainer theme={NAV_THEME}>
           <StatusBar style="light" />
           <Stack.Navigator>
             {!paired ? (
@@ -262,6 +258,9 @@ export default function App() {
                     (a dev server's log), which is a terminal by nature. */}
                 <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Console" component={ConsoleTerminal} options={{ headerShown: false }} />
+                {/* Pushed from the bell in any tab's header, not a tab of its own:
+                    it's a log you visit, not a place you work. */}
+                <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
               </>
             )}
           </Stack.Navigator>
@@ -274,16 +273,6 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  header: { flex: 1, backgroundColor: '#161b22' },
-  headerBtn: {
-    width: 34,
-    height: 34,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#21262d',
-  },
-  headerBtnPressed: { backgroundColor: '#30363d' },
-  projectName: { color: '#e6edf3', fontSize: 15, fontWeight: '600', maxWidth: 160 },
+  tabIcon: { paddingHorizontal: 16, paddingVertical: 3, borderRadius: 999 },
+  tabIconOn: { backgroundColor: 'rgba(31, 111, 235, 0.18)' },
 });

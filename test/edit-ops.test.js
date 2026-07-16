@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { editOp, replayEdits, commitContent, inverseEdits } = require('../src/main/edit-ops');
+const { editOp, replayEdits, commitContent, inverseEdits, diffStat } = require('../src/main/edit-ops');
 
 test('editOp: maps each file tool to its op shape', () => {
   assert.deepEqual(editOp('Write', { content: 'x' }), { t: 'write', content: 'x' });
@@ -136,4 +136,50 @@ test('inverse leaves another region untouched (the cross-session guarantee)', ()
   const ours = [{ t: 'edit', old: 'foo', new: 'FOO' }];
   const r = inverseEdits(working, ours);
   assert.deepEqual(r, { content: 'foo and BAR', clean: true });
+});
+
+test('diffStat: counts a one-line swap as 1 added / 1 removed', () => {
+  assert.deepEqual(diffStat([{ t: 'edit', old: 'a', new: 'b' }]), { added: 1, removed: 1 });
+});
+
+test('diffStat: a pure insertion removes nothing, a pure deletion adds nothing', () => {
+  assert.deepEqual(diffStat([{ t: 'edit', old: '', new: 'a\nb' }]), { added: 2, removed: 0 });
+  assert.deepEqual(diffStat([{ t: 'edit', old: 'a\nb', new: '' }]), { added: 0, removed: 2 });
+});
+
+test('diffStat: lines shared at either end are not counted', () => {
+  // Only the middle line changed; the surrounding context must not inflate the count.
+  assert.deepEqual(
+    diffStat([{ t: 'edit', old: 'keep\nold\ntail', new: 'keep\nnew\ntail' }]),
+    { added: 1, removed: 1 },
+  );
+});
+
+test('diffStat: sums every edit of a MultiEdit', () => {
+  const ops = [{
+    t: 'multi',
+    edits: [{ old: 'a', new: 'b\nc' }, { old: 'x\ny', new: 'z' }],
+  }];
+  assert.deepEqual(diffStat(ops), { added: 3, removed: 3 });
+});
+
+test('diffStat: a write counts its content as added and cannot see removals', () => {
+  // A Write carries no pre-image, so there is nothing to diff against — the whole
+  // file reads as added. Documented approximation, asserted so it stays deliberate.
+  assert.deepEqual(diffStat([{ t: 'write', content: 'a\nb\nc' }]), { added: 3, removed: 0 });
+  assert.deepEqual(diffStat([{ t: 'write', content: '' }]), { added: 0, removed: 0 });
+});
+
+test('diffStat: opaque ops contribute nothing', () => {
+  assert.deepEqual(diffStat([{ t: 'opaque' }]), { added: 0, removed: 0 });
+  assert.deepEqual(diffStat([]), { added: 0, removed: 0 });
+});
+
+test('diffStat: accumulates across a session’s ops', () => {
+  const ops = [
+    { t: 'edit', old: 'one', new: 'ONE' },
+    { t: 'edit', old: '', new: 'added\nlines' },
+    { t: 'opaque' },
+  ];
+  assert.deepEqual(diffStat(ops), { added: 3, removed: 1 });
 });

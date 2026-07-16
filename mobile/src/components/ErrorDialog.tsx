@@ -45,7 +45,7 @@ export default function ErrorDialog() {
   };
 
   return (
-    <Modal transparent animationType="fade" visible onRequestClose={() => setErr(null)}>
+    <Modal transparent statusBarTranslucent animationType="fade" visible onRequestClose={() => setErr(null)}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
           <Text style={styles.title}>{err.title}</Text>

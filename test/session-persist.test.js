@@ -3,14 +3,15 @@ const assert = require('node:assert/strict');
 const { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit } = require('../src/main/session-persist');
 
 // A live in-memory session entry the way sessions.js holds it.
-function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', model = '', subagentModel = '', effort = '', transcript = '', edits = [], fileOps = [] } = {}) {
-  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, state, model, subagentModel, effort, transcript, edits: new Map(edits), fileOps: new Map(fileOps) };
+function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', model = '', subagentModel = '', effort = '', transcript = '', startedAt = 0, lastActiveAt = 0, tool = null, edits = [], fileOps = [] } = {}) {
+  return { pty: {}, preStatus: { junk: 1 }, suspended: archived, archived, repo, firstPrompt, name, state, model, subagentModel, effort, transcript, startedAt, lastActiveAt, tool, edits: new Map(edits), fileOps: new Map(fileOps) };
 }
 
 test('serializeSession: drops runtime-only fields and flattens the Maps', () => {
   const s = liveSession({
     repo: '/projects/app', firstPrompt: 'fix the bug', name: 'Bug fix', archived: true, state: 'completed',
     model: 'opus', subagentModel: 'haiku', effort: 'high', transcript: '/home/u/.claude/projects/app/id-1.jsonl',
+    startedAt: 1000, lastActiveAt: 2000, tool: { name: 'Edit', file: 'a.js' },
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });
@@ -28,11 +29,30 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
     // Where Claude keeps this session's conversation — the phone renders it as a chat,
     // and no hook fires for an archived session to name the file again.
     transcript: '/home/u/.claude/projects/app/id-1.jsonl',
+    startedAt: 1000,
+    lastActiveAt: 2000,
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
   });
   assert.equal('pty' in out, false);
   assert.equal('preStatus' in out, false);
+  // The in-flight tool is runtime-only: a restored session runs nothing.
+  assert.equal('tool' in out, false);
+});
+
+test('serialize -> deserialize keeps the timestamps and forgets the tool', () => {
+  const s = liveSession({ startedAt: 1700000000000, lastActiveAt: 1700000060000, tool: { name: 'Edit', file: 'a.js' } });
+  const restored = deserializeSession(serializeSession('id', s));
+  assert.equal(restored.startedAt, 1700000000000);
+  assert.equal(restored.lastActiveAt, 1700000060000);
+  assert.equal(restored.tool, null);
+});
+
+test('deserializeSession: a snapshot predating the timestamps reopens with 0, not 1970', () => {
+  // 0 is the "unknown" the row reads as "show no time".
+  const restored = deserializeSession({ id: 'x', repo: '/r', state: 'idle' });
+  assert.equal(restored.startedAt, 0);
+  assert.equal(restored.lastActiveAt, 0);
 });
 
 test('persistedState: only an actively-running session reopens interrupted', () => {

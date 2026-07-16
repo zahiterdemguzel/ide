@@ -17,10 +17,6 @@ module.exports = {
   resize: (id, cols, rows) => ipcRenderer.send('pty-resize', { id, cols, rows }),
   onPtyData: (cb) => ipcRenderer.on('pty-data', (_e, msg) => cb(msg)),
   onStatus: (cb) => ipcRenderer.on('status', (_e, msg) => cb(msg)),
-  // A paired phone holds a session while its terminal screen is open; the desktop
-  // covers it, and takes it back by releasing the claim.
-  takeSessionControl: (id) => ipcRenderer.send('session-control', { id, on: false }),
-  onSessionControl: (cb) => ipcRenderer.on('session-control', (_e, msg) => cb(msg)),
   commitSession: (id) => ipcRenderer.invoke('commit-session', id),
   revertSession: (id) => ipcRenderer.invoke('revert-session', id),
   sessionDiff: (id) => ipcRenderer.invoke('session-diff', id),

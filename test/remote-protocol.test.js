@@ -32,8 +32,8 @@ test('allowlist gates channels', () => {
   assert.equal(proto.canCall('req', 'query-sessions'), true);
   assert.equal(proto.canCall('req', 'open-folder'), false); // native dialog stays desktop-only
   assert.equal(proto.canCall('req', 'db-open'), false);
-  // A phone claims a session while its terminal screen is open so the desktop covers it.
-  assert.equal(proto.canCall('send', 'session-control'), true);
+  // Sessions are shared: there is no claim channel — desktop and phone drive them together.
+  assert.equal(proto.canCall('send', 'session-control'), false);
   // Run panel: list the .vscode configs, start/stop one, and attach to the terminal
   // it opened (list + retained output).
   assert.equal(proto.canCall('req', 'get-run-configs'), true);
@@ -56,9 +56,7 @@ test('remote events filter', () => {
   // Open/closed terminals are pushed too — that's how a phone knows which launch
   // configs are running, since a config runs for as long as its terminal is open.
   assert.equal(proto.isRemoteEvent('terminals-changed'), true);
-  // Who holds a session is pushed too, so a phone other than the holder learns when it
-  // is claimed or released (including on a dropped socket).
-  assert.equal(proto.isRemoteEvent('session-control'), true);
+  assert.equal(proto.isRemoteEvent('session-control'), false);
   // PTY geometry changes are pushed so an attached phone keeps mirroring the grid
   // the byte stream is painted for.
   assert.equal(proto.isRemoteEvent('term-resized'), true);

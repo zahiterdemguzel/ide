@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../api/context';
 import { Instance, uptime } from '../api/instances';
 import { basename } from '../components/ProjectDrawer';
+import { color, radius } from '../theme';
 
 // The desktop mark: three status-coloured dots — the product is many parallel
 // sessions, so it is a cluster rather than a single glyph.
@@ -133,53 +134,57 @@ export default function WelcomeScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#0d1117' },
+  fill: { flex: 1, backgroundColor: color.bg },
   body: { paddingHorizontal: 24, alignItems: 'center' },
 
   mark: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   dots: { flexDirection: 'row', gap: 5 },
   dot: { width: 9, height: 9, borderRadius: 5 },
-  word: { color: '#e6edf3', fontSize: 40, fontWeight: '200', letterSpacing: 6 },
+  word: { color: color.text, fontSize: 40, fontWeight: '200', letterSpacing: 6 },
 
-  tagline: { color: '#7d8590', fontSize: 14, marginTop: 12, textAlign: 'center' },
-  explainer: { color: '#7d8590', fontSize: 13, lineHeight: 20, marginTop: 8, textAlign: 'center' },
+  tagline: { color: color.muted, fontSize: 14, marginTop: 12, textAlign: 'center' },
+  explainer: { color: color.muted, fontSize: 13, lineHeight: 20, marginTop: 8, textAlign: 'center' },
   spinner: { marginTop: 20 },
 
   eyebrow: {
     alignSelf: 'stretch', marginTop: 28, marginBottom: 10, paddingBottom: 6,
-    color: '#7d8590', fontSize: 11, letterSpacing: 1.4, textTransform: 'uppercase',
-    borderBottomColor: '#30363d', borderBottomWidth: StyleSheet.hairlineWidth,
+    color: color.muted, fontSize: 11, letterSpacing: 1.4, textTransform: 'uppercase',
+    borderBottomColor: color.border, borderBottomWidth: StyleSheet.hairlineWidth,
   },
 
   action: {
     alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 10, paddingVertical: 14, borderRadius: 8,
+    gap: 10, paddingVertical: 14, borderRadius: radius.md,
   },
+  // The one off-system colour left in the app: the desktop welcome page's own button
+  // blue, which is VS Code's rather than GitHub-dark's. Kept because this screen is a
+  // deliberate echo of that page — the design's turn 1 flagged it as off-system too.
+  // If it ever migrates, `color.accentDim` is the token it should become.
   actionPrimary: { backgroundColor: '#0e639c' },
   actionPrimaryPressed: { backgroundColor: '#1177bb' },
-  actionLabel: { fontSize: 15, fontWeight: '600', color: '#e6edf3' },
+  actionLabel: { fontSize: 15, fontWeight: '600', color: color.text },
   actionLabelPrimary: { color: '#fff' },
 
   instance: {
     alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8, borderRadius: 8,
-    backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 8, borderRadius: radius.md,
+    backgroundColor: color.surface, borderColor: color.border, borderWidth: StyleSheet.hairlineWidth,
   },
-  instancePressed: { backgroundColor: '#21262d' },
+  instancePressed: { backgroundColor: color.raised },
   instanceText: { flex: 1 },
-  instanceName: { color: '#e6edf3', fontSize: 15, fontWeight: '600' },
-  instancePath: { color: '#7d8590', fontSize: 11, marginTop: 2 },
-  instanceMeta: { color: '#7d8590', fontSize: 11, marginTop: 4 },
+  instanceName: { color: color.text, fontSize: 15, fontWeight: '600' },
+  instancePath: { color: color.muted, fontSize: 11, marginTop: 2 },
+  instanceMeta: { color: color.muted, fontSize: 11, marginTop: 4 },
 
   step: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 7 },
   stepNum: {
-    width: 22, height: 22, borderRadius: 11, backgroundColor: '#21262d',
-    color: '#4da3ff', fontSize: 12, fontWeight: '700', textAlign: 'center', lineHeight: 22,
+    width: 22, height: 22, borderRadius: 11, backgroundColor: color.raised,
+    color: color.accent, fontSize: 12, fontWeight: '700', textAlign: 'center', lineHeight: 22,
   },
-  stepText: { flex: 1, color: '#e6edf3', fontSize: 13, lineHeight: 19 },
+  stepText: { flex: 1, color: color.text, fontSize: 13, lineHeight: 19 },
 
-  note: { color: '#7d8590', fontSize: 12, lineHeight: 18, marginTop: 24, textAlign: 'center' },
+  note: { color: color.muted, fontSize: 12, lineHeight: 18, marginTop: 24, textAlign: 'center' },
 
   unpair: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 28, paddingVertical: 10 },
-  unpairText: { color: '#f85149', fontSize: 14, fontWeight: '600' },
+  unpairText: { color: color.red, fontSize: 14, fontWeight: '600' },
 });

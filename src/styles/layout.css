@@ -155,21 +155,6 @@
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--fg-dim); font-size: 12px; text-align: center; padding: 0 24px;
 }
-/* A paired phone is driving this session. The terminal stays alive underneath (so
-   taking control back is instant) — the cover just hides what it's doing. */
-.term-container.controlled { position: relative; }
-.term-controlled-cover {
-  position: absolute; inset: 0; z-index: 5;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  background: var(--term-bg); text-align: center; padding: 0 24px;
-}
-.term-controlled-text { color: var(--fg); font-size: 13px; font-weight: 600; }
-.term-controlled-hint { color: var(--fg-dim); font-size: 12px; max-width: 380px; }
-.term-controlled-btn {
-  margin-top: 4px; padding: 5px 12px; font-size: 12px; cursor: pointer;
-  color: var(--fg); background: var(--bg-2); border: 1px solid var(--border); border-radius: 4px;
-}
-.term-controlled-btn:hover { background: var(--bg-3); }
 /* Welcome / watermark shown when no session, file, or overlay is open. The
    center is the app's largest blank surface, so it carries the product's
    identity instead of a bare line of text. */

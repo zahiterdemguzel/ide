@@ -70,8 +70,11 @@ export default function ProjectDrawer({ visible, onClose }: Props) {
     onClose();
   };
 
+  // statusBarTranslucent so the scrim dims the status bar too (see mobile-design.md,
+  // "Darkening the screen"); the SafeAreaView measures its own window, so it pads
+  // the top back out on its own.
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+    <Modal visible={visible} transparent statusBarTranslucent animationType="none" onRequestClose={onClose}>
       <Animated.View style={[styles.scrim, { opacity: fade }]}>
         <Pressable style={styles.fill} onPress={onClose} />
       </Animated.View>

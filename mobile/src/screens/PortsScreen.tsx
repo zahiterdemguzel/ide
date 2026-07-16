@@ -10,9 +10,13 @@
 // onto is the *base* below — never the opened link, which ends in the token. The
 // path box says the same thing in app form: land straight on /admin.
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, FlatList, Pressable, Alert, StyleSheet, Linking } from 'react-native';
+import { View, Text, TextInput, FlatList, Pressable, Alert, StyleSheet, Linking } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
+import ScreenHeader from '../components/ScreenHeader';
+import { Card, CategoryLabel, Button } from '../components/ui';
 import { showError } from '../components/ErrorDialog';
+import { color, radius, font, type } from '../theme';
 
 type Fwd = { port: number; url: string; base: string };
 
@@ -57,56 +61,138 @@ export default function PortsScreen() {
 
   return (
     <View style={styles.fill}>
-      <Text style={styles.hint}>
-        Forward a dev server running on the desktop (e.g. localhost:3000) and test it in this phone's browser —
-        on this network or away from it. The whole site is forwarded: open it once, then type /login, /admin or any
-        other path onto the base address below.
-      </Text>
-      <View style={styles.rowInput}>
-        <TextInput
-          style={styles.portInput}
-          value={portText}
-          onChangeText={setPortText}
-          keyboardType="number-pad"
-          placeholder="3000"
-          placeholderTextColor="#777"
-        />
-        <TextInput
-          style={styles.input}
-          value={pathText}
-          onChangeText={setPathText}
-          autoCapitalize="none"
-          autoCorrect={false}
-          placeholder="/login (optional)"
-          placeholderTextColor="#777"
-        />
-        <Button title="Open" disabled={busy} onPress={openTyped} />
-      </View>
+      <ScreenHeader
+        title="Ports"
+        subtitle="Forward a desktop dev server and open it in this phone's browser — on this network or away from it."
+      />
+
       <FlatList
         data={forwards}
         keyExtractor={(f) => String(f.port)}
+        contentContainerStyle={styles.list}
+        keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={
+          <>
+            <Card style={styles.form}>
+              <View style={styles.fields}>
+                <Field label="Port" style={styles.portField}>
+                  <TextInput
+                    style={styles.input}
+                    value={portText}
+                    onChangeText={setPortText}
+                    keyboardType="number-pad"
+                    placeholder="3000"
+                    placeholderTextColor={color.faint}
+                  />
+                </Field>
+                <Field label="Path (optional)" style={styles.pathField}>
+                  <TextInput
+                    style={styles.input}
+                    value={pathText}
+                    onChangeText={setPathText}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder="/login"
+                    placeholderTextColor={color.faint}
+                  />
+                </Field>
+              </View>
+              <Button
+                label="Open in browser"
+                icon="open-outline"
+                hue={color.accentDim}
+                disabled={busy}
+                onPress={openTyped}
+                style={styles.openBtn}
+              />
+            </Card>
+
+            {forwards.length > 0 && (
+              <CategoryLabel
+                label="Forwarding"
+                hue={color.green}
+                count={forwards.length}
+                style={styles.category}
+              />
+            )}
+          </>
+        }
         renderItem={({ item }) => (
-          <View style={styles.row}>
-            <Pressable style={styles.grow} onPress={() => Linking.openURL(item.url)}>
-              <Text style={styles.port}>localhost:{item.port}</Text>
-              <Text style={styles.base} selectable numberOfLines={1}>{item.base}/…</Text>
-            </Pressable>
-            <Button title="Stop" onPress={() => stop(item)} />
-          </View>
+          <Card style={styles.fwd}>
+            <View style={styles.fwdTop}>
+              <View style={styles.live} />
+              <Pressable style={styles.grow} onPress={() => Linking.openURL(item.url)}>
+                <Text style={styles.host}>localhost:{item.port}</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.stop, pressed && styles.stopPressed]}
+                onPress={() => stop(item)}
+                accessibilityLabel={`Stop forwarding port ${item.port}`}
+              >
+                <Ionicons name="close" size={12} color={color.fileRed} />
+                <Text style={styles.stopLabel}>Stop</Text>
+              </Pressable>
+            </View>
+            {/* The base, not the opened link: the link ends in a one-time token, and
+                this is the address you type other paths onto. */}
+            <Text style={styles.base} selectable numberOfLines={1}>{item.base}/…</Text>
+          </Card>
         )}
       />
     </View>
   );
 }
 
+function Field(
+  { label, style, children }:
+  { label: string; style?: any; children: React.ReactNode },
+) {
+  return (
+    <View style={[styles.field, style]}>
+      <Text style={type.fieldLabel}>{label.toUpperCase()}</Text>
+      <View style={styles.well}>{children}</View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  hint: { color: '#888', padding: 12 },
-  rowInput: { flexDirection: 'row', paddingHorizontal: 12, gap: 8, alignItems: 'center' },
-  portInput: { width: 72, color: '#fff', backgroundColor: '#2a2a2a', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8 },
-  input: { flex: 1, color: '#fff', backgroundColor: '#2a2a2a', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#333' },
+  // The page colour is spelled out because the navigator's DarkTheme would otherwise
+  // show through — its background is rgb(1,1,1), a black that belongs to no token and
+  // reads as a hole next to #0d1117.
+  fill: { flex: 1, backgroundColor: color.bg },
+  // No gesture inset here: this is a tab screen, so the tab bar is already below it
+  // and reserves whatever the device needs.
+  list: { padding: 16 },
+
+  form: { padding: 14 },
+  fields: { flexDirection: 'row', gap: 8 },
+  field: { gap: 4 },
+  portField: { width: 78 },
+  pathField: { flex: 1 },
+  well: {
+    height: 42, justifyContent: 'center', paddingHorizontal: 12,
+    backgroundColor: color.bg, borderWidth: 1, borderColor: color.border, borderRadius: 9,
+  },
+  input: { color: color.text, fontSize: font.size.md, fontFamily: font.mono, padding: 0 },
+  openBtn: { marginTop: 12 },
+
+  category: { marginTop: 20, marginBottom: 10 },
+
+  fwd: { padding: 13, paddingHorizontal: 14, marginBottom: 10 },
+  fwdTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   grow: { flex: 1 },
-  port: { color: '#fff', fontSize: 15 },
-  base: { color: '#61afef', fontSize: 12 },
+  live: {
+    width: 8, height: 8, borderRadius: 4, backgroundColor: color.green,
+    shadowColor: color.green, shadowOpacity: 0.9, shadowRadius: 3, shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
+  },
+  host: { color: color.text, fontSize: font.size.md, fontWeight: '600', fontFamily: font.mono },
+  stop: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingVertical: 5, paddingHorizontal: 11, borderRadius: radius.pill,
+    backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
+  },
+  stopPressed: { backgroundColor: color.raisedHi },
+  stopLabel: { color: color.text, fontSize: 12, fontWeight: '600' },
+  base: { color: color.accent, fontSize: 12, fontFamily: font.mono, marginTop: 6 },
 });

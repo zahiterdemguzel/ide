@@ -100,9 +100,6 @@ const REMOTE_CHANNELS = {
     'ollama-list',
   ]),
   send: new Set([
-    // claim/release a session while the phone's terminal screen is open, so the
-    // desktop can cover it instead of showing two people driving one PTY
-    'session-control',
     // which model runs the session, and how hard it thinks — retargeted live from the
     // phone's chat, exactly as the desktop's session-bar badge does it
     'set-session-model',
@@ -124,9 +121,6 @@ const REMOTE_EVENTS = new Set([
   'status',
   'session-meta',
   'sessions-changed',
-  // who (if anyone) is driving a session's PTY right now — so a phone other than the
-  // one holding it learns when it's claimed or released (incl. on a dropped socket)
-  'session-control',
   // new/updated chat messages, and the question the TUI is blocked on (see chat.js)
   'transcript-data',
   'session-ask',

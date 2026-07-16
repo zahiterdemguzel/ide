@@ -6,6 +6,10 @@
     "orientation": "portrait",
     "scheme": "ide",
     "userInterfaceStyle": "dark",
+    "androidNavigationBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#161b22"
+    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {

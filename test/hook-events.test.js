@@ -6,9 +6,21 @@ test('eventToState: Stop -> completed', () => {
   assert.equal(eventToState({ hook_event_name: 'Stop' }), 'completed');
 });
 
-test('eventToState: Notification and PermissionRequest -> needs-input', () => {
-  assert.equal(eventToState({ hook_event_name: 'Notification' }), 'needs-input');
+test('eventToState: only blocking asks -> needs-input', () => {
   assert.equal(eventToState({ hook_event_name: 'PermissionRequest' }), 'needs-input');
+  // A permission-flavoured Notification is a blocking ask too (older CLIs announce
+  // permissions only this way)...
+  assert.equal(
+    eventToState({ hook_event_name: 'Notification', message: 'Claude needs your permission to use Bash' }),
+    'needs-input',
+  );
+  // ...but the idle "waiting for your input" notice follows every unattended turn —
+  // including ones that merely end with a prose question — and must not flip the dot.
+  assert.equal(
+    eventToState({ hook_event_name: 'Notification', message: 'Claude is waiting for your input' }),
+    null,
+  );
+  assert.equal(eventToState({ hook_event_name: 'Notification' }), null);
 });
 
 test('eventToState: SessionStart -> idle (gray until first prompt)', () => {
@@ -231,7 +243,10 @@ test('deriveStatus: main-thread activity after Stop reopens the turn', () => {
 });
 
 test('deriveStatus: non-terminal events fall through to eventToState', () => {
-  assert.equal(deriveStatus({ hook_event_name: 'Notification' }).state, 'needs-input');
+  assert.equal(
+    deriveStatus({ hook_event_name: 'Notification', message: 'Claude needs your permission to use Bash' }).state,
+    'needs-input',
+  );
   assert.equal(deriveStatus({ hook_event_name: 'SessionStart' }).state, 'idle');
   assert.equal(
     deriveStatus({ hook_event_name: 'PostToolUse', tool_input: { command: 'git push' } }).state,

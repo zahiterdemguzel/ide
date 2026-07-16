@@ -9,7 +9,7 @@
 import React, { useRef, useState } from 'react';
 import { Animated, Dimensions, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { color, font, radius, space } from '../../theme';
+import { color, font, radius, space, MODAL_TOP_SHIFT } from '../../theme';
 
 export type MenuItem = { id: string; name: string; hint?: string };
 
@@ -51,7 +51,9 @@ export default function BadgeMenu({ label, items, current, onPick, accessibility
       const screen = Dimensions.get('window').width;
       setAt({
         left: Math.max(MARGIN, Math.min(x, screen - MENU_WIDTH - MARGIN)),
-        top: y + h + GAP,
+        // measureInWindow is app-window coords; the translucent modal's origin is
+        // the screen's, a status bar higher on Android — shift back to line up.
+        top: y + h + GAP + MODAL_TOP_SHIFT,
       });
       setOpen(true);
       slide(1);
@@ -90,7 +92,7 @@ export default function BadgeMenu({ label, items, current, onPick, accessibility
         <Ionicons name="chevron-down" size={10} color={color.muted} />
       </Pressable>
 
-      <Modal visible={open} transparent animationType="none" onRequestClose={() => hide()}>
+      <Modal visible={open} transparent statusBarTranslucent animationType="none" onRequestClose={() => hide()}>
         <Pressable style={styles.backdrop} onPress={() => hide()} accessibilityLabel="Close" />
         <Animated.View
           onLayout={(e) => setHeight(e.nativeEvent.layout.height)}

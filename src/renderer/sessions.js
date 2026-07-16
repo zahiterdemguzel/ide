@@ -499,10 +499,6 @@ export function refreshAllDiffStats() {
 
 export function fit(s) {
   if (!s || !s.fit || !s.term) return; // suspended sessions have no terminal
-  // A phone holds this session: its PTY is sized to the phone's screen and main
-  // would drop our resize anyway. Don't reflow the covered xterm either — it
-  // should keep mirroring the phone-sized output for an instant takeover.
-  if (s.controlled) return;
   try {
     s.fit.fit();
     window.api.resize(s.id, s.term.cols, s.term.rows);
@@ -517,7 +513,6 @@ export function sendToActiveSession(text) {
   if (!activeId) return;
   const s = sessions.get(activeId);
   if (!s || !s.term) return; // archived session: nothing to send input to
-  if (s.controlled) return; // a phone holds it — don't type into someone else's PTY
   window.api.sendInput(activeId, text);
   s.term.focus();
 }
@@ -566,7 +561,6 @@ function suspendSessionUI(s, { notifyMain = true } = {}) {
     s.fit = null;
   }
   showSuspendedHint(s.container, 'Session archived to free resources — restore it to continue.');
-  clearControlled(s); // the hint replaced the container's children, cover included
 }
 
 // Restore an archived session: respawn its Claude conversation under the same id
@@ -579,8 +573,7 @@ function suspendSessionUI(s, { notifyMain = true } = {}) {
 function rebuildTerminalUI(s) {
   s.suspended = false;
   s.container.classList.remove('suspended');
-  s.container.replaceChildren(); // drops the cover node with everything else
-  clearControlled(s);
+  s.container.replaceChildren();
   const { term, fit } = attachTerminal(s.id, s.container, s.repo);
   s.term = term;
   s.fit = fit;
@@ -797,60 +790,12 @@ function syncSessions(list) {
       // desktop sits on "select to resume" while the session is already running.
       if (meta.live && s.suspended) rebuildTerminalUI(s);
     }
-    // The list carries who holds each session, so a renderer that reloaded (or a row
-    // adopted mid-flight) still comes up covered if a phone is driving it.
-    setControlled(sessions.get(meta.id), !!meta.controlled);
   }
   for (const id of [...sessions.keys()]) if (!seen.has(id)) removeSessionUI(id);
   applyTabFilter();
   const cur = sessions.get(activeId);
   if (!cur || !sessionVisible(cur)) selectFirstVisible();
 }
-
-// A paired phone is driving this session. Cover its terminal rather than tearing it
-// down — the xterm keeps consuming pty-data underneath, so taking control back shows
-// the current screen instantly instead of a blank one. The cover also swallows clicks
-// and disableStdin swallows keystrokes, so the desktop can't type into a PTY someone
-// else is holding.
-// Forget a cover whose DOM node was already thrown away with the container's other
-// children, so a later claim rebuilds it instead of assuming it's still on screen.
-function clearControlled(s) {
-  s.cover = null;
-  s.controlled = false;
-  s.li.classList.remove('controlled');
-}
-
-function setControlled(s, on) {
-  if (!s || s.controlled === on) return;
-  s.controlled = on;
-  s.li.classList.toggle('controlled', on);
-  s.container.classList.toggle('controlled', on);
-  if (s.term) s.term.options.disableStdin = on;
-  if (!on) {
-    if (s.cover) { s.cover.remove(); s.cover = null; }
-    // The PTY is still phone-sized; snap the visible terminal back to ours.
-    if (s.id === activeId) fit(s);
-    return;
-  }
-  const cover = document.createElement('div');
-  cover.className = 'term-controlled-cover';
-  const text = document.createElement('div');
-  text.className = 'term-controlled-text';
-  text.textContent = 'Controlled by mobile';
-  const hint = document.createElement('div');
-  hint.className = 'term-controlled-hint';
-  hint.textContent = 'This session is being driven from a paired phone. Its output is hidden here.';
-  const btn = document.createElement('button');
-  btn.className = 'term-controlled-btn';
-  btn.textContent = 'Take control';
-  // Main clears the claim and echoes session-control back, which uncovers us.
-  btn.onclick = () => window.api.takeSessionControl(s.id);
-  cover.append(text, hint, btn);
-  s.container.appendChild(cover);
-  s.cover = cover;
-}
-
-window.api.onSessionControl(({ id, controlled }) => setControlled(sessions.get(id), controlled));
 
 // Tear down a session's UI without telling main to kill it (used both for an
 // explicit close and when main evicts an old session past the storage budget).

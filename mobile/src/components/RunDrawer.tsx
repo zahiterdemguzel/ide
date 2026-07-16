@@ -116,15 +116,17 @@ export default function RunDrawer({ visible, onClose }: Props) {
     try { await conn.req('run-config-stop', { name }); } catch { /* it's already gone */ }
   };
 
+  // Deliberately no onClose() here: the panel stays logically open so it's still
+  // there when the user backs out of the terminal. While Console has focus the
+  // hub hides the modal (App.tsx gates `visible` on the Main screen's focus).
   const openTerminal = (t: TerminalInfo) => {
-    onClose();
     navigation.navigate('Console', { id: t.id, name: t.name });
   };
 
   const empty = !configs.launch.length && !configs.tasks.length;
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+    <Modal visible={visible} transparent statusBarTranslucent animationType="none" onRequestClose={onClose}>
       <Animated.View style={[styles.scrim, { opacity: fade }]}>
         <Pressable style={styles.fill} onPress={onClose} />
       </Animated.View>

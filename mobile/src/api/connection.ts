@@ -23,7 +23,7 @@ export class Connection {
   private retry = 0;
   private closedByUser = false;
   // Fire-and-forget sends made while not `ready` are normally dropped. Callers that need
-  // one to survive a brief reconnect (a session-control release) opt in via `queue`, and
+  // one to survive a brief reconnect opt in via `queue`, and
   // these are flushed in order the next time the socket reaches `ready`.
   private queued: string[] = [];
   state: ConnectionState = 'closed';

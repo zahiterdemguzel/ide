@@ -12,7 +12,7 @@ const { modelEnv } = require('./agent-models');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { AUTO, cleanEffort, effortArgs } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
-const { editOp } = require('./edit-ops');
+const { editOp, diffStat } = require('./edit-ops');
 const { tracksFs, editedFilePath, TEXT_EDIT_TOOLS } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
@@ -264,6 +264,13 @@ function setSessionState(id, state) {
   const s = sessions.get(id);
   if (!s || s.state === state) return;
   s.state = state;
+  s.lastActiveAt = Date.now();
+  // The tool line describes work in progress, so anything that isn't `working`
+  // ends it — including `needs-input`, where the agent is waiting on a person
+  // rather than running a tool. Clearing here rather than on PostToolUse is what
+  // keeps the line steady: Claude runs tools in parallel, so one tool finishing
+  // says nothing about whether the session is still busy.
+  if (state !== 'working') s.tool = null;
   persistSession(id);
 }
 
@@ -281,6 +288,20 @@ function getSessionState(id) {
 // edits plus path-level changes (binary creates, renames/moves, deletes).
 function trackedFiles(s) {
   return [...new Set([...s.edits.keys(), ...s.fileOps.keys()])];
+}
+
+// What a tool call is pointed at, for the tool line on a working row: the file it
+// names, relative to the session's repo so the line reads like the editor's own
+// paths. Null for tools that name no file (Bash, WebFetch, a subagent) — the line
+// then shows the tool alone, which is still the truth about what's running.
+function toolTarget(s, toolInput) {
+  const f = editedFilePath(toolInput);
+  if (!f) return null;
+  if (!s.repo) return f;
+  const rel = path.relative(s.repo, f);
+  // Outside the repo (a temp file, an absolute path elsewhere): show it whole
+  // rather than as a chain of `..`.
+  return rel && !rel.startsWith('..') ? rel.split(path.sep).join('/') : f;
 }
 
 // True when a session OTHER than `self` already owns this absolute path. Text
@@ -427,11 +448,26 @@ async function recordSessionActivity(payload) {
     // to fire, which would otherwise suppress every later snapshot.
     s.fsInFlight = 0;
     s.preStatus = null;
+    s.tool = null;
     if (!s.firstPrompt && payload.prompt) {
       s.firstPrompt = String(payload.prompt).trim();
       generateSessionName(payload.session_id, s.firstPrompt);
       changed = true;
     }
+  }
+  // What the session is doing right now, for the tool line on a working row. Last
+  // Pre hook wins: tools run in parallel, and the newest one started is the best
+  // single answer to "what is it doing". It stays until the session stops working
+  // (see setSessionState) — never cleared by a Post hook, which would blank the
+  // line while sibling tools are still running.
+  // Deliberately not `changed` and never persisted: this is ephemeral runtime
+  // state, and `changed` means the tracked-FILE list moved — raising it here would
+  // fire a session-meta push and a disk write on every single tool call. Clients
+  // pick the line up on their next list read; a restored session isn't running a
+  // tool, so there is nothing to restore.
+  if (payload.hook_event_name === 'PreToolUse' && payload.tool_name) {
+    s.tool = { name: payload.tool_name, file: toolTarget(s, payload.tool_input) };
+    s.lastActiveAt = Date.now();
   }
   if (payload.hook_event_name === 'PostToolUse') {
     const ti = payload.tool_input || {};
@@ -576,11 +612,29 @@ async function spawnPty(id, cols, rows, resume) {
 // phone's page derive from this one shaper, so a new field can't land on one view and
 // silently desync the other — the phone page differs only by omitting `files`.
 function baseRow(id, s) {
+  const { added, removed } = sessionDiffStat(s);
   return {
     id, repo: s.repo || '', firstPrompt: s.firstPrompt || '', name: s.name || '',
     archived: !!s.archived, state: s.state || 'idle', model: s.model || '',
-    effort: s.effort || '', live: !!s.pty, controlled: !!s.controlledBy,
+    effort: s.effort || '', live: !!s.pty,
+    startedAt: s.startedAt || 0, lastActiveAt: s.lastActiveAt || 0,
+    // Only meaningful while `state === 'working'`; cleared the moment it isn't.
+    tool: s.tool || null,
+    added, removed,
   };
+}
+
+// Line counts across every file the session text-edited. Free to compute (the ops
+// are in memory) but not free to call carelessly: this runs per row, and the phone
+// polls its page, so keep it O(ops) — see the accuracy caveats on diffStat.
+function sessionDiffStat(s) {
+  let added = 0, removed = 0;
+  for (const ops of s.edits.values()) {
+    const d = diffStat(ops);
+    added += d.added;
+    removed += d.removed;
+  }
+  return { added, removed };
 }
 
 function sessionList() {
@@ -661,53 +715,18 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
   // `effort` starts unset (the model's own default): it's not picked at creation, only
   // switched on a running session (set-session-effort), and re-applied on every spawn.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: '', _seq: seqCounter++ });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   broadcastSessions();
   return { id, repo };
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
 
-// Two people driving one PTY is a mess: the phone and the desktop would fight over
-// the same prompt. So a phone claims a session while its terminal screen is open,
-// and the desktop shows a "controlled by the phone" cover over that session instead
-// of its live output. Claiming is the phone's to do (`on`); releasing is anyone's —
-// the phone on leaving the screen, the desktop when it takes control back.
-function setControl(id, deviceId) {
-  const s = sessions.get(id);
-  if (!s || s.controlledBy === deviceId) return;
-  s.controlledBy = deviceId;
-  // The discrete push covers the desktop cover and the holding phone; the list
-  // broadcast carries `controlled` to every OTHER client, so a phone that didn't
-  // make the change still reconciles (a stale flag would leave it showing a session
-  // as controlled forever after the holder drops off).
-  sendToRenderer('session-control', { id, controlled: !!deviceId });
-  broadcastSessions();
-}
-
-bridge.on('session-control', guardOn('handing over a session', (e, { id, on }) => {
-  const deviceId = e && e.remote ? e.deviceId : null;
-  if (on) {
-    if (deviceId) setControl(id, deviceId); // only a phone can claim
-    return;
-  }
-  const s = sessions.get(id);
-  // The desktop takes control back from whoever holds it; a phone only drops its own.
-  if (s && s.controlledBy && (!deviceId || s.controlledBy === deviceId)) setControl(id, null);
-}));
-
-// A phone that drops off the network never gets to release what it held, so its
-// sessions would stay covered forever. The ws server calls this when a socket dies.
-function releaseDeviceControl(deviceId) {
-  for (const [id, s] of sessions) if (s.controlledBy === deviceId) setControl(id, null);
-}
-
 // Archive: kill the Claude process to free resources but keep the session entry
 // (and all its tracked-file state) so it can resume under the same id.
 bridge.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
   const s = sessions.get(id);
   if (!s) return;
-  setControl(id, null); // no PTY left to drive, so nobody holds it
   s.suspended = true;
   s.archived = true;
   // Archiving stops the agent: a session that was actively working can't keep
@@ -807,19 +826,9 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
   sendToRenderer('session-effort', { id, effort: chosen });
 }));
 
-// While a phone holds a session, only that phone may write to or resize the PTY.
-// The desktop's renderer already blocks its own input/fit while covered, but this
-// is the authoritative gate: a desktop opening the covered session (or any other
-// device) must not reflow the terminal under the phone's screen.
-function heldByAnotherDevice(s, e) {
-  if (!s || !s.controlledBy) return false;
-  const deviceId = e && e.remote ? e.deviceId : null;
-  return deviceId !== s.controlledBy;
-}
-
-bridge.on('pty-input', guardOn('writing to a session', (e, { id, data }) => {
+bridge.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   const s = sessions.get(id);
-  if (!s || !s.pty || heldByAnotherDevice(s, e)) return;
+  if (!s || !s.pty) return;
   s.pty.write(data);
   // Track a `/model <id>` or `/effort <level>` typed straight into the chat (the menus
   // write via set-session-model / set-session-effort, which bypass this handler, so
@@ -876,21 +885,16 @@ function promptText(text, images) {
   return [...files, String(text || '').trim()].filter(Boolean).join('\n');
 }
 
-bridge.handle('send-prompt', guard('sending a message', async (e, { id, text, images } = {}) => {
+bridge.handle('send-prompt', guard('sending a message', async (_e, { id, text, images } = {}) => {
   const s = sessions.get(id);
   if (!s || !s.pty) return { ok: false, error: 'This session is not running.' };
-  if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
   const data = promptText(text, images);
   if (!data) return { ok: false, error: 'Nothing to send.' };
   await waitForTui(s);
   if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
-  // A phone can claim control during the waits above; re-check so the write can't
-  // land in a session someone else took over mid-send.
-  if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
   s.pty.write(data);
   await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
   if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
-  if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
   s.pty.write('\r');
   return { ok: true };
 }, (err) => ({ ok: false, error: err && err.message ? err.message : String(err) })));
@@ -917,10 +921,9 @@ async function waitForPaint(s) {
   }
 }
 
-bridge.handle('answer-ask', guard('answering a question', async (e, { id, answers } = {}) => {
+bridge.handle('answer-ask', guard('answering a question', async (_e, { id, answers } = {}) => {
   const s = sessions.get(id);
   if (!s || !s.pty) return { ok: false, error: 'This session is not running.' };
-  if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
   const steps = keystrokes(chat.currentAsk(id), answers);
   if (!steps.length) return { ok: false, error: 'That answer does not fit the question.' };
   // Settled the moment the keys go out: the hook that confirms it lands later, and a
@@ -929,7 +932,6 @@ bridge.handle('answer-ask', guard('answering a question', async (e, { id, answer
   await waitForPaint(s);
   for (let i = 0; i < steps.length; i += 1) {
     if (!sessions.get(id) || !s.pty) return { ok: false, error: 'This session is not running.' };
-    if (heldByAnotherDevice(s, e)) return { ok: false, error: 'Another device is driving this session.' };
     const step = steps[i];
     s.pty.write(step.key !== undefined ? step.key : step.text);
     // Typed words need the longer beat: the TUI ingests them over several ticks, and an
@@ -940,9 +942,9 @@ bridge.handle('answer-ask', guard('answering a question', async (e, { id, answer
   return { ok: true };
 }, (err) => ({ ok: false, error: err && err.message ? err.message : String(err) })));
 
-bridge.on('pty-resize', guardOn('resizing a session', (e, { id, cols, rows }) => {
+bridge.on('pty-resize', guardOn('resizing a session', (_e, { id, cols, rows }) => {
   const s = sessions.get(id);
-  if (!s || !s.pty || heldByAnotherDevice(s, e)) return;
+  if (!s || !s.pty) return;
   try { s.pty.resize(cols, rows); } catch { /* race on close */ }
 }));
 bridge.on('kill-session', guardOn('closing a session', (_e, { id }) => {
@@ -960,4 +962,4 @@ function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, releaseDeviceControl, guard };
+module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, guard };

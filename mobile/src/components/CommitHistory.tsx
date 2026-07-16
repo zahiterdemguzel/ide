@@ -236,7 +236,7 @@ function DiffSheet({ commit, onClose }: { commit: Commit | null; onClose: () => 
   }, [commit, conn]);
 
   return (
-    <Modal visible={!!commit} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={!!commit} animationType="slide" transparent statusBarTranslucent onRequestClose={onClose}>
       <Pressable style={styles.scrim} onPress={onClose} />
       <View style={styles.sheet}>
         <View style={styles.sheetHead}>

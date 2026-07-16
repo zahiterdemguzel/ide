@@ -16,7 +16,14 @@ const SPIN_MS = 700;   // sess-dot-spin
 const POP_MS = 500;    // sess-finish-pop
 const RING_MS = 600;   // sess-finish-ring
 
-export default function StateDot({ state, size = BASE }: { state: string; size?: number }) {
+// `celebrate` is for lists that remount the dot across the very transition it
+// celebrates: a session going working -> completed moves between sections, so the dot
+// arrives already 'completed' and its own prev-state tracking sees nothing happen.
+// The owner of the list keeps that history and hands the verdict down.
+export default function StateDot(
+  { state, size = BASE, celebrate }:
+  { state: string; size?: number; celebrate?: boolean },
+) {
   const scale = size / BASE;
   const spin = useRef(new Animated.Value(0)).current;
   const pop = useRef(new Animated.Value(0)).current;
@@ -45,7 +52,7 @@ export default function StateDot({ state, size = BASE }: { state: string; size?:
   // The celebration fires on the same transition the desktop celebrates
   // (`isCompletionTransition`): working -> completed, and nothing else.
   useEffect(() => {
-    const finished = prev.current === 'working' && state === 'completed';
+    const finished = celebrate || (prev.current === 'working' && state === 'completed');
     prev.current = state;
     if (!finished) return;
     pop.setValue(0);
@@ -64,7 +71,7 @@ export default function StateDot({ state, size = BASE }: { state: string; size?:
         useNativeDriver: true,
       }),
     ]).start();
-  }, [state, pop, ring]);
+  }, [state, celebrate, pop, ring]);
 
   const popScale = pop.interpolate({
     inputRange: [0, 0.35, 1],   // scale 1 -> 1.7 -> 1, as in sess-finish-pop

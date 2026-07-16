@@ -8,7 +8,7 @@ Each session shows a colored dot driven automatically by Claude Code hooks — n
 |---|---|---|
 | Idle | gray | a freshly created session, or `SessionStart` — started, but no work in flight yet |
 | Working | yellow (spinning) | `UserPromptSubmit`, `PreToolUse` (and any non-push `PostToolUse`) |
-| Needs input | green (glowing) | `Notification`, `PermissionRequest`, and `PreToolUse` for an **ask tool** (see below) |
+| Needs input | green (glowing) | **blocking asks only**: `PermissionRequest`, a `Notification` whose message names a permission ("Claude needs your permission to use X"), and `PreToolUse` for an **ask tool** (see below). The generic idle `Notification` ("Claude is waiting for your input") follows *every* unattended turn — including ones merely ending with a prose question, which agents do constantly — so it maps to null and leaves the dot alone |
 | Completed | green | `Stop`, or the PTY exits |
 | Committed / pushed | purple | a successful per-session **Commit changes**, or a `PostToolUse` whose Bash command matches `git push` |
 | Interrupted | red | the agent was stopped while actively **working**: ESC/Ctrl+C typed while working, archiving a working session, or reopening one that was working when the app closed (see [Interrupting a turn](#interrupting-a-turn) and [Persistence](#persistence-across-restarts)) |
