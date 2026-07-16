@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { parseHead, route } = require('../server/relay-route');
+const { parseHead, route, singleUseHead } = require('../server/relay-route');
 
 const head = (target, headers = {}) => {
   const lines = [`GET ${target} HTTP/1.1`, 'Host: relay.example'];
@@ -51,7 +51,7 @@ test('an entry URL with a deeper path keeps it', () => {
 
 test('anything below the root goes down the tunnel named by the cookie', () => {
   const r = route(head('/assets/app.js', { Cookie: '_idetunnel=abcdefgh.win-1.3000' }));
-  assert.deepEqual(r, { kind: 'tunnel', room: 'abcdefgh', instance: 'win-1', port: 3000 });
+  assert.deepEqual(r, { kind: 'tunnel', room: 'abcdefgh', instance: 'win-1', port: 3000, upgrade: false });
 });
 
 // The dev server's HMR client opens a websocket. It is an Upgrade like the IDE's
@@ -59,7 +59,7 @@ test('anything below the root goes down the tunnel named by the cookie', () => {
 // first, or HMR would be handed to the relay's ws server and die.
 test('an HMR websocket carries the tunnel cookie and is tunnelled, not claimed', () => {
   const r = route(head('/', { Upgrade: 'websocket', Cookie: '_idetunnel=abcdefgh.win-1.3000' }));
-  assert.deepEqual(r, { kind: 'tunnel', room: 'abcdefgh', instance: 'win-1', port: 3000 });
+  assert.deepEqual(r, { kind: 'tunnel', room: 'abcdefgh', instance: 'win-1', port: 3000, upgrade: true });
 });
 
 // Opening a second port must switch the cookie rather than being swallowed by the
@@ -91,7 +91,30 @@ test('a desktop from before windows were addressable still routes, as the defaul
   assert.equal(route(head('/p/abcdefgh/3000/admin')).location, '/admin');
 
   const tunnel = route(head('/x', { Cookie: '_idetunnel=abcdefgh.3000' }));
-  assert.deepEqual(tunnel, { kind: 'tunnel', room: 'abcdefgh', instance: 'default', port: 3000 });
+  assert.deepEqual(tunnel, { kind: 'tunnel', room: 'abcdefgh', instance: 'default', port: 3000, upgrade: false });
+});
+
+// The relay routes a connection once, so a routed request must be the only one its
+// connection ever carries: Connection: close is forced into the head, replacing
+// whatever keep-alive intent the client (or a pooling front proxy) sent.
+test('singleUseHead forces Connection: close and drops keep-alive headers', () => {
+  const raw = Buffer.from('GET /login HTTP/1.1\r\nHost: h\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nCookie: a=b\r\n\r\n');
+  const out = singleUseHead(raw).toString();
+  assert.match(out, /^GET \/login HTTP\/1\.1\r\n/);
+  assert.match(out, /\r\nConnection: close\r\n\r\n$/);
+  assert.doesNotMatch(out, /keep-alive/i);
+  assert.match(out, /\r\nCookie: a=b\r\n/);
+});
+
+test('singleUseHead preserves body bytes already read past the head', () => {
+  const raw = Buffer.from('POST /api/login HTTP/1.1\r\nHost: h\r\nContent-Length: 7\r\n\r\n{"a":1}');
+  const out = singleUseHead(raw).toString();
+  assert.match(out, /\r\nConnection: close\r\n\r\n\{"a":1\}$/);
+});
+
+test('singleUseHead leaves an incomplete head untouched', () => {
+  const raw = Buffer.from('GET / HTTP/1.1\r\nHost: h\r\n');
+  assert.equal(singleUseHead(raw), raw);
 });
 
 // A room id, an instance id and a port are the only things that may reach a desktop.

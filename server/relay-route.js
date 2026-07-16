@@ -90,7 +90,11 @@ function route({ target, headers }) {
       ? [parts[0], DEFAULT_INSTANCE, parts[1]]
       : parts;
     if (isRoom(room || '') && isInstance(instance || '') && isPort(port || '')) {
-      return { kind: 'tunnel', room, instance, port: Number(port) };
+      // An HMR websocket is connection-long by nature and must be spliced raw;
+      // a plain request is made single-use (see singleUseHead) so a keep-alive
+      // or pooling proxy in front can never reuse its connection.
+      const upgrade = String(headers.upgrade || '').toLowerCase() === 'websocket';
+      return { kind: 'tunnel', room, instance, port: Number(port), upgrade };
     }
     return { kind: 'deny' };
   }
@@ -102,4 +106,22 @@ function route({ target, headers }) {
   return { kind: 'health' };
 }
 
-module.exports = { parseHead, route, isRoom, isInstance, isPort, TUNNEL_COOKIE, MAX_HEAD, DEFAULT_INSTANCE };
+// Rewrite a raw request head so the exchange is single-use: `Connection: close`
+// in, one response out, connection gone. This is what makes routing effectively
+// per-request rather than per-connection — the relay decides once per connection,
+// so a connection must never outlive the one request it was routed by. Without
+// it, any keep-alive client or connection-pooling front proxy (Render's edge sits
+// in front of the deployed relay) reuses a connection whose routing decision
+// belonged to an earlier, unrelated request: a /login click answered by the
+// health check, or a fetch 502ing on a tunnel the desktop already closed.
+// `buf` may carry body bytes past the head terminator; they are preserved.
+function singleUseHead(buf) {
+  const end = buf.indexOf('\r\n\r\n');
+  if (end === -1) return buf;
+  const lines = buf.subarray(0, end).toString('latin1').split('\r\n')
+    .filter((line, i) => i === 0 || !/^(connection|keep-alive)\s*:/i.test(line));
+  lines.push('Connection: close');
+  return Buffer.concat([Buffer.from(lines.join('\r\n'), 'latin1'), buf.subarray(end)]);
+}
+
+module.exports = { parseHead, route, singleUseHead, isRoom, isInstance, isPort, TUNNEL_COOKIE, MAX_HEAD, DEFAULT_INSTANCE };

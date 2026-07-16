@@ -206,6 +206,72 @@ test('a browser reaches a loopback-only dev server through the relay tunnel', as
   }
 });
 
+// The relay routes a connection once, so every routed HTTP exchange must be
+// single-use — otherwise a keep-alive client (or Render's pooling front proxy,
+// which reuses upstream connections across unrelated requests) sends its next
+// request down a connection routed by the previous one: a /login click answered
+// by the health check, or a fetch 502ing on a tunnel that was already torn down.
+test('every routed response closes its connection, so reuse can never mis-route', async () => {
+  const net = require('net');
+  const dev = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end(`dev server saw ${req.url}`);
+  });
+  await new Promise((r) => dev.listen(0, '127.0.0.1', r));
+  const devPort = dev.address().port;
+
+  const relay = await startRelay({ port: 0, host: '127.0.0.1' });
+  const room = 'room-e2e-reuse';
+  const desktop = await startDesktop({ relayPort: relay.port, room });
+  await settle();
+
+  const phone = await openMobile(`ws://127.0.0.1:${relay.port}/?role=mobile&room=${room}`);
+  try {
+    await phone.next(); // hello
+    phone.send({ t: 'pair', pairToken: desktop.hub.pairing.issue(), deviceName: 'Pixel' });
+    await phone.next(); // paired
+    phone.send({ t: 'fwd-open', port: devPort });
+    const fwd = await phone.next();
+    const url = new URL(fwd.url);
+
+    const entry = await get(relay.port, url.pathname + url.search);
+    const tunnelCookie = String(entry.headers['set-cookie'][0]).split(';')[0];
+    const swap = await get(relay.port, entry.headers.location, { cookie: tunnelCookie });
+    const authCookie = String(swap.headers['set-cookie'][0]).split(';')[0];
+    const cookies = `${tunnelCookie}; ${authCookie}`;
+
+    // A tunneled page answers, tells the browser the connection is done, and the
+    // dev server was asked to close too — a keep-alive request notwithstanding.
+    const raw = (path, headers) => new Promise((resolve, reject) => {
+      const sock = net.connect(relay.port, '127.0.0.1', () => {
+        sock.write(`GET ${path} HTTP/1.1\r\nHost: relay\r\nConnection: keep-alive\r\n${headers}\r\n`);
+      });
+      let buf = '';
+      sock.on('data', (c) => { buf += c; });
+      sock.on('end', () => resolve(buf));
+      sock.on('error', reject);
+    });
+
+    const page = await raw('/login', `Cookie: ${cookies}\r\n`);
+    assert.match(page, /dev server saw \/login/);
+    assert.match(page, /connection: close/i); // browser side told not to reuse
+    // (the desktop proxy manages its own upstream connections to the dev server;
+    // what must be single-use is the tunneled connection, asserted above by the
+    // header and below by the socket actually ending)
+
+    // The health check closes its connection as well, so a pooled connection that
+    // once carried a ping can never swallow a later tunnel-cookie'd request.
+    const health = await raw('/healthz', '');
+    assert.match(health, /ide-relay ok/);
+    assert.match(health, /connection: close/i);
+  } finally {
+    phone.ws.close();
+    await desktop.close();
+    await relay.close();
+    await new Promise((r) => dev.close(r));
+  }
+});
+
 // An unauthenticated stranger who guesses the relay URL must not reach the dev
 // server: the tunnel carries them to the desktop's proxy, which has the last word.
 test('the tunnel is not an open door — the desktop proxy still refuses a stranger', async () => {

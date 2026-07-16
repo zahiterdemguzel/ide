@@ -28,7 +28,7 @@ const net = require('net');
 const { WebSocketServer } = require('ws');
 const crypto = require('crypto');
 const { HEALTH_PATH } = require('./keepalive');
-const { parseHead, route, isRoom, isInstance, MAX_HEAD, DEFAULT_INSTANCE } = require('./relay-route');
+const { parseHead, route, singleUseHead, isRoom, isInstance, MAX_HEAD, DEFAULT_INSTANCE } = require('./relay-route');
 const F = require('./relay-frames');
 const { debugFor } = require('./debug');
 
@@ -68,7 +68,10 @@ function startRelay({ port, host = '0.0.0.0', maxRooms = MAX_ROOMS, maxClientsPe
   // the websocket upgrades carrying the IDE protocol. It never binds a port — the
   // demuxer below owns the port and hands it only the connections that are its.
   const httpServer = http.createServer((req, res) => {
-    res.writeHead(200, { 'content-type': 'text/plain' });
+    // Single-use, like every other routed response here: a pooled front-proxy
+    // connection that once carried a health request must not linger inside this
+    // HTTP server and swallow later tunnel-cookie'd requests with "ide-relay ok".
+    res.writeHead(200, { 'content-type': 'text/plain', connection: 'close' });
     if (req.url.split('?')[0] === HEALTH_PATH) {
       debug('health', { rooms: rooms.size });
       res.end(`ide-relay ok rooms=${rooms.size}\n`);
@@ -311,9 +314,15 @@ function startRelay({ port, host = '0.0.0.0', maxRooms = MAX_ROOMS, maxClientsPe
       // including the websocket upgrade a dev server's HMR client will make.
       const id = nextStream++;
       r.streams.set(id, { socket, instance: decision.instance });
-      debugTunnel('open', { stream: id, room: decision.room, instance: decision.instance, port: decision.port, head: head.length });
+      // A plain request is made single-use (Connection: close injected) so the
+      // routing decision this connection just got can never be applied to a later,
+      // unrelated request a keep-alive client or pooling front proxy sends down the
+      // same connection. A websocket upgrade is the exception: it is connection-long
+      // by design, and its head must pass untouched or the upgrade dies.
+      const streamHead = decision.upgrade ? head : singleUseHead(head);
+      debugTunnel('open', { stream: id, room: decision.room, instance: decision.instance, port: decision.port, head: streamHead.length, upgrade: !!decision.upgrade });
       toDesktop(r, decision.instance, F.tunnelOpen(id, decision.port));
-      toDesktop(r, decision.instance, F.tunnelData(id, head)); // the head we read is part of the stream
+      toDesktop(r, decision.instance, F.tunnelData(id, streamHead)); // the head we read is part of the stream
 
       socket.on('data', (b) => {
         debugTunnel('browser → desktop', { stream: id, bytes: b.length });
