@@ -18,6 +18,7 @@ const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
 const { interruptState } = require('./hook-events');
+const push = require('./push');
 const { querySessions } = require('./session-query-lib');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
@@ -263,7 +264,16 @@ function schedulePersist(id) {
 function setSessionState(id, state) {
   const s = sessions.get(id);
   if (!s || s.state === state) return;
+  const prev = s.state;
   s.state = state;
+  // A run finishing is the one transition a person who walked away wants to hear
+  // about: push it to paired phones (OS notification via Expo — the app holds no
+  // background socket, so the ws 'status' event can't reach a sleeping phone).
+  // working → completed only: 'pushed' after a commit, or a restored session
+  // settling, is not a run finishing.
+  if (state === 'completed' && prev === 'working') {
+    push.notifySessionCompleted({ id, title: s.name || s.firstPrompt || '' });
+  }
   s.lastActiveAt = Date.now();
   // The tool line describes work in progress, so anything that isn't `working`
   // ends it — including `needs-input`, where the agent is waiting on a person

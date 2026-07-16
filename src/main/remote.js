@@ -21,6 +21,7 @@ const { normalizeForwardPath } = require('../../server/http-proxy-lib');
 const {
   normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone,
 } = require('./remote-config-lib');
+const push = require('./push');
 
 // Paired devices persist machine-wide (like recent-folders.json): pairing a
 // phone once should survive app restarts and instances. Only token hashes are
@@ -50,6 +51,10 @@ function saveConfig(next) {
   config = next;
   try { fs.writeFileSync(configFile, JSON.stringify(config)); } catch (err) { console.error('[remote config save]', err); }
 }
+
+// Push notifications ride the device store: a phone registers its Expo token over
+// the protocol, and sessions.js fires notifySessionCompleted through push.js.
+push.init(deviceStore);
 
 const rawConfig = readConfigFile();
 let config = normalizeConfig(rawConfig);
@@ -165,6 +170,7 @@ async function enable() {
     log: (msg) => console.log(msg),
   });
   enabled = true;
+  push.setEnabled(true); // notifications are part of the service: off means silent
   // Now reachable, so say so: this is what puts this window in the list a phone
   // chooses from.
   publishInstance();
@@ -179,6 +185,7 @@ async function disable() {
   if (!enabled) return status();
   registry.remove();
   enabled = false;
+  push.setEnabled(false);
   if (relay) relay.close();
   relay = null;
   hub = null;
@@ -200,6 +207,11 @@ onRepoChange(() => { if (enabled) publishInstance(); });
 // sibling on a different one (a dev run beside an installed build) is in a different
 // room there — offering it would be offering a window the phone can never dial.
 // Entries without a relay (written by a pre-relay-only build) are excluded too.
+// The calling phone registers (or clears, token: null) its Expo push token, so
+// the desktop can notify it of completed sessions while the app is closed. Bound
+// to the caller's own device record — one phone can never register for another.
+handle('register-push', (event, { token } = {}) => push.registerToken(event.deviceId, token ?? null));
+
 handle('list-instances', () => registry.list()
   .filter((e) => e.relay === relayUrl)
   .map((e) => ({

@@ -94,6 +94,9 @@ const REMOTE_CHANNELS = {
     'get-run-configs',
     'run-config-start',
     'run-config-stop',
+    // the phone registering (or clearing) its Expo push token, so the desktop can
+    // notify it of completed sessions while the app holds no socket — see push.js
+    'register-push',
     // custom models (Ollama): a phone can *list* installed models to populate its
     // model picker, but cannot install/remove them — the management channels
     // (ollama-ensure/pull/cancel-pull/remove/remove-all) are deliberately absent.

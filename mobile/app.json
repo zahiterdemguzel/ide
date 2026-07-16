@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "scheme": "ide",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#0d1117",
     "androidNavigationBar": {
       "barStyle": "light-content",
       "backgroundColor": "#161b22"
@@ -28,6 +27,7 @@
       "usesCleartextTraffic": true
     },
     "plugins": [
+      "expo-notifications",
       "expo-camera",
       "expo-secure-store",
       "expo-asset",
