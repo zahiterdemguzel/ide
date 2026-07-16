@@ -258,6 +258,63 @@ test('a broadcast survives one client whose send throws', async () => {
   assert.deepEqual(await good.next(), { t: 'ev', ch: 'folder-changed', payload: { repo: 'C:/x' } });
 });
 
+// Stream events (pty-data / term-data / transcript-data) are the relay's bandwidth
+// hogs. A client that has sent a `watch` frame receives them only for the ids it
+// watches — a chat's pushes must not queue behind another session's terminal bytes.
+test('a watching client receives stream events only for watched ids', async () => {
+  const { hub } = makeHub();
+  const c = connect(hub);
+  await c.next();
+  c.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'P' });
+  await c.next();
+
+  c.send({ t: 'watch', ch: 'transcript-data', id: 's1', on: true });
+  hub.broadcast('transcript-data', { id: 's1', messages: [], seq: 1 });
+  hub.broadcast('transcript-data', { id: 's2', messages: [], seq: 1 }); // not watched
+  hub.broadcast('pty-data', { id: 's1', data: 'x' });                   // stream, not watched
+  hub.broadcast('status', { id: 's2', state: 'working' });              // not a stream: always sent
+
+  assert.deepEqual(await c.next(), { t: 'ev', ch: 'transcript-data', payload: { id: 's1', messages: [], seq: 1 } });
+  assert.deepEqual(await c.next(), { t: 'ev', ch: 'status', payload: { id: 's2', state: 'working' } });
+
+  // Unwatching turns the stream back off.
+  c.send({ t: 'watch', ch: 'transcript-data', id: 's1', on: false });
+  hub.broadcast('transcript-data', { id: 's1', messages: [], seq: 2 });
+  hub.broadcast('folder-changed', { repo: 'C:/y' });
+  assert.equal((await c.next()).ch, 'folder-changed');
+});
+
+// An app that predates `watch` never sends one — it must keep receiving every stream
+// event, or its console/chat would go silent against a newer desktop.
+test('a client that never watches still receives all stream events', async () => {
+  const { hub } = makeHub();
+  const c = connect(hub);
+  await c.next();
+  c.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'P' });
+  await c.next();
+
+  hub.broadcast('pty-data', { id: 's1', data: 'x' });
+  assert.equal((await c.next()).ch, 'pty-data');
+});
+
+// A watch frame is authed traffic like everything else, and only stream channels
+// can be watched — `folder-changed` filtering would make no sense.
+test('watch requires auth and a stream channel', async () => {
+  const { hub } = makeHub();
+  const stranger = connect(hub);
+  await stranger.next();
+  stranger.send({ t: 'watch', ch: 'pty-data', id: 's1', on: true });
+  assert.equal((await stranger.next()).code, 'not-authed');
+
+  const c = connect(hub);
+  await c.next();
+  c.send({ t: 'pair', pairToken: hub.pairing.issue(), deviceName: 'P' });
+  await c.next();
+  c.send({ t: 'watch', ch: 'folder-changed', id: 'x', on: true }); // ignored: not a stream
+  hub.broadcast('pty-data', { id: 's1', data: 'x' }); // client still unfiltered
+  assert.equal((await c.next()).ch, 'pty-data');
+});
+
 test('single-use pairing: second pair with same token fails', async () => {
   const { hub, deviceStore } = makeHub();
   const pairToken = hub.pairing.issue();

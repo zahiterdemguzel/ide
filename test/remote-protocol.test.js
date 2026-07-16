@@ -66,6 +66,27 @@ test('remote events filter', () => {
   assert.equal(proto.isRemoteEvent('run-specs'), false);
 });
 
+test('watch frames parse only with a full {ch, id, on} shape', () => {
+  assert.deepEqual(
+    proto.parseMessage(JSON.stringify({ t: 'watch', ch: 'pty-data', id: 's1', on: true })),
+    { t: 'watch', ch: 'pty-data', id: 's1', on: true });
+  assert.ok(proto.parseMessage(JSON.stringify({ t: 'watch', ch: 'term-data', id: 't1', on: false })));
+  assert.equal(proto.parseMessage(JSON.stringify({ t: 'watch', ch: 'pty-data', id: 's1' })), null); // missing on
+  assert.equal(proto.parseMessage(JSON.stringify({ t: 'watch', ch: 'pty-data', on: true })), null); // missing id
+  assert.equal(proto.parseMessage(JSON.stringify({ t: 'watch', id: 's1', on: true })), null); // missing ch
+});
+
+test('stream events are the high-volume per-session pushes', () => {
+  assert.equal(proto.isStreamEvent('pty-data'), true);
+  assert.equal(proto.isStreamEvent('term-data'), true);
+  assert.equal(proto.isStreamEvent('transcript-data'), true);
+  // Everything else stays broadcast: small, and every screen wants it.
+  assert.equal(proto.isStreamEvent('status'), false);
+  assert.equal(proto.isStreamEvent('sessions-changed'), false);
+  // Every stream event is still a remote event — watch narrows, it never adds.
+  for (const ch of proto.STREAM_EVENTS) assert.equal(proto.isRemoteEvent(ch), true);
+});
+
 test('message builders round-trip through parse where applicable', () => {
   assert.equal(proto.hello().protoVersion, proto.PROTO_VERSION);
   assert.deepEqual(proto.resOk(3, [1]), { t: 'res', id: 3, ok: true, result: [1] });

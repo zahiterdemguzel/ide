@@ -57,6 +57,9 @@ export default function ChatScreen({ route, navigation }: any) {
   // reports, so an older copy of a message can't land on top of a newer one.
   const buffered = useRef<{ seq: number; messages: Message[] }[]>([]);
   const ready = useRef(false);
+  // The counter of the last push applied. A hole in it means a push was lost (relay
+  // hiccup, half-open socket) — the fix is a snapshot refetch, never a stale chat.
+  const lastSeq = useRef(0);
   const atBottom = useRef(true);
   const expire = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -103,7 +106,15 @@ export default function ChatScreen({ route, navigation }: any) {
     ready.current = false;
     buffered.current = [];
 
-    (async () => {
+    // The desktop only streams a session's transcript to phones that ask for it —
+    // subscribe before fetching, so a message written between the two isn't missed.
+    const unwatch = conn.watch('transcript-data', id);
+
+    // Fetch the snapshot and reconcile the pushes that raced it. Also the recovery
+    // path: a gap in the push counter re-runs this to fill in what was dropped.
+    const load = async () => {
+      ready.current = false;
+      buffered.current = [];
       try {
         const snap = await conn.req<Transcript>('session-transcript', id);
         if (dropped) return;
@@ -112,12 +123,17 @@ export default function ChatScreen({ route, navigation }: any) {
         setMessages((m) => upsert(m, snap.messages || []));
         setPending((p) => settle(p, snap.messages || []));
         setAsk(snap.ask || null);
-        for (const b of buffered.current) if (b.seq > (snap.seq ?? 0)) absorb(b.messages);
+        let seq = snap.seq ?? 0;
+        for (const b of buffered.current) {
+          if (b.seq > seq) { absorb(b.messages); seq = b.seq; }
+        }
+        lastSeq.current = seq;
       } catch { /* offline: live pushes alone still beat a dead screen */ }
       buffered.current = [];
       ready.current = true;
       if (!dropped) setLoading(false);
-    })();
+    };
+    load();
 
     // The list gives us a name but never the state, and the Stop button needs it
     // before the first status push lands. It's also where the session's model and effort
@@ -136,8 +152,15 @@ export default function ChatScreen({ route, navigation }: any) {
     const offs = [
       conn.on('transcript-data', (p: any) => {
         if (p.id !== id) return;
-        if (!ready.current) { buffered.current.push({ seq: p.seq ?? 0, messages: p.messages }); return; }
+        const seq = p.seq ?? 0;
+        if (!ready.current) { buffered.current.push({ seq, messages: p.messages }); return; }
+        // Not the successor of the last push we applied: one was lost in transit (or
+        // the stream restarted under us). Apply what arrived — it's the newest copy —
+        // then refetch the snapshot to fill the hole.
+        const gap = lastSeq.current > 0 && seq !== lastSeq.current + 1;
+        lastSeq.current = seq;
         absorb(p.messages);
+        if (gap) load();
       }),
       conn.on('session-ask', (p: any) => { if (p.id === id) setAsk(p.ask); }),
       conn.on('status', (p: any) => { if (p.id === id) setState(p.state); }),
@@ -146,7 +169,7 @@ export default function ChatScreen({ route, navigation }: any) {
       conn.on('session-model', (p: any) => { if (p.id === id) setModel(p.model || DEFAULT_MODEL); }),
       conn.on('session-effort', (p: any) => { if (p.id === id) setEffort(p.effort || DEFAULT_EFFORT); }),
     ];
-    return () => { dropped = true; offs.forEach((off) => off?.()); };
+    return () => { dropped = true; unwatch(); offs.forEach((off) => off?.()); };
   }, [absorb, conn, id, name, refreshStat]);
 
   const drop = useCallback((uuid: string) => {

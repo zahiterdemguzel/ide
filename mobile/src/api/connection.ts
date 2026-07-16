@@ -32,6 +32,11 @@ export class Connection {
   // one to survive a brief reconnect opt in via `queue`, and
   // these are flushed in order the next time the socket reaches `ready`.
   private queued: string[] = [];
+  // The high-volume streams the desktop only sends on request (pty-data / term-data /
+  // transcript-data — server/protocol.js STREAM_EVENTS). Ref-counted so two callers
+  // watching the same stream share one subscription, and replayed after every
+  // re-auth: the desktop forgets a socket's watches when the socket dies.
+  private watchCounts = new Map<string, number>();
   state: ConnectionState = 'closed';
   deviceId: string | null = null;
   url: string;
@@ -74,6 +79,7 @@ export class Connection {
           this.retry = 0;
           markLive();
           this.setState('ready');
+          this.replayWatches();
           this.flushQueued();
           return;
         case 'auth-ok':
@@ -81,6 +87,7 @@ export class Connection {
           this.retry = 0;
           markLive();
           this.setState('ready');
+          this.replayWatches();
           this.flushQueued();
           return;
         case 'auth-err':
@@ -207,6 +214,39 @@ export class Connection {
     const frames = this.queued;
     this.queued = [];
     for (const frame of frames) this.ws.send(frame);
+  }
+
+  // Subscribe to one stream (a session's transcript, a terminal's bytes) for as long
+  // as a screen needs it. Returns the unsubscribe; safe to call while offline — the
+  // watch is remembered and sent once the socket is ready.
+  watch(ch: string, id: string): () => void {
+    const key = `${ch}\n${id}`;
+    const n = (this.watchCounts.get(key) ?? 0) + 1;
+    this.watchCounts.set(key, n);
+    if (n === 1 && this.state === 'ready' && this.ws) {
+      this.ws.send(JSON.stringify({ t: 'watch', ch, id, on: true }));
+    }
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      const left = (this.watchCounts.get(key) ?? 1) - 1;
+      if (left > 0) { this.watchCounts.set(key, left); return; }
+      this.watchCounts.delete(key);
+      if (this.state === 'ready' && this.ws) {
+        this.ws.send(JSON.stringify({ t: 'watch', ch, id, on: false }));
+      }
+    };
+  }
+
+  // A fresh (or re-authed) socket knows nothing of our subscriptions — restate them
+  // before any queued sends, so a stream a screen is showing resumes without a gap.
+  private replayWatches() {
+    if (!this.ws) return;
+    for (const key of this.watchCounts.keys()) {
+      const i = key.indexOf('\n');
+      this.ws.send(JSON.stringify({ t: 'watch', ch: key.slice(0, i), id: key.slice(i + 1), on: true }));
+    }
   }
 
   on(ch: string, fn: (payload: any) => void): () => void {

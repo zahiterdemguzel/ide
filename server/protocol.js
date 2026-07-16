@@ -147,6 +147,13 @@ const REMOTE_EVENTS = new Set([
   'ollama-models-changed',
 ]);
 
+// The high-volume per-session streams among REMOTE_EVENTS. A client that has sent a
+// `watch` frame receives one of these only for the ids it watches — a phone reading a
+// chat must not have it queue behind every other session's terminal bytes on the one
+// relay socket. A client that never sends `watch` (an older app) gets everything, as
+// before.
+const STREAM_EVENTS = new Set(['pty-data', 'term-data', 'transcript-data']);
+
 const ERR = {
   BAD_MESSAGE: 'bad-message',
   NOT_AUTHED: 'not-authed',
@@ -171,6 +178,10 @@ function parseMessage(raw) {
       return (typeof msg.id === 'number' || typeof msg.id === 'string') && typeof msg.ch === 'string' ? msg : null;
     case 'send':
       return typeof msg.ch === 'string' ? msg : null;
+    case 'watch':
+      // Opt in/out of one stream: `{ch, id, on}` — the channel must be a stream
+      // event, the id names the session/terminal, `on: false` unsubscribes.
+      return typeof msg.ch === 'string' && typeof msg.id === 'string' && typeof msg.on === 'boolean' ? msg : null;
     case 'fwd-open':
     case 'fwd-close':
       // `path` (fwd-open, optional) is the page to land on; the desktop is what
@@ -194,9 +205,10 @@ const fwdErr = (port, error) => ({ t: 'fwd-err', port, error });
 
 const canCall = (kind, ch) => REMOTE_CHANNELS[kind] ? REMOTE_CHANNELS[kind].has(ch) : false;
 const isRemoteEvent = (ch) => REMOTE_EVENTS.has(ch);
+const isStreamEvent = (ch) => STREAM_EVENTS.has(ch);
 
 module.exports = {
-  PROTO_VERSION, REMOTE_CHANNELS, REMOTE_EVENTS, ERR,
+  PROTO_VERSION, REMOTE_CHANNELS, REMOTE_EVENTS, STREAM_EVENTS, ERR,
   parseMessage, hello, paired, authOk, authErr, resOk, resErr, ev, fwdOk, fwdErr,
-  canCall, isRemoteEvent,
+  canCall, isRemoteEvent, isStreamEvent,
 };

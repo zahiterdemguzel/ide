@@ -24,10 +24,14 @@ type NewSession = { id?: string; error?: string };
 // submit. Fires at most once, whichever trigger wins.
 export function primePrompt(conn: Connection, id: string, text: string) {
   let sent = false;
+  // pty-data is a watched stream — the desktop won't send this session's output at
+  // all unless we ask. Watch just long enough to see the TUI's first paint.
+  const unwatch = conn.watch('pty-data', id);
   const submit = () => {
     if (sent) return;
     sent = true;
     off();
+    unwatch();
     clearTimeout(fallback);
     setTimeout(() => conn.send('pty-input', { id, data: text }), TYPE_DELAY_MS);
     setTimeout(() => conn.send('pty-input', { id, data: '\r' }), ENTER_DELAY_MS);

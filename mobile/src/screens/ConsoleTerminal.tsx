@@ -69,6 +69,9 @@ export default function ConsoleTerminal({ route, navigation }: any) {
   }, [conn, id, write]);
 
   useEffect(() => {
+    // Terminal bytes are a watched stream: the desktop sends this terminal's output
+    // only while a screen showing it asks for it.
+    const unwatch = conn?.watch('term-data', id);
     const offs = [
       conn?.on('term-data', (p: any) => {
         if (p.id !== id) return;
@@ -84,7 +87,7 @@ export default function ConsoleTerminal({ route, navigation }: any) {
         if (p.id === id && p.cols && p.rows) term.current?.setDims(p.cols, p.rows);
       }),
     ];
-    return () => offs.forEach((off) => off?.());
+    return () => { unwatch?.(); offs.forEach((off) => off?.()); };
   }, [conn, id, write]);
 
   const toggleSelect = () => {

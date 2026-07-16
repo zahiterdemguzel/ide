@@ -22,7 +22,9 @@ function createHub(opts) {
   // Connect a transport. `send` takes a message object. Returns the client:
   // feed it raw frames, close it when the socket dies.
   function connect(send) {
-    const client = { deviceId: null, send, open: true, no: nextClientNo++ };
+    // `watches` stays null until the client's first `watch` frame: null means an app
+    // that predates stream filtering, which must keep receiving every stream event.
+    const client = { deviceId: null, send, open: true, no: nextClientNo++, watches: null };
     const trace = (msg, fields) => debug(msg, { c: client.no, ...fields });
 
     const reply = (msg) => { if (client.open) send(msg); };
@@ -83,6 +85,22 @@ function createHub(opts) {
         return reply(proto.authErr(proto.ERR.NOT_AUTHED));
       }
       const ctx = { deviceId: client.deviceId };
+
+      if (msg.t === 'watch') {
+        // Opt in/out of one high-volume stream (a session's transcript, a terminal's
+        // bytes). The first watch frame flips this client to filtered mode: from then
+        // on it receives stream events only for ids it watches, so a chat's small
+        // pushes never queue behind another session's terminal output.
+        if (!proto.isStreamEvent(msg.ch)) {
+          trace('watch denied', { ch: msg.ch, reason: 'not-a-stream' });
+          return;
+        }
+        if (!client.watches) client.watches = new Set();
+        const key = `${msg.ch}\n${msg.id}`;
+        if (msg.on) client.watches.add(key); else client.watches.delete(key);
+        trace('watch', { ch: msg.ch, id: msg.id, on: msg.on, watches: client.watches.size });
+        return;
+      }
 
       if (msg.t === 'req') {
         if (!proto.canCall('req', msg.ch)) {
@@ -170,10 +188,16 @@ function createHub(opts) {
     }
     debug('broadcast', { ch, clients: clients.size });
     const msg = proto.ev(ch, payload);
+    // A stream event goes only to the clients watching its id; a client that has never
+    // sent a `watch` frame (`watches` still null — an older app) gets everything.
+    const streamKey = proto.isStreamEvent(ch) ? `${ch}\n${payload && payload.id}` : null;
     // The hub is transport-agnostic: one client's `send` throwing (a dead or
     // backpressured socket in some transport) must not skip every client after it in
     // the Set, nor propagate out of whatever emitted the event.
-    for (const c of clients) { try { c.send(msg); } catch (err) { debug('broadcast send failed', { ch, error: String((err && err.message) || err) }); } }
+    for (const c of clients) {
+      if (streamKey && c.watches && !c.watches.has(streamKey)) continue;
+      try { c.send(msg); } catch (err) { debug('broadcast send failed', { ch, error: String((err && err.message) || err) }); }
+    }
   }
 
   return {
