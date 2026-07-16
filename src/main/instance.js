@@ -10,6 +10,14 @@ const { staleInstanceDirs } = require('./instance-lib');
 // be required. Instead, give every instance its own throwaway profile dir so they
 // never collide.
 //
+// Dev runs and the installed build must never share state: Electron's default
+// userData is `%APPDATA%\<name>` for both, so without this a dev window and the
+// packaged exe would fight over the same Chromium cache and — worse — share
+// remote-config.json (the relay room id) and the paired-device / instance
+// registries, letting a phone paired with the built app land on a dev window.
+// Redirect unpackaged runs to a `-dev` sibling dir before anything reads a path.
+if (!app.isPackaged) app.setPath('userData', app.getPath('userData') + '-dev');
+
 // `sharedDataDir` is the default userData location, captured *before* the
 // redirect. Persistent app config (e.g. last-folder) lives here so it survives
 // restarts and is common to all instances; the per-instance profile holds only

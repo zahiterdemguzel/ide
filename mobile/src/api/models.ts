@@ -3,6 +3,7 @@
 // (see src/main/agent-models.js); `default` sets no env var and lets the CLI
 // resolve the model itself. Keep the two lists in step.
 import * as SecureStore from 'expo-secure-store';
+import { storageKey } from './storage';
 
 export type Model = { id: string; name: string };
 
@@ -42,7 +43,7 @@ export const EFFORTS: Effort[] = [
 
 export const DEFAULT_EFFORT = 'auto';
 
-const KEY_MODEL = 'ide.sessionModel';
+const KEY_MODEL = storageKey('sessionModel');
 
 // The last model picked from the menu, reused for the next session so the plain
 // "New session" button never has to ask. An id no longer in MODELS (list edited

@@ -6,10 +6,11 @@
 
 import * as SecureStore from 'expo-secure-store';
 import { DEFAULT_RELAY_URL } from './config';
+import { storageKey } from './storage';
 
-const KEY_TOKEN = 'ide.deviceToken';
-const KEY_URL = 'ide.serverUrl'; // legacy: a bare LAN ws:// URL from before the relay
-const KEY_ENDPOINTS = 'ide.endpoints';
+const KEY_TOKEN = storageKey('deviceToken');
+const KEY_URL = storageKey('serverUrl'); // legacy: a bare LAN ws:// URL from before the relay
+const KEY_ENDPOINTS = storageKey('endpoints');
 
 // Where the desktop can be reached: its relay socket URL (role=mobile&room=…).
 export type Endpoints = { relay?: string };
