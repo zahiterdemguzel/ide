@@ -220,6 +220,9 @@
   background: transparent; color: var(--fg); border: 1px solid var(--border);
   border-radius: 5px; padding: 6px 12px; cursor: pointer; font-size: 12px;
   transition: background .12s ease, border-color .12s ease, color .12s ease;
+  /* Wide enough for both labels ("Revert" and the armed "Sure?") so arming the
+     two-click confirm never resizes the button or shifts the bar around it. */
+  min-width: 78px; text-align: center;
 }
 #session-revert:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
 #session-revert:disabled { color: var(--fg-dim); cursor: default; opacity: .7; }

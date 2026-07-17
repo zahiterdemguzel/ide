@@ -208,6 +208,9 @@ export default {
 
     'models.localDivider': 'Yerel',
 
+
+    'models.codexDivider': 'Codex',
+
     'settings.customModels': 'Yerel modeller',
     'settings.customModelsHint': 'Yerelde çalışan açık kaynak modelleri kurun ve oturumlarda kullanın.',
     'settings.customModels.setup': 'Yerel modelleri kur',
@@ -253,6 +256,16 @@ export default {
     'setup.docs': 'Kurulum kılavuzunu oku',
     'setup.checking': 'Denetleniyor…',
     'setup.found': 'Claude Code bulundu.',
+
+    'setup.codex.title': "Codex CLI'yi kur",
+
+    'setup.codex.intro': "Bu model OpenAI’ın Codex CLI’ı ile çalışır ve henüz kurulu değil. Kurmak için Sonraki’ye tıklayın — veya mevcut modelinizi korumak için bu pencereyi kapatın.",
+
+    'setup.codex.installing': "Codex CLI aşağıdaki terminalde kurulurken lütfen bekleyin. Kurulum bitince Sonraki’ye tıklayın.",
+
+    'setup.codex.installed': "Codex CLI kuruldu — Sonraki’ye tıklayın.",
+
+    'setup.codex.found': "Codex CLI hazır.",
     'setup.notFound': 'Hâlâ bulunamadı.',
     'setup.next': 'Sonraki',
     'setup.back': 'Geri',

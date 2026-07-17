@@ -155,3 +155,51 @@ test('feed: the window is bounded, and a dropped message stops being patchable',
     [], 'a result for an evicted call patches nothing and adds nothing',
   );
 });
+
+// --- Codex rollout format (dispatched by shape; see applyCodexEntry) ---------
+
+function codexLines() {
+  return [
+    { timestamp: 't0', type: 'session_meta', payload: { session_id: 'cx-1' } },
+    { timestamp: 't1', type: 'event_msg', payload: { type: 'user_message', message: 'Create spike.txt' } },
+    // machinery user message: must not become a chat turn
+    { timestamp: 't1', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>…</environment_context>' }] } },
+    { timestamp: 't2', type: 'response_item', payload: { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'Plan the file write' }], encrypted_content: 'xxx' } },
+    { timestamp: 't3', type: 'response_item', payload: { type: 'function_call', id: 'fc_1', name: 'shell_command', arguments: '{"command":"Set-Content spike.txt hello"}', call_id: 'call_1' } },
+    { timestamp: 't4', type: 'response_item', payload: { type: 'function_call_output', call_id: 'call_1', output: 'Exit code: 0\nOutput:\n' } },
+    { timestamp: 't5', type: 'response_item', payload: { type: 'message', id: 'msg_1', role: 'assistant', content: [{ type: 'output_text', text: 'Created spike.txt.' }] } },
+  ].map((l) => JSON.stringify(l)).join('\n') + '\n';
+}
+
+test('codex rollout: user turn, thinking summary, tool call + result, reply', () => {
+  const msgs = parseTranscript(codexLines());
+  assert.deepEqual(msgs.map((m) => [m.role, m.blocks[0].t]), [
+    ['user', 'text'], ['assistant', 'thinking'], ['assistant', 'tool'], ['assistant', 'text'],
+  ]);
+  assert.equal(msgs[0].blocks[0].text, 'Create spike.txt');
+  assert.equal(msgs[1].blocks[0].text, 'Plan the file write');
+  const tool = msgs[2].blocks[0];
+  assert.equal(tool.name, 'shell_command');
+  assert.equal(tool.title, 'Set-Content spike.txt hello');
+  assert.equal(tool.status, 'ok');
+  assert.match(tool.output, /Exit code: 0/);
+  assert.equal(msgs[3].blocks[0].text, 'Created spike.txt.');
+});
+
+test('codex rollout: a failing tool is marked as an error', () => {
+  const state = createState();
+  feed(state, JSON.stringify({ type: 'response_item', payload: { type: 'function_call', name: 'shell_command', arguments: '{"command":["git","status"]}', call_id: 'c9' } }) + '\n');
+  feed(state, JSON.stringify({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'c9', output: 'Exit code: 128\nfatal: not a repo' } }) + '\n');
+  const tool = state.msgs[0].blocks[0];
+  assert.equal(tool.title, 'git status'); // argv-array command joined
+  assert.equal(tool.status, 'error');
+});
+
+test('codex rollout lines never leak into the claude parser and vice versa', () => {
+  const state = createState();
+  // A claude entry still parses after codex entries fed the same state.
+  feed(state, JSON.stringify({ type: 'event_msg', payload: { type: 'token_count' } }) + '\n');
+  const out = feed(state, JSON.stringify({ type: 'user', uuid: 'u1', message: { content: 'hi from claude' } }) + '\n');
+  assert.equal(out.length, 1);
+  assert.equal(out[0].blocks[0].text, 'hi from claude');
+});

@@ -93,14 +93,14 @@ const KEY_MODEL = storageKey('sessionModel');
 export async function getSessionModel(): Promise<string> {
   try {
     const v = await SecureStore.getItemAsync(KEY_MODEL);
-    return MODELS.some((m) => m.id === v) || isOllamaId(v) ? (v as string) : DEFAULT_MODEL;
+    return MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || isOllamaId(v) ? (v as string) : DEFAULT_MODEL;
   } catch {
     return DEFAULT_MODEL;
   }
 }
 
 export async function setSessionModel(id: string): Promise<void> {
-  const known = MODELS.some((m) => m.id === id) || isOllamaId(id) ? id : DEFAULT_MODEL;
+  const known = MODELS.some((m) => m.id === id) || CODEX_MODELS.some((m) => m.id === id) || isOllamaId(id) ? id : DEFAULT_MODEL;
   try {
     await SecureStore.setItemAsync(KEY_MODEL, known);
   } catch {
@@ -113,7 +113,7 @@ export async function setSessionModel(id: string): Promise<void> {
 // resolves the model itself), and there's no name worth showing for that.
 export function modelSuffix(id: string): string {
   if (id === DEFAULT_MODEL) return '';
-  const m = MODELS.find((x) => x.id === id);
+  const m = MODELS.find((x) => x.id === id) ?? CODEX_MODELS.find((x) => x.id === id);
   if (m) return ` (${m.name})`;
   if (isOllamaId(id)) return ` (${ollamaLabel(id)})`;
   return '';
@@ -124,7 +124,7 @@ export function modelSuffix(id: string): string {
 // build doesn't know about still shows what it is running rather than lying about it.
 export function modelBadgeName(id: string): string {
   if (!id || id === DEFAULT_MODEL) return 'Default';
-  return MODELS.find((m) => m.id === id)?.name ?? (isOllamaId(id) ? ollamaLabel(id) : id);
+  return MODELS.find((m) => m.id === id)?.name ?? CODEX_MODELS.find((m) => m.id === id)?.name ?? (isOllamaId(id) ? ollamaLabel(id) : id);
 }
 
 export function effortName(id: string): string {

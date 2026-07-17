@@ -209,6 +209,9 @@ export default {
 
     'models.localDivider': 'Local',
 
+
+    'models.codexDivider': 'Codex',
+
     'settings.customModels': 'Local models',
     'settings.customModelsHint': 'Install open-source models that run locally and start sessions with them.',
     'settings.customModels.setup': 'Set up local models',
@@ -254,6 +257,16 @@ export default {
     'setup.docs': 'Read the setup guide',
     'setup.checking': 'Checking…',
     'setup.found': 'Claude Code found.',
+
+    'setup.codex.title': "Set up Codex CLI",
+
+    'setup.codex.intro': "This model runs on OpenAI’s Codex CLI, which isn’t set up yet. Click Next to install it — or close this window to keep your current model.",
+
+    'setup.codex.installing': "Please wait while the Codex CLI is installed in the terminal below. Click Next once the installation finishes.",
+
+    'setup.codex.installed': "Codex CLI installed — click Next.",
+
+    'setup.codex.found': "Codex CLI is ready.",
     'setup.notFound': 'Still not found.',
     'setup.next': 'Next',
     'setup.back': 'Back',

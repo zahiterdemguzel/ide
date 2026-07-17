@@ -877,7 +877,7 @@ sessionRevertBtn.onclick = async () => {
   if (!activeId) return;
   if (!sessionRevertBtn.classList.contains('armed')) {
     sessionRevertBtn.classList.add('armed');
-    sessionRevertBtn.textContent = 'Revert — sure?';
+    sessionRevertBtn.textContent = 'Sure?';
     showArmHint(sessionRevertBtn);
     return;
   }

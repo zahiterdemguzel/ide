@@ -322,3 +322,44 @@ test('hooksSettings: injects the given statusLine command with zero padding', ()
     type: 'command', command: 'node "/x/statusline-script.js"', padding: 0,
   });
 });
+
+// --- Codex integration: SubagentStart counting, id rewrite, argv command sniff ---
+
+test('codex SubagentStart counts a spawn; its SubagentStop drains it', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'SubagentStart' },
+    { hook_event_name: 'Stop' },              // main stops while the subagent runs
+    { hook_event_name: 'SubagentStop' },      // last agent out settles the session
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'completed']);
+});
+
+test('codex SubagentStart with an agent_id still counts (fires in either context)', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'SubagentStart', agent_id: 'sub-1' },
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'SubagentStop', agent_id: 'sub-1' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'completed']);
+});
+
+test('normalizeHookPayload rewrites a codex session_id to ours and returns theirs', () => {
+  const raw = { session_id: 'codex-uuid', hook_event_name: 'SessionStart' };
+  const { payload, agentSessionId } = normalizeHookPayload(raw, 'ide-uuid');
+  assert.equal(payload.session_id, 'ide-uuid');
+  assert.equal(agentSessionId, 'codex-uuid');
+  assert.equal(raw.session_id, 'codex-uuid'); // input untouched
+});
+
+test('normalizeHookPayload passes a claude payload through untouched', () => {
+  const raw = { session_id: 'same-id', hook_event_name: 'Stop' };
+  assert.deepEqual(normalizeHookPayload(raw, 'same-id'), { payload: raw, agentSessionId: '' });
+  assert.deepEqual(normalizeHookPayload(raw, null), { payload: raw, agentSessionId: '' });
+});
+
+test('git push sniff also reads an argv-array command (codex tool shape)', () => {
+  assert.equal(eventToState({ hook_event_name: 'PostToolUse', tool_input: { command: ['git', 'push', 'origin'] } }), 'pushed');
+  assert.equal(eventToState({ hook_event_name: 'PostToolUse', tool_input: { command: ['ls'] } }), 'working');
+});

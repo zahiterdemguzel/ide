@@ -35,7 +35,7 @@ function startHookServer() {
       let payload;
       // The BOM strip is for Codex on Windows: its hooks run through PowerShell,
       // whose stdin piping prepends a UTF-8 BOM that JSON.parse rejects.
-      try { payload = JSON.parse(body.replace(/^﻿/, '')); } catch { res.end('{}'); return; } // ignore malformed
+      try { payload = JSON.parse(body.replace(/^\uFEFF/, '')); } catch { res.end('{}'); return; } // ignore malformed
       try {
         // A Codex hook URL carries the IDE's own session id (`?ide=`); rewrite the
         // payload to speak it, and remember the id Codex invented — it's the handle

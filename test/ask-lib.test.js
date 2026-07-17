@@ -143,3 +143,19 @@ test('clearsAsk: the tool ran, or the turn ended', () => {
   assert.equal(clearsAsk({ hook_event_name: 'Notification' }), false);
   assert.equal(clearsAsk({ hook_event_name: 'PostToolUse', agent_id: 'a1' }), false);
 });
+
+test('a codex permission prompt approves with y (codex keymap), declines with Esc', () => {
+  const ask = fromHook({
+    hook_event_name: 'PermissionRequest', tool_name: 'Bash',
+    tool_input: { command: 'rm -rf node_modules' },
+  }, 'codex');
+  assert.equal(ask.kind, 'permission');
+  assert.deepEqual(ask.questions[0].options.map((o) => o.key), ['y', '\x1b']);
+  // and the yes answer types exactly that key
+  assert.deepEqual(keystrokes(ask, [{ key: 'y' }]), [{ key: 'y' }]);
+});
+
+test('a claude permission prompt still numbers yes as 1', () => {
+  const ask = fromHook({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: {} });
+  assert.deepEqual(ask.questions[0].options.map((o) => o.key), ['1', '\x1b']);
+});
