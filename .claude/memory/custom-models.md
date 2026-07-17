@@ -81,7 +81,7 @@ Anthropic ⇄ the model, set per-session via `ANTHROPIC_BASE_URL`.
    list), `ollama-list` (installed GGUFs), `ollama-pull`/`ollama-cancel-pull` (stream
    download progress → `ollama-pull-progress`), `ollama-remove`, `ollama-remove-all`.
    Any change pushes `ollama-models-changed`. The renderer section is
-   `src/renderer/custom-models.js` (Settings → **Custom models**). Pulls resolve a
+   `src/renderer/custom-models.js` (Settings → **Local models**). Pulls resolve a
    catalog `name` (or a raw `hf:`/URL a user pastes) to a `{source, name}` via
    `resolvePullTarget`; the engine downloads with node-llama-cpp's
    `createModelDownloader` and reports the same `{phase, pct, done, error}` shape (run
@@ -120,7 +120,7 @@ loaded model + context) + `ollama-proxy.stopProxyServer()`. There's no external 
 to kill anymore. **Uninstall:** Windows NSIS (`build/uninstall-ollama.nsh`, wired via
 `nsis.include`) `RMDir /r`s `%APPDATA%\Claude Session Editor\llama` — only the model
 dir, so `deleteAppDataOnUninstall` stays false. macOS has no uninstaller hook, so
-**Remove all Ollama data** (`ollama-remove-all`) is the supported reclaim path.
+**Remove all local model data** (`ollama-remove-all`) is the supported reclaim path.
 
 ## Build / install
 

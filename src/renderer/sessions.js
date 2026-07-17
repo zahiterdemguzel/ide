@@ -323,8 +323,8 @@ function modelFitWarning(id) {
   return span;
 }
 // Build the picker items shared by the session-bar badge menu and the New-session
-// caret menu: every concrete model (Claude then installed Ollama), the current one
-// marked, an "Ollama" divider before the first custom model, and a fit warning on
+// caret menu: every concrete model (Claude then installed local ones), the current
+// one marked, a "Local" divider before the first custom model, and a fit warning on
 // any custom model that won't fit this machine.
 function buildModelMenuItems(container, current, onPick, itemClass) {
   container.replaceChildren();
@@ -336,7 +336,7 @@ function buildModelMenuItems(container, current, onPick, itemClass) {
       ollamaHeaderDone = true;
       const div = document.createElement('div');
       div.className = 'model-menu-divider';
-      div.textContent = 'Ollama';
+      div.textContent = t('models.localDivider');
       container.appendChild(div);
     }
     const item = document.createElement('button');
