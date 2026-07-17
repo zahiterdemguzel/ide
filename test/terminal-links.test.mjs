@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findTerminalLinks, looksLikePath, mapSpanToRows, MAX_LINK_ROWS } from '../src/renderer/shared/terminal-links-parse.js';
+import { findTerminalLinks, looksLikePath, mapSpanToRows, MAX_LINK_ROWS, buildLinkedHtml } from '../src/renderer/shared/terminal-links-parse.js';
 
 const raws = (text) => findTerminalLinks(text).map((l) => `${l.kind}:${l.raw}`);
 
@@ -86,4 +86,32 @@ test('findTerminalLinks: finds multiple distinct links in one line', () => {
   const got = raws('open src/a.js and https://x.io/y');
   assert.ok(got.includes('path:src/a.js'));
   assert.ok(got.includes('url:https://x.io/y'));
+});
+
+test('buildLinkedHtml: wraps a path in a clickable span and escapes the rest', () => {
+  const html = buildLinkedHtml('see src/a.js <here>');
+  assert.equal(
+    html,
+    'see <span class="editor-link" data-kind="path" data-raw="src/a.js">src/a.js</span> &lt;here&gt;',
+  );
+});
+
+test('buildLinkedHtml: carries the link kind through for urls', () => {
+  const html = buildLinkedHtml('go https://x.io/y');
+  assert.ok(html.includes('data-kind="url" data-raw="https://x.io/y"'));
+});
+
+test('buildLinkedHtml: plain text with no links round-trips as escaped text', () => {
+  assert.equal(buildLinkedHtml('a & b < c'), 'a &amp; b &lt; c');
+  assert.equal(buildLinkedHtml(''), '');
+});
+
+test('buildLinkedHtml: preserves layout (offsets) across multiple lines', () => {
+  // The overlay must mirror the text exactly so the spans land over the code —
+  // newlines and non-link text between links are kept verbatim.
+  const html = buildLinkedHtml('x\nindex.js\ny');
+  assert.equal(
+    html,
+    'x\n<span class="editor-link" data-kind="path" data-raw="index.js">index.js</span>\ny',
+  );
 });

@@ -155,7 +155,7 @@
   color: var(--fg-dim); background: var(--bg-2); user-select: none;
 }
 .editor-main { position: relative; flex: 1 0 auto; }
-.editor-pre, .editor-ta, .editor-hl {
+.editor-pre, .editor-ta, .editor-hl, .editor-links {
   margin: 0; padding: 8px 12px; border: 0;
   font: inherit; line-height: inherit; tab-size: 2;
   white-space: pre; overflow-wrap: normal;
@@ -180,6 +180,18 @@
 }
 .editor-hl .find-hl { background: rgba(255, 213, 0, .32); color: transparent; border-radius: 2px; }
 .editor-hl .find-hl.current { background: rgba(255, 159, 26, .85); }
+
+/* Ctrl+click link layer: a transparent text mirror *above* the textarea (z 3 >
+   textarea 2) that is inert except for its link spans, so a modified hover/click
+   lands on a file-path/URL span while ordinary typing and selection fall through
+   to the textarea. Populated only while Ctrl/Cmd is held; the underline shows on
+   hover, matching the terminal's link feel. */
+.editor-links {
+  position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  color: transparent; overflow: hidden;
+}
+.editor-links .editor-link { pointer-events: auto; cursor: pointer; }
+.editor-links .editor-link:hover { text-decoration: underline; text-decoration-color: var(--accent); }
 .editor-notice { padding: 12px; color: var(--fg-dim); }
 .diff-row { display: flex; white-space: pre; }
 .diff-ln {

@@ -47,6 +47,28 @@ export function mapSpanToRows(rowLens, start, end) {
   return { startRow: s.row, startCol: s.col, endRow: e.row, endCol: e.col };
 }
 
+const HTML_ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => HTML_ESC[c]); }
+
+// Build a text mirror with each detected link wrapped in a clickable
+// `<span class="editor-link" data-kind data-raw>`. The file editor lays this over
+// its textarea (transparent, pointer-events only on the spans) so Ctrl+click can
+// hit-test file paths and URLs the same way the terminal does — the browser
+// positions the spans exactly over the rendered code, so no coordinate math is
+// needed. Everything but the link spans is passed through as escaped text.
+export function buildLinkedHtml(text) {
+  const links = findTerminalLinks(text);
+  let html = '', pos = 0;
+  for (const l of links) {
+    if (l.start > pos) html += escapeHtml(text.slice(pos, l.start));
+    html += `<span class="editor-link" data-kind="${l.kind}" data-raw="${escapeHtml(l.raw)}">`
+      + escapeHtml(text.slice(l.start, l.end)) + '</span>';
+    pos = l.end;
+  }
+  html += escapeHtml(text.slice(pos));
+  return html;
+}
+
 // Find non-overlapping URL (first) then path matches in one terminal line.
 export function findTerminalLinks(text) {
   const out = [];
