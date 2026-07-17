@@ -138,6 +138,8 @@ const REMOTE_CHANNELS = {
     'browser-close',
     // remote desktop control (fire-and-forget): batched OS input events, teardown.
     'control-input',
+    // zoom viewport: which sub-rect of the display to stream, and at what size
+    'control-region',
     'control-close',
   ]),
 };

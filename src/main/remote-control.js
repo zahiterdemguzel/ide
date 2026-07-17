@@ -15,6 +15,7 @@ const {
 const { handle, on } = require('./remote-bridge');
 const {
   clampCaptureSize, clampFps, clampQuality, keyCandidates, toControlOps, normalizeCursor,
+  clampRegion, regionSourceSize, cropRect,
 } = require('./remote-control-lib');
 
 let broadcast = null; // injected by remote.js while remote access is enabled
@@ -26,6 +27,7 @@ let capturing = false; // a slow getSources call must not stack the next tick on
 let lastJpeg = null;
 let lastCursorKey = '';
 let screenPx = { w: 0, h: 0 }; // physical px of the selected display
+let region = null; // normalized sub-rect of the display to stream; null = full screen
 let targets = []; // capturable displays: [{ id, sourceId, display, primary, label }]
 let current = null; // selected target from `targets`
 let injectOrigin = { x: 0, y: 0 }; // selected display's top-left in nut-js's virtual-desktop px
@@ -116,8 +118,8 @@ function loadLibnut() {
 // desktopCapturer sources are preferred; a display it misses gets a libnut
 // target if libnut can reach it (its GDI capture only spans the OS primary).
 // A display neither engine covers is left out entirely — offering it would only
-// stream a *different* screen under its coordinates. The label tells monitors
-// apart (index, primary flag, size) without the phone knowing geometry.
+// stream a *different* screen under its coordinates. The label is the 1-based
+// index (primary first) plus resolution — compact enough for the phone's chips.
 async function captureTargets() {
   let sources = [];
   try {
@@ -138,16 +140,26 @@ async function captureTargets() {
     list.push({ id: primaryId, kind: 'libnut', sourceId: null, display: d, primary: true });
   }
   list.sort((a, b) => Number(b.primary) - Number(a.primary));
-  return list.map((t, i) => ({
-    ...t,
-    label: `Display ${i + 1}${t.primary ? ' · primary' : ''} · ${t.display.size.width}×${t.display.size.height}`,
-  }));
+  return list.map((t, i) => {
+    const b = t.display.bounds;
+    const w = Math.round(b.width * t.display.scaleFactor);
+    const h = Math.round(b.height * t.display.scaleFactor);
+    return { ...t, label: `${i + 1} · ${w}×${h}` };
+  });
 }
 
 // One frame of the selected display via libnut's GDI capture, downscaled to the
 // requested capture box. Runs on demand only — nothing is grabbed for displays
-// the phone didn't choose.
+// the phone didn't choose. With an active region only that rect is grabbed, at
+// native density, downscaled only if it still exceeds the requested width.
 function libnutFrame() {
+  if (region) {
+    const r = cropRect(region, screenPx.w, screenPx.h);
+    const bmp = libnut.screen.capture(r.x, r.y, r.width, r.height);
+    const img = nativeImage.createFromBitmap(bmp.image, { width: bmp.width, height: bmp.height });
+    const outW = Math.min(capSize.width, bmp.width);
+    return outW < bmp.width ? img.resize({ width: outW }) : img;
+  }
   const bmp = libnut.screen.capture();
   const full = nativeImage.createFromBitmap(bmp.image, { width: bmp.width, height: bmp.height });
   const scale = Math.min(capSize.width / bmp.width, capSize.height / bmp.height, 1);
@@ -182,11 +194,15 @@ function selectTarget(id) {
 async function captureFrame() {
   if (!current) return;
   let image;
+  const activeRegion = region;
   if (current.kind === 'libnut') {
     image = libnutFrame();
   } else {
+    // With a region, capture the whole screen big enough that the crop comes
+    // out at the requested width (capped at native px), then cut the rect out.
+    const srcSize = regionSourceSize(activeRegion, capSize, { w: screenPx.w, h: screenPx.h });
     const sources = await desktopCapturer.getSources({
-      types: ['screen'], thumbnailSize: capSize,
+      types: ['screen'], thumbnailSize: srcSize || capSize,
     });
     // Match the selected source exactly — no fall back to another display, or
     // the phone would see one screen while taps land on another.
@@ -194,6 +210,10 @@ async function captureFrame() {
       || sources.find((s) => s.display_id && s.display_id === String(current.display.id));
     if (!source) return;
     image = source.thumbnail;
+    if (srcSize && !image.isEmpty()) {
+      const ts = image.getSize();
+      image = image.crop(cropRect(activeRegion, ts.width, ts.height));
+    }
   }
   if (!image || image.isEmpty()) return;
   const jpeg = image.toJPEG(quality);
@@ -209,7 +229,7 @@ async function captureFrame() {
   seq += 1;
   if (!broadcast) return;
   broadcast('screen-frame', {
-    id: 'main', seq, w: size.width, h: size.height, cursor, b64: jpeg.toString('base64'),
+    id: 'main', seq, w: size.width, h: size.height, region: activeRegion, cursor, b64: jpeg.toString('base64'),
   });
 }
 
@@ -250,6 +270,7 @@ handle('control-open', async (_event, args = {}) => {
   loadNut();
   capSize = clampCaptureSize(args);
   quality = clampQuality(args.quality);
+  region = null; // every open starts full-screen; the phone re-sends its zoom region
   targets = await captureTargets();
   selectTarget(args.display); // undefined → primary/first capturable
   start(clampFps(args.maxFps));
@@ -274,6 +295,16 @@ on('control-input', (_event, { events } = {}) => {
       queue = queue.then(() => runOp(op)).catch(() => {});
     }
   }
+});
+
+// The phone's zoom viewport: stream only the visible rect, at the density it
+// asks for (it sends its capture size along, since zooming raises the useful
+// px-per-screen-fraction). Resetting lastJpeg forces the next tick to send even
+// if the screen itself is still.
+on('control-region', (_event, args = {}) => {
+  region = clampRegion(args);
+  if (args && Number.isFinite(Number(args.width))) capSize = clampCaptureSize(args);
+  lastJpeg = null;
 });
 
 on('control-close', () => stop());

@@ -24,7 +24,16 @@ type OpenResult = {
   id: string; platform: string; screenW: number; screenH: number; input: boolean;
   warnings: string[]; displays: DisplayInfo[]; display: string | null;
 };
-type Frame = { seq: number; w: number; h: number; cursor: { cx: number; cy: number } | null; b64: string };
+type Region = { x: number; y: number; w: number; h: number };
+type Frame = {
+  seq: number; w: number; h: number; region: Region | null;
+  cursor: { cx: number; cy: number } | null; b64: string;
+};
+
+// A frame may depict only a sub-rect of the screen (region streaming while
+// zoomed); these are the implied *full-screen* pixel dims all layout math runs
+// on, so region and full frames share one coordinate space.
+const impliedFull = (f: Frame) => ({ fw: f.w / (f.region?.w ?? 1), fh: f.h / (f.region?.h ?? 1) });
 
 // Hard cap on the streamed width, in desktop px. Frames are JPEG-in-base64 on
 // the shared relay socket, so the desktop is always captured at a downscale —
@@ -88,6 +97,42 @@ export default function ControlScreen() {
   // all math here uses center-origin: screen = center + scale*(p - center) + t.
   const [zoom, setZoom] = useState({ scale: 1, tx: 0, ty: 0 });
   const zoomRef = useRef(zoom);
+
+  // Region streaming: tell the desktop which part of the screen is actually
+  // visible so it streams only that rect, at this viewport's pixel budget —
+  // zooming in raises effective density (up to the display's native px) instead
+  // of magnifying a fixed-resolution frame. Debounced so a pinch doesn't spam.
+  const regionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendRegion = useCallback(() => {
+    regionTimer.current = null;
+    const c = connRef.current;
+    if (!c || c.state !== 'ready') return;
+    const { w, h } = viewRef.current;
+    const cap = pickCapture(w, h);
+    const inf = infoRef.current;
+    if (!cap || !inf?.screenW || !inf?.screenH) return;
+    const z = zoomRef.current;
+    if (z.scale <= 1.001) { c.send('control-region', { ...cap }); return; }
+    // Viewport corners → inverse zoom → normalized screen coords (same letterbox
+    // math as toNorm, using the screen's aspect).
+    const s = Math.min(w / inf.screenW, h / inf.screenH);
+    const dw = inf.screenW * s; const dh = inf.screenH * s;
+    const ox = (w - dw) / 2; const oy = (h - dh) / 2;
+    const inv = (lx: number, ly: number) => ({
+      x: (w / 2 + (lx - z.tx - w / 2) / z.scale - ox) / dw,
+      y: (h / 2 + (ly - z.ty - h / 2) / z.scale - oy) / dh,
+    });
+    const a = inv(0, 0); const b = inv(w, h);
+    const x = Math.max(0, a.x); const y = Math.max(0, a.y);
+    c.send('control-region', {
+      x, y, w: Math.min(1, b.x) - x, h: Math.min(1, b.y) - y, ...cap,
+    });
+  }, []);
+  const queueRegion = useCallback(() => {
+    if (regionTimer.current) clearTimeout(regionTimer.current);
+    regionTimer.current = setTimeout(sendRegion, 200);
+  }, [sendRegion]);
+
   const applyZoom = useCallback((scale: number, tx: number, ty: number) => {
     const { w, h } = viewRef.current;
     const s = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
@@ -102,7 +147,8 @@ export default function ControlScreen() {
     }
     zoomRef.current = z;
     setZoom(z);
-  }, []);
+    queueRegion();
+  }, [queueRegion]);
   // frameArea's absolute screen position, so multi-touch pageX/pageY can be
   // mapped into frameArea-local coords (locationX is unreliable with 2 touches).
   const frameAreaEl = useRef<View>(null);
@@ -142,8 +188,9 @@ export default function ControlScreen() {
     const size = captureSize();
     if (!conn || conn.state !== 'ready' || !size) return;
     displayRef.current = id;
+    applyZoom(1, 0, 0); // zoom (and its streamed region) is per-display
     conn.req<OpenResult>('control-open', { ...size, display: id }).then(applyInfo).catch(() => {});
-  }, [conn, captureSize, applyInfo]);
+  }, [conn, captureSize, applyInfo, applyZoom]);
 
   // Focused + connected: start the desktop capture and watch its frames.
   // Blurred: stop watching and tell the desktop to stop capturing.
@@ -158,6 +205,7 @@ export default function ControlScreen() {
       setFrame(f);
     });
     return () => {
+      if (regionTimer.current) { clearTimeout(regionTimer.current); regionTimer.current = null; }
       offFrame();
       unwatch();
       conn.send('control-close');
@@ -178,8 +226,9 @@ export default function ControlScreen() {
       locX = w / 2 + (locX - z.tx - w / 2) / z.scale;
       locY = h / 2 + (locY - z.ty - h / 2) / z.scale;
     }
-    const scale = Math.min(w / f.w, h / f.h);
-    const dw = f.w * scale; const dh = f.h * scale;
+    const { fw, fh } = impliedFull(f);
+    const scale = Math.min(w / fw, h / fh);
+    const dw = fw * scale; const dh = fh * scale;
     const ox = (w - dw) / 2; const oy = (h - dh) / 2;
     const x = (locX - ox) / dw; const y = (locY - oy) / dh;
     if (x < 0 || x > 1 || y < 0 || y > 1) return null;
@@ -217,6 +266,15 @@ export default function ControlScreen() {
     };
   };
 
+  // Touch position in frameArea coords. Never locationX/Y: RN reports those
+  // relative to the child actually touched — the Image is absolutely positioned
+  // inside a scaled wrapper, so they'd be offset by its rect and zoom. pageX/Y
+  // is the finger's window position regardless of children or transforms.
+  const localPoint = (e: { pageX: number; pageY: number }) => ({
+    x: e.pageX - pageOffset.current.x,
+    y: e.pageY - pageOffset.current.y,
+  });
+
   const clearLong = () => {
     if (gesture.current.longTimer) { clearTimeout(gesture.current.longTimer); gesture.current.longTimer = null; }
   };
@@ -232,7 +290,7 @@ export default function ControlScreen() {
       g.panning = false;
       g.twoMode = 'none';
       g.lastDist = 0;
-      g.last = { x: evt.nativeEvent.locationX, y: evt.nativeEvent.locationY };
+      g.last = localPoint(evt.nativeEvent);
       clearLong();
       if (g.twoFinger) {
         const { dist, mid } = touchGeom(evt.nativeEvent.touches);
@@ -262,7 +320,7 @@ export default function ControlScreen() {
     onPanResponderMove: (evt) => {
       const g = gesture.current;
       const touches = evt.nativeEvent.touches.length;
-      const x = evt.nativeEvent.locationX; const y = evt.nativeEvent.locationY;
+      const { x, y } = localPoint(evt.nativeEvent);
       const dx = x - g.last.x; const dy = y - g.last.y;
       if (Math.abs(x - g.last.x) > TAP_SLOP || Math.abs(y - g.last.y) > TAP_SLOP) { g.moved = true; clearLong(); }
 
@@ -391,6 +449,21 @@ export default function ControlScreen() {
 
   const displayList = info?.displays ?? [];
 
+  // Where a frame's pixels sit in full-screen layout space: a region frame is
+  // drawn at its rect, so the (unchanged) zoom transform magnifies it into
+  // exactly the visible viewport — at the higher resolution it now carries.
+  const rectFor = (f: Frame) => {
+    if (!view.w || !view.h) return null;
+    const { fw, fh } = impliedFull(f);
+    const s = Math.min(view.w / fw, view.h / fh);
+    const dw = fw * s; const dh = fh * s;
+    const ox = (view.w - dw) / 2; const oy = (view.h - dh) / 2;
+    const r = f.region ?? { x: 0, y: 0, w: 1, h: 1 };
+    return { left: ox + r.x * dw, top: oy + r.y * dh, width: r.w * dw, height: r.h * dh };
+  };
+  const frameRect = frame ? rectFor(frame) : null;
+  const shownRect = shown && shown !== frame ? rectFor(shown) : null;
+
   return (
     <View style={[styles.fill, { paddingTop: insets.top }]}>
       {displayList.length > 1 ? (
@@ -429,8 +502,8 @@ export default function ControlScreen() {
           >
             <Image
               source={{ uri: `data:image/jpeg;base64,${frame.b64}` }}
-              style={styles.frame}
-              resizeMode="contain"
+              style={frameRect ? [styles.frameRegion, frameRect] : styles.frame}
+              resizeMode={frameRect ? 'stretch' : 'contain'}
               fadeDuration={0}
             />
             {frame.cursor ? <Cursor cx={frame.cursor.cx} cy={frame.cursor.cy} frame={frame} view={view} /> : null}
@@ -505,8 +578,9 @@ function Cursor(
   { cx, cy, frame, view }: { cx: number; cy: number; frame: Frame; view: { w: number; h: number } },
 ) {
   if (!view.w || !view.h) return null;
-  const scale = Math.min(view.w / frame.w, view.h / frame.h);
-  const dw = frame.w * scale; const dh = frame.h * scale;
+  const { fw, fh } = impliedFull(frame);
+  const scale = Math.min(view.w / fw, view.h / fh);
+  const dw = fw * scale; const dh = fh * scale;
   const ox = (view.w - dw) / 2; const oy = (view.h - dh) / 2;
   return (
     <View pointerEvents="none" style={[styles.cursor, { left: ox + cx * dw - 6, top: oy + cy * dh - 6 }]} />
@@ -575,6 +649,7 @@ const styles = StyleSheet.create({
   frameArea: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
   zoomWrap: { flex: 1 },
   frame: { flex: 1 },
+  frameRegion: { position: 'absolute' },
   cursor: {
     position: 'absolute', width: 12, height: 12, borderRadius: 6,
     backgroundColor: color.accent, borderWidth: 1.5, borderColor: '#fff', opacity: 0.85,

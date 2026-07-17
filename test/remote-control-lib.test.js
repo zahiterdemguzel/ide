@@ -2,7 +2,8 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const {
   clampCaptureSize, clampFps, clampQuality, keyCandidates, normalizeMods,
-  toControlOps, normalizeCursor, MIN_CAP, MAX_CAP, DEFAULT_FPS, DEFAULT_QUALITY, MAX_TEXT,
+  toControlOps, normalizeCursor, clampRegion, regionSourceSize, cropRect,
+  MIN_CAP, MAX_CAP, DEFAULT_FPS, DEFAULT_QUALITY, MAX_TEXT,
 } = require('../src/main/remote-control-lib');
 
 const W = 2560; const H = 1600;

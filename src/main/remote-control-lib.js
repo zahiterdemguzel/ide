@@ -105,6 +105,48 @@ function toControlOps(item, screenW, screenH) {
   return [];
 }
 
+// Region-of-interest streaming: a zoomed-in phone asks for just the visible
+// part of the screen (normalized 0..1 rect of the display). null means full
+// screen — a near-full rect collapses to it so tiny float drift doesn't force
+// the crop path.
+const MIN_REGION = 0.02;
+function clampRegion(r) {
+  if (!r || typeof r !== 'object') return null;
+  const nums = [r.x, r.y, r.w, r.h].map(Number);
+  if (!nums.every(Number.isFinite)) return null;
+  const w = Math.min(1, Math.max(MIN_REGION, nums[2]));
+  const h = Math.min(1, Math.max(MIN_REGION, nums[3]));
+  if (w >= 0.995 && h >= 0.995) return null;
+  return {
+    x: Math.min(1 - w, Math.max(0, nums[0])),
+    y: Math.min(1 - h, Math.max(0, nums[1])),
+    w,
+    h,
+  };
+}
+
+// Size to capture the *whole* screen at so that cropping `region` out of it
+// yields the requested output width — never above the display's native pixels,
+// so zooming in sharpens until real density is reached, then stops.
+function regionSourceSize(region, cap, screen) {
+  if (!region || !screen.w || !screen.h) return null;
+  const outW = Math.max(1, Math.min(cap.width, Math.round(region.w * screen.w)));
+  const srcW = Math.min(screen.w, Math.max(1, Math.round(outW / region.w)));
+  return { width: srcW, height: Math.max(1, Math.round((srcW * screen.h) / screen.w)) };
+}
+
+// The region as an integer crop rect inside a w×h image, kept in bounds.
+function cropRect(region, w, h) {
+  const width = Math.max(1, Math.min(w, Math.round(region.w * w)));
+  const height = Math.max(1, Math.min(h, Math.round(region.h * h)));
+  return {
+    x: Math.min(w - width, Math.max(0, Math.round(region.x * w))),
+    y: Math.min(h - height, Math.max(0, Math.round(region.y * h))),
+    width,
+    height,
+  };
+}
+
 // Cursor position in display coords → normalized 0..1 of that display, clamped;
 // null when outside it (another monitor) so the phone hides its overlay.
 function normalizeCursor(point, bounds) {
@@ -117,6 +159,6 @@ function normalizeCursor(point, bounds) {
 
 module.exports = {
   clampCaptureSize, clampFps, clampQuality, keyCandidates, normalizeMods,
-  toControlOps, normalizeCursor,
+  toControlOps, normalizeCursor, clampRegion, regionSourceSize, cropRect,
   MIN_CAP, MAX_CAP, DEFAULT_FPS, DEFAULT_QUALITY, MAX_TEXT,
 };
