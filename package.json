@@ -19,6 +19,7 @@
     "appId": "com.claude.session-editor",
     "productName": "Claude Session Editor",
     "npmRebuild": false,
+    "onNodeModuleFile": "./build/on-node-module-file.js",
     "files": [
       "index.html",
       "src/**/*",

@@ -49,7 +49,8 @@ module.exports = [
   },
 
   {
-    files: ['eslint.config.js', 'scripts/**/*.js'],
+    // build/ holds electron-builder's packaging hooks — it loads them in Node.
+    files: ['eslint.config.js', 'scripts/**/*.js', 'build/**/*.js'],
     languageOptions: { sourceType: 'commonjs', globals: { ...globals.node } },
   },
   {
