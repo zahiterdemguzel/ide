@@ -44,6 +44,9 @@ function pickCapture(w: number, h: number): { width: number; height: number; max
   return { width, height: Math.round((h / w) * width), maxFps: FPS };
 }
 const TAP_SLOP = 6;
+const PINCH_SLOP = 12; // inter-finger distance change before a 2-finger gesture becomes pinch
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
 const LONG_PRESS_MS = 500;
 const MOVE_THROTTLE_MS = 60; // live cursor-move sends while a finger drags
 const SCROLL_FLUSH_MS = 50;
@@ -79,6 +82,31 @@ export default function ControlScreen() {
   const infoRef = useRef<OpenResult | null>(null);
   infoRef.current = info;
   const displayRef = useRef<string | null>(null); // which desktop display to capture
+
+  // Client-side view zoom/pan of the streamed frame. Applied as a transform on a
+  // wrapper View around the Image+Cursor; RN scales about the view's center, so
+  // all math here uses center-origin: screen = center + scale*(p - center) + t.
+  const [zoom, setZoom] = useState({ scale: 1, tx: 0, ty: 0 });
+  const zoomRef = useRef(zoom);
+  const applyZoom = useCallback((scale: number, tx: number, ty: number) => {
+    const { w, h } = viewRef.current;
+    const s = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, scale));
+    let z;
+    if (s <= 1.001) {
+      z = { scale: 1, tx: 0, ty: 0 };
+    } else {
+      // Keep the scaled content covering the viewport: the wrapper (w×h) scaled
+      // s about its center overflows by (s-1)*w/2 per side, which bounds tx/ty.
+      const mx = ((s - 1) * w) / 2; const my = ((s - 1) * h) / 2;
+      z = { scale: s, tx: Math.min(mx, Math.max(-mx, tx)), ty: Math.min(my, Math.max(-my, ty)) };
+    }
+    zoomRef.current = z;
+    setZoom(z);
+  }, []);
+  // frameArea's absolute screen position, so multi-touch pageX/pageY can be
+  // mapped into frameArea-local coords (locationX is unreliable with 2 touches).
+  const frameAreaEl = useRef<View>(null);
+  const pageOffset = useRef({ x: 0, y: 0 });
   const lastSeq = useRef(0);
   const keyInput = useRef<TextInput>(null);
 
@@ -143,6 +171,13 @@ export default function ControlScreen() {
   const toNorm = useCallback((locX: number, locY: number): { x: number; y: number } | null => {
     const f = frameRef.current; const { w, h } = viewRef.current;
     if (!f || !w || !h) return null;
+    // Invert the view zoom/pan first: the touch lands in frameArea coords, the
+    // image lives in the (center-scaled, translated) wrapper's coords.
+    const z = zoomRef.current;
+    if (z.scale !== 1 || z.tx || z.ty) {
+      locX = w / 2 + (locX - z.tx - w / 2) / z.scale;
+      locY = h / 2 + (locY - z.ty - h / 2) / z.scale;
+    }
     const scale = Math.min(w / f.w, h / f.h);
     const dw = f.w * scale; const dh = f.h * scale;
     const ox = (w - dw) / 2; const oy = (h - dh) / 2;
@@ -162,9 +197,25 @@ export default function ControlScreen() {
   }, [send]);
 
   const gesture = useRef({
-    last: { x: 0, y: 0 }, moved: false, twoFinger: false, dragging: false,
+    last: { x: 0, y: 0 }, moved: false, twoFinger: false, dragging: false, panning: false,
+    // Two-finger classification: 'none' until the fingers either spread/close
+    // (pinch) or travel together (scroll); the first verdict sticks for the
+    // whole gesture.
+    twoMode: 'none' as 'none' | 'pinch' | 'scroll',
+    startDist: 0, lastDist: 0, lastMid: { x: 0, y: 0 }, startMid: { x: 0, y: 0 },
     lastMoveSent: 0, longTimer: null as ReturnType<typeof setTimeout> | null,
   });
+
+  const touchGeom = (touches: readonly { pageX: number; pageY: number }[]) => {
+    const [a, b] = touches;
+    return {
+      dist: Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY),
+      mid: {
+        x: (a.pageX + b.pageX) / 2 - pageOffset.current.x,
+        y: (a.pageY + b.pageY) / 2 - pageOffset.current.y,
+      },
+    };
+  };
 
   const clearLong = () => {
     if (gesture.current.longTimer) { clearTimeout(gesture.current.longTimer); gesture.current.longTimer = null; }
@@ -178,11 +229,20 @@ export default function ControlScreen() {
       g.moved = false;
       g.twoFinger = evt.nativeEvent.touches.length >= 2;
       g.dragging = false;
+      g.panning = false;
+      g.twoMode = 'none';
+      g.lastDist = 0;
       g.last = { x: evt.nativeEvent.locationX, y: evt.nativeEvent.locationY };
       clearLong();
-      if (!g.twoFinger) {
+      if (g.twoFinger) {
+        const { dist, mid } = touchGeom(evt.nativeEvent.touches);
+        g.startDist = dist; g.lastDist = dist; g.lastMid = mid; g.startMid = mid;
+      } else {
         const n = toNorm(g.last.x, g.last.y);
-        if (n) {
+        if (!n && zoomRef.current.scale > 1) {
+          // Touch on the letterbox/border while zoomed: drag pans the view.
+          g.panning = true;
+        } else if (n) {
           if (dragLockRef.current) {
             g.dragging = true;
             send([{ k: 'down', x: n.x, y: n.y, button: 'left' }]);
@@ -209,13 +269,45 @@ export default function ControlScreen() {
       if (touches >= 2 || g.twoFinger) {
         g.twoFinger = true;
         clearLong();
-        scrollAcc.current.dx += Math.round(dx * SCROLL_GAIN);
-        scrollAcc.current.dy += Math.round(dy * SCROLL_GAIN);
+        if (touches >= 2) {
+          const { dist, mid } = touchGeom(evt.nativeEvent.touches);
+          if (!g.lastDist) { // second finger landed after grant
+            g.startDist = dist; g.startMid = mid; g.lastMid = mid;
+          } else if (g.twoMode === 'none') {
+            if (Math.abs(dist - g.startDist) > PINCH_SLOP) g.twoMode = 'pinch';
+            else if (Math.hypot(mid.x - g.startMid.x, mid.y - g.startMid.y) > PINCH_SLOP) g.twoMode = 'scroll';
+          }
+          if (g.twoMode === 'pinch' && g.lastDist) {
+            // Focal-point zoom: keep the content point under the (moving) focal
+            // fixed. With center-origin transform screen = c + s*(p-c) + t, the
+            // point under the previous focal F0 is p-c = (F0 - t0 - c)/s0, and
+            // pinning it under the new focal F1 gives t1 = F1 - c - s1*(p-c).
+            const z = zoomRef.current;
+            const { w, h } = viewRef.current;
+            const s1 = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z.scale * (dist / g.lastDist)));
+            const r = s1 / z.scale;
+            applyZoom(
+              s1,
+              mid.x - w / 2 - r * (g.lastMid.x - z.tx - w / 2),
+              mid.y - h / 2 - r * (g.lastMid.y - z.ty - h / 2),
+            );
+          }
+          g.lastDist = dist; g.lastMid = mid;
+        }
+        if (g.twoMode === 'scroll') {
+          scrollAcc.current.dx += Math.round(dx * SCROLL_GAIN);
+          scrollAcc.current.dy += Math.round(dy * SCROLL_GAIN);
+          if (!scrollTimer.current) scrollTimer.current = setTimeout(flushScroll, SCROLL_FLUSH_MS);
+        }
         g.last = { x, y };
-        if (!scrollTimer.current) scrollTimer.current = setTimeout(flushScroll, SCROLL_FLUSH_MS);
         return;
       }
       g.last = { x, y };
+      if (g.panning) {
+        const z = zoomRef.current;
+        applyZoom(z.scale, z.tx + dx, z.ty + dy);
+        return;
+      }
       // Single finger: move the cursor there live (throttled) so the user sees
       // where a click will land, and so a drag-lock drag tracks the finger.
       const n = toNorm(x, y);
@@ -232,12 +324,15 @@ export default function ControlScreen() {
       const n = toNorm(g.last.x, g.last.y);
       if (g.dragging && n) {
         send([{ k: 'move', x: n.x, y: n.y }, { k: 'up', button: 'left' }]);
-      } else if (!g.twoFinger && !g.moved && n) {
+      } else if (!g.twoFinger && !g.panning && !g.moved && n) {
         send([{ k: 'tap', x: n.x, y: n.y, button: 'left', mods: activeMods() }]);
       }
-      g.twoFinger = false; g.dragging = false;
+      g.twoFinger = false; g.dragging = false; g.panning = false; g.twoMode = 'none';
     },
-    onPanResponderTerminate: () => { clearLong(); gesture.current.dragging = false; },
+    onPanResponderTerminate: () => {
+      clearLong();
+      gesture.current.dragging = false; gesture.current.panning = false; gesture.current.twoMode = 'none';
+    },
   })).current;
 
   const doubleClick = () => {
@@ -271,6 +366,8 @@ export default function ControlScreen() {
     const { width, height, x, y } = e.nativeEvent.layout;
     const changed = Math.abs(width - viewRef.current.w) > 2 || Math.abs(height - viewRef.current.h) > 2;
     setView({ w: width, h: height, x, y });
+    frameAreaEl.current?.measureInWindow((px, py) => { pageOffset.current = { x: px, y: py }; });
+    if (changed) applyZoom(1, 0, 0); // a resized viewport invalidates the pan clamp
     const cap = pickCapture(width, height);
     if (changed && conn?.state === 'ready' && cap) {
       conn.req<OpenResult>('control-open', { ...cap, display: displayRef.current }).then(applyInfo).catch(() => {});
@@ -322,9 +419,14 @@ export default function ControlScreen() {
         </View>
       ) : null}
 
-      <View style={styles.frameArea} onLayout={onFrameLayout} {...pan.panHandlers}>
+      <View ref={frameAreaEl} style={styles.frameArea} onLayout={onFrameLayout} {...pan.panHandlers}>
         {frame ? (
-          <>
+          <View
+            style={[
+              styles.zoomWrap,
+              { transform: [{ translateX: zoom.tx }, { translateY: zoom.ty }, { scale: zoom.scale }] },
+            ]}
+          >
             <Image
               source={{ uri: `data:image/jpeg;base64,${frame.b64}` }}
               style={styles.frame}
@@ -332,7 +434,7 @@ export default function ControlScreen() {
               fadeDuration={0}
             />
             {frame.cursor ? <Cursor cx={frame.cursor.cx} cy={frame.cursor.cy} frame={frame} view={view} /> : null}
-          </>
+          </View>
         ) : (
           <View style={styles.empty}>
             {state === 'ready' ? <ActivityIndicator color={color.muted} /> : null}
@@ -471,6 +573,7 @@ const styles = StyleSheet.create({
   },
   warnText: { color: color.yellow, fontSize: font.size.sm },
   frameArea: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
+  zoomWrap: { flex: 1 },
   frame: { flex: 1 },
   cursor: {
     position: 'absolute', width: 12, height: 12, borderRadius: 6,

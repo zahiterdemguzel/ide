@@ -9,7 +9,9 @@
 // Accessibility not granted) the screen still streams and control-open says why
 // input is off, instead of the feature dying whole.
 
-const { app, desktopCapturer, screen, systemPreferences } = require('electron');
+const {
+  app, desktopCapturer, nativeImage, screen, systemPreferences,
+} = require('electron');
 const { handle, on } = require('./remote-bridge');
 const {
   clampCaptureSize, clampFps, clampQuality, keyCandidates, toControlOps, normalizeCursor,
@@ -92,11 +94,30 @@ async function runOp(op) {
   return undefined;
 }
 
-// The displays the OS actually exposes a screen source for, each paired with
-// that source. A monitor with no capturable source (mixed-GPU / off panels give
-// fewer sources than displays on Windows) is left out entirely — offering it
-// would only stream a *different* screen under its coordinates. The label tells
-// monitors apart (index, primary flag, size) without the phone knowing geometry.
+// nut-js's native layer, used as a second capture engine: on some Windows
+// setups (hybrid iGPU/dGPU laptops) Chromium's desktopCapturer exposes a source
+// for only one of the displays, but libnut's GDI capture can grab the OS
+// primary. Loaded lazily and only if needed; capture stays desktopCapturer-only
+// where it covers every display.
+let libnut = null;
+let libnutTried = false;
+function loadLibnut() {
+  if (libnutTried) return libnut;
+  libnutTried = true;
+  const pkg = { win32: 'libnut-win32', darwin: 'libnut-darwin', linux: 'libnut-linux' }[process.platform];
+  try {
+    const mod = require(`@nut-tree-fork/${pkg}`);
+    if (mod && mod.screen && typeof mod.screen.capture === 'function') libnut = mod;
+  } catch { libnut = null; }
+  return libnut;
+}
+
+// The displays we can actually stream, each paired with its capture engine.
+// desktopCapturer sources are preferred; a display it misses gets a libnut
+// target if libnut can reach it (its GDI capture only spans the OS primary).
+// A display neither engine covers is left out entirely — offering it would only
+// stream a *different* screen under its coordinates. The label tells monitors
+// apart (index, primary flag, size) without the phone knowing geometry.
 async function captureTargets() {
   let sources = [];
   try {
@@ -105,19 +126,32 @@ async function captureTargets() {
   const all = screen.getAllDisplays();
   const primaryId = String(screen.getPrimaryDisplay().id);
   const byId = new Map(all.map((d) => [String(d.id), d]));
-  return sources.map((s, i) => {
+  const list = sources.map((s, i) => {
     // Pair by the display the source names; positional fallback for the rare
     // source that carries no display_id (older Electron / some platforms).
     const d = byId.get(String(s.display_id)) || all[i] || screen.getPrimaryDisplay();
-    const primary = String(d.id) === primaryId;
-    return {
-      id: String(d.id),
-      sourceId: s.id,
-      display: d,
-      primary,
-      label: `Display ${i + 1}${primary ? ' · primary' : ''} · ${d.size.width}×${d.size.height}`,
-    };
+    return { id: String(d.id), kind: 'source', sourceId: s.id, display: d, primary: String(d.id) === primaryId };
   });
+  const covered = new Set(list.map((t) => t.id));
+  if (!covered.has(primaryId) && loadLibnut()) {
+    const d = screen.getPrimaryDisplay();
+    list.push({ id: primaryId, kind: 'libnut', sourceId: null, display: d, primary: true });
+  }
+  list.sort((a, b) => Number(b.primary) - Number(a.primary));
+  return list.map((t, i) => ({
+    ...t,
+    label: `Display ${i + 1}${t.primary ? ' · primary' : ''} · ${t.display.size.width}×${t.display.size.height}`,
+  }));
+}
+
+// One frame of the selected display via libnut's GDI capture, downscaled to the
+// requested capture box. Runs on demand only — nothing is grabbed for displays
+// the phone didn't choose.
+function libnutFrame() {
+  const bmp = libnut.screen.capture();
+  const full = nativeImage.createFromBitmap(bmp.image, { width: bmp.width, height: bmp.height });
+  const scale = Math.min(capSize.width / bmp.width, capSize.height / bmp.height, 1);
+  return full.resize({ width: Math.max(1, Math.round(bmp.width * scale)) });
 }
 
 // Point capture + injection at one capturable target. nut-js injects in physical
@@ -137,19 +171,32 @@ function selectTarget(id) {
     w: Math.round(d.bounds.width * d.scaleFactor),
     h: Math.round(d.bounds.height * d.scaleFactor),
   };
+  // bounds×scale can land 1px off the true mode (fractional logical sizes);
+  // libnut knows the primary's exact physical size, so trust it there.
+  if (current && current.kind === 'libnut' && libnut) {
+    const s = libnut.getScreenSize();
+    if (s && s.width) screenPx = { w: s.width, h: s.height };
+  }
 }
 
 async function captureFrame() {
   if (!current) return;
-  const sources = await desktopCapturer.getSources({
-    types: ['screen'], thumbnailSize: capSize,
-  });
-  // Match the selected source exactly — no fall back to another display, or the
-  // phone would see one screen while taps land on another.
-  const source = sources.find((s) => s.id === current.sourceId)
-    || sources.find((s) => s.display_id && s.display_id === String(current.display.id));
-  if (!source || source.thumbnail.isEmpty()) return;
-  const jpeg = source.thumbnail.toJPEG(quality);
+  let image;
+  if (current.kind === 'libnut') {
+    image = libnutFrame();
+  } else {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'], thumbnailSize: capSize,
+    });
+    // Match the selected source exactly — no fall back to another display, or
+    // the phone would see one screen while taps land on another.
+    const source = sources.find((s) => s.id === current.sourceId)
+      || sources.find((s) => s.display_id && s.display_id === String(current.display.id));
+    if (!source) return;
+    image = source.thumbnail;
+  }
+  if (!image || image.isEmpty()) return;
+  const jpeg = image.toJPEG(quality);
   const cursor = normalizeCursor(screen.getCursorScreenPoint(), current.display.bounds);
   // A still screen must not re-send the same bytes every tick — but the cursor
   // moves between identical frames, so "same" covers both image and cursor.
@@ -158,7 +205,7 @@ async function captureFrame() {
   lastJpeg = jpeg;
   lastCursorKey = cursorKey;
   if (same) return;
-  const size = source.thumbnail.getSize();
+  const size = image.getSize();
   seq += 1;
   if (!broadcast) return;
   broadcast('screen-frame', {
