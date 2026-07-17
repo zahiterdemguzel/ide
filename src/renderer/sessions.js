@@ -280,6 +280,7 @@ function updateSessionBar() {
   sessionTitle.title = name;
   renderModelBadge(s);
   renderCommitButton(s);
+  renderRevertButton(s);
   renderDiffButton(s);
   // The notice is now only for failures / revert results, kept per-session so
   // switching sessions never carries a stale message over from another.
@@ -425,6 +426,15 @@ function renderCommitButton(s) {
   sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing to commit';
 }
 
+// Revert de-applies this session's edits, so it enables on the same condition as
+// commit: the real committable count (`s.diffStat.files`, falling back to the raw
+// tracked count until the first stat arrives). It also stays disabled while a
+// commit is in flight, since that snapshot is mid-change.
+function renderRevertButton(s) {
+  const n = s.diffStat ? s.diffStat.files : s.files.length;
+  sessionRevertBtn.disabled = s.committing || n === 0;
+}
+
 // The Diff button shows this session's net change as a green +added / red
 // -removed badge and is disabled when the session changed nothing. The counts
 // come from `s.diffStat` (computed by main); until that first arrives we fall
@@ -472,7 +482,7 @@ function refreshDiffStat(id) {
     if (!s) return;
     try { s.diffStat = await window.api.sessionDiffStat(id); } catch { return; }
     renderRowDiff(s); // every session: keep out-of-view rows' badges current
-    if (id === activeId) { renderCommitButton(s); renderDiffButton(s); }
+    if (id === activeId) { renderCommitButton(s); renderRevertButton(s); renderDiffButton(s); }
   }, 350));
 }
 
@@ -921,7 +931,7 @@ async function openDiffDialog() {
   try { r = await window.api.sessionDiff(id); } catch { /* gone */ }
   if (diffDialogId !== id) return; // closed or switched while the diff was computing
   // Keep the button's badge in agreement with what the dialog actually shows.
-  if (r) { s.diffStat = { additions: r.additions, deletions: r.deletions, files: r.files }; renderCommitButton(s); renderDiffButton(s); renderRowDiff(s); }
+  if (r) { s.diffStat = { additions: r.additions, deletions: r.deletions, files: r.files }; renderCommitButton(s); renderRevertButton(s); renderDiffButton(s); renderRowDiff(s); }
   if (!r || !r.ok || !r.files) {
     diffPatchText = null;
     diffDialogStat.textContent = '';

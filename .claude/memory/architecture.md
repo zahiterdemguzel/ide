@@ -107,6 +107,8 @@ On success `commit-session` **forgets the committed paths** from that session's 
 
 ## Per-session revert
 
+The session bar's **Revert** button enables on the same condition as Commit and Diff — `renderRevertButton(s)` uses the real committable count (`s.diffStat.files`, falling back to `s.files.length` until the first stat arrives) and also stays disabled while that session's commit is in flight — so a session with nothing to undo can't arm the two-click confirm.
+
 The symmetric operation: `revert-session(id)` undoes **only what this session did in the working tree**, leaving another session's edits to the same file intact. It does *not* snapshot — it de-applies the session's own ops.
 
 For each touched file, `inverseEdits(working, ops)` is the inverse of `replayEdits`: it walks the session's ops newest-first and backs each substitution out of the *current* working contents (`Edit` `old→new` is reversed to `new→old`). Because each reversal only rewrites this session's own `new` strings, another session's edits (different text regions) are untouched. The reverted contents are written straight to the working file.
