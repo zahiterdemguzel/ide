@@ -15,7 +15,49 @@ export const MODELS: Model[] = [
   { id: 'haiku', name: 'Haiku' },
 ];
 
+// The OpenAI Codex CLI's models — the mobile mirror of CODEX_MODELS in
+// src/renderer/settings.js (keep in step). A codex: session is locked to the
+// codex family; the pickers filter through switchableModels below.
+export const CODEX_MODELS: Model[] = [
+  { id: 'codex:gpt-5.5', name: 'GPT-5.5 (Codex)' },
+  { id: 'codex:gpt-5.4', name: 'GPT-5.4 (Codex)' },
+  { id: 'codex:gpt-5.4-mini', name: 'GPT-5.4 Mini (Codex)' },
+];
+
 export const DEFAULT_MODEL = 'default';
+
+export const isCodexId = (v: string | null | undefined): boolean => typeof v === 'string' && v.startsWith('codex:');
+
+// Which CLI family a model id runs on — mirror of agent-providers.modelFamily.
+export type ModelFamily = 'claude' | 'codex' | 'ollama';
+export function modelFamily(id: string | null | undefined): ModelFamily {
+  if (isCodexId(id)) return 'codex';
+  if (isOllamaId(id)) return 'ollama';
+  return 'claude';
+}
+
+// The models a session on `currentId` may switch to: its own family only, and a
+// local (ollama:) model is fixed for life. Main enforces the same rule.
+export function switchableModels(currentId: string | null | undefined, all: Model[]): Model[] {
+  const family = modelFamily(currentId);
+  if (family === 'ollama') return [];
+  return all.filter((m) => modelFamily(m.id) === family);
+}
+
+// Codex reasons on its own ladder — `minimal` exists, `max` doesn't (mirror of
+// CODEX_EFFORT_LEVELS in src/main/agent-effort.js).
+export const CODEX_EFFORTS: Effort[] = [
+  { id: 'auto', name: 'Auto', hint: "The model's own default" },
+  { id: 'minimal', name: 'Minimal', hint: 'Fastest, barely thinks' },
+  { id: 'low', name: 'Low', hint: 'Quick answers' },
+  { id: 'medium', name: 'Medium', hint: 'Balanced' },
+  { id: 'high', name: 'High', hint: 'Thinks before it acts' },
+  { id: 'xhigh', name: 'Extra high', hint: 'For hard problems' },
+];
+
+export function effortsFor(modelId: string | null | undefined): Effort[] {
+  return modelFamily(modelId) === 'codex' ? CODEX_EFFORTS : EFFORTS;
+}
 
 // An installed Ollama custom model, its id namespaced `ollama:<name>` (the desktop
 // convention — see src/main/ollama-models-lib.js) so it never collides with a

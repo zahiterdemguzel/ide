@@ -72,6 +72,14 @@ model normally (subagents inherit the main model). A stored value no longer in
 `MODELS` (the `id` is the alias/model id the CLI gets; labels stay untranslated
 since they're product names).
 
+**Codex models.** `CODEX_MODELS` (`codex:gpt-…` ids) sit in the same merged list;
+picking one spawns the OpenAI Codex CLI instead of `claude`, and the session is
+locked to the codex family for life — menus filter through `switchableModels()`
+(family-only rows; a local model offers none) and main's `set-session-model`
+enforces the same rule. Codex has its own effort ladder (`minimal…xhigh`, no
+`max`; `effortLevelsFor(family)` in `agent-effort.js`) and no subagent-model
+override (the subagent dropdown skips codex ids). See [codex.md](codex.md).
+
 **Custom (Ollama) models.** Installed local open-source models are folded into the
 same dropdowns/caret menu/badge, namespaced `ollama:<name>`, via
 `getMergedModels()`/`getOllamaModels()`/`modelLabel()` in `settings.js` (re-rendered

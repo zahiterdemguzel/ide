@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { isBulkVcsCommand, tracksFs, editedFilePath } = require('../src/main/fs-track');
+const { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan } = require('../src/main/fs-track');
 
 test('bulk working-tree movers are detected', () => {
   for (const c of [
@@ -71,6 +71,27 @@ test('text-edit, read-only, subagent-spawning, and bulk-VCS tools are NOT fs-tra
   ]) {
     assert.equal(tracksFs(p), false, p.tool_name || '(none)');
   }
+});
+
+test('serialFsPlan: snapshot before each tracked tool, diff at its Post', () => {
+  const pre = { hook_event_name: 'PreToolUse', tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch' } };
+  const post = { hook_event_name: 'PostToolUse', tool_name: 'apply_patch', tool_input: {} };
+  assert.equal(serialFsPlan(pre, false), 'snapshot');
+  assert.equal(serialFsPlan(post, true), 'diff');
+});
+
+test('serialFsPlan: an orphaned baseline (Post skipped on tool error) is flushed by the next Pre or by Stop', () => {
+  const pre = { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'mv a b' } };
+  assert.equal(serialFsPlan(pre, true), 'diff-and-snapshot');
+  assert.equal(serialFsPlan({ hook_event_name: 'Stop' }, true), 'diff');
+});
+
+test('serialFsPlan: no-ops without a baseline or for untracked tools', () => {
+  assert.equal(serialFsPlan({ hook_event_name: 'PostToolUse', tool_name: 'Bash' }, false), null);
+  assert.equal(serialFsPlan({ hook_event_name: 'Stop' }, false), null);
+  assert.equal(serialFsPlan({ hook_event_name: 'PreToolUse', tool_name: 'Read' }, false), null);
+  assert.equal(serialFsPlan({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'git pull' } }, true), null);
+  assert.equal(serialFsPlan({ hook_event_name: 'UserPromptSubmit' }, true), null);
 });
 
 test('editedFilePath reads file_path and NotebookEdit notebook_path', () => {

@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { eventToState, deriveStatus, interruptState, shouldApplyState, hooksSettings } = require('../src/main/hook-events');
+const { eventToState, deriveStatus, interruptState, shouldApplyState, hooksSettings, normalizeHookPayload } = require('../src/main/hook-events');
 
 test('eventToState: Stop -> completed', () => {
   assert.equal(eventToState({ hook_event_name: 'Stop' }), 'completed');

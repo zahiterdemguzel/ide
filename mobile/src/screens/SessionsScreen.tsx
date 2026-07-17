@@ -28,7 +28,7 @@ import { Card, CategoryLabel, Pill, IconButton } from '../components/ui';
 import { showError } from '../components/ErrorDialog';
 import { shortAgo } from '../api/time';
 import {
-  MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, modelSuffix, modelBadgeName,
+  MODELS, CODEX_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, modelSuffix, modelBadgeName,
   OllamaModel,
 } from '../api/models';
 import { color, radius, font, type, motion, shadow, tint, TAB_BAR_HEIGHT } from '../theme';
@@ -549,6 +549,10 @@ export default function SessionsScreen({ navigation }: any) {
           >
             <Text style={styles.menuHeading}>New session with</Text>
             {MODELS.filter((m) => m.id !== DEFAULT_MODEL).map((m) => (
+              <MenuItem key={m.id} label={m.name} on={m.id === model} onPress={() => closeMenu(() => newSession(m.id))} />
+            ))}
+            <View style={styles.menuDivider} />
+            {CODEX_MODELS.map((m) => (
               <MenuItem key={m.id} label={m.name} on={m.id === model} onPress={() => closeMenu(() => newSession(m.id))} />
             ))}
             {ollamaModels.length > 0 && <View style={styles.menuDivider} />}

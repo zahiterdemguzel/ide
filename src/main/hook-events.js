@@ -36,7 +36,10 @@ function eventToState(payload) {
       return /permission/i.test(String(payload.message || '')) ? 'needs-input' : null;
     case 'PermissionRequest': return 'needs-input';
     case 'PostToolUse': {
-      const c = payload.tool_input && payload.tool_input.command;
+      // Codex may hand a shell tool's command over as an argv array; joined it
+      // sniffs the same as Claude's single string.
+      const raw = payload.tool_input && payload.tool_input.command;
+      const c = Array.isArray(raw) ? raw.join(' ') : raw;
       if (c && /git\s+push/.test(c)) return 'pushed';
       return 'working';
     }
@@ -92,6 +95,14 @@ function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) 
 
   if (subagentStopped) {
     subagents = Math.max(0, subagents - 1);
+  } else if (ev === 'SubagentStart') {
+    // Codex announces a subagent spawning as its own event (Claude signals it via
+    // the Task/Agent PreToolUse below). Counted before the agent_id early-return
+    // so the count balances its SubagentStop regardless of which context Codex
+    // fires it from; a spawn also proves the main agent is running.
+    subagents += 1;
+    mainStopped = false;
+    return { state: 'working', tracking: { subagents, mainStopped } };
   } else if (payload.agent_id) {
     // Every other event fired inside a subagent's own context (agent_id is set
     // only there) must touch neither the dot nor the bookkeeping: a subagent's
@@ -170,4 +181,16 @@ function hooksSettings(port, statusLineCommand) {
   return JSON.stringify(settings);
 }
 
-module.exports = { eventToState, deriveStatus, interruptState, shouldApplyState, hooksSettings };
+// Map a hook payload onto the IDE's own session id. Claude sessions are spawned
+// with `--session-id <our uuid>`, so their payloads already carry it. Codex has
+// no such flag — it invents its own session UUID — so its hook URL carries ours
+// as `?ide=<id>` and this rewrite makes the payload speak our id everywhere
+// downstream (status, tracking, chat). The id Codex invented is returned as
+// `agentSessionId`: it's what `codex resume` needs later. Payloads that already
+// match (Claude's) pass through untouched.
+function normalizeHookPayload(payload, ideId) {
+  if (!ideId || !payload || payload.session_id === ideId) return { payload, agentSessionId: '' };
+  return { payload: { ...payload, session_id: ideId }, agentSessionId: String(payload.session_id || '') };
+}
+
+module.exports = { eventToState, deriveStatus, interruptState, shouldApplyState, hooksSettings, normalizeHookPayload };

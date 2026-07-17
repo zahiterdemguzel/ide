@@ -3,6 +3,7 @@ const { ipcRenderer } = require('electron');
 // Per-session Claude PTYs + the per-session commit/revert + name/meta streams.
 module.exports = {
   checkClaude: () => ipcRenderer.invoke('check-claude'),
+  checkCodex: () => ipcRenderer.invoke('check-codex'),
   getUsage: () => ipcRenderer.invoke('get-usage'),
   setStatusLineEnabled: (on) => ipcRenderer.send('set-statusline-enabled', on),
   notifySessionFinished: (payload) => ipcRenderer.send('notify-session-finished', payload),

@@ -27,6 +27,7 @@ const REMOTE_CHANNELS = {
     'new-session',
     'resume-session',
     'check-claude',
+    'check-codex',
     // remaining Claude subscription usage — the thin bar under the phone's header
     'get-usage',
     // retained PTY output, so a phone reopening a session sees its scrollback

@@ -28,7 +28,7 @@ import {
   answerAsk, pendingMessage, sendPrompt, settle, uploadImage, upsert,
 } from '../api/chat';
 import {
-  DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS, MODELS, effortName, modelBadgeName,
+  DEFAULT_EFFORT, DEFAULT_MODEL, MODELS, CODEX_MODELS, switchableModels, effortsFor, effortName, modelBadgeName,
 } from '../api/models';
 import { color, font, radius, space, shadow, tint, type } from '../theme';
 
@@ -297,16 +297,18 @@ export default function ChatScreen({ route, navigation }: any) {
             {/* What the session is running, and where you change it. The desktop keeps
                 the same two badges in the same place. Effort names "Auto" here even
                 though that's the default — a badge you can tap has to say what it is. */}
+            {/* Only same-family switches are offered (a local model offers none) —
+                main enforces the same lock, this just keeps the menu honest. */}
             <BadgeMenu
               label={modelBadgeName(model)}
-              items={MODELS.filter((m) => m.id !== DEFAULT_MODEL)}
+              items={switchableModels(model, MODELS.concat(CODEX_MODELS)).filter((m) => m.id !== DEFAULT_MODEL)}
               current={model}
               onPick={pickModel}
               accessibilityLabel="Model"
             />
             <BadgeMenu
               label={effortName(effort)}
-              items={EFFORTS}
+              items={effortsFor(model)}
               current={effort || DEFAULT_EFFORT}
               onPick={pickEffort}
               accessibilityLabel="Reasoning effort"

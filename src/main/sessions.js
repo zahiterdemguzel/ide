@@ -10,10 +10,13 @@ const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
-const { AUTO, cleanEffort, effortArgs } = require('./agent-effort');
+const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
+const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
+const { installGuide: codexInstallGuide } = require('./codex-install');
+const { AUTO, cleanEffort, effortArgs, codexEffortValue } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
-const { tracksFs, editedFilePath, TEXT_EDIT_TOOLS } = require('./fs-track');
+const { tracksFs, editedFilePath, serialFsPlan, TEXT_EDIT_TOOLS } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
@@ -426,6 +429,17 @@ async function ollamaRoute(s) {
   };
 }
 
+// Remember the session UUID a Codex CLI invented for one of our sessions (the
+// hook server learns it from the `?ide=` rewrite — see normalizeHookPayload).
+// Persisted immediately: it's the one handle `codex resume` accepts, so losing
+// it to a crash before the debounced save would strand the conversation.
+function noteAgentSessionId(id, agentSessionId) {
+  const s = sessions.get(id);
+  if (!s || !agentSessionId || s.agentSessionId === agentSessionId) return;
+  s.agentSessionId = agentSessionId;
+  persistSession(id);
+}
+
 // Attribute the user's first prompt and any edited files to their session, so
 // we can later commit just that session's work. Returns updated meta, or null.
 async function recordSessionActivity(payload) {
@@ -446,8 +460,9 @@ async function recordSessionActivity(payload) {
   }
   // A phone sees the session as a chat, never as a terminal, so a question the TUI is
   // drawing would be invisible to it. The payload that announces the question is the
-  // one place it can be read from whole (see ask-lib.js) — this is that seam.
-  chat.onHook(payload.session_id, payload);
+  // one place it can be read from whole (see ask-lib.js) — this is that seam. The
+  // family rides along so a permission card carries the right approval keystroke.
+  chat.onHook(payload.session_id, payload, modelFamily(s.model));
   // Only a MAIN-THREAD prompt (no agent_id — Claude Code sets it only inside a
   // subagent's own context) may reset the tracker or name the session: a
   // subagent's UserPromptSubmit arrives while main-thread fs tools are still in
@@ -503,7 +518,24 @@ async function recordSessionActivity(payload) {
   // Instead we ref-count the fs tools in flight (`fsInFlight`): snapshot when the
   // count goes 0â†’1, diff once it returns to 0, against that one consistent
   // baseline — so every concurrent tool's changes are captured exactly once.
-  if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
+  if (modelFamily(s.model) === 'codex') {
+    // Codex runs tools serially but skips PostToolUse when a tool errors, so the
+    // balanced ref-count below would jam and drop the turn's changes — use the
+    // orphan-tolerant serial plan instead (see fs-track.serialFsPlan).
+    const plan = serialFsPlan(payload, !!s.preStatus);
+    if (plan) {
+      // Claim the baseline BEFORE the await: hook payloads are handled
+      // concurrently, and a PostToolUse + Stop pair (or a UserPromptSubmit
+      // reset) interleaving across statusMap() could otherwise both plan a
+      // 'diff' against the same baseline — the second finding it nulled and
+      // crashing in applyFsDiff.
+      const base = s.preStatus;
+      s.preStatus = null;
+      const now = await statusMap();
+      if (plan !== 'snapshot' && base && applyFsDiff(s, base, now)) changed = true;
+      if (plan !== 'diff') s.preStatus = now;
+    }
+  } else if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
     // Decide "am I the first fs tool of this burst" and bump the count SYNCHRONOUSLY,
     // before the await — otherwise two parallel Pre hooks both read 0, both snapshot,
     // and the count settles at 1, so a Post drops to 0 one tool early and diffs while
@@ -557,17 +589,38 @@ function appendScrollback(s, data) {
 // `claude --resume <id>` (continuing the existing conversation under the same id,
 // so hooks keep firing with the same session_id) instead of creating a new one.
 async function spawnPty(id, cols, rows, resume) {
-  const startArg = resume ? ['--resume', id] : ['--session-id', id];
   // Spawn in the session's own project folder, not whatever folder is currently
   // open — a session always belongs to the repo it was created in.
   const s = sessions.get(id);
-  // The session's reasoning effort is a *launch flag*, not an env var like the model —
-  // so it's re-applied here on every spawn, and a session resumed after a restart keeps
-  // the effort it was last set to (see agent-effort.js). `auto` passes no flag at all.
-  // An Ollama model routes the CLI through the local proxy; a Claude model adds
-  // nothing. Computed before the spawn because it may start the engine (async).
+  const family = modelFamily(s && s.model);
+  let exe;
+  let args;
+  if (family === 'codex') {
+    // A Codex session runs the `codex` binary with its own flag shape: it can't
+    // be handed our session id (`?ide=` on the hook URL maps its self-generated
+    // one back to ours), takes the model as a flag rather than env, and gets its
+    // hooks as `-c` config overrides (see agent-providers.js). Resume uses the
+    // agent id the hooks reported; without one there is no conversation to
+    // resume, so it starts fresh under the same IDE id.
+    exe = await resolveCodex();
+    args = codexSpawnArgs({
+      resume, agentSessionId: s && s.agentSessionId, model: s && s.model,
+      effort: s && s.effort, port: hookServer.getHookPort(), ideId: id,
+      platform: process.platform,
+    });
+  } else {
+    // The session's reasoning effort is a *launch flag*, not an env var like the model —
+    // so it's re-applied here on every spawn, and a session resumed after a restart keeps
+    // the effort it was last set to (see agent-effort.js). `auto` passes no flag at all.
+    const startArg = resume ? ['--resume', id] : ['--session-id', id];
+    exe = await resolveClaude();
+    args = [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings()];
+  }
+  // An Ollama model routes the CLI through the local proxy; a Claude (or Codex)
+  // model adds nothing. Computed before the spawn because it may start the
+  // engine (async).
   const route = await ollamaRoute(s);
-  const p = pty.spawn(await resolveClaude(), [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings()], {
+  const p = pty.spawn(exe, args, {
     name: 'xterm-color',
     cols: cols || 80,
     rows: rows || 24,
@@ -575,8 +628,10 @@ async function spawnPty(id, cols, rows, resume) {
     cwd: (s && s.repo) || getRepoPath() || require('os').homedir(),
     // Re-apply the session's model choice on resume too, so a restored session
     // keeps running the model it was created with. `route` overrides ANTHROPIC_MODEL
-    // (bare name) and adds the base-url/auth for an Ollama session.
-    env: { ...sessionEnv(s), ...route },
+    // (bare name) and adds the base-url/auth for an Ollama session. A Codex spawn
+    // needs neither — its model rides on the argv above — so it gets the plain
+    // cleaned env.
+    env: family === 'codex' ? cleanEnv(process.env) : { ...sessionEnv(s), ...route },
   });
   // A fresh PTY draws its own screen from scratch, so anything retained from a
   // previous run of this session is stale — start the tail empty on every spawn.
@@ -705,6 +760,15 @@ bridge.handle('session-scrollback', guard('reading session output', (_e, id) => 
 // so the renderer needs no OS logic.
 bridge.handle('check-claude', async () => ({ ...await claudeAvailable(), guide: installGuide() }));
 
+// Same probe for the Codex CLI, plus its login state — but this one gates only
+// the optional Codex setup dialog shown when the user picks a codex: model
+// (see src/renderer/codex-setup.js); it never blocks the app.
+bridge.handle('check-codex', async () => {
+  const avail = await codexAvailable();
+  const loggedIn = avail.installed ? await codexLoggedIn() : false;
+  return { ...avail, loggedIn, guide: codexInstallGuide() };
+});
+
 // Remaining Claude subscription usage (5h + weekly rolling windows) for the
 // toolbar meter, read live from the Messages API's unified rate-limit headers.
 // Polled ~once a minute by the renderer; null when unavailable (no OAuth token,
@@ -726,7 +790,7 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
   // `effort` starts unset (the model's own default): it's not picked at creation, only
   // switched on a running session (set-session-effort), and re-applied on every spawn.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: '', agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   broadcastSessions();
@@ -826,33 +890,41 @@ function drivePicker(s, id, moves) {
 // The change is pushed back out because either client can make it (the desktop's badge
 // menu, or the phone's chat sheet) and both draw it: without the push, a switch made on
 // one leaves the other showing the model the session is no longer running.
+// Restart a session's PTY in place (same id, resumed conversation) so a change
+// that only a fresh spawn can apply — a Codex model or effort switch, whose
+// values ride on the argv — takes effect immediately. `respawning` makes the
+// dying PTY's onExit skip teardown (see spawnPty).
+function respawnSession(id, s, context) {
+  const cols = s.pty.cols; const rows = s.pty.rows;
+  s.respawning = true;
+  try { s.pty.kill(); } catch { /* already gone */ }
+  s.pty = null;
+  spawnPty(id, cols, rows, true)
+    .then((p) => { const cur = sessions.get(id); if (cur) cur.pty = p; })
+    .catch((err) => reportSessionError(context, err))
+    .finally(() => { const cur = sessions.get(id); if (cur) cur.respawning = false; });
+}
+
 bridge.on('set-session-model', guardOn('changing session model', (_e, { id, model }) => {
   const s = sessions.get(id);
   if (!s) return;
   const chosen = typeof model === 'string' ? model.trim() : '';
-  if (!chosen) return;
-  const crossesOllamaBoundary = isOllamaId(s.model) !== isOllamaId(chosen);
+  if (!chosen || chosen === s.model) return;
+  // The family lock: a session may only move within its CLI family — Claude to
+  // Claude, Codex to Codex — and a local (ollama:) session keeps its model for
+  // life. The menus hide cross-family rows; this is the backstop for a stale or
+  // remote client (see agent-providers.canSwitchModel).
+  if (!canSwitchModel(s.model, chosen)) return;
   // The row the picker's cursor sits on now: this switch's starting point. An unset
   // record means the session inherited the CLI default (settings.json's `model`).
   const prevModel = s.model || cliSettings().model;
   s.model = chosen;
   persistSession(id);
-  // A live `/model <id>` can't cross the Claude<->Ollama boundary: that switch
-  // needs a different ANTHROPIC_BASE_URL/auth, which only a respawn applies. So
-  // when the family changes, restart the PTY under the new model (resume keeps the
-  // conversation) instead of typing a slash command the CLI can't honour. A
-  // same-family switch keeps the fast in-place `/model` path.
-  if (s.pty && crossesOllamaBoundary) {
-    const cols = s.pty.cols; const rows = s.pty.rows;
-    // `respawning` makes the dying PTY's onExit skip teardown (see spawnPty); a
-    // resume keeps the same conversation under the new routing.
-    s.respawning = true;
-    try { s.pty.kill(); } catch { /* already gone */ }
-    s.pty = null;
-    spawnPty(id, cols, rows, true)
-      .then((p) => { const cur = sessions.get(id); if (cur) cur.pty = p; })
-      .catch((err) => reportSessionError('respawning for model switch', err))
-      .finally(() => { const cur = sessions.get(id); if (cur) cur.respawning = false; });
+  if (s.pty && modelFamily(chosen) === 'codex') {
+    // Codex takes its model as a spawn flag and its TUI picker isn't scriptable —
+    // so a live switch is a respawn: `codex resume <agent id> --model <new>`
+    // continues the same conversation under the new model.
+    respawnSession(id, s, 'respawning for model switch');
   } else if (s.pty) {
     // Prefer the Alt+P picker: a typed /model waits in the composer queue until the
     // current turn ends; the picker is an overlay the TUI applies mid-turn, and its
@@ -876,6 +948,17 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
   const s = sessions.get(id);
   if (!s) return;
   const chosen = typeof effort === 'string' ? effort.trim().toLowerCase() : '';
+  if (modelFamily(s.model) === 'codex') {
+    // Codex has its own ladder (minimal…xhigh, no max) and takes the level as a
+    // spawn-time config override, so — like its model switch above — a live
+    // change is a conversation-preserving respawn.
+    if (!chosen || (chosen !== AUTO && !codexEffortValue(chosen))) return;
+    s.effort = chosen;
+    persistSession(id);
+    if (s.pty) respawnSession(id, s, 'respawning for effort switch');
+    sendToRenderer('session-effort', { id, effort: chosen });
+    return;
+  }
   if (!chosen || (chosen !== AUTO && !cleanEffort(chosen))) return;
   // Where the slider sits now: the record if this session was ever set, else the
   // CLI-wide level every applied effort persists to settings.json. A record of
@@ -900,8 +983,10 @@ bridge.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   s.pty.write(data);
   // Track a `/model <id>` or `/effort <level>` typed straight into the chat (the menus
   // write via set-session-model / set-session-effort, which bypass this handler, so
-  // there's no echo to double-count).
-  const cmd = feedSessionCommand(s.cmdInputBuf || '', data);
+  // there's no echo to double-count). Codex sessions are skipped: their `/model`
+  // opens a TUI picker whose outcome we can't read, so a typed command there would
+  // desync the badge from what the CLI actually switched to.
+  const cmd = modelFamily(s.model) === 'codex' ? { buf: '' } : feedSessionCommand(s.cmdInputBuf || '', data);
   s.cmdInputBuf = cmd.buf;
   if (cmd.model && cmd.model !== s.model) {
     s.model = cmd.model;
@@ -1030,4 +1115,4 @@ function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, guard };
+module.exports = { sessions, recordSessionActivity, noteAgentSessionId, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, guard };

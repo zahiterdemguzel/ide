@@ -40,6 +40,11 @@ function serializeSession(id, s) {
     model: s.model || '',              // per-session agent model choice (ANTHROPIC_MODEL)
     subagentModel: s.subagentModel || '', // and the subagent model (CLAUDE_CODE_SUBAGENT_MODEL)
     effort: s.effort || '',            // reasoning effort, re-applied as `--effort` on the next spawn
+    // A Codex session's OWN session UUID (Codex invents it; the first hook payload
+    // reports it — see hook-events.normalizeHookPayload). It's the handle `codex
+    // resume` needs, so losing it across a restart would strand the conversation.
+    // Empty for Claude sessions, whose agent id IS the IDE id.
+    agentSessionId: s.agentSessionId || '',
     // Where Claude Code keeps this session's conversation. Only a hook payload ever
     // names it, and none fires for an archived session — so without this, restoring
     // the app would leave its chat unreadable until it was resumed.
@@ -71,6 +76,7 @@ function deserializeSession(obj) {
     model: obj.model || '',
     subagentModel: obj.subagentModel || '',
     effort: obj.effort || '',
+    agentSessionId: obj.agentSessionId || '',
     transcript: obj.transcript || '',
     // A snapshot predating these fields has no timestamps; 0 means "unknown", which
     // a row renders as no time rather than as 1970.

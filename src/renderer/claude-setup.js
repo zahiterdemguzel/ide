@@ -1,17 +1,23 @@
-// Claude Code availability gate — a simple, three-step setup wizard.
+// CLI availability gates — a simple, three-step setup wizard shared by the two
+// agent CLIs this IDE can drive.
 //
-// This IDE is a front-end for the `claude` CLI; without it no session can spawn.
-// On EVERY startup (nothing is persisted to skip it) we ask main whether `claude`
-// is installed (check-claude). If it isn't, we open the wizard:
+// Claude Code is the hard gate: without it no session can spawn. On EVERY
+// startup (nothing is persisted to skip it) we ask main whether `claude` is
+// installed (check-claude). If it isn't, we open the wizard:
 //   1. Intro    — "you don't have Claude Code; click Next to install it".
 //   2. Install  — an embedded terminal runs the install command automatically;
 //                 Next stays disabled until the install reports completion.
 //   3. Sign in  — the install terminal is torn down and a fresh one launches
-//                 `claude` (already entered) so the auth flow runs inline; the user
+//                 the CLI (already entered) so the auth flow runs inline; the user
 //                 finishes auth there and clicks Finish.
-// Finish verifies with a real `claude` probe before closing. newSession() also routes
+// Finish verifies with a real probe before closing. newSession() also routes
 // through ensureClaude(), so any attempt to open a session re-runs the check and
 // re-shows the wizard until Claude Code is present.
+//
+// Codex is the OPTIONAL gate: the same wizard (same DOM, codex wording) opens
+// only when the user picks a `codex:` model while the `codex` CLI is missing or
+// signed out — and closing it is a first-class "not now" answer: the caller
+// keeps the previous model and nothing else is blocked (see ensureCodex).
 // See .claude/memory/architecture.md "Claude Code setup gate".
 import { t } from '../i18n/index.js';
 import {
@@ -19,9 +25,19 @@ import {
 } from './shared/terminal.js';
 import { registerTerminalLinks } from './terminal-links.js';
 
-let claudeReady = false;   // unknown until the first check; gates newSession
+// Everything provider-specific the wizard needs. `check` returns
+// { installed, loggedIn?, guide }; a provider without a `loggedIn` field (claude
+// — its CLI runs the auth flow on first launch anyway) is ready once installed.
+// The i18n prefix picks the wording; both providers share every other string.
+const PROVIDERS = {
+  claude: { check: () => window.api.checkClaude(), i18n: 'setup', needsLogin: false },
+  codex: { check: () => window.api.checkCodex(), i18n: 'setup.codex', needsLogin: true },
+};
+
+let active = 'claude';     // which provider the open wizard is setting up
+const ready = { claude: false, codex: false }; // last probe result per provider
 const readyListeners = []; // fired once, when Claude Code first becomes available
-let guide = null;          // { platform, installArgs, authArgs, installOk, installFail, docsUrl, run }
+const guides = {};         // per-provider { platform, installArgs, authArgs, ... }
 let step = 0;              // 0 intro, 1 installing, 2 sign in
 let installDone = false;   // install command finished (its marker was seen)
 let watchInstall = false;  // are we watching the terminal output for that marker?
@@ -34,8 +50,11 @@ let termId = null;
 let termRenderer = null;
 
 const dialog = document.getElementById('claude-setup-dialog');
+const titleEl = dialog.querySelector('.settings-head h3');
 const stepsEl = document.getElementById('setup-steps');
 const panes = [...dialog.querySelectorAll('.setup-pane')];
+const introEl = dialog.querySelector('.setup-intro');
+const installingEl = dialog.querySelector('[data-pane="1"] .setup-note');
 const osEl = document.getElementById('claude-setup-os');
 const docsLink = document.getElementById('setup-docs');
 const restartNote = document.getElementById('setup-restart-note');
@@ -49,15 +68,26 @@ const termHost = document.getElementById('setup-term-host');
 const LAST_STEP = 2;
 const OS_LABEL = { win32: 'Windows', darwin: 'macOS', linux: 'Linux' };
 
-function renderOs() {
-  if (!guide || !osEl) return;
-  osEl.textContent = t('setup.detected').replace('{os}', OS_LABEL[guide.platform] || guide.platform);
+const guide = () => guides[active];
+// Provider-specific string with a shared-key fallback, so only the texts that
+// name the product need a codex variant in the locales.
+const ts = (suffix) => {
+  const key = `${PROVIDERS[active].i18n}.${suffix}`;
+  const out = t(key);
+  return out === key ? t(`setup.${suffix}`) : out;
+};
+
+function renderProviderText() {
+  titleEl.textContent = ts('title');
+  introEl.textContent = ts('intro');
+  installingEl.textContent = ts('installing');
+  if (guide() && osEl) osEl.textContent = t('setup.detected').replace('{os}', OS_LABEL[guide().platform] || guide().platform);
 }
 
 // Open the setup docs in the system browser (never navigate the app window).
 docsLink.onclick = (e) => {
   e.preventDefault();
-  if (guide) window.api.openExternal(guide.docsUrl);
+  if (guide()) window.api.openExternal(guide().docsUrl);
 };
 
 // --- wizard navigation ---------------------------------------------------------
@@ -89,7 +119,7 @@ function goStep(target) {
   const next = Math.max(0, Math.min(LAST_STEP, target));
   if (next === 0) { go(0); return; }
   go(next);
-  startTerminal(next === 1 ? guide.installArgs : guide.authArgs, next === 1);
+  startTerminal(next === 1 ? guide().installArgs : guide().authArgs, next === 1);
 }
 
 backBtn.onclick = () => goStep(step - 1);
@@ -147,15 +177,15 @@ window.api.onTermData(({ id, data }) => {
   term.write(data);
   if (!watchInstall) return;
   outBuf += data;
-  if (outBuf.includes(guide.installOk)) {
+  if (outBuf.includes(guide().installOk)) {
     watchInstall = false;
     installDone = true;
     if (step === 1) {
       nextBtn.disabled = false;
-      statusEl.textContent = t('setup.installed');
+      statusEl.textContent = ts('installed');
       statusEl.className = 'setup-status ok';
     }
-  } else if (outBuf.includes(guide.installFail)) {
+  } else if (outBuf.includes(guide().installFail)) {
     // The install command finished with a non-zero status: keep Next disabled and tell
     // the user to read the terminal and retry (Back, then Next, re-runs the install).
     watchInstall = false;
@@ -173,9 +203,12 @@ window.api.onTermExit(({ id }) => { if (id === termId) termId = null; });
 window.addEventListener('resize', () => { if (!termView.hidden) fitTerminal(); });
 
 // --- check + lifecycle ---------------------------------------------------------
-function openSetup() {
-  renderOs();
-  goStep(0);
+// `startStep` lets a codex that is installed-but-signed-out open straight on the
+// sign-in step instead of walking the user through a redundant install.
+function openSetup(provider = 'claude', startStep = 0) {
+  active = provider;
+  renderProviderText();
+  goStep(startStep);
   if (!dialog.open) dialog.showModal();
 }
 
@@ -183,36 +216,52 @@ function openSetup() {
 // otherwise when the next probe (setup wizard finish, or a newSession re-check)
 // first finds it. Lets onboarding hold off until the user is past the install gate.
 export function onClaudeReady(fn) {
-  if (claudeReady) fn();
+  if (ready.claude) fn();
   else readyListeners.push(fn);
 }
 
-// Ask main whether Claude Code is installed; cache the result + guide.
-async function probe() {
+// Ask main whether the provider's CLI is usable; cache the result + guide.
+// "Usable" includes being signed in for providers that report it (codex) — an
+// installed but signed-out CLI would spawn straight into a login prompt.
+const lastCheck = {}; // per-provider raw check result, for the sign-in shortcut
+async function probe(provider = active) {
+  const p = PROVIDERS[provider];
   let res;
-  try { res = await window.api.checkClaude(); }
+  try { res = await p.check(); }
   catch { return false; }
-  const was = claudeReady;
-  claudeReady = !!res.installed;
-  if (res.guide) guide = res.guide;
-  if (claudeReady && !was) readyListeners.splice(0).forEach((fn) => fn());
-  return claudeReady;
+  lastCheck[provider] = res;
+  const was = ready[provider];
+  ready[provider] = !!res.installed && (!p.needsLogin || !!res.loggedIn);
+  if (res.guide) guides[provider] = res.guide;
+  if (provider === 'claude' && ready.claude && !was) readyListeners.splice(0).forEach((fn) => fn());
+  return ready[provider];
 }
 
 // Runs on every app launch (wired unconditionally in index.js): if Claude Code is
 // missing, open the wizard immediately.
 export async function initClaudeSetup() {
-  await probe();
-  if (!claudeReady) openSetup();
+  await probe('claude');
+  if (!ready.claude) openSetup('claude');
 }
 
 // Gate used by newSession(): re-probe (the user may have just installed it), and
 // if it's still missing show the wizard and report false so the caller bails out.
 export async function ensureClaude() {
-  if (claudeReady) return true;
-  await probe();
-  if (!claudeReady) openSetup();
-  return claudeReady;
+  if (ready.claude) return true;
+  await probe('claude');
+  if (!ready.claude) openSetup('claude');
+  return ready.claude;
+}
+
+// The optional Codex gate, called when a `codex:` model is picked. Unlike
+// ensureClaude this never insists: the wizard's intro asks, and closing it (×
+// or Esc) IS the "not now" — the caller sees `false` once the dialog closes and
+// keeps the previous model. Skips straight to sign-in when only login is missing.
+export async function ensureCodex() {
+  if (await probe('codex')) return true;
+  openSetup('codex', lastCheck.codex && lastCheck.codex.installed ? 2 : 0);
+  await new Promise((resolve) => dialog.addEventListener('close', resolve, { once: true }));
+  return probe('codex');
 }
 
 // Finish verifies with a real probe — the source of truth that the CLI is present —
@@ -225,7 +274,7 @@ finishBtn.onclick = async () => {
   const ok = await probe();
   finishBtn.disabled = false;
   if (ok) {
-    statusEl.textContent = t('setup.found');
+    statusEl.textContent = ts('found');
     statusEl.className = 'setup-status ok';
     setTimeout(() => { if (dialog.open) dialog.close(); }, 700);
   } else {

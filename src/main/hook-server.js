@@ -2,7 +2,7 @@ const http = require('http');
 const { sendToRenderer } = require('./window');
 // Pure event->state mapping, resume-downgrade rule, and settings JSON live in the
 // Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
-const { deriveStatus, shouldApplyState, hooksSettings: buildHooksSettings } = require('./hook-events');
+const { deriveStatus, shouldApplyState, hooksSettings: buildHooksSettings, normalizeHookPayload } = require('./hook-events');
 const { statusLineCommand } = require('./statusline');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
@@ -33,8 +33,17 @@ function startHookServer() {
     req.on('data', (d) => (body += d));
     req.on('end', async () => {
       let payload;
-      try { payload = JSON.parse(body); } catch { res.end('ok'); return; } // ignore malformed
+      // The BOM strip is for Codex on Windows: its hooks run through PowerShell,
+      // whose stdin piping prepends a UTF-8 BOM that JSON.parse rejects.
+      try { payload = JSON.parse(body.replace(/^﻿/, '')); } catch { res.end('{}'); return; } // ignore malformed
       try {
+        // A Codex hook URL carries the IDE's own session id (`?ide=`); rewrite the
+        // payload to speak it, and remember the id Codex invented — it's the handle
+        // `codex resume` needs (see hook-events.normalizeHookPayload).
+        const ideId = new URL(req.url, 'http://localhost').searchParams.get('ide');
+        const normalized = normalizeHookPayload(payload, ideId);
+        payload = normalized.payload;
+        if (normalized.agentSessionId) sessions.noteAgentSessionId(ideId, normalized.agentSessionId);
         let state = null;
         if (payload.session_id) {
           // Subagent-aware gating: a session with background subagents still in
@@ -67,7 +76,11 @@ function startHookServer() {
         // losing the session's edit/commit state (and never crash the hook server).
         sessions.reportSessionError('tracking session activity', err);
       }
-      res.end('ok');
+      // The reply becomes the hook's stdout (curl echoes the response body), and
+      // Codex parses a Stop hook's stdout as JSON — a bare "ok" fails its parse
+      // and surfaces as "hook returned invalid stop hook JSON output" in the TUI.
+      // `{}` (no directives) satisfies both CLIs.
+      res.end('{}');
     });
   });
   server.listen(0, '127.0.0.1', () => { hookPort = server.address().port; });

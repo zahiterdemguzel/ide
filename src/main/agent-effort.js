@@ -11,6 +11,14 @@
 
 const AUTO = 'auto';
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+// The Codex CLI's own ladder (`model_reasoning_effort`): it adds `minimal` and has
+// no `max`. Which ladder applies is the session's model family — see
+// effortLevelsFor; the clients read this to build their per-family menus.
+const CODEX_EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+
+function effortLevelsFor(family) {
+  return family === 'codex' ? CODEX_EFFORT_LEVELS : EFFORT_LEVELS;
+}
 
 // The level to actually apply, or '' for "leave it to the CLI". Unknown values are
 // dropped rather than passed through — the opposite of a model alias (agent-models.js
@@ -29,4 +37,13 @@ function effortArgs(effort) {
   return e ? ['--effort', e] : [];
 }
 
-module.exports = { AUTO, EFFORT_LEVELS, cleanEffort, effortArgs };
+// The Codex counterpart of cleanEffort, against Codex's own ladder. Same
+// drop-unknown rule: an unrecognized `model_reasoning_effort` would fail the
+// spawn outright. '' means "no override" (the model's default). Consumed by
+// agent-providers.codexSpawnArgs as a `-c` config override rather than a flag.
+function codexEffortValue(v) {
+  const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+  return CODEX_EFFORT_LEVELS.includes(s) ? s : '';
+}
+
+module.exports = { AUTO, EFFORT_LEVELS, CODEX_EFFORT_LEVELS, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue };

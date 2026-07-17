@@ -163,8 +163,8 @@ function forget(id) {
 // something — and, just as importantly, that it has stopped: a prompt answered at the
 // desktop's own terminal produces no other signal, and a card left behind on the phone
 // would be a question nobody is waiting for an answer to.
-function onHook(id, payload) {
-  const ask = fromHook(payload);
+function onHook(id, payload, family) {
+  const ask = fromHook(payload, family);
   if (ask) setAsk(id, ask);
   else if (clearsAsk(payload)) setAsk(id, null);
 }

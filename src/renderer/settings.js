@@ -43,6 +43,14 @@ export const MODELS = [
   { id: 'sonnet', name: 'Sonnet' },
   { id: 'haiku', name: 'Haiku' },
 ];
+// The OpenAI Codex CLI's models. A `codex:` id spawns the `codex` binary instead
+// of `claude` (see src/main/agent-providers.js), and the session is locked to
+// the codex family for life — the model menus only offer same-family switches.
+export const CODEX_MODELS = [
+  { id: 'codex:gpt-5.5', name: 'GPT-5.5 (Codex)' },
+  { id: 'codex:gpt-5.4', name: 'GPT-5.4 (Codex)' },
+  { id: 'codex:gpt-5.4-mini', name: 'GPT-5.4 Mini (Codex)' },
+];
 const DEFAULT_MODEL = 'default';
 
 const STORE = {
@@ -66,6 +74,22 @@ export function setStatusLineEnabled(on) {
 // An `ollama:<name>` model id (an installed custom model). Kept as an inline
 // check so the renderer doesn't reach into the main-process ollama-models-lib.
 const isOllamaId = (v) => typeof v === 'string' && v.startsWith('ollama:');
+const isCodexId = (v) => typeof v === 'string' && v.startsWith('codex:');
+
+// Which CLI family a model id runs on — the renderer mirror of the main
+// process's agent-providers.modelFamily. A session may only switch models
+// within its family (and never off a local model), so every model menu filters
+// its rows through switchableModels().
+export function modelFamily(id) {
+  if (isCodexId(id)) return 'codex';
+  if (isOllamaId(id)) return 'ollama';
+  return 'claude';
+}
+export function switchableModels(currentId) {
+  const family = modelFamily(currentId);
+  if (family === 'ollama') return []; // a local model is fixed for life
+  return getMergedModels().filter((m) => modelFamily(m.id) === family);
+}
 
 // Installed Ollama custom models, cached for the dropdowns/caret menu/badge.
 // Each row is { id: 'ollama:<name>', name, size, req, fit }. Refreshed from main
@@ -78,13 +102,14 @@ export async function refreshOllamaModels() {
   catch { ollamaModels = []; }
   return ollamaModels;
 }
-// The full list the model UIs draw from: static Claude models, then installed
-// Ollama models. Ids are namespaced so they never collide.
-export function getMergedModels() { return [...MODELS, ...ollamaModels]; }
-// Human label for any model id (Claude alias or `ollama:<name>`).
+// The full list the model UIs draw from: static Claude models, Codex models,
+// then installed Ollama models. Ids are namespaced so they never collide.
+export function getMergedModels() { return [...MODELS, ...CODEX_MODELS, ...ollamaModels]; }
+// Human label for any model id (Claude alias, `codex:<model>` or `ollama:<name>`).
 export function modelLabel(id) {
-  const claude = MODELS.find((m) => m.id === id);
-  if (claude) return claude.name;
+  const known = MODELS.find((m) => m.id === id) || CODEX_MODELS.find((m) => m.id === id);
+  if (known) return known.name;
+  if (isCodexId(id)) return id.slice('codex:'.length);
   if (isOllamaId(id)) return id.slice('ollama:'.length);
   return id;
 }
@@ -97,7 +122,7 @@ export function modelLabel(id) {
 // user re-picks — the menu self-heals when it re-renders from the live list.
 function readModel(key) {
   const v = localStorage.getItem(key);
-  return (MODELS.some((m) => m.id === v) || isOllamaId(v)) ? v : DEFAULT_MODEL;
+  return (MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || isOllamaId(v)) ? v : DEFAULT_MODEL;
 }
 export function getSessionModel() { return readModel(STORE.model); }
 export function getSubagentModel() { return readModel(STORE.subagentModel); }
@@ -105,7 +130,7 @@ export function getSubagentModel() { return readModel(STORE.subagentModel); }
 // Remember the last model chosen from the per-session picker so it sticks as the
 // default for the next session. Unknown ids fall back to the inherit default.
 export function setSessionModel(id) {
-  const ok = MODELS.some((m) => m.id === id) || isOllamaId(id);
+  const ok = MODELS.some((m) => m.id === id) || CODEX_MODELS.some((m) => m.id === id) || isOllamaId(id);
   localStorage.setItem(STORE.model, ok ? id : DEFAULT_MODEL);
 }
 
@@ -198,12 +223,14 @@ export function initSettings() {
   modelSel.onchange = () => localStorage.setItem(STORE.model, modelSel.value);
   subagentSel.onchange = () => localStorage.setItem(STORE.subagentModel, subagentSel.value);
 
-  // Fill both default-model dropdowns from the merged Claude + Ollama list. Kept
-  // in one place so an Ollama install/uninstall re-renders both consistently.
+  // Fill both default-model dropdowns from the merged Claude + Codex + Ollama
+  // list. Kept in one place so an Ollama install/uninstall re-renders both
+  // consistently. The subagent dropdown skips codex: models — Codex has no
+  // subagent-model override, so offering one there would be a lie.
   const fillModelSelects = () => {
     const opts = getMergedModels().map((m) => ({ value: m.id, label: modelLabel(m.id) }));
     fillSelect(modelSel, opts, getSessionModel());
-    fillSelect(subagentSel, opts, getSubagentModel());
+    fillSelect(subagentSel, opts.filter((o) => modelFamily(o.value) !== 'codex'), getSubagentModel());
   };
 
   const open = async () => {

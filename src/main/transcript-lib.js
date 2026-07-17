@@ -188,6 +188,80 @@ function contentBlocks(content, cwd) {
 
 const createState = () => ({ msgs: [], tools: new Map(), partial: '' });
 
+// ---- Codex rollout format --------------------------------------------------
+// A Codex session's transcript (`~/.codex/sessions/**/rollout-*.jsonl`, named by
+// the same `transcript_path` hook field as Claude's) uses a different line shape:
+// `{ type: 'response_item' | 'event_msg' | …, payload: {...} }`. applyEntry
+// dispatches here when it sees that shape, so the chat pipeline (chat.js, the
+// phone) is provider-blind.
+
+const CODEX_LINE_TYPES = new Set(['session_meta', 'response_item', 'event_msg', 'turn_context', 'compacted']);
+const isCodexEntry = (e) => Boolean(e && CODEX_LINE_TYPES.has(e.type) && (e.payload === undefined || typeof e.payload === 'object'));
+
+// Codex's shell tools carry the command in a JSON `arguments` string; the argv
+// may be a string or an array.
+function codexToolTitle(name, input) {
+  const cmd = input && input.command;
+  if (cmd) return String(Array.isArray(cmd) ? cmd.join(' ') : cmd).split('\n')[0];
+  return toolTitle(name, input, '');
+}
+
+// `function_call_output.output` opens with "Exit code: N" for shell tools; a
+// missing marker (an MCP tool's payload) is treated as success.
+const codexResultStatus = (output) => (/^Exit code: (?!0\b)\d/.test(String(output || '')) ? 'error' : 'ok');
+
+function pushCodexMessage(state, role, ts, blocks, uuid) {
+  const out = { uuid: uuid || `cx-${state.msgs.length}-${state.tools.size}`, role, ts: ts || '', blocks };
+  state.msgs.push(out);
+  for (const b of blocks) if (b.t === 'tool' && b.id) state.tools.set(b.id, { msg: out, block: b });
+  trim(state);
+  return out;
+}
+
+function applyCodexEntry(state, e) {
+  const p = e.payload || {};
+  // The clean user prompt lives in the user_message event; the response_item
+  // user messages also carry Codex's injected machinery (AGENTS.md, environment
+  // context), so those are skipped below.
+  if (e.type === 'event_msg') {
+    if (p.type === 'user_message' && String(p.message || '').trim()) {
+      return pushCodexMessage(state, 'user', e.timestamp, [{ t: 'text', text: clip(String(p.message).trim(), MAX_TEXT) }]);
+    }
+    return null;
+  }
+  if (e.type !== 'response_item') return null;
+  if (p.type === 'message' && p.role === 'assistant') {
+    const text = (Array.isArray(p.content) ? p.content : [])
+      .filter((b) => b && b.type === 'output_text')
+      .map((b) => String(b.text || '')).join('\n').trim();
+    return text ? pushCodexMessage(state, 'assistant', e.timestamp, [{ t: 'text', text: clip(text, MAX_TEXT) }], p.id) : null;
+  }
+  if (p.type === 'reasoning') {
+    // The chain of thought itself is encrypted; only its summary is readable.
+    const text = (Array.isArray(p.summary) ? p.summary : [])
+      .map((b) => String((b && (b.text || b.summary_text)) || '')).join('\n').trim();
+    return text ? pushCodexMessage(state, 'assistant', e.timestamp, [{ t: 'thinking', text: clip(text, MAX_TEXT) }], p.id) : null;
+  }
+  if (p.type === 'function_call') {
+    let input = {};
+    try { input = JSON.parse(p.arguments || '{}'); } catch { /* opaque args: title falls back to the name */ }
+    const name = String(p.name || 'tool');
+    const tool = {
+      t: 'tool', id: String(p.call_id || p.id || ''), name,
+      title: clip(codexToolTitle(name, input), 200), status: 'running', output: '',
+    };
+    return pushCodexMessage(state, 'assistant', e.timestamp, [tool], p.id);
+  }
+  if (p.type === 'function_call_output') {
+    const target = state.tools.get(String(p.call_id || ''));
+    if (!target) return null;
+    target.block.status = codexResultStatus(p.output);
+    target.block.output = clip(String(p.output || '').trim(), MAX_OUTPUT);
+    return target.msg;
+  }
+  return null;
+}
+
 // Drop the oldest messages once the window is full, un-indexing their tool calls so
 // a late result can't patch a message no client is holding any more.
 function trim(state) {
@@ -201,6 +275,7 @@ function trim(state) {
 // changed, or null for an entry that isn't part of the conversation.
 function applyEntry(state, e) {
   if (!e || typeof e !== 'object') return null;
+  if (isCodexEntry(e)) return applyCodexEntry(state, e);
   // A subagent's own conversation (isSidechain) is a separate thread the TUI doesn't
   // show inline either; the Task tool call that spawned it is already in the chat.
   if (e.isSidechain || e.isMeta) return null;

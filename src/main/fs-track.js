@@ -85,4 +85,20 @@ function editedFilePath(toolInput) {
   return ti.file_path || ti.notebook_path || null;
 }
 
-module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, TEXT_EDIT_TOOLS, READONLY_TOOLS };
+// Snapshot/diff plan for providers that run tools SERIALLY but don't guarantee
+// a PostToolUse for every PreToolUse — Codex skips the Post hook when a tool
+// errors (observed with apply_patch), so the claude-style balanced ref-count
+// (`fsInFlight`) would stick above zero and suppress every later diff, losing
+// the whole turn's file changes. Instead: snapshot before each tracked tool,
+// diff at its Post — and if a Post went missing, the NEXT tracked Pre diffs
+// against the stale baseline first (catching the orphaned tool's changes)
+// before re-snapshotting. Stop flushes a baseline left dangling by the turn's
+// last tool. Returns 'snapshot' | 'diff' | 'diff-and-snapshot' | null.
+function serialFsPlan(payload, hasBaseline) {
+  const ev = payload.hook_event_name;
+  if (ev === 'PreToolUse' && tracksFs(payload)) return hasBaseline ? 'diff-and-snapshot' : 'snapshot';
+  if ((ev === 'PostToolUse' || ev === 'Stop') && hasBaseline) return 'diff';
+  return null;
+}
+
+module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, TEXT_EDIT_TOOLS, READONLY_TOOLS };

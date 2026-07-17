@@ -6,13 +6,13 @@ import { refreshGit } from './git-pane.js';
 import { confirmDialog } from './shared/confirm.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
-import { ensureClaude } from './claude-setup.js';
+import { ensureClaude, ensureCodex } from './claude-setup.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
 import {
   getSessionModel, getSubagentModel, setSessionModel,
-  getMergedModels, getOllamaModels, modelLabel,
+  getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
 } from './settings.js';
 import { t } from '../i18n/index.js';
 
@@ -327,10 +327,13 @@ function modelFitWarning(id) {
 // caret menu: every concrete model (Claude then installed local ones), the current
 // one marked, a "Local" divider before the first custom model, and a fit warning on
 // any custom model that won't fit this machine.
-function buildModelMenuItems(container, current, onPick, itemClass) {
+// `models` narrows the rows (the session-bar badge passes the session's
+// switchable family; the New-session caret lists everything).
+function buildModelMenuItems(container, current, onPick, itemClass, models = getMergedModels()) {
   container.replaceChildren();
   let ollamaHeaderDone = false;
-  for (const m of getMergedModels()) {
+  let codexHeaderDone = false;
+  for (const m of models) {
     if (m.id === 'default') continue; // inherit sentinel isn't a picker choice
     const isOllama = m.id.startsWith('ollama:');
     if (isOllama && !ollamaHeaderDone) {
@@ -338,6 +341,15 @@ function buildModelMenuItems(container, current, onPick, itemClass) {
       const div = document.createElement('div');
       div.className = 'model-menu-divider';
       div.textContent = t('models.localDivider');
+      container.appendChild(div);
+    }
+    // A "Codex" divider before the first codex row — but only when the menu mixes
+    // families; a codex session's own badge menu is codex-only and needs no label.
+    if (m.id.startsWith('codex:') && !codexHeaderDone && models.some((x) => !x.id.startsWith('codex:'))) {
+      codexHeaderDone = true;
+      const div = document.createElement('div');
+      div.className = 'model-menu-divider';
+      div.textContent = t('models.codexDivider');
       container.appendChild(div);
     }
     const item = document.createElement('button');
@@ -374,7 +386,12 @@ function openModelBadgeMenu() {
   const s = sessions.get(activeId);
   if (!s) return;
   const current = modelId(s);
-  buildModelMenuItems(sessionModelMenu, current, (id) => { closeModelBadgeMenu(); chooseModel(id); }, 'effort-menu-item model-item');
+  // The badge menu offers only what this session can actually switch to: its own
+  // family (a local model offers nothing — it's fixed for life). Main enforces
+  // the same rule (set-session-model), so a stale menu can't sneak one through.
+  const rows = switchableModels(s.model);
+  if (!rows.length) return; // nothing to switch to: don't open an empty menu
+  buildModelMenuItems(sessionModelMenu, current, (id) => { closeModelBadgeMenu(); chooseModel(id); }, 'effort-menu-item model-item', rows);
   sessionModelMenu.hidden = false;
   sessionModelBtn.setAttribute('aria-expanded', 'true');
   requestAnimationFrame(() => sessionModelMenu.classList.add('open'));
@@ -672,6 +689,10 @@ export async function newSession(opts = {}) {
   // install it first (the gate re-checks and shows the setup dialog if needed).
   if (!(await ensureClaude())) return;
   const model = opts.model || getSessionModel();
+  // A codex: model needs the Codex CLI too — its gate is optional: closing the
+  // wizard means "not now", and the session simply isn't created (the user picks
+  // another model instead).
+  if (modelFamily(model) === 'codex' && !(await ensureCodex())) return;
   const subagentModel = opts.subagentModel || getSubagentModel();
   // probe a size from a temporary fit after open
   const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel });

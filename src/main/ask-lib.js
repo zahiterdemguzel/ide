@@ -62,7 +62,11 @@ function questionAsk(input) {
 // A permission prompt. The hook names the tool but not the box's rows, so we offer only
 // the two answers whose keystroke is knowable: yes, and no. An "allow all edits this
 // session" shortcut is deliberately not reachable from a phone.
-function permissionAsk(payload) {
+// `family` picks the yes keystroke: Claude's box numbers its rows (yes is always
+// "1"); Codex's approval overlay binds `y` to "Yes, proceed" (verified against
+// codex-rs keymap defaults). Both decline with Esc — the one binding Codex's own
+// overlay contract promises to keep.
+function permissionAsk(payload, family) {
   const tool = String(payload.tool_name || 'a tool');
   const what = toolTitle(tool, payload.tool_input || {}, payload.cwd || '');
   return {
@@ -72,7 +76,7 @@ function permissionAsk(payload) {
       question: what ? `Allow ${tool} — ${what}?` : `Allow ${tool}?`,
       multiSelect: false,
       options: [
-        { key: '1', label: 'Yes', description: '' },
+        { key: family === 'codex' ? 'y' : '1', label: 'Yes', description: '' },
         { key: ESC, label: 'No', description: '' },
       ],
       customKey: '',
@@ -82,14 +86,14 @@ function permissionAsk(payload) {
 }
 
 // The ask a hook payload announces, or null if it announces none.
-function fromHook(payload) {
+function fromHook(payload, family) {
   if (!payload || payload.agent_id) return null; // a subagent's prompts are not the session's
   const ev = payload.hook_event_name;
   const tool = payload.tool_name;
   if (ev === 'PreToolUse' && isAskTool(tool)) return questionAsk(payload.tool_input);
   // Claude Code fires PermissionRequest for AskUserQuestion too. The question itself is
   // the real card — a bare "Allow AskUserQuestion?" must never replace it.
-  if (ev === 'PermissionRequest' && !isAskTool(tool)) return permissionAsk(payload);
+  if (ev === 'PermissionRequest' && !isAskTool(tool)) return permissionAsk(payload, family);
   return null;
 }
 

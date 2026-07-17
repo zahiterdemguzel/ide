@@ -60,8 +60,12 @@ The dot state is saved with the session snapshot so it survives closing the app.
 
 Resuming a saved session fires a `SessionStart` (→ `idle`), which would otherwise reset a reopened session's dot to gray the instant the user clicks it. So the hook server **suppresses an `idle` that would downgrade an already-meaningful state**: it checks `sessions.getSessionState()` and only applies `idle` when the session has no prior state (a brand-new session is already idle, so it's unaffected). A reopened `completed`/`pushed`/`interrupted` session therefore keeps its colour until real new work (`working`/`needs-input`/…) moves it.
 
+## Codex sessions
+
+Codex CLI sessions (`codex:` models — see [codex.md](codex.md)) feed the **same pipeline**: their hooks are injected as `-c hooks.<Event>=…` spawn overrides posting to the same server, and their payloads are Claude-shaped. Two deltas live in `hook-events.js`: `deriveStatus` counts Codex's own **`SubagentStart`** event as a spawn signal (handled before the `agent_id` early-return so it balances its `SubagentStop` from either context), and **`normalizeHookPayload`** rewrites the Codex-invented `session_id` back to the IDE's id using the `?ide=` query param on the hook URL (recording the original as the session's `agentSessionId`, which `codex resume` needs). `hook-server.js` also strips a leading UTF-8 BOM before `JSON.parse` — Codex-on-Windows runs hook commands through PowerShell, whose stdin piping prepends one. The `PostToolUse` git-push sniff accepts an argv-array `command` too.
+
 ## Load-bearing assumptions
 
 - **Hook event names** (`events[]` in `main.js`). If status dots never change, a CLI-version event-name mismatch is the first suspect. Unknown names are harmless — they simply never fire.
-- **`curl` on PATH** to deliver hook payloads (ships with Windows 11).
-- **`session_id` correlation**: the spawned `--session-id` must equal the `session_id` field in hook payloads.
+- **`curl` on PATH** to deliver hook payloads (ships with Windows 11). Codex hook commands must say `curl.exe` and quote `'@-'` (PowerShell).
+- **`session_id` correlation**: the spawned `--session-id` must equal the `session_id` field in hook payloads (Claude); for Codex the `?ide=` rewrite provides the same guarantee.

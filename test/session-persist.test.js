@@ -26,6 +26,9 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
     model: 'opus',
     subagentModel: 'haiku',
     effort: 'high',
+    // The session id the agent CLI itself uses — set only for Codex sessions,
+    // whose CLI invents its own id (it's what `codex resume` needs).
+    agentSessionId: '',
     // Where Claude keeps this session's conversation — the phone renders it as a chat,
     // and no hook fires for an archived session to name the file again.
     transcript: '/home/u/.claude/projects/app/id-1.jsonl',
