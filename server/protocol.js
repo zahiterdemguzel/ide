@@ -79,6 +79,9 @@ const REMOTE_CHANNELS = {
     'search-names',
     'search-refs',
     'read-text',
+    // binary bytes as base64 — the phone's file browser uses this to pull an .apk
+    // over to the device before handing it to Android's package installer.
+    'read-asset',
     'write-text',
     'create-file',
     'create-folder',

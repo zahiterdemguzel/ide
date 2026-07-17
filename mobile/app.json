@@ -23,7 +23,8 @@
     "android": {
       "package": "com.ideremote.app",
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "REQUEST_INSTALL_PACKAGES"
       ],
       "usesCleartextTraffic": true
     },

@@ -23,6 +23,7 @@ const ASSET_MIME = {
   obj: 'text/plain', usdz: 'model/vnd.usdz+zip', stl: 'model/stl', ply: 'application/octet-stream',
   ai: 'application/illustrator',
   pdf: 'application/pdf',
+  apk: 'application/vnd.android.package-archive',
 };
 
 // List one directory level for the file explorer (lazy: children fetched on
