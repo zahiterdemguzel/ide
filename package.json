@@ -33,7 +33,8 @@
     },
     "asarUnpack": [
       "node_modules/node-llama-cpp/**",
-      "node_modules/@node-llama-cpp/**"
+      "node_modules/@node-llama-cpp/**",
+      "node_modules/@nut-tree-fork/**"
     ],
     "win": {
       "target": "nsis",

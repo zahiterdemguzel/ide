@@ -1,6 +1,6 @@
 // IDE Remote — companion app. Pairs with the desktop IDE by scanning the QR
 // code in its Settings dialog, then drives it over the ws protocol (projects,
-// Claude sessions, git, files, forwarded ports).
+// Claude sessions, git, files, the desktop-rendered remote browser).
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavigationContainer, DarkTheme, useIsFocused, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -28,6 +28,8 @@ import ConsoleTerminal from './src/screens/ConsoleTerminal';
 import GitScreen from './src/screens/GitScreen';
 import FilesScreen from './src/screens/FilesScreen';
 import PortsScreen from './src/screens/PortsScreen';
+import BrowserScreen from './src/screens/BrowserScreen';
+import ControlScreen from './src/screens/ControlScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 
 const Stack = createNativeStackNavigator();
@@ -51,8 +53,16 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Sessions: 'chatbubbles-outline',
   Git: 'git-branch-outline',
   Files: 'document-text-outline',
-  Ports: 'globe-outline',
+  Browser: 'globe-outline',
+  Control: 'desktop-outline',
+  Ports: 'swap-horizontal-outline',
 };
+
+// Port forwarding is parked while the remote browser covers mobile testing —
+// the tab stays registered behind this flag so it can come back with one flip
+// (its desktop side is parked the same way: PORT_FORWARDING_ENABLED in
+// src/main/remote.js).
+const SHOW_PORTS_TAB = false;
 
 // Main hub after pairing: iOS/Android-style bottom tab bar.
 //
@@ -120,7 +130,9 @@ function MainTabs() {
         <Tab.Screen name="Sessions" component={SessionsScreen} />
         <Tab.Screen name="Git" component={GitScreen} />
         <Tab.Screen name="Files" component={FilesScreen} />
-        <Tab.Screen name="Ports" component={PortsScreen} />
+        <Tab.Screen name="Browser" component={BrowserScreen} />
+        <Tab.Screen name="Control" component={ControlScreen} />
+        {SHOW_PORTS_TAB && <Tab.Screen name="Ports" component={PortsScreen} />}
       </Tab.Navigator>
       <ProjectDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <RunDrawer visible={runOpen && isFocused} onClose={() => setRunOpen(false)} />

@@ -22,6 +22,15 @@ const {
   normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone,
 } = require('./remote-config-lib');
 const push = require('./push');
+const remoteBrowser = require('./remote-browser');
+const remoteControl = require('./remote-control');
+
+// Port forwarding is parked while the remote browser (remote-browser.js) covers
+// mobile testing: the desktop renders the page and streams it, instead of the
+// phone's own browser reaching through a proxy. Flip to true to re-enable —
+// nothing below is deleted, and the hub already answers 'forwarding-disabled'
+// when no `forward` is injected.
+const PORT_FORWARDING_ENABLED = false;
 
 // Paired devices persist machine-wide (like recent-folders.json): pairing a
 // phone once should survive app restarts and instances. Only token hashes are
@@ -155,11 +164,18 @@ async function enable() {
     invoke: invokeRemote,
     deviceStore,
     appVersion: app.getVersion(),
-    forward,
+    forward: PORT_FORWARDING_ENABLED ? forward : undefined,
     // The toolbar shows a phone icon while at least one paired device holds a
-    // live socket to this window.
-    onClientsChanged: (count) => sendToRenderer('remote-clients-changed', count),
+    // live socket to this window; the remote browser stops rendering when the
+    // last one leaves.
+    onClientsChanged: (count) => {
+      sendToRenderer('remote-clients-changed', count);
+      remoteBrowser.onClientCount(count);
+      remoteControl.onClientCount(count);
+    },
   });
+  remoteBrowser.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
+  remoteControl.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
   // The desktop dials out to the relay because a machine behind NAT can't be
   // dialled in to; every phone in its room rides that one socket. Failing to reach
   // the relay is not fatal — it retries in the background.
@@ -169,7 +185,7 @@ async function enable() {
     room: config.room,
     instance: instanceId,
     hub,
-    tunnel,
+    tunnel: PORT_FORWARDING_ENABLED ? tunnel : undefined,
     log: (msg) => console.log(msg),
   });
   enabled = true;
@@ -192,6 +208,8 @@ async function disable() {
   if (relay) relay.close();
   relay = null;
   hub = null;
+  remoteBrowser.setBroadcast(null);
+  remoteControl.setBroadcast(null);
   sendToRenderer('remote-clients-changed', 0);
   await closeAllForwards();
   return status();

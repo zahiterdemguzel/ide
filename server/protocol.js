@@ -102,6 +102,17 @@ const REMOTE_CHANNELS = {
     // model picker, but cannot install/remove them — the management channels
     // (ollama-ensure/pull/cancel-pull/remove/remove-all) are deliberately absent.
     'ollama-list',
+    // remote browser: an offscreen browser window on the desktop, streamed to the
+    // phone as JPEG frames (see src/main/remote-browser.js). A req, not a send, so
+    // the phone knows the window is up before it starts watching frames.
+    'browser-open',
+    // remote desktop control: the whole screen streamed to the phone as JPEG
+    // frames, phone input injected at OS level (see src/main/remote-control.js).
+    // A req so the phone learns the screen size and whether injection is
+    // available before it starts watching frames. Auth-gated like everything
+    // here — a paired phone already holds terminal access, so this is the same
+    // trust tier, not an escalation.
+    'control-open',
   ]),
   send: new Set([
     // which model runs the session, and how hard it thinks — retargeted live from the
@@ -115,6 +126,16 @@ const REMOTE_CHANNELS = {
     'term-input',
     'term-resize',
     'term-kill',
+    // remote browser control (fire-and-forget): navigation, batched input events,
+    // viewport resize, back/forward/reload/stop, teardown.
+    'browser-navigate',
+    'browser-input',
+    'browser-resize',
+    'browser-nav',
+    'browser-close',
+    // remote desktop control (fire-and-forget): batched OS input events, teardown.
+    'control-input',
+    'control-close',
   ]),
 };
 
@@ -146,6 +167,12 @@ const REMOTE_EVENTS = new Set([
   'tree-changed',
   // the desktop installed/removed a model — phones refresh their picker
   'ollama-models-changed',
+  // remote browser: viewport JPEG frames (watched stream) and page state
+  // (url/title/loading/canGoBack/canGoForward — small, broadcast).
+  'browser-frame',
+  'browser-state',
+  // remote desktop control: whole-screen JPEG frames (watched stream).
+  'screen-frame',
 ]);
 
 // The high-volume per-session streams among REMOTE_EVENTS. A client that has sent a
@@ -153,7 +180,7 @@ const REMOTE_EVENTS = new Set([
 // chat must not have it queue behind every other session's terminal bytes on the one
 // relay socket. A client that never sends `watch` (an older app) gets everything, as
 // before.
-const STREAM_EVENTS = new Set(['pty-data', 'term-data', 'transcript-data']);
+const STREAM_EVENTS = new Set(['pty-data', 'term-data', 'transcript-data', 'browser-frame', 'screen-frame']);
 
 const ERR = {
   BAD_MESSAGE: 'bad-message',
