@@ -2,7 +2,9 @@
 
 Expo app that pairs with the desktop IDE and drives it remotely: switch recent
 projects, talk to Claude sessions in a chat, stage/commit/push in git, browse and
-edit files, and open desktop dev servers in the phone's browser (port forwarding).
+edit files, and browse the web through the **desktop's own browser** — the page
+renders in an offscreen window on the desktop and streams to the phone as frames,
+with taps, scrolls and typing sent back (the Browser tab).
 
 ## Run it
 
@@ -18,7 +20,7 @@ build works from anywhere; an Expo dev run talks to the relay on your machine, s
 for that the phone must be on the same network. The device credential is stored in
 SecureStore; unpair from the project drawer.
 
-The app's destinations are the bottom tabs (Sessions, Git, Files, Ports), so the
+The app's destinations are the bottom tabs (Sessions, Git, Files, Browser), so the
 header title is free to show the active project's name instead of the screen's.
 Project switching is deliberately *not* a tab: the small square icon button at
 header-left opens `src/components/ProjectDrawer.tsx`, a panel that slides in from
@@ -53,7 +55,15 @@ call are allowlisted in `server/protocol.js` (desktop side). The chat fetches
 xterm.js in a WebView (xterm can't run in
 React Native) and streams `term-data`/`term-input` like the desktop renderer.
 
-Port forwarding: the Ports screen sends `fwd-open` with a port number (and an
+Remote browser: the Browser tab asks the desktop to open an offscreen browser
+window (`browser-open`), watches `browser-frame` JPEG frames (a subscribed
+stream, like a terminal's bytes), and sends normalized input back as
+`browser-input` events the desktop injects into the page. The desktop renders;
+the phone is a remote control with a picture.
+
+Port forwarding (currently parked behind `SHOW_PORTS_TAB` in `App.tsx` and
+`PORT_FORWARDING_ENABLED` in the desktop's `src/main/remote.js` — flip both to
+restore): the Ports screen sends `fwd-open` with a port number (and an
 optional path); the desktop starts a reverse proxy for `127.0.0.1:<port>` and
 returns a one-time-auth URL (through the relay) opened in the system browser. What is
 forwarded is the whole site: the token becomes a `Path=/` cookie on first hit,

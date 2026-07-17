@@ -93,6 +93,13 @@ function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {
   function onTunnelFrame(msg) {
     const id = msg.h;
     if (msg.t === 'open') {
+      // No tunnel injected means port forwarding is parked (see remote.js): a
+      // stale /p/ URL in a phone's browser must fail cleanly, not crash us.
+      if (!tunnel) {
+        debugTunnel('open refused', { stream: id, port: msg.port, reason: 'forwarding-disabled' });
+        send(F.tunnelClose(id, 'forwarding-disabled'));
+        return;
+      }
       const s = { socket: null, queue: [], queuedBytes: 0, ended: false };
       streams.set(id, s);
       debugTunnel('open', { stream: id, port: msg.port, streams: streams.size });

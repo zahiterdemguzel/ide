@@ -76,10 +76,25 @@ test('watch frames parse only with a full {ch, id, on} shape', () => {
   assert.equal(proto.parseMessage(JSON.stringify({ t: 'watch', id: 's1', on: true })), null); // missing ch
 });
 
+test('remote browser channels are allowlisted', () => {
+  assert.equal(proto.canCall('req', 'browser-open'), true);
+  assert.equal(proto.canCall('send', 'browser-navigate'), true);
+  assert.equal(proto.canCall('send', 'browser-input'), true);
+  assert.equal(proto.canCall('send', 'browser-resize'), true);
+  assert.equal(proto.canCall('send', 'browser-nav'), true);
+  assert.equal(proto.canCall('send', 'browser-close'), true);
+  // Frames are a watched stream; state is a small broadcast.
+  assert.equal(proto.isRemoteEvent('browser-frame'), true);
+  assert.equal(proto.isStreamEvent('browser-frame'), true);
+  assert.equal(proto.isRemoteEvent('browser-state'), true);
+  assert.equal(proto.isStreamEvent('browser-state'), false);
+});
+
 test('stream events are the high-volume per-session pushes', () => {
   assert.equal(proto.isStreamEvent('pty-data'), true);
   assert.equal(proto.isStreamEvent('term-data'), true);
   assert.equal(proto.isStreamEvent('transcript-data'), true);
+  assert.equal(proto.isStreamEvent('browser-frame'), true);
   // Everything else stays broadcast: small, and every screen wants it.
   assert.equal(proto.isStreamEvent('status'), false);
   assert.equal(proto.isStreamEvent('sessions-changed'), false);

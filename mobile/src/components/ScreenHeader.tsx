@@ -37,7 +37,7 @@ export const ChromeContext = createContext<Chrome>({
 
 export default function ScreenHeader(
   { title, subtitle, children }:
-  { title: string; subtitle?: string; children?: React.ReactNode },
+  { title?: string; subtitle?: string; children?: React.ReactNode },
 ) {
   const { project, openProjects, openRun } = useContext(ChromeContext);
   const navigation = useNavigation<any>();
@@ -139,10 +139,13 @@ export default function ScreenHeader(
         </View>
       </View>
 
-        {/* Every tab is titled — the frame is a heading, not a toolbar, and one screen
-            without it reads as the one that lost its title. `subtitle` is the only
-            optional part (Ports alone needs a line of explanation). */}
-        <Text style={[styles.title, subtitle ? styles.titleTight : null]} numberOfLines={1}>{title}</Text>
+        {/* Most tabs are titled; Browser passes none — every vertical pixel there
+            belongs to the streamed page, and its URL bar already says where you are. */}
+        {title ? (
+          <Text style={[styles.title, subtitle ? styles.titleTight : null]} numberOfLines={1}>{title}</Text>
+        ) : (
+          <View style={styles.untitledGap} />
+        )}
         {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
         {children}
       </View>
@@ -186,6 +189,9 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: color.surfaceDeep,
   },
   title: { ...type.largeTitle, paddingTop: 10, paddingBottom: 12 },
+  // No title: keep a sliver of air under the chrome row so it doesn't sit flush
+  // on whatever the screen puts next.
+  untitledGap: { height: 8 },
   // A subtitle takes over the gap under the title, so the two read as one block.
   titleTight: { paddingBottom: 4 },
   subtitle: { color: color.muted, fontSize: 13, lineHeight: 19, paddingBottom: 14 },

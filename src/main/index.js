@@ -54,11 +54,28 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess');
 app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
 
-// Offload web-content rasterization to the GPU and skip the CPU copy of tiles
-// into the GPU (zero-copy), so panel scrolling and the terminal canvas composite
-// smoothly. Deliberately moderate: we do NOT pass ignore-gpu-blocklist, so a
-// machine whose GPU/driver Chromium has blocklisted still falls back to software
-// rather than risking the instability that forcing past the blocklist can cause.
+// The remote browser (src/main/remote-browser.js) renders an offscreen
+// BrowserWindow and reads each frame off the CPU via image.toJPEG() in the
+// `paint` event — Electron's "software output device" OSR mode. That mode
+// requires hardware acceleration to be OFF: with it on, creating the offscreen
+// window crashes the GPU process on Windows (crashpad "not connected", taking
+// the whole app down). This is the documented requirement for CPU-side OSR
+// frames, so it MUST come before app is ready and it supersedes the GPU
+// rasterization tuning below (those switches are inert without HW accel).
+app.disableHardwareAcceleration();
+// Distinctive startup marker so a running app can be confirmed to include this
+// fix (the "GPU stall / GL Driver Message" renderer logs persist under software
+// WebGL and are NOT a reliable signal). If this line is absent from the log, the
+// process is stale/prebuilt and the offscreen browser will still crash.
+console.log('[gpu] hardware acceleration disabled for offscreen remote-browser OSR');
+
+// Would offload web-content rasterization to the GPU and skip the CPU copy of
+// tiles (zero-copy) for smoother panel scrolling / terminal compositing — but
+// these are no-ops now that hardware acceleration is disabled for the remote
+// browser's software OSR (above). Kept as intent markers: if OSR ever moves to
+// the GPU shared-texture path (webPreferences.offscreen.useSharedTexture), drop
+// disableHardwareAcceleration and these become live again. Deliberately moderate
+// either way: we do NOT pass ignore-gpu-blocklist.
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 
