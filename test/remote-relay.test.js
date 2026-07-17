@@ -159,6 +159,42 @@ test('a phone that names no window gets the newest one', async () => {
   } finally { await relay.close(); }
 });
 
+// A phone that reconnects while the machine's app is closed dials an empty room and
+// can name no window (DEFAULT_INSTANCE fallback). A restarted desktop mints a fresh
+// instance id, so without adoption that waiter would match nothing and hang forever.
+test('a phone waiting in an empty room is adopted by the first desktop to arrive', async () => {
+  const relay = await startRelay({ port: 0, host: '127.0.0.1' });
+  try {
+    const base = `ws://127.0.0.1:${relay.port}/?room=lonewait`;
+    const mobile = await open(`${base}&role=mobile`); // empty room: falls back to DEFAULT_INSTANCE
+    const desktop = await open(`${base}&role=desktop&instance=fresh-uuid`);
+
+    const joined = await desktop.next();
+    assert.equal(joined.joined, true);
+
+    desktop.send({ c: joined.c, d: { t: 'hello' } });
+    assert.deepEqual(await mobile.next(), { t: 'hello' });
+  } finally { await relay.close(); }
+});
+
+// But a phone that *named* a window keeps waiting for that exact one — a sibling
+// arriving must not steal it.
+test('a phone waiting on a named window is not adopted by a different one', async () => {
+  const relay = await startRelay({ port: 0, host: '127.0.0.1' });
+  try {
+    const base = `ws://127.0.0.1:${relay.port}/?room=namedwait`;
+    const mobile = await open(`${base}&role=mobile&instance=win-a`);
+    const other = await open(`${base}&role=desktop&instance=win-b`);
+    const wanted = await open(`${base}&role=desktop&instance=win-a`);
+
+    const joined = await wanted.next();
+    assert.equal(joined.joined, true);
+    wanted.send({ c: joined.c, d: { t: 'hello' } });
+    assert.deepEqual(await mobile.next(), { t: 'hello' });
+    other.ws.close();
+  } finally { await relay.close(); }
+});
+
 // Closing one window must not knock the phones off its siblings — the room outlives
 // any one of them.
 test('mobile sockets are closed when their own desktop leaves, and only theirs', async () => {

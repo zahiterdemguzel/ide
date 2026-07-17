@@ -141,6 +141,16 @@ function startRelay({ port, host = '0.0.0.0', maxRooms = MAX_ROOMS, maxClientsPe
       // also what lets a phone name a window that has not dialled in yet — it waits,
       // and is announced the moment that window arrives.
       for (const [id, c] of r.clients) {
+        // A phone that dialled into an *empty* room could name no window and fell
+        // back to DEFAULT_INSTANCE (the machine's app was closed; it reconnected and
+        // is waiting for it to come back). A restarted desktop mints a fresh instance
+        // id, so that fallback binding matches nothing — adopt the waiter onto the
+        // first real window that shows up, or it waits forever. A phone that *named*
+        // a window keeps waiting for that exact one.
+        if (c.instance === DEFAULT_INSTANCE && instance !== DEFAULT_INSTANCE && !r.desktops.has(DEFAULT_INSTANCE)) {
+          debug('adopt waiting client', { room: roomId, instance, client: id });
+          c.instance = instance;
+        }
         if (c.instance === instance) {
           debug('re-announce client', { room: roomId, instance, client: id });
           toDesktop(r, instance, F.clientJoined(id));

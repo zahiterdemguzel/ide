@@ -86,6 +86,24 @@ function rewriteSetCookie(value) {
     .join(';');
 }
 
+// Dev servers guard mutating requests with a CSRF/DNS-rebinding check: the
+// request's Origin (or Referer) must match their own Host. We hand them
+// Host: 127.0.0.1:<target>, so an Origin naming the address the browser really
+// used — the relay or the LAN proxy — fails that check and a login POST is
+// refused while every GET works. Rewrite the two to the upstream's own origin,
+// but only when they name the proxy's public host: a genuinely cross-origin
+// Origin (an OAuth provider posting back) is not ours to disguise.
+function rewriteRequestOrigin(value, publicHost, targetPort) {
+  try {
+    const u = new URL(String(value));
+    if (!publicHost || u.host.toLowerCase() !== String(publicHost).toLowerCase()) return value;
+    const rest = u.pathname === '/' && !u.search ? '' : u.pathname + u.search;
+    return `http://127.0.0.1:${targetPort}${rest}`;
+  } catch {
+    return value; // 'null', or not a URL — leave it alone
+  }
+}
+
 function rewriteResponseHeaders(headers, targetPort) {
   const out = {};
   for (const [k, v] of Object.entries(headers || {})) {
@@ -130,6 +148,7 @@ module.exports = {
   parseCookies,
   rewriteLocation,
   rewriteSetCookie,
+  rewriteRequestOrigin,
   rewriteResponseHeaders,
   normalizeForwardPath,
   COOKIE,

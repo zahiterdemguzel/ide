@@ -5,7 +5,7 @@ const WebSocket = require('ws');
 const { WebSocketServer } = require('ws');
 const { startPortForward } = require('../server/http-proxy');
 const {
-  createAuthState, rewriteLocation, rewriteSetCookie, normalizeForwardPath, COOKIE,
+  createAuthState, rewriteLocation, rewriteSetCookie, rewriteRequestOrigin, normalizeForwardPath, COOKIE,
 } = require('../server/http-proxy-lib');
 
 function get(url, headers = {}) {
@@ -38,7 +38,10 @@ test('auth-lib decisions: token → redirect+cookie, cookie → proxy, nothing �
 
 test('proxy gates requests and pipes to the target', async () => {
   const target = http.createServer((req, res) => {
-    res.writeHead(200, { 'x-echo-host': req.headers.host });
+    res.writeHead(200, {
+      'x-echo-host': req.headers.host,
+      'x-echo-origin': req.headers.origin || '',
+    });
     res.end(`hello from ${req.url}`);
   });
   await new Promise((r) => target.listen(0, '127.0.0.1', r));
@@ -61,6 +64,14 @@ test('proxy gates requests and pipes to the target', async () => {
     assert.equal(ok.body, 'hello from /page?a=b');
     assert.equal(ok.headers['x-echo-host'], `127.0.0.1:${targetPort}`); // host rewritten
 
+    // A browser's same-origin Origin (as on a login POST) is rewritten to match
+    // the Host we hand the dev server, so its CSRF check passes; a cross-origin
+    // one passes through untouched.
+    const sameOrigin = await get(`${base}/page`, { cookie, origin: `http://127.0.0.1:${proxy.port}` });
+    assert.equal(sameOrigin.headers['x-echo-origin'], `http://127.0.0.1:${targetPort}`);
+    const crossOrigin = await get(`${base}/page`, { cookie, origin: 'https://accounts.google.com' });
+    assert.equal(crossOrigin.headers['x-echo-origin'], 'https://accounts.google.com');
+
     // dead target → 502, not a crash
     await new Promise((r) => target.close(r));
     assert.equal((await get(`${base}/`, { cookie })).status, 502);
@@ -82,6 +93,20 @@ test('a login cookie the phone could not keep is made keepable', () => {
   assert.equal(rewriteSetCookie('sid=abc; Path=/'), 'sid=abc; Path=/');
   // SameSite=None is rejected by browsers without Secure, so the pair survives.
   assert.equal(rewriteSetCookie('sid=abc; SameSite=None; Secure'), 'sid=abc; SameSite=None; Secure');
+});
+
+test('a login POST\'s Origin/Referer are made to match the Host we hand the dev server', () => {
+  // Same-origin request through the proxy: rewritten to the upstream's own origin.
+  assert.equal(rewriteRequestOrigin('http://localhost:8080', 'localhost:8080', 3000), 'http://127.0.0.1:3000');
+  assert.equal(rewriteRequestOrigin('https://relay.example.com', 'relay.example.com', 3000), 'http://127.0.0.1:3000');
+  assert.equal(
+    rewriteRequestOrigin('http://localhost:8080/login?next=/x', 'localhost:8080', 3000),
+    'http://127.0.0.1:3000/login?next=/x', // Referer keeps its path
+  );
+  // Genuinely cross-origin (OAuth post-back), opaque, or garbage: not ours to disguise.
+  assert.equal(rewriteRequestOrigin('https://accounts.google.com', 'localhost:8080', 3000), 'https://accounts.google.com');
+  assert.equal(rewriteRequestOrigin('null', 'localhost:8080', 3000), 'null');
+  assert.equal(rewriteRequestOrigin('http://localhost:8080', undefined, 3000), 'http://localhost:8080');
 });
 
 test('a forward path is kept a path on this site', () => {

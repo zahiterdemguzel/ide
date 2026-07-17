@@ -10,7 +10,9 @@
 
 const http = require('http');
 const net = require('net');
-const { createAuthState, rewriteResponseHeaders, HOP } = require('./http-proxy-lib');
+const {
+  createAuthState, rewriteResponseHeaders, rewriteRequestOrigin, HOP,
+} = require('./http-proxy-lib');
 const { debugFor } = require('./debug');
 
 const debug = debugFor('proxy');
@@ -34,7 +36,11 @@ function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
     }
     const headers = {};
     for (const [k, v] of Object.entries(req.headers)) if (!HOP.has(k.toLowerCase())) headers[k] = v;
-    headers.host = `127.0.0.1:${targetPort}`; // dev servers often check Host
+    // Dev servers check Host, and check Origin/Referer against it on mutating
+    // requests (their CSRF guard) — a login POST needs all three to agree.
+    if (headers.origin) headers.origin = rewriteRequestOrigin(headers.origin, req.headers.host, targetPort);
+    if (headers.referer) headers.referer = rewriteRequestOrigin(headers.referer, req.headers.host, targetPort);
+    headers.host = `127.0.0.1:${targetPort}`;
     const upstream = http.request(
       { host: '127.0.0.1', port: targetPort, method: req.method, path: req.url, headers },
       (ur) => {
@@ -69,7 +75,12 @@ function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
       let raw = `${req.method} ${req.url} HTTP/1.1\r\n`;
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
         const k = req.rawHeaders[i];
-        raw += `${k.toLowerCase() === 'host' ? 'Host' : k}: ${k.toLowerCase() === 'host' ? `127.0.0.1:${targetPort}` : req.rawHeaders[i + 1]}\r\n`;
+        const kl = k.toLowerCase();
+        let v = req.rawHeaders[i + 1];
+        if (kl === 'host') v = `127.0.0.1:${targetPort}`;
+        // Vite runs the same Origin-vs-Host check on the HMR upgrade.
+        else if (kl === 'origin') v = rewriteRequestOrigin(v, req.headers.host, targetPort);
+        raw += `${kl === 'host' ? 'Host' : k}: ${v}\r\n`;
       }
       raw += '\r\n';
       upstream.write(raw);

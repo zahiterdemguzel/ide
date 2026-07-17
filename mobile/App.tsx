@@ -17,7 +17,7 @@ import { ConnectionContext, useConnection } from './src/api/context';
 import ProjectDrawer from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
 import { ChromeContext } from './src/components/ScreenHeader';
-import ErrorDialog from './src/components/ErrorDialog';
+import ErrorDialog, { showNotice } from './src/components/ErrorDialog';
 import { AlertFeed } from './src/api/notifications';
 import { registerPush, onNotificationTap } from './src/api/push';
 import WelcomeScreen from './src/screens/WelcomeScreen';
@@ -173,6 +173,26 @@ export default function App() {
     });
     return () => sub.remove();
   }, []);
+
+  // The desktop window we were driving shut down (the relay evicted us with
+  // "desktop gone"). The pairing is still good — don't touch the credentials. Fall
+  // back to the waiting screen (chosen=false renders Welcome), tell the user what
+  // happened, and re-dial the *machine-level* endpoint: the connection may have been
+  // naming a specific window, and that instance id died with the process, so keeping
+  // it would mean waiting on a window that can never come back.
+  useEffect(() => {
+    if (!conn) return;
+    return conn.onDesktopGone(() => {
+      setChosen(false);
+      setInstance(null);
+      setInstances(null);
+      showNotice(
+        'Desktop disconnected',
+        'The desktop app was closed or lost its connection. This phone stays paired and will reconnect when it comes back — reopen the IDE on your computer.',
+      );
+      if (creds) open(creds.endpoints, { deviceToken: creds.deviceToken });
+    });
+  }, [conn, creds, open]);
 
   // Push notifications: once a connection is driving a window, hand the desktop
   // this device's Expo push token so completed sessions notify the phone while the

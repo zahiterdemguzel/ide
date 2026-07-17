@@ -14,12 +14,26 @@ export type ConnectionState = 'connecting' | 'pairing' | 'ready' | 'closed' | 'e
 // `busy`/`loading` guard keyed off it stuck true. Reject after this long instead.
 const REQ_TIMEOUT_MS = 20000;
 
+// A socket can reach the relay and then hang short of `ready` forever: the room has
+// no desktop (the app is closed), so the `hello` only a desktop sends never comes.
+// Waiting on that socket means waiting on whatever the room looked like at dial
+// time — a desktop reopened *later* gets a fresh instance id the held socket may
+// not be bound to. So an attempt that isn't `ready` by this deadline is torn down
+// and re-dialled; each fresh dial binds to the room's newest desktop.
+const READY_TIMEOUT_MS = 10000;
+// Between those re-dials the relay itself was reachable, so exponential backoff is
+// wrong — this is a poll for the desktop's return, and it should stay brisk.
+const REDIAL_MS = 3000;
+
 export class Connection {
   private ws: WebSocket | null = null;
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private listeners = new Map<string, Set<(payload: unknown) => void>>();
   private stateListeners = new Set<(s: ConnectionState) => void>();
+  // Fired when the relay evicts us because the desktop window we were bound to shut
+  // down (close code 4002). Pairing stays valid — the app just falls back to waiting.
+  private desktopGoneListeners = new Set<() => void>();
   private retry = 0;
   private closedByUser = false;
   // App backgrounded: the OS freezes JS and the relay reaps the silent socket anyway,
@@ -58,7 +72,19 @@ export class Connection {
     const ws = new WebSocket(this.url);
     this.ws = ws;
 
-    const markLive = () => { this.retry = 0; };
+    // Distinguishes "the relay is unreachable" (dial failed, back off) from "the
+    // relay answered but the desktop is gone" (poll briskly for its return).
+    let opened = false;
+    ws.onopen = () => { opened = true; };
+
+    // The not-ready deadline. Cleared the moment auth lands; a socket still short of
+    // `ready` when it fires is stuck waiting on a desktop that may never speak on
+    // this binding — close it so onclose re-dials fresh.
+    const readyTimer = setTimeout(() => {
+      if (this.ws === ws && this.state !== 'ready') ws.close();
+    }, READY_TIMEOUT_MS);
+
+    const markLive = () => { this.retry = 0; clearTimeout(readyTimer); };
 
     ws.onmessage = (e) => {
       let msg: any;
@@ -124,8 +150,13 @@ export class Connection {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (e: { code?: number }) => {
+      clearTimeout(readyTimer);
       if (this.ws !== ws) return; // a replaced socket's late close must not touch the live one
+      // 4002 = relay evicted us because our desktop window shut down (relay.js). The
+      // token is still good — tell the app so it can fall back to the waiting screen
+      // while the reconnect loop below keeps dialling until the desktop returns.
+      if (e?.code === 4002) this.desktopGoneListeners.forEach((fn) => fn());
       for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('connection closed')); }
       this.pending.clear();
       for (const w of this.fwdWaiters.values()) w.reject(new Error('connection closed'));
@@ -133,9 +164,10 @@ export class Connection {
       if (this.closedByUser) { if (this.state !== 'error') this.setState('closed'); return; }
       if (this.suspended) { this.setState('closed'); return; } // resume() reconnects on foreground
       this.setState('connecting');
-      // Reconnect to the relay with backoff. The relay may be cold-starting (free
-      // hosting), so the first few attempts can fail before it answers.
-      const delay = Math.min(1000 * 2 ** this.retry++, 15000);
+      // If the relay answered, the dial worked — what's missing is the desktop, so
+      // re-dial on a short fixed cadence until it comes back. Only a dial that never
+      // opened (relay cold-starting on free hosting, no network) backs off.
+      const delay = opened ? REDIAL_MS : Math.min(1000 * 2 ** this.retry++, 15000);
       this.reconnectTimer = setTimeout(() => { if (!this.closedByUser && !this.suspended) this.connect(); }, delay);
     };
     ws.onerror = () => ws.close();
@@ -253,6 +285,11 @@ export class Connection {
     if (!this.listeners.has(ch)) this.listeners.set(ch, new Set());
     this.listeners.get(ch)!.add(fn);
     return () => this.listeners.get(ch)?.delete(fn);
+  }
+
+  onDesktopGone(fn: () => void): () => void {
+    this.desktopGoneListeners.add(fn);
+    return () => this.desktopGoneListeners.delete(fn);
   }
 
   onState(fn: (s: ConnectionState) => void): () => void {

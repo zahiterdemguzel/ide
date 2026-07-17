@@ -12,7 +12,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import * as Clipboard from 'expo-clipboard';
 import { color, font, radius, space } from '../theme';
 
-export type AppError = { title: string; message: string };
+export type AppError = { title: string; message: string; kind?: 'error' | 'notice' };
 
 let sink: ((e: AppError | null) => void) | null = null;
 
@@ -25,6 +25,12 @@ export function errorText(e: any): string {
 
 export function showError(title: string, message?: any): void {
   sink?.({ title, message: message == null ? '' : errorText(message) });
+}
+
+// Same card, but for something that happened rather than something that failed —
+// plain text instead of red monospace, and no Copy button.
+export function showNotice(title: string, message: string): void {
+  sink?.({ title, message, kind: 'notice' });
 }
 
 export default function ErrorDialog() {
@@ -50,17 +56,23 @@ export default function ErrorDialog() {
         <View style={styles.card}>
           <Text style={styles.title}>{err.title}</Text>
           {err.message ? (
-            <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
-              <Text style={styles.message} selectable>{err.message}</Text>
-            </ScrollView>
+            err.kind === 'notice' ? (
+              <Text style={styles.notice}>{err.message}</Text>
+            ) : (
+              <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+                <Text style={styles.message} selectable>{err.message}</Text>
+              </ScrollView>
+            )
           ) : null}
           <View style={styles.actions}>
-            <Pressable
-              style={({ pressed }) => [styles.btn, pressed && styles.btnPressed]}
-              onPress={copy}
-            >
-              <Text style={styles.btnText}>{copied ? 'Copied' : 'Copy'}</Text>
-            </Pressable>
+            {err.kind !== 'notice' && (
+              <Pressable
+                style={({ pressed }) => [styles.btn, pressed && styles.btnPressed]}
+                onPress={copy}
+              >
+                <Text style={styles.btnText}>{copied ? 'Copied' : 'Copy'}</Text>
+              </Pressable>
+            )}
             <Pressable
               style={({ pressed }) => [styles.btn, styles.btnPrimary, pressed && styles.btnPrimaryPressed]}
               onPress={() => setErr(null)}
@@ -95,6 +107,7 @@ const styles = StyleSheet.create({
   body: { maxHeight: 260, backgroundColor: color.bg, borderRadius: radius.md, marginBottom: space.lg },
   bodyContent: { padding: space.md },
   message: { color: color.redSoft, fontFamily: font.mono, fontSize: font.size.sm, lineHeight: 20 },
+  notice: { color: color.muted, fontSize: font.size.md, lineHeight: 21, marginBottom: space.lg },
   actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: space.sm },
   btn: {
     minWidth: 76,
