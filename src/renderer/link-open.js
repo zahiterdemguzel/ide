@@ -14,7 +14,12 @@ export async function openLink(kind, raw, baseDir) {
   const line = m ? Number(m[2]) : null;
   const r = await window.api.resolveLinkPath(p, baseDir);
   if (!r || !r.ok) return;
-  if (r.isDir) { window.api.openExternal(r.abs); return; } // OS file browser
+  if (r.isDir) {
+    // In-repo folder → reveal it in the explorer tree; otherwise the OS browser.
+    if (r.inRepo) { const { revealInTree } = await import('./explorer/tree.js'); revealInTree(r.rel); }
+    else window.api.openExternal(r.abs);
+    return;
+  }
   if (!r.isFile) return;
   if (r.inRepo) openFromTree(r.rel, line ? { line, term: null } : null);
   else window.api.openExternal(r.abs);

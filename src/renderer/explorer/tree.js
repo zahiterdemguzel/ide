@@ -207,6 +207,32 @@ export async function refreshTree() {
     }
   }
 }
+function rowFor(rel) {
+  for (const row of fileTree.querySelectorAll('.tree-row')) {
+    if (row.dataset.rel === rel) return row;
+  }
+  return null;
+}
+
+// Reveal a repo-relative folder in the tree: expand each ancestor (lazy-loading
+// its children as the click handler would), then select and scroll to it. Used
+// to open an in-repo folder link in the explorer instead of the OS file browser.
+export async function revealInTree(rel) {
+  const parts = rel.split('/').filter(Boolean);
+  if (!parts.length) return;
+  let path = '';
+  let row = null;
+  for (const part of parts) {
+    path = path ? path + '/' + part : part;
+    row = rowFor(path);
+    if (!row) return; // path isn't in the tree (e.g. a hidden/ignored dir)
+    const twist = row.querySelector('.tree-twist');
+    if (twist && twist.textContent === '▸') await row.onclick(); // expand + lazy-load
+  }
+  select(row, rel, true);
+  row.scrollIntoView({ block: 'nearest' });
+}
+
 // No manual refresh button: the main process watches the repo and pushes a
 // debounced `tree-changed` whenever something changes on disk, so the tree stays
 // in sync on its own. refreshTree() only re-fetches the folders that are actually
