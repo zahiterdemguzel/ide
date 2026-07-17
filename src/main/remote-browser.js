@@ -21,6 +21,9 @@ const MAX_FPS = 15;
 
 let broadcast = null; // injected by remote.js while remote access is enabled
 let win = null;
+// Monotonic across window recreations, never reset: the phone drops frames with
+// a seq at or below the last one seen, so a mode toggle's fresh window must not
+// restart at 1 or its every frame reads as stale and the picture freezes.
 let seq = 0;
 let quality = DEFAULT_QUALITY;
 let gate = createFrameGate({ maxFps: 8 });
@@ -85,7 +88,6 @@ function destroy() {
 // viewport, which is enough for sites to serve their mobile layout.
 function create({ width, height, maxFps, mode }) {
   destroy();
-  seq = 0;
   const fps = Math.min(Math.max(1, maxFps || 8), MAX_FPS);
   gate = createFrameGate({ maxFps: fps });
   win = new BrowserWindow({

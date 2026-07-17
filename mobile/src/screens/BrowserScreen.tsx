@@ -158,6 +158,9 @@ export default function BrowserScreen() {
     const c = connRef.current;
     if (!c || c.state !== 'ready' || !size) return;
     lastCapture.current = size;
+    // A re-open (mode toggle) starts a fresh desktop window; accept its frames
+    // even against an older desktop whose seq restarts per window.
+    lastSeq.current = 0;
     opened.current = true;
     c.req<BrowserState & { id: string }>('browser-open', {
       url: lastUrl.current, mode: modeRef.current, maxFps: 15, ...size,
@@ -225,7 +228,10 @@ export default function BrowserScreen() {
       setFrame(null);
       setShown(null);
     };
-  }, [conn, state, openBrowser]));
+    // recentsLoaded must be a dep: it flips true asynchronously, and if focus +
+    // ready happen first the early return above would otherwise be final —
+    // browser-open never sent, spinner forever.
+  }, [conn, state, openBrowser, recentsLoaded]));
 
   const navigate = (to?: string) => {
     const url = (to ?? urlText).trim();
