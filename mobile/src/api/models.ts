@@ -44,11 +44,11 @@ export function switchableModels(currentId: string | null | undefined, all: Mode
   return all.filter((m) => modelFamily(m.id) === family);
 }
 
-// Codex reasons on its own ladder — `minimal` exists, `max` doesn't (mirror of
-// CODEX_EFFORT_LEVELS in src/main/agent-effort.js).
+// Codex reasons on its own ladder — no `max`, and no `minimal` either: the API rejects
+// that level outright alongside Codex's web_search tool, so it's a row that can only
+// break the session (mirror of CODEX_EFFORT_LEVELS in src/main/agent-effort.js).
 export const CODEX_EFFORTS: Effort[] = [
   { id: 'auto', name: 'Auto', hint: "The model's own default" },
-  { id: 'minimal', name: 'Minimal', hint: 'Fastest, barely thinks' },
   { id: 'low', name: 'Low', hint: 'Quick answers' },
   { id: 'medium', name: 'Medium', hint: 'Balanced' },
   { id: 'high', name: 'High', hint: 'Thinks before it acts' },

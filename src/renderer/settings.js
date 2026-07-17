@@ -6,6 +6,9 @@ import {
   availableLocales, currentLocale, setLocale, applyTranslations, pickLocale, t,
 } from '../i18n/index.js';
 import { refreshTermThemes } from './shared/terminal.js';
+import { effortsForFamily, effortNameForFamily } from './shared/effort-levels.js';
+// The badge reads the ladder through here (the model/effort facade), not around it.
+export { DEFAULT_EFFORT } from './shared/effort-levels.js';
 import {
   SOUNDS, getSound, setSound, playNotification, getVolume, setVolume,
 } from './shared/notify.js';
@@ -89,6 +92,16 @@ export function switchableModels(currentId) {
   const family = modelFamily(currentId);
   if (family === 'ollama') return []; // a local model is fixed for life
   return getMergedModels().filter((m) => modelFamily(m.id) === family);
+}
+
+// The effort ladder a session may pick from — its model's family owns it, so a Codex
+// session offers Codex's stops and everything else offers the CLI's. Main enforces the
+// same split (set-session-effort), so a stale menu can't sneak a level through.
+export function effortsFor(modelId) {
+  return effortsForFamily(modelFamily(modelId));
+}
+export function effortName(id, modelId) {
+  return effortNameForFamily(id, modelFamily(modelId));
 }
 
 // Installed Ollama custom models, cached for the dropdowns/caret menu/badge.

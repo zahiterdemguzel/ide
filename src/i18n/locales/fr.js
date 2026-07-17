@@ -128,6 +128,7 @@ export default {
     'session.diff': 'Diff',
     'session.diffTitle': 'Voir les modifications de cette session',
     'session.modelTitle': 'Modèle pour cette session — cliquez pour le modifier',
+    'session.effortTitle': 'Effort de raisonnement pour cette session — cliquez pour le modifier',
     'session.diffDialogTitle': 'Diff de la session',
     'session.diffClose': 'Fermer',
     'session.diffUnified': 'Unifié',

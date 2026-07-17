@@ -32,7 +32,6 @@ const statusline = require('./statusline');
 // and never reaches back in here.
 const chat = require('./chat');
 const { keystrokes } = require('./ask-lib');
-const { PICKER_OPEN, PICKER_APPLY, modelMoves, effortMoves } = require('./model-picker');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
 //         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
@@ -643,16 +642,28 @@ async function spawnPty(id, cols, rows, resume) {
   });
   p.onExit(() => {
     const s = sessions.get(id);
+    // This is a respawn's *predecessor* dying: a Codex model/effort switch killed it on
+    // purpose and a replacement is landing under the same id (`s.pty` is null mid-flight,
+    // then the new PTY — either way it isn't `p`). Everything below belongs to the
+    // successor: `ptyStopped`/`clearTracking` are keyed by session id, so running them
+    // here would stop the *new* run's transcript tail, and the teardown would delete a
+    // session that is already alive again.
+    //
+    // The flag is cleared *here*, on the exit itself, rather than when the new spawn
+    // returned. That timing is the whole bug: the old conpty's exit reliably lands after
+    // the replacement is already running on Windows, so a flag cleared by then let this
+    // handler delete the live session out from under the switch. Identity is the backstop
+    // — if this exit somehow never arrives, a later real exit of the *current* PTY still
+    // tears down normally rather than being swallowed forever.
+    if (s && s.respawning && s.pty !== p) { s.respawning = false; return; }
     chat.ptyStopped(id);
     // The PTY dying takes every agent (main + subagents) down with it, however it
     // died — exit, archive, or close — so the hook server's subagent bookkeeping
     // for this session is stale either way.
     hookServer.clearTracking(id);
     // A suspend (archive) kills the PTY on purpose but keeps the entry and its
-    // tracked-file state alive for a later resume — don't tear it down here. Same
-    // for an in-place respawn (a Claude<->Ollama model switch, below): the old PTY
-    // is killed deliberately while a new one is already being spawned under the id.
-    if (s && (s.suspended || s.respawning)) return;
+    // tracked-file state alive for a later resume — don't tear it down here.
+    if (s && s.suspended) return;
     sessions.delete(id);
     // The session is gone from the map — release its chat state (watcher, retained
     // messages, transcript path) too, or it leaks for the process lifetime.
@@ -795,7 +806,11 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   broadcastSessions();
-  return { id, repo };
+  // `effort` rides back so the creating client's badge opens on the level the session
+  // actually spawned at: the family default is decided here, and the sessions-changed
+  // broadcast only builds rows the client doesn't have yet — it never re-reads them
+  // onto a row this call is about to create.
+  return { id, repo, effort: sessions.get(id).effort };
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
 
 // Archive: kill the Claude process to free resources but keep the session entry
@@ -845,42 +860,6 @@ bridge.handle('resume-session', guard('restoring a session', async (_e, { id, co
   return { ok: true, repo: getRepoPath() };
 }, { ok: false }));
 
-// The CLI's own settings file. The picker's effort slider starts wherever the last
-// applied effort left it, and the CLI persists that here ("saved as your default for
-// new sessions" — a typed /effort writes it too), so this is where a session whose
-// record carries no effort learns the slider's current stop. Read fresh per switch:
-// the CLI rewrites it behind our back.
-function cliSettings() {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(require('os').homedir(), '.claude', 'settings.json'), 'utf8')) || {};
-  } catch {
-    return {};
-  }
-}
-
-// Drive the Alt+P model picker (see model-picker.js): open, move, apply session-only.
-// Serialized per session so two quick badge taps can't interleave their arrows — the
-// moves are relative, so the second plan (computed against the record the first tap
-// already updated) is only right if the first plan's keys have landed.
-function drivePicker(s, id, moves) {
-  const run = async () => {
-    await waitForTui(s);
-    if (!sessions.get(id) || !s.pty) return;
-    s.pty.write(PICKER_OPEN);
-    // The picker has to be on screen before the arrows arrive — same wait as an ask.
-    await waitForPaint(s);
-    if (!sessions.get(id) || !s.pty) return;
-    if (moves) {
-      s.pty.write(moves);
-      await new Promise((r) => setTimeout(r, KEY_DELAY_MS));
-      if (!sessions.get(id) || !s.pty) return;
-    }
-    s.pty.write(PICKER_APPLY);
-  };
-  // A death mid-sequence (pty gone between guard and write) must not wedge the queue.
-  s.pickerQueue = (s.pickerQueue || Promise.resolve()).then(run).catch(() => {});
-}
-
 // Change a session's model. Originally fixed at spawn
 // (ANTHROPIC_MODEL via sessionEnv), the model can now be retargeted live — the
 // record is updated so it survives archive/resume and a restart (spawnPty re-applies
@@ -902,8 +881,14 @@ function respawnSession(id, s, context) {
   s.pty = null;
   spawnPty(id, cols, rows, true)
     .then((p) => { const cur = sessions.get(id); if (cur) cur.pty = p; })
-    .catch((err) => reportSessionError(context, err))
-    .finally(() => { const cur = sessions.get(id); if (cur) cur.respawning = false; });
+    .catch((err) => {
+      // The replacement never arrived, so no predecessor exit will come along to clear
+      // the flag (see spawnPty's onExit) — do it here, or this session could never be
+      // torn down again.
+      const cur = sessions.get(id);
+      if (cur) cur.respawning = false;
+      reportSessionError(context, err);
+    });
 }
 
 bridge.on('set-session-model', guardOn('changing session model', (_e, { id, model }) => {
@@ -916,9 +901,6 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
   // life. The menus hide cross-family rows; this is the backstop for a stale or
   // remote client (see agent-providers.canSwitchModel).
   if (!canSwitchModel(s.model, chosen)) return;
-  // The row the picker's cursor sits on now: this switch's starting point. An unset
-  // record means the session inherited the CLI default (settings.json's `model`).
-  const prevModel = s.model || cliSettings().model;
   s.model = chosen;
   persistSession(id);
   if (s.pty && modelFamily(chosen) === 'codex') {
@@ -927,14 +909,11 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
     // continues the same conversation under the new model.
     respawnSession(id, s, 'respawning for model switch');
   } else if (s.pty) {
-    // Prefer the Alt+P picker: a typed /model waits in the composer queue until the
-    // current turn ends; the picker is an overlay the TUI applies mid-turn, and its
-    // `s` key applies session-only (matching what this handler means). Rows we can't
-    // place — and a session blocked on a question, whose box would eat the keys —
-    // fall back to the typed command.
-    const moves = chat.currentAsk(id) ? null : modelMoves(prevModel, chosen);
-    if (moves === null) s.pty.write(`/model ${chosen}\r`);
-    else drivePicker(s, id, moves);
+    // Type the CLI's own slash command, the same way the user would. It waits in the
+    // composer queue until the current turn ends, so a switch made mid-run lands when
+    // the agent stops rather than at once — the deliberate trade for not scripting the
+    // TUI's picker with keystrokes, which broke whenever the picker's layout moved.
+    s.pty.write(`/model ${chosen}\r`);
   }
   sendToRenderer('session-model', { id, model: chosen });
 }));
@@ -943,14 +922,14 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
 // but the spawn half is a CLI flag rather than an env var (see agent-effort.js). An
 // unknown level is dropped rather than typed: `/effort gpt` would land in the TUI as a
 // prompt, and `--effort gpt` on the next resume wouldn't start at all. `auto` is a real
-// choice (reset to the model's default), so it's accepted here and passed to the CLI,
+// choice (reset to the model's default), so it's accepted here and typed at the CLI,
 // even though it's the one value that adds no spawn flag.
 bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, effort }) => {
   const s = sessions.get(id);
   if (!s) return;
   const chosen = typeof effort === 'string' ? effort.trim().toLowerCase() : '';
   if (modelFamily(s.model) === 'codex') {
-    // Codex has its own ladder (minimal…xhigh, no max) and takes the level as a
+    // Codex has its own ladder (low…xhigh, no max) and takes the level as a
     // spawn-time config override, so — like its model switch above — a live
     // change is a conversation-preserving respawn.
     if (!chosen || (chosen !== AUTO && !codexEffortValue(chosen))) return;
@@ -961,20 +940,10 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
     return;
   }
   if (!chosen || (chosen !== AUTO && !cleanEffort(chosen))) return;
-  // Where the slider sits now: the record if this session was ever set, else the
-  // CLI-wide level every applied effort persists to settings.json. A record of
-  // `auto` means the CLI reset to the model's own default — a stop we can't name,
-  // so that (like a missing settings level) falls back to the typed command.
-  const prevEffort = s.effort === AUTO ? '' : (cleanEffort(s.effort) || cliSettings().effortLevel);
   s.effort = chosen;
   persistSession(id);
-  if (s.pty) {
-    // Same story as the model above: the picker applies mid-turn, `/effort` queues.
-    // `auto` has no slider stop, so it keeps the typed path.
-    const moves = (chosen === AUTO || chat.currentAsk(id)) ? null : effortMoves(prevEffort, chosen);
-    if (moves === null) s.pty.write(`/effort ${chosen}\r`);
-    else drivePicker(s, id, moves);
-  }
+  // Same as the model above: type the command and let it queue behind the current turn.
+  if (s.pty) s.pty.write(`/effort ${chosen}\r`);
   sendToRenderer('session-effort', { id, effort: chosen });
 }));
 

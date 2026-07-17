@@ -128,6 +128,7 @@ export default {
     'session.diff': 'Diff',
     'session.diffTitle': 'Bu oturumun değişikliklerini görüntüle',
     'session.modelTitle': 'Bu oturum için model — değiştirmek için tıklayın',
+    'session.effortTitle': 'Bu oturum için düşünme çabası — değiştirmek için tıklayın',
     'session.diffDialogTitle': 'Oturum diff’i',
     'session.diffClose': 'Kapat',
     'session.diffUnified': 'Birleşik',

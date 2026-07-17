@@ -76,8 +76,9 @@ since they're product names).
 picking one spawns the OpenAI Codex CLI instead of `claude`, and the session is
 locked to the codex family for life — menus filter through `switchableModels()`
 (family-only rows; a local model offers none) and main's `set-session-model`
-enforces the same rule. Codex has its own effort ladder (`minimal…xhigh`, no
-`max`; `effortLevelsFor(family)` in `agent-effort.js`) and no subagent-model
+enforces the same rule. Codex has its own effort ladder (`low…xhigh`, no `max` —
+and no `minimal`, which the API rejects alongside Codex's web_search tool;
+`effortLevelsFor(family)` in `agent-effort.js`) and no subagent-model
 override (the subagent dropdown skips codex ids). See [codex.md](codex.md).
 
 **Custom (Ollama) models.** Installed local open-source models are folded into the
@@ -125,16 +126,17 @@ the neutral default `--ec`, and the dropdown omits the `default` inherit sentine
 only the concrete models are pickable).
 Choosing a model updates the record + badge,
 remembers it as the new default (`setSessionModel()`), and switches the live session by
-**driving the CLI's Alt+P model picker with keystrokes** (`set-session-model` IPC →
-`drivePicker` in `sessions.js`, plan built by the pure `model-picker.js`) — a typed
-`/model` sits in the composer queue until the current turn ends, while the picker is an
-overlay the TUI applies **mid-turn**, and its `s` key applies session-only. The moves
-are *relative* (the picker's lists wrap), computed from the session record (else the CLI
-default in `~/.claude/settings.json`); a row the table can't place (Ollama ids, unknown
-models) — or a session blocked on an ask, whose box would eat the keys — falls back to
-typing `/model <id>` as before. Established live against CLI 2.1.211 (rows: default,
-opus, fable, sonnet, haiku; never send Enter or a number key — both save the pick as the
-*global* default). A `/model <id>` typed
+**typing the CLI's own `/model <id>` into it** (`set-session-model` IPC → `s.pty.write`),
+the same way the user would. A Codex session respawns instead (its `/model` opens a TUI
+picker whose outcome isn't readable — see [codex.md](codex.md)).
+
+This deliberately **queues**: a typed slash command waits in the composer until the
+current turn ends, so a switch made mid-run lands when the agent stops, not at once. An
+earlier version scripted the CLI's Alt+P picker with arrow keystrokes to get a mid-turn
+switch; it was removed as not worth its weight — the plan encoded the picker's row order
+and slider stops, so it silently landed on the wrong row whenever the CLI's own layout
+moved. **Don't reintroduce it without a way to read back what the TUI actually did.**
+A `/model <id>` typed
 straight into the session is caught by `feedSessionCommand()` (the pure, unit-tested
 `session-cmd-parse.js`, which uses the line-buffer engine `slash-parse.js`) in
 `pty-input`, which pushes a **`session-model`** event the
@@ -158,30 +160,49 @@ it answers. It is stored on the session record (`effort`), persisted, and applie
 CLI's two places, which is why it needs both: `--effort <level>` as a **spawn flag**
 (`effortArgs()`, the pure, unit-tested `src/main/agent-effort.js`), so a session resumed
 after a restart comes back thinking as hard as it was last told to; and, on a live PTY,
-**the Alt+P picker's effort slider driven by arrow keystrokes** (same `drivePicker` /
-`model-picker.js` path as the model above), so a running session switches **at once,
-mid-turn included** — a typed `/effort` queues behind the current turn. The slider's
-stops are `low`…`max` plus `ultracode` (which no client of ours offers but the table
-must know, or every plan past a terminal-set ultracode lands one stop off), it wraps at
-both ends, and an applied effort persists to `~/.claude/settings.json`'s `effortLevel`
-(exactly as a typed `/effort` does) — which is how a session whose record has no effort
-learns the slider's current stop (`cliSettings()` in sessions.js). An unknown starting
-stop, a record of `auto`, a target of `auto`, or a pending ask falls back to typing
-`/effort <level>`. Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`, plus
-`auto` (reset to the model's own default, and the one value that adds no spawn flag).
+**typing `/effort <level>`** into the session (the model's story exactly — it queues
+behind the current turn). Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`,
+plus `auto` (reset to the model's own default, and the one value that adds no spawn
+flag). A Codex session takes its level as a spawn-time config override and has no
+`/effort` command, so it respawns instead — see [codex.md](codex.md), including the
+predecessor-exit race that used to kill the session on a Codex effort switch.
 
 Unlike a model alias (which `agent-models.js` forwards verbatim, the CLI resolving it),
 an **unrecognized level is dropped rather than passed through**: an unknown `--effort`
 value is a hard CLI error, so forwarding one would leave the session unable to spawn at
 all — a session that won't start is worse than one running at the default effort.
 
-**The control for it is on the phone**, not the desktop: `set-session-effort` +
-`session-effort` mirror the model pair exactly, but the desktop's session bar has no
-effort badge (there is a terminal right there — type `/effort`). A `/effort <level>`
-typed into that terminal is tracked by the same `feedSessionCommand()` that tracks
-`/model`, off **one** line buffer (the user is typing one line; a second parser fed the
-same keystrokes would have to repeat the same backspace/kill bookkeeping to stay in step
-with it), so the phone's badge follows a change made at the machine. See
+**Session-bar indicator.** The effort badge (`#session-effort` + its
+`#session-effort-badge-menu` dropdown) sits next to the model badge and is its mirror
+image: same `.effort-badge`/`.effort-menu` chrome, same open/close/outside-click/Escape
+wiring, and choosing a level updates the record + badge and sends `set-session-effort`.
+It differs from the model in one way — **the level is never remembered as a default for
+the next session** (a session starts at its family's default, so there is no
+`setSessionModel()` counterpart to call, and no `typed` flag to tell origins apart:
+nothing here is this machine's to move). An empty record shows as **"Auto"**, which is
+what "no level set" means; a level off the session's own ladder (a record left by the
+other family) falls back to Auto rather than showing a row the menu can't offer. The
+phone (`ChatScreen.tsx`) has carried the same two badges since before the desktop did.
+
+**The ladder the menu offers** is the pure, unit-tested
+`src/renderer/shared/effort-levels.js` (`EFFORTS`/`CODEX_EFFORTS`, keyed by CLI family —
+`settings.js` wraps it with `modelFamily()`). It is a *mirror* of main's
+`agent-effort.js`, which owns the levels that actually work and silently drops the rest,
+so `test/effort-levels.test.mjs` asserts the two stay in step: a row offered here but
+dropped there would be a menu item that does nothing when clicked.
+
+**Detecting a change made elsewhere.** A `/effort <level>` typed straight into the
+terminal is tracked by the same `feedSessionCommand()` that tracks `/model`, off **one**
+line buffer (the user is typing one line; a second parser fed the same keystrokes would
+have to repeat the same backspace/kill bookkeeping to stay in step with it). That, and a
+switch made on a paired phone, both push **`session-effort`**, which the desktop badge
+repaints from (`onSessionEffort`) — the same reason `set-session-effort` echoes at all:
+two clients draw the same session, and a switch made on one that left the other showing
+the old level would be a badge that lies. Note this is **not** hook-driven: hook payloads
+carry no model or effort field (see [status-detection.md](status-detection.md)), so the
+input stream is the only signal. Same blind spot as the model, and for the same reason:
+a level changed via the CLI's **own Alt+P picker** (or a bare `/effort`) isn't in the
+input stream, so the badge won't see it until something else pushes. See
 [remote-access.md](remote-access.md) — "The session as a chat".
 
 ## General preferences

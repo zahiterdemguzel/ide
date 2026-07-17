@@ -29,14 +29,22 @@ test('a level is normalized before it is used', () => {
   assert.deepEqual(effortArgs('XHIGH'), ['--effort', 'xhigh']);
 });
 
-test('codex has its own ladder: minimal exists, max does not', () => {
+test('codex has its own ladder: no max', () => {
   assert.deepEqual(effortLevelsFor('codex'), CODEX_EFFORT_LEVELS);
   assert.deepEqual(effortLevelsFor('claude'), EFFORT_LEVELS);
-  assert.equal(codexEffortValue('minimal'), 'minimal');
   assert.equal(codexEffortValue('max'), ''); // claude-only; would fail the codex spawn
   assert.equal(codexEffortValue(' XHigh '), 'xhigh');
   assert.equal(codexEffortValue('auto'), '');
   assert.equal(codexEffortValue(''), '');
+});
+
+test('minimal is not a codex level: the API rejects it alongside web_search', () => {
+  // Codex's own lowest stop, but `reasoning.effort: minimal` + the web_search tool Codex
+  // sends is a hard 400 — the turn fails outright, so a session on minimal can't answer.
+  // Dropping it here is what makes a stale `minimal` record self-heal into Codex's own
+  // default rather than spawning a session that errors on every prompt.
+  assert.ok(!CODEX_EFFORT_LEVELS.includes('minimal'));
+  assert.equal(codexEffortValue('minimal'), '');
 });
 
 test('a new codex session starts on medium; claude on the CLI default', () => {

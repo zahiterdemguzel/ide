@@ -202,12 +202,15 @@
 .effort-menu .effort-menu-item:hover { background: color-mix(in srgb, var(--bg-3) 70%, var(--fg)); }
 .effort-menu .effort-menu-item.current { font-weight: 600; color: var(--ec); }
 
-/* Model indicator: a pill next to the session name showing the session's agent
-   model. It reuses the `.effort-badge` chrome verbatim (same size/look) with the
-   neutral default `--ec`; click opens the `.effort-menu` dropdown to switch models
-   (applied live via the CLI's /model command). Model menu items carry no dot. */
-.model-wrap { position: relative; flex: none; }
-.effort-menu .effort-menu-item.model-item.current { color: var(--fg); font-weight: 600; }
+/* Model and effort indicators: a pair of pills next to the session name showing what
+   the session is running. Both use the `.effort-badge` chrome (same size/look) with the
+   neutral default `--ec`; click opens the `.effort-menu` dropdown to switch, applied
+   live via the CLI's /model and /effort commands. Their menu items carry no dot. */
+.model-wrap, .effort-wrap { position: relative; flex: none; }
+/* The current row reads as bold text rather than tinted: `--ec` is neutral on these two
+   menus, so tinting it would only mute the row you're pointing at. */
+.effort-menu .effort-menu-item.model-item.current,
+.effort-menu .effort-menu-item.effort-item.current { color: var(--fg); font-weight: 600; }
 #session-commit-msg { margin: 0; white-space: nowrap; }
 #session-commit {
   background: var(--accent); color: var(--on-accent); border: none; border-radius: 5px;

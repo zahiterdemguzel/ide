@@ -13,6 +13,7 @@ import { nextSessionId } from './shared/session-cycle.js';
 import {
   getSessionModel, getSubagentModel, setSessionModel,
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
+  effortsFor, effortName, DEFAULT_EFFORT,
 } from './settings.js';
 import { t } from '../i18n/index.js';
 
@@ -75,6 +76,9 @@ const sessionCommitMsg = document.getElementById('session-commit-msg');
 const sessionModelBtn = document.getElementById('session-model');
 const sessionModelLabel = document.getElementById('session-model-label');
 const sessionModelMenu = document.getElementById('session-model-badge-menu');
+const sessionEffortBtn = document.getElementById('session-effort');
+const sessionEffortLabel = document.getElementById('session-effort-label');
+const sessionEffortMenu = document.getElementById('session-effort-badge-menu');
 const sessionDiffBtn = document.getElementById('session-diff');
 const sessionDiffAdd = document.getElementById('session-diff-add');
 const sessionDiffDel = document.getElementById('session-diff-del');
@@ -279,6 +283,7 @@ function updateSessionBar() {
   sessionTitle.textContent = name;
   sessionTitle.title = name;
   renderModelBadge(s);
+  renderEffortBadge(s);
   renderCommitButton(s);
   renderRevertButton(s);
   renderDiffButton(s);
@@ -416,6 +421,71 @@ document.addEventListener('click', (e) => {
   if (!sessionModelMenu.hidden && !sessionModelMenu.contains(e.target) && !sessionModelBtn.contains(e.target)) closeModelBadgeMenu();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModelBadgeMenu(); });
+
+// --- per-session reasoning effort: badge in the session bar + effort dropdown ---
+// The model badge's twin, and deliberately its mirror image: the record is persisted and
+// re-applied on every spawn, choosing a level drives the running session (main's
+// set-session-effort), and a change made anywhere else — an `/effort <level>` typed into
+// the terminal, or a switch made on a paired phone — comes back as a session-effort push
+// that redraws the badge (see onSessionEffort). It differs from the model in one way: the
+// level is never remembered as a default for the next session (a session starts at its
+// family's default), so there's no setSessionModel counterpart to call.
+//
+// An empty record shows as "Auto" — the badge names what the session is running, and
+// "no level set" is exactly what auto means.
+function effortId(s) {
+  const v = s && s.effort;
+  // A level from the other family's ladder (a record written before a Codex respawn
+  // moved families) isn't offerable here — fall back to the one the menu can show.
+  return effortsFor(s && s.model).some((e) => e.id === v) ? v : DEFAULT_EFFORT;
+}
+
+function renderEffortBadge(s) {
+  sessionEffortLabel.textContent = effortName(effortId(s), s.model);
+}
+
+function closeEffortBadgeMenu() {
+  if (sessionEffortMenu.hidden) return;
+  sessionEffortMenu.classList.remove('open');
+  sessionEffortBtn.setAttribute('aria-expanded', 'false');
+  sessionEffortMenu.addEventListener('transitionend', () => { sessionEffortMenu.hidden = true; }, { once: true });
+}
+function openEffortBadgeMenu() {
+  const s = sessions.get(activeId);
+  if (!s) return;
+  const current = effortId(s);
+  sessionEffortMenu.replaceChildren();
+  for (const e of effortsFor(s.model)) {
+    const item = document.createElement('button');
+    item.className = 'effort-menu-item effort-item' + (e.id === current ? ' current' : '');
+    item.title = e.hint;
+    const label = document.createElement('span');
+    label.textContent = e.name;
+    item.append(label);
+    item.onclick = () => { closeEffortBadgeMenu(); chooseEffort(e.id); };
+    sessionEffortMenu.appendChild(item);
+  }
+  sessionEffortMenu.hidden = false;
+  sessionEffortBtn.setAttribute('aria-expanded', 'true');
+  requestAnimationFrame(() => sessionEffortMenu.classList.add('open'));
+}
+
+function chooseEffort(effort) {
+  const s = sessions.get(activeId);
+  if (!s) return;
+  s.effort = effort;
+  renderEffortBadge(s);
+  window.api.setSessionEffort(activeId, effort);
+}
+
+sessionEffortBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (sessionEffortMenu.hidden) openEffortBadgeMenu(); else closeEffortBadgeMenu();
+};
+document.addEventListener('click', (e) => {
+  if (!sessionEffortMenu.hidden && !sessionEffortMenu.contains(e.target) && !sessionEffortBtn.contains(e.target)) closeEffortBadgeMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEffortBadgeMenu(); });
 
 // The commit button reports commit state: live "Commit N files" while edits
 // remain, disabled "Nothing to commit" once empty. A successful commit forgets
@@ -708,7 +778,7 @@ export async function newSession(opts = {}) {
   if (!sessions.has(id)) {
     const { container, term, fit: fitAddon } = buildTerminal(id, repo);
     const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
-    sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model });
+    sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model, effort: res.effort || '' });
   }
   setTab('active');
   selectSession(id);
@@ -731,7 +801,7 @@ export async function newSessionWithPrompt(text) {
 // the user to resume it, which selectSession does on demand. Its tracked-file list
 // is intact, so the commit button works against it before it's even resumed.
 function restoreSessionRow(meta) {
-  const { id, repo, firstPrompt, name, archived, files, state, model } = meta;
+  const { id, repo, firstPrompt, name, archived, files, state, model, effort } = meta;
   const container = document.createElement('div');
   container.className = 'term-container';
   hostEl.appendChild(container);
@@ -748,7 +818,7 @@ function restoreSessionRow(meta) {
   const st = state || 'idle';
   dot.className = 'dot ' + st;
   dot.title = STATE_LABEL[st] || st;
-  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, model: model || '' });
+  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, model: model || '', effort: effort || '' });
 }
 
 // On startup, pull the persisted sessions from main and rebuild the list, then
@@ -789,7 +859,7 @@ function adoptSession(meta) {
   sessions.set(meta.id, {
     id: meta.id, repo, term, fit, container, li, dot, label, diffBadge, closeBtn, state,
     firstPrompt: meta.firstPrompt || '', name: meta.name || '', files: meta.files || [],
-    archived: false, suspended: false, model: meta.model || '',
+    archived: false, suspended: false, model: meta.model || '', effort: meta.effort || '',
   });
 }
 
@@ -1124,6 +1194,17 @@ window.api.onSessionModel(({ id, model, typed }) => {
   s.model = model;
   if (typed) setSessionModel(model);
   if (id === activeId) renderModelBadge(s);
+});
+// The session's effort changed under us — the model badge's story exactly, minus the
+// `typed` flag: an effort is never a default for the next session, so no origin here
+// has to be told apart. Origins: an `/effort <level>` typed into the terminal (main
+// reads it off the input stream — see session-cmd-parse.js), and a switch made on a
+// paired phone's chat.
+window.api.onSessionEffort(({ id, effort }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  s.effort = effort;
+  if (id === activeId) renderEffortBadge(s);
 });
 // Main evicted the oldest sessions to stay under the persisted-storage budget;
 // drop their rows so the UI matches what survives on disk.

@@ -11,10 +11,20 @@
 
 const AUTO = 'auto';
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
-// The Codex CLI's own ladder (`model_reasoning_effort`): it adds `minimal` and has
-// no `max`. Which ladder applies is the session's model family — see
-// effortLevelsFor; the clients read this to build their per-family menus.
-const CODEX_EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+// The Codex CLI's own ladder (`model_reasoning_effort`): no `max`. Which ladder applies
+// is the session's model family — see effortLevelsFor; the clients read this to build
+// their per-family menus.
+//
+// `minimal` is Codex's own lowest stop and is deliberately **not** here: the API refuses
+// it outright when the request also carries the `web_search` tool, which Codex sends —
+// `400 invalid_request_error: The following tools cannot be used with reasoning.effort
+// 'minimal': web_search`. That kills the turn, not just the thinking, so a session set to
+// minimal can't answer at all. Offering a stop we can't make work is worse than not
+// offering it; the alternative — quietly switching web_search off to make it legal — trades
+// a tool the user wants for a level they rarely need. A record left on `minimal` by an
+// older build self-heals: codexEffortValue drops it (unknown → no override → Codex's own
+// default) and the badge shows Auto.
+const CODEX_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh'];
 // Codex sessions start here rather than unset: the Codex CLI's own default drifts with
 // the model, and a session that quietly reasons at some other level is a surprise the
 // badge can't show. `auto` remains reachable — it's a deliberate pick, not the absence
