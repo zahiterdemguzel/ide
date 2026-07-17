@@ -1,4 +1,4 @@
-import { findTerminalLinks } from './shared/terminal-links-parse.js';
+import { findTerminalLinks, mapSpanToRows, MAX_LINK_ROWS } from './shared/terminal-links-parse.js';
 import { openFromTree, showWeb } from './viewer/center.js';
 
 // --- terminal Ctrl+click links (file paths + web URLs) ---
@@ -55,13 +55,31 @@ async function openTerminalLink(kind, raw, baseDir) {
 export function registerTerminalLinks(term, baseDir) {
   term.registerLinkProvider({
     provideLinks(y, callback) {
-      const bufLine = term.buffer.active.getLine(y - 1);
-      if (!bufLine) return callback(undefined);
-      const text = bufLine.translateToString(true);
+      const buf = term.buffer.active;
+      if (!buf.getLine(y - 1)) return callback(undefined);
+      // Stitch soft-wrapped rows into one logical line (bounded to
+      // MAX_LINK_ROWS) so a link cut by the terminal width still matches whole.
+      let first = y - 1;
+      while (first > 0 && buf.getLine(first)?.isWrapped && (y - 1) - first < MAX_LINK_ROWS - 1) first--;
+      let last = y - 1;
+      while (buf.getLine(last + 1)?.isWrapped && last - first < MAX_LINK_ROWS - 1) last++;
+      const rowTexts = [];
+      for (let i = first; i <= last; i++) {
+        // Trim only the final row: intermediate rows wrapped because they were
+        // full, so their trailing cells are real content.
+        rowTexts.push(buf.getLine(i).translateToString(i === last));
+      }
+      const rowLens = rowTexts.map((t) => t.length);
+      const text = rowTexts.join('');
       const links = findTerminalLinks(text).map((f) => {
+        const span = mapSpanToRows(rowLens, f.start, f.end);
+        if (!span) return null;
         const link = {
           text: f.raw,
-          range: { start: { x: f.start + 1, y }, end: { x: f.end, y } },
+          range: {
+            start: { x: span.startCol + 1, y: first + span.startRow + 1 },
+            end: { x: span.endCol + 1, y: first + span.endRow + 1 },
+          },
           // Decorated only if Ctrl is already down at hover time; once xterm
           // marks this link hovered it swaps in live decoration setters, and the
           // key listeners flip them — so the link lights up whenever Ctrl is held
@@ -76,7 +94,7 @@ export function registerTerminalLinks(term, baseDir) {
         link.hover = () => { hoveredLink = link; };
         link.leave = () => { if (hoveredLink === link) hoveredLink = null; };
         return link;
-      });
+      }).filter(Boolean);
       callback(links.length ? links : undefined);
     },
   });

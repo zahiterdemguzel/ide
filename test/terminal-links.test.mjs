@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findTerminalLinks, looksLikePath } from '../src/renderer/shared/terminal-links-parse.js';
+import { findTerminalLinks, looksLikePath, mapSpanToRows, MAX_LINK_ROWS } from '../src/renderer/shared/terminal-links-parse.js';
 
 const raws = (text) => findTerminalLinks(text).map((l) => `${l.kind}:${l.raw}`);
 
@@ -58,6 +58,28 @@ test('findTerminalLinks: reports correct start/end offsets', () => {
   const [link] = findTerminalLinks(text);
   assert.equal(link.kind, 'path');
   assert.equal(text.slice(link.start, link.end), 'index.js');
+});
+
+test('findTerminalLinks: matches a very long URL spanning several wrapped rows worth of text', () => {
+  const url = 'https://example.com/' + 'a'.repeat(80 * (MAX_LINK_ROWS - 1));
+  assert.deepEqual(raws(`see ${url} end`), [`url:${url}`]);
+});
+
+test('mapSpanToRows: span inside a single row', () => {
+  assert.deepEqual(mapSpanToRows([80, 80], 5, 15), { startRow: 0, startCol: 5, endRow: 0, endCol: 14 });
+});
+
+test('mapSpanToRows: span crossing a wrap boundary lands on both rows', () => {
+  // 80-col rows; link runs from col 70 of row 0 through col 9 of row 1.
+  assert.deepEqual(mapSpanToRows([80, 80], 70, 90), { startRow: 0, startCol: 70, endRow: 1, endCol: 9 });
+});
+
+test('mapSpanToRows: offset exactly at a row start maps to that row, col 0', () => {
+  assert.deepEqual(mapSpanToRows([80, 80], 80, 85), { startRow: 1, startCol: 0, endRow: 1, endCol: 4 });
+});
+
+test('mapSpanToRows: empty span yields null', () => {
+  assert.equal(mapSpanToRows([80], 5, 5), null);
 });
 
 test('findTerminalLinks: finds multiple distinct links in one line', () => {

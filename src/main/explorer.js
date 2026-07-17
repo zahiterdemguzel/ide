@@ -185,14 +185,50 @@ bridge.handle('write-text', async (_e, { file, text }) => {
 // resolved path exists, is a file or dir, and sits inside the *open* repo —
 // the renderer routes in-repo files to the explorer's viewer, directories to
 // the OS file browser, and anything else to the OS via open-external.
+const statOrNull = (p) => fs.promises.stat(p).then((st) => st, () => null);
+
+// Last-resort lookup for a clicked relative path that resolves nowhere: walk
+// the open repo (bounded, skipping heavy dirs) for a path whose tail matches.
+// Handles tool output that prints paths relative to some deeper directory.
+async function findInRepo(repoPath, relParts) {
+  const SKIP = new Set(['node_modules', '.git', 'dist', 'out', 'build']);
+  const suffix = relParts.join('/').toLowerCase();
+  const queue = [repoPath];
+  let visited = 0;
+  while (queue.length && visited < 400) {
+    const dir = queue.shift();
+    visited++;
+    let entries;
+    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { continue; }
+    for (const ent of entries) {
+      const abs = path.join(dir, ent.name);
+      if (ent.isDirectory()) { if (!SKIP.has(ent.name)) queue.push(abs); continue; }
+      const rel = path.relative(repoPath, abs).split(path.sep).join('/').toLowerCase();
+      if (rel === suffix || rel.endsWith('/' + suffix)) return abs;
+    }
+  }
+  return null;
+}
+
 bridge.handle('resolve-link-path', async (_e, raw, baseDir) => {
   try {
     const p = String(raw || '').trim();
     if (!p) return { ok: false };
     const repoPath = getRepoPath();
     const base = baseDir || repoPath;
-    const abs = path.isAbsolute(p) ? path.normalize(p) : path.resolve(base, p);
-    const st = await fs.promises.stat(abs); // throws if it doesn't exist
+    let abs = path.isAbsolute(p) ? path.normalize(p) : path.resolve(base, p);
+    let st = await statOrNull(abs);
+    if (!st && !path.isAbsolute(p)) {
+      // Fallbacks for relative paths: the open repo root, then a bounded
+      // repo-wide search treating the clicked text as a path suffix.
+      const atRoot = path.resolve(repoPath, p);
+      if (atRoot !== abs) { st = await statOrNull(atRoot); if (st) abs = atRoot; }
+      if (!st) {
+        const found = await findInRepo(repoPath, p.split(/[\\/]/).filter((s) => s && s !== '.' && s !== '..'));
+        if (found) { abs = found; st = await statOrNull(found); }
+      }
+    }
+    if (!st) return { ok: false };
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     const inRepo = !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
     return { ok: true, isFile: st.isFile(), isDir: st.isDirectory(), inRepo, rel, abs };

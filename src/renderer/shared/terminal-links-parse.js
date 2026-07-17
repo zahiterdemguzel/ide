@@ -26,6 +26,27 @@ export function looksLikePath(raw) {
   return !!ext && PATH_EXT.has(ext);          // bare filename with a known extension
 }
 
+// How many wrapped terminal rows may join into one logical line for link
+// detection (6x the old single-row scan), so links that soft-wrap in a narrow
+// terminal still resolve end to end.
+export const MAX_LINK_ROWS = 6;
+
+// Map a [start, end) span inside a stitched logical line back to per-row
+// terminal coordinates. `rowLens` holds the text length of each stitched row;
+// returns 0-based { startRow, startCol, endRow, endCol } with endCol pointing
+// at the span's last character (inclusive), or null for an empty span.
+export function mapSpanToRows(rowLens, start, end) {
+  if (end <= start) return null;
+  const locate = (offset) => {
+    let row = 0, acc = 0;
+    while (row < rowLens.length - 1 && offset >= acc + rowLens[row]) { acc += rowLens[row]; row++; }
+    return { row, col: offset - acc };
+  };
+  const s = locate(start);
+  const e = locate(end - 1);
+  return { startRow: s.row, startCol: s.col, endRow: e.row, endCol: e.col };
+}
+
 // Find non-overlapping URL (first) then path matches in one terminal line.
 export function findTerminalLinks(text) {
   const out = [];
