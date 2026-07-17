@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue } = require('../src/main/agent-effort');
+const { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('../src/main/agent-effort');
 
 test('every offered level is a spawn flag', () => {
   for (const level of EFFORT_LEVELS) {
@@ -37,4 +37,12 @@ test('codex has its own ladder: minimal exists, max does not', () => {
   assert.equal(codexEffortValue(' XHigh '), 'xhigh');
   assert.equal(codexEffortValue('auto'), '');
   assert.equal(codexEffortValue(''), '');
+});
+
+test('a new codex session starts on medium; claude on the CLI default', () => {
+  assert.equal(defaultEffortFor('codex'), 'medium');
+  assert.equal(defaultEffortFor('claude'), '');
+  assert.equal(defaultEffortFor(''), '');
+  // The default must be a level the codex spawn will actually accept.
+  assert.equal(codexEffortValue(defaultEffortFor('codex')), 'medium');
 });

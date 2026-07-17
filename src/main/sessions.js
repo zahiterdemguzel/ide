@@ -13,7 +13,7 @@ const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
 const { installGuide: codexInstallGuide } = require('./codex-install');
-const { AUTO, cleanEffort, effortArgs, codexEffortValue } = require('./agent-effort');
+const { AUTO, cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
 const { tracksFs, editedFilePath, serialFsPlan, TEXT_EDIT_TOOLS } = require('./fs-track');
@@ -788,9 +788,10 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo. `model`/`subagentModel` are the per-session agent choice (see
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
-  // `effort` starts unset (the model's own default): it's not picked at creation, only
-  // switched on a running session (set-session-effort), and re-applied on every spawn.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: '', agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
+  // `effort` isn't picked at creation — it's switched on a running session
+  // (set-session-effort) and re-applied on every spawn — so it starts at the family's
+  // default: `medium` for Codex, unset (the model's own default) for Claude.
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model)), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   broadcastSessions();

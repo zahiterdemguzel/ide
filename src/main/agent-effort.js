@@ -15,6 +15,11 @@ const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // no `max`. Which ladder applies is the session's model family — see
 // effortLevelsFor; the clients read this to build their per-family menus.
 const CODEX_EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+// Codex sessions start here rather than unset: the Codex CLI's own default drifts with
+// the model, and a session that quietly reasons at some other level is a surprise the
+// badge can't show. `auto` remains reachable — it's a deliberate pick, not the absence
+// of one.
+const CODEX_DEFAULT_EFFORT = 'medium';
 
 function effortLevelsFor(family) {
   return family === 'codex' ? CODEX_EFFORT_LEVELS : EFFORT_LEVELS;
@@ -46,4 +51,10 @@ function codexEffortValue(v) {
   return CODEX_EFFORT_LEVELS.includes(s) ? s : '';
 }
 
-module.exports = { AUTO, EFFORT_LEVELS, CODEX_EFFORT_LEVELS, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue };
+// The effort a newly created session starts on: Codex gets an explicit `medium`,
+// Claude stays unset (its own default, resolved by the CLI).
+function defaultEffortFor(family) {
+  return family === 'codex' ? CODEX_DEFAULT_EFFORT : '';
+}
+
+module.exports = { AUTO, EFFORT_LEVELS, CODEX_EFFORT_LEVELS, CODEX_DEFAULT_EFFORT, defaultEffortFor, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue };
