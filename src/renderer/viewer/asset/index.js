@@ -1,5 +1,6 @@
-import { AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, SCENE_EXT } from '../../shared/ext.js';
+import { AUDIO_EXT, VIDEO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, SCENE_EXT } from '../../shared/ext.js';
 import { renderAudio } from './audio.js';
+import { renderVideo } from './video.js';
 import { renderZoom } from './zoom.js';
 import { renderPixelEditor } from './pixel-editor.js';
 import { renderImageAdjust, canAdjust } from './image-adjust.js';
@@ -39,6 +40,15 @@ export async function showAsset(file, ext) {
   });
   openExt.title = "Open in the OS's default program for this file type";
   assetTools.appendChild(openExt);
+
+  // Video streams from a file:// URL instead of the base64 read below — a clip can
+  // be hundreds of MB, and <video> only needs the ranges it is playing.
+  if (VIDEO_EXT.has(ext)) {
+    const u = await window.api.fileUrl(file);
+    if (!u.ok) { assetBody.textContent = u.error || 'Could not open file'; return; }
+    renderVideo(u.url, ext, assetBody, registerCleanup);
+    return;
+  }
 
   // Godot scenes are text, not bytes — the scene editor reads the file itself.
   if (SCENE_EXT.has(ext)) {

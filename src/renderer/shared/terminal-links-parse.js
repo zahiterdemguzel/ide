@@ -1,4 +1,4 @@
-import { extOf, IMG_EXT, AUDIO_EXT, VECTOR_EXT } from './ext.js';
+import { extOf, IMG_EXT, AUDIO_EXT, VIDEO_EXT, VECTOR_EXT } from './ext.js';
 import { EXT_LANG } from './highlight.js';
 
 // Pure parsing for the terminal's Ctrl+click links: locate the URL and path spans
@@ -14,7 +14,7 @@ export const PATH_RE = /(?:[A-Za-z]:[\\/]|\.{0,2}[\\/]|~[\\/])?[\w.@+-]+(?:[\\/]
 
 // Extensions that make a separator-less token (e.g. "renderer.js") a real link.
 export const PATH_EXT = new Set([
-  ...Object.keys(EXT_LANG), ...IMG_EXT, ...AUDIO_EXT, ...VECTOR_EXT,
+  ...Object.keys(EXT_LANG), ...IMG_EXT, ...AUDIO_EXT, ...VIDEO_EXT, ...VECTOR_EXT,
   'txt', 'log', 'lock', 'env', 'conf', 'gd', 'tscn', 'tres', 'godot',
 ]);
 

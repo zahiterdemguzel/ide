@@ -10,6 +10,16 @@ export function extOf(file) { const m = /\.([^.]+)$/.exec(file); return m ? m[1]
 // bundles several sizes; a plain <img> would show only one).
 export const IMG_EXT = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'ico']);
 export const AUDIO_EXT = new Set(['wav', 'ogg', 'mp3']);
+// Video formats routed to the video player. The first group is what Chromium
+// decodes natively (the web formats plus H.264/AAC in MP4 and QuickTime); the
+// rest are common container formats it usually cannot decode. They are listed
+// anyway so the player can say so and offer "Open externally" — better than the
+// text viewer dumping the bytes. `.ts` is deliberately absent: MPEG transport
+// streams are far rarer than TypeScript files.
+export const VIDEO_EXT = new Set([
+  'mp4', 'm4v', 'mov', 'webm', 'ogv',
+  'mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', '3gp', 'm2ts',
+]);
 // 3D model formats the three.js viewer can render (one loader per extension).
 export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']);
 // Subset of MODEL_EXT the 3D editor can write back: only the glTF family round-trips
@@ -60,7 +70,10 @@ const FILE_COLORS = {
   // made-up family colors (no Linguist standard):
   png: '#26a69a', jpg: '#26a69a', jpeg: '#26a69a', gif: '#26a69a', bmp: '#26a69a',
   webp: '#26a69a', svg: '#26a69a', ico: '#26a69a', ai: '#ff9a3c',
-  wav: '#ba68c8', ogg: '#ba68c8', mp3: '#ba68c8', mp4: '#ba68c8', mov: '#ba68c8',
+  wav: '#ba68c8', ogg: '#ba68c8', mp3: '#ba68c8',
+  mp4: '#5c6bc0', m4v: '#5c6bc0', mov: '#5c6bc0', webm: '#5c6bc0', ogv: '#5c6bc0',
+  mkv: '#5c6bc0', avi: '#5c6bc0', wmv: '#5c6bc0', flv: '#5c6bc0',
+  mpg: '#5c6bc0', mpeg: '#5c6bc0', '3gp': '#5c6bc0', m2ts: '#5c6bc0',
   glb: '#ff7043', gltf: '#ff7043', fbx: '#ff7043', obj: '#ff7043',
   usdz: '#ff7043', stl: '#ff7043', ply: '#ff7043',
   // Godot family — the engine's brand blue

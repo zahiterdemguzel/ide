@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extOf, fileColor, IMG_EXT, AUDIO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, HTML_EXT, SCENE_EXT } from '../src/renderer/shared/ext.js';
+import { extOf, fileColor, IMG_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, HTML_EXT, SCENE_EXT } from '../src/renderer/shared/ext.js';
 
 test('extOf: returns the lowercased extension after the last dot', () => {
   assert.equal(extOf('index.js'), 'js');
@@ -26,6 +26,16 @@ test('IMG_EXT / AUDIO_EXT / MODEL_EXT / VECTOR_EXT cover the asset-viewer types'
   for (const e of ['svg', 'ai']) assert.ok(VECTOR_EXT.has(e));
 });
 
+test('VIDEO_EXT covers the web formats plus the common containers', () => {
+  for (const e of ['mp4', 'm4v', 'mov', 'webm', 'ogv']) assert.ok(VIDEO_EXT.has(e));
+  for (const e of ['mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', '3gp', 'm2ts']) assert.ok(VIDEO_EXT.has(e));
+});
+
+test('VIDEO_EXT excludes .ts — TypeScript files are not transport streams', () => {
+  assert.ok(!VIDEO_EXT.has('ts'));
+  assert.ok(!VIDEO_EXT.has('mts'));
+});
+
 test('EDITABLE_MODEL_EXT is the glTF subset of MODEL_EXT', () => {
   for (const e of EDITABLE_MODEL_EXT) assert.ok(MODEL_EXT.has(e), `${e} must be a model ext`);
   assert.deepEqual([...EDITABLE_MODEL_EXT].sort(), ['glb', 'gltf']);
@@ -49,7 +59,7 @@ test('SCENE_EXT routes Godot scenes only (.tres/.escn stay with the text editor)
 });
 
 test('the asset-viewer extension sets are disjoint (one routing per type)', () => {
-  const sets = [IMG_EXT, AUDIO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SCENE_EXT];
+  const sets = [IMG_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SCENE_EXT];
   for (let i = 0; i < sets.length; i++)
     for (let j = i + 1; j < sets.length; j++)
       for (const e of sets[i]) assert.ok(!sets[j].has(e), `${e} is in two asset sets`);

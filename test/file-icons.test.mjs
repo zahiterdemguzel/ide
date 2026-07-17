@@ -29,6 +29,8 @@ test('iconForFile: data/asset families map to a shared glyph', () => {
   assert.equal(iconForFile('logo.png'), 'image');
   assert.equal(iconForFile('theme.svg'), 'image');
   assert.equal(iconForFile('track.mp3'), 'audio');
+  assert.equal(iconForFile('clip.mp4'), 'video');
+  assert.equal(iconForFile('screencast.mov'), 'video');
   assert.equal(iconForFile('robot.glb'), 'model3d');
   assert.equal(iconForFile('bundle.tar.gz'), 'archive');
   assert.equal(iconForFile('db.sqlite'), 'database');

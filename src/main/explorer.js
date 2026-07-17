@@ -17,6 +17,8 @@ const ASSET_MIME = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   bmp: 'image/bmp', webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon',
   wav: 'audio/wav', ogg: 'audio/ogg', mp3: 'audio/mpeg',
+  // Video is absent on purpose: the player streams from the file:// URL that
+  // 'file-url' hands back rather than reading the bytes through here.
   glb: 'model/gltf-binary', gltf: 'model/gltf+json', fbx: 'application/octet-stream',
   obj: 'text/plain', usdz: 'model/vnd.usdz+zip', stl: 'model/stl', ply: 'application/octet-stream',
   ai: 'application/illustrator',
