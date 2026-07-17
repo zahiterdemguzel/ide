@@ -69,6 +69,9 @@ export default function ControlScreen() {
   const { conn, state } = useConnection();
   const [info, setInfo] = useState<OpenResult | null>(null);
   const [frame, setFrame] = useState<Frame | null>(null);
+  // Last frame whose JPEG finished decoding; kept mounted under the incoming
+  // frame so the swap never shows the black backing mid-decode.
+  const [shown, setShown] = useState<Frame | null>(null);
   const [view, setView] = useState({ w: 0, h: 0, x: 0, y: 0 });
   const [mods, setMods] = useState<Set<Mod>>(new Set());
   const [dragLock, setDragLock] = useState(false);
@@ -188,6 +191,7 @@ export default function ControlScreen() {
     const size = captureSize();
     if (!conn || conn.state !== 'ready' || !size) return;
     displayRef.current = id;
+    setShown(null); // don't underlay the old display's last frame
     applyZoom(1, 0, 0); // zoom (and its streamed region) is per-display
     conn.req<OpenResult>('control-open', { ...size, display: id }).then(applyInfo).catch(() => {});
   }, [conn, captureSize, applyInfo, applyZoom]);
@@ -210,6 +214,7 @@ export default function ControlScreen() {
       unwatch();
       conn.send('control-close');
       setFrame(null);
+      setShown(null);
     };
   }, [conn, state, openControl]));
 
@@ -500,11 +505,23 @@ export default function ControlScreen() {
               { transform: [{ translateX: zoom.tx }, { translateY: zoom.ty }, { scale: zoom.scale }] },
             ]}
           >
+            {shown && shown !== frame ? (
+              // Last fully-decoded frame, kept underneath while the new source
+              // decodes — without it the Image goes blank mid-decode and the
+              // black frame area flashes through on every screen change.
+              <Image
+                source={{ uri: `data:image/jpeg;base64,${shown.b64}` }}
+                style={shownRect ? [styles.frameRegion, shownRect] : styles.frame}
+                resizeMode={shownRect ? 'stretch' : 'contain'}
+                fadeDuration={0}
+              />
+            ) : null}
             <Image
               source={{ uri: `data:image/jpeg;base64,${frame.b64}` }}
               style={frameRect ? [styles.frameRegion, frameRect] : styles.frame}
               resizeMode={frameRect ? 'stretch' : 'contain'}
               fadeDuration={0}
+              onLoad={() => setShown(frame)}
             />
             {frame.cursor ? <Cursor cx={frame.cursor.cx} cy={frame.cursor.cy} frame={frame} view={view} /> : null}
           </View>
