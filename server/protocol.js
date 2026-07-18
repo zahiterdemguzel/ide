@@ -251,8 +251,13 @@ const canCall = (kind, ch) => REMOTE_CHANNELS[kind] ? REMOTE_CHANNELS[kind].has(
 const isRemoteEvent = (ch) => REMOTE_EVENTS.has(ch);
 const isStreamEvent = (ch) => STREAM_EVENTS.has(ch);
 
+// Largest response frame the desktop will put on the relay socket. Kept under the
+// relay's 16MB ws maxPayload with headroom for framing: an oversized frame is
+// rejected by the receiver, and pre-fix relays crash outright on one.
+const MAX_RES_BYTES = 12 * 1024 * 1024;
+
 module.exports = {
-  PROTO_VERSION, REMOTE_CHANNELS, REMOTE_EVENTS, STREAM_EVENTS, ERR,
+  PROTO_VERSION, REMOTE_CHANNELS, REMOTE_EVENTS, STREAM_EVENTS, ERR, MAX_RES_BYTES,
   parseMessage, hello, paired, authOk, authErr, resOk, resErr, ev, fwdOk, fwdErr,
   canCall, isRemoteEvent, isStreamEvent,
 };

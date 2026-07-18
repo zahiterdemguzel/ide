@@ -48,6 +48,18 @@ test('auth-lib direct mode: valid token proxies in one round trip, invalid still
   assert.equal(auth.decide(`/apk/x?_ideauth=${token}`, '', true).action, 'deny');
 });
 
+test('auth-lib direct mode: valid token proxies in one round trip, invalid still denies', () => {
+  let t = 0;
+  const auth = createAuthState(() => t);
+  const token = auth.issueUrlToken();
+  // A non-browser client (the APK downloader) skips the cookie handshake.
+  assert.equal(auth.decide(`/apk/x?_ideauth=${token}`, '', true).action, 'proxy');
+  assert.equal(auth.decide('/apk/x?_ideauth=wrong', '', true).action, 'deny');
+  assert.equal(auth.decide('/apk/x', '', true).action, 'deny');
+  t += 11 * 60 * 1000;
+  assert.equal(auth.decide(`/apk/x?_ideauth=${token}`, '', true).action, 'deny');
+});
+
 test('proxy gates requests and pipes to the target', async () => {
   const target = http.createServer((req, res) => {
     res.writeHead(200, {

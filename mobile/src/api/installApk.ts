@@ -22,6 +22,7 @@
 // allowed install source, so a blocked launch sends the user to that setting.
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
+import * as Sharing from 'expo-sharing';
 import Constants from 'expo-constants';
 import { isRunningInExpoGo } from 'expo';
 
@@ -88,40 +89,58 @@ class InstallError extends Error {}
 const log = (...args: unknown[]) => console.log('[installApk]', ...args);
 const warn = (...args: unknown[]) => console.warn('[installApk]', ...args);
 
+// If the install activity comes back CANCELED faster than a human could have seen
+// (let alone dismissed) any UI, Android blocked it silently — the classic case being
+// a host app without the "install unknown apps" grant (Expo Go doesn't even declare
+// REQUEST_INSTALL_PACKAGES, so there it always ends this way).
+const SILENT_BLOCK_MS = 1500;
+
+async function tryInstallIntent(action: string, params: Record<string, unknown>): Promise<boolean> {
+  const t0 = Date.now();
+  try {
+    const res = await IntentLauncher.startActivityAsync(action, params as any);
+    const ms = Date.now() - t0;
+    log(`${action} returned resultCode ${res.resultCode} after ${ms}ms`);
+    if (res.resultCode === 0 && ms < SILENT_BLOCK_MS) {
+      warn(`${action} was dismissed instantly — Android blocked it without showing anything`);
+      return false;
+    }
+    return true;
+  } catch (e: any) {
+    warn(`${action} failed: ${e?.message ?? e}`);
+    return false;
+  }
+}
+
 async function launchInstaller(fileUri: string) {
   const stat = await FileSystem.getInfoAsync(fileUri, { size: true });
   if (!stat.exists) throw new InstallError(`The downloaded file vanished before install (${fileUri}).`);
   const contentUri = await FileSystem.getContentUriAsync(fileUri);
   log(`launching installer: ${contentUri} (${stat.size} bytes)`);
-  // ACTION_VIEW typed as an APK is the canonical route; ACTION_INSTALL_PACKAGE is
-  // the older dedicated one — on some Android builds VIEW resolves to nothing (or
-  // to a viewer that quietly does nothing), so try both before giving up.
-  const attempts: [string, Record<string, unknown>][] = [
-    ['android.intent.action.VIEW', { data: contentUri, type: APK_MIME, flags: 1 }],
-    ['android.intent.action.INSTALL_PACKAGE', { data: contentUri, flags: 1 }],
-  ];
-  let lastErr: any;
-  for (const [action, params] of attempts) {
-    try {
-      const res = await IntentLauncher.startActivityAsync(action, params);
-      log(`${action} returned resultCode ${res.resultCode}`);
-      return;
-    } catch (e: any) {
-      lastErr = e;
-      warn(`${action} failed: ${e?.message ?? e}`);
-    }
+
+  // Direct intents first: ACTION_VIEW typed as an APK, then the older dedicated
+  // ACTION_INSTALL_PACKAGE. Either succeeding (and staying on screen long enough to
+  // have really been seen) is the good path.
+  if (await tryInstallIntent('android.intent.action.VIEW', { data: contentUri, type: APK_MIME, flags: 1 })) return;
+  if (await tryInstallIntent('android.intent.action.INSTALL_PACKAGE', { data: contentUri, flags: 1 })) return;
+
+  // Both blocked. Hand the file to the share sheet: it always shows UI, and the
+  // system Files app it offers is itself allowed to install APKs — so this works
+  // even where the direct intent is silently swallowed (Expo Go, or a build whose
+  // unknown-sources toggle is off).
+  if (await Sharing.isAvailableAsync()) {
+    log('direct install blocked — opening the share sheet (pick Files, then Install)');
+    await Sharing.shareAsync(fileUri, { mimeType: APK_MIME, dialogTitle: 'Install APK' });
+    throw new InstallError('Android blocked the direct install, so the share sheet was opened instead. Pick "Files" (or your file manager) there and tap the APK to install it — or allow this app to install unknown apps in system settings and tap the APK here again.');
   }
-  // The commonest reason neither intent launches is that this app isn't yet an
-  // allowed install source — send the user straight to that setting so they can
-  // enable it and tap the APK again. (In Expo Go the source is Expo Go itself.)
-  // With a `package:` data URI Android opens THIS app's toggle instead of the
-  // full unknown-sources list.
+
+  // No share sheet either — last resort: open this app's unknown-sources toggle.
   const pkg = isRunningInExpoGo() ? 'host.exp.exponent' : Constants.expoConfig?.android?.package;
   await IntentLauncher.startActivityAsync(
     'android.settings.MANAGE_UNKNOWN_APP_SOURCES',
     pkg ? { data: `package:${pkg}` } : {},
   ).catch(() => {});
-  throw new InstallError(`Android wouldn't open the installer (${lastErr?.message ?? 'no handler'}). Allow this app to install unknown apps in the settings screen that just opened, then tap the APK again.`);
+  throw new InstallError('Android wouldn\'t open the installer. Allow this app to install unknown apps in the settings screen that just opened, then tap the APK again.');
 }
 
 // Downloads to `dest` and verifies the whole file arrived (a wrong size means an

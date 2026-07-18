@@ -89,6 +89,16 @@ function pushAlert(a: Omit<Alert, 'unread' | 'at'> & { at?: number }) {
   emit();
 }
 
+// Operation failures reported through the error dialog land here too, so an error
+// that was dismissed — or that flashed by while the user wasn't looking — is still
+// findable under the bell. Sequential ids: unlike session alerts these don't dedupe,
+// each failure is its own entry.
+let opErrorSeq = 0;
+export function reportError(title: string, detail: string) {
+  opErrorSeq += 1;
+  pushAlert({ id: `op-error:${opErrorSeq}`, kind: 'error', title, detail, sessionId: null });
+}
+
 // A "needs you" alert is only true while the session is still waiting: the moment it
 // moves on (answered from the desktop, resumed, archived), the alert is stale and
 // keeping it would send taps to a session that no longer wants anything.

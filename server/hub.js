@@ -111,7 +111,17 @@ function createHub(opts) {
         try {
           const result = await invoke('req', msg.ch, msg.args, ctx);
           trace('req ok', { ch: msg.ch, id: msg.id, ms: Date.now() - started });
-          reply(proto.resOk(msg.id, result));
+          const frame = proto.resOk(msg.id, result);
+          // A response above the relay's frame cap (a read-asset of a huge binary)
+          // would be rejected by the relay's ws receiver — and an unpatched relay
+          // *crashes* on it, taking every room down. Never let one leave the desktop;
+          // the caller gets a real error telling it to fetch in ranges instead.
+          const bytes = JSON.stringify(frame).length;
+          if (bytes > proto.MAX_RES_BYTES) {
+            trace('req oversized', { ch: msg.ch, id: msg.id, bytes });
+            return reply(proto.resErr(msg.id, `Response too large for the relay — fetch it in chunks (read-asset-chunk). Channel: ${msg.ch}`));
+          }
+          reply(frame);
         } catch (err) {
           const error = String((err && err.message) || err);
           trace('req failed', { ch: msg.ch, id: msg.id, ms: Date.now() - started, error });

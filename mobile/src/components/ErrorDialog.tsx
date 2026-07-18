@@ -10,6 +10,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { reportError } from '../api/notifications';
 import { color, font, radius, space } from '../theme';
 
 export type AppError = { title: string; message: string; kind?: 'error' | 'notice' };
@@ -24,7 +25,11 @@ export function errorText(e: any): string {
 }
 
 export function showError(title: string, message?: any): void {
-  sink?.({ title, message: message == null ? '' : errorText(message) });
+  const text = message == null ? '' : errorText(message);
+  // Every surfaced failure also lands in the Notifications tab, so an error the
+  // user dismissed (or never saw) can still be found and copied later.
+  reportError(title, text);
+  sink?.({ title, message: text });
 }
 
 // Same card, but for something that happened rather than something that failed —

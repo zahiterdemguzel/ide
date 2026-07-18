@@ -98,6 +98,14 @@ function startRelay({ port, host = '0.0.0.0', maxRooms = MAX_ROOMS, maxClientsPe
   wss.on('connection', (ws, req) => {
     ws.isAlive = true;
     ws.on('pong', () => { ws.isAlive = true; });
+    // A ws protocol error (an oversized frame past maxPayload, a malformed close)
+    // emits 'error' — unhandled, that single socket takes the whole relay process
+    // down (seen in production: a >16MB frame → RangeError → crash). Close the
+    // offender; everyone else stays connected.
+    ws.on('error', (err) => {
+      debug('ws error', { error: err.code || err.message });
+      try { ws.close(1009, 'protocol error'); } catch { ws.terminate(); }
+    });
     const url = new URL(req.url, 'http://relay');
     const role = url.searchParams.get('role');
     const roomId = url.searchParams.get('room');
