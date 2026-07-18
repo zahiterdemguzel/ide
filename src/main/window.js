@@ -1,4 +1,4 @@
-const { BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, Notification } = require('electron');
 const path = require('path');
 
 let win = null;
@@ -85,8 +85,9 @@ function createWindow() {
   });
   // First paint is ready — maximize while still hidden, then reveal in one step
   // so the user never sees the unpainted (white) surface or the resize jump.
+  // Dev runs stay windowed so the app doesn't cover the terminal it launched from.
   win.once('ready-to-show', () => {
-    win.maximize();
+    if (app.isPackaged) win.maximize();
     win.show();
   });
   win.loadFile('index.html');
