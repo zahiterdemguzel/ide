@@ -22,7 +22,9 @@ export default {
     'explorer.newFolder': 'Nueva carpeta',
     'explorer.collapseAll': 'Contraer todo',
 
-    'quickOpen.placeholder': 'Ir al archivo…',
+    'quickOpen.placeholder': 'Ir al archivo o buscar contenido…',
+    'quickOpen.files': 'Archivos',
+    'quickOpen.references': 'Referencias',
     'quickOpen.noMatches': 'No hay archivos coincidentes',
     'quickOpen.empty': 'No hay archivos en esta carpeta',
 

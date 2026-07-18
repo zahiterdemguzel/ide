@@ -22,7 +22,9 @@ export default {
     'explorer.newFolder': 'Neuer Ordner',
     'explorer.collapseAll': 'Alle einklappen',
 
-    'quickOpen.placeholder': 'Zu Datei springen…',
+    'quickOpen.placeholder': 'Zu Datei springen oder Inhalt suchen…',
+    'quickOpen.files': 'Dateien',
+    'quickOpen.references': 'Referenzen',
     'quickOpen.noMatches': 'Keine passenden Dateien',
     'quickOpen.empty': 'Keine Dateien in diesem Ordner',
 

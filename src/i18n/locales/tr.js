@@ -22,7 +22,9 @@ export default {
     'explorer.newFolder': 'Yeni klasör',
     'explorer.collapseAll': 'Tümünü daralt',
 
-    'quickOpen.placeholder': 'Dosyaya git…',
+    'quickOpen.placeholder': 'Dosyaya git veya içerikte ara…',
+    'quickOpen.files': 'Dosyalar',
+    'quickOpen.references': 'Referanslar',
     'quickOpen.noMatches': 'Eşleşen dosya yok',
     'quickOpen.empty': 'Bu klasörde dosya yok',
 

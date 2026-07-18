@@ -23,7 +23,9 @@ export default {
     'explorer.newFolder': 'New folder',
     'explorer.collapseAll': 'Collapse all',
 
-    'quickOpen.placeholder': 'Go to file…',
+    'quickOpen.placeholder': 'Go to file or search content…',
+    'quickOpen.files': 'Files',
+    'quickOpen.references': 'References',
     'quickOpen.noMatches': 'No matching files',
     'quickOpen.empty': 'No files in this folder',
 
