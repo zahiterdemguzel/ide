@@ -5,10 +5,14 @@
 // desktop through nut-js. Nothing runs on the phone; this is a remote control
 // with a live picture. See src/main/remote-control.js.
 //
-// Touch model (absolute, not a trackpad): a tap clicks where you touched, a
-// finger dragging moves the cursor there live, two fingers scroll, a long press
-// right-clicks. The key bar adds what a touch keyboard hasn't got — arrows,
-// Esc/Tab, and sticky Ctrl/Alt/Shift/Meta so combos like Ctrl+C work.
+// Two pointer modes, following the AnyDesk/TeamViewer conventions:
+// - Touch (absolute): a tap clicks where you touched, a long press then release
+//   right-clicks, a long press then move drags, two fingers scroll or pinch.
+// - Trackpad (relative): the finger moves the cursor like a laptop trackpad; a
+//   tap clicks at the cursor, a two-finger tap right-clicks, a long press then
+//   move drags, two fingers scroll or pinch.
+// The key bar adds what a touch keyboard hasn't got — arrows, Esc/Tab, and
+// sticky Ctrl/Alt/Shift/Meta so combos like Ctrl+C work.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, Image, Pressable, PanResponder, ActivityIndicator, ScrollView, StyleSheet, PixelRatio,
@@ -16,6 +20,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Mouse, Pointer } from 'lucide-react-native';
 import { useConnection } from '../api/context';
 import { color, font, radius, space } from '../theme';
 
@@ -58,11 +63,14 @@ const MIN_ZOOM = 1;
 const MAX_ZOOM = 5;
 const LONG_PRESS_MS = 500;
 const MOVE_THROTTLE_MS = 60; // live cursor-move sends while a finger drags
+const CURSOR_SIZE = 12; // on-screen px, held constant regardless of zoom
 const SCROLL_FLUSH_MS = 50;
 const SCROLL_GAIN = 1.4; // finger px → wheel notches; a screen drag should scroll more than 1:1
 
 type Mod = 'ctrl' | 'alt' | 'shift' | 'meta';
 const MOD_ORDER: Mod[] = ['ctrl', 'alt', 'shift', 'meta'];
+
+type PointerMode = 'touch' | 'trackpad';
 
 export default function ControlScreen() {
   const insets = useSafeAreaInsets();
@@ -74,7 +82,7 @@ export default function ControlScreen() {
   const [shown, setShown] = useState<Frame | null>(null);
   const [view, setView] = useState({ w: 0, h: 0, x: 0, y: 0 });
   const [mods, setMods] = useState<Set<Mod>>(new Set());
-  const [dragLock, setDragLock] = useState(false);
+  const [mode, setMode] = useState<PointerMode>('touch');
   const [typing, setTyping] = useState(false);
 
   const viewRef = useRef(view);
@@ -89,8 +97,13 @@ export default function ControlScreen() {
   connRef.current = conn;
   const modsRef = useRef(mods);
   modsRef.current = mods;
-  const dragLockRef = useRef(dragLock);
-  dragLockRef.current = dragLock;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  // Trackpad mode's virtual cursor, in normalized screen coords. Seeded from
+  // the desktop's reported cursor between gestures, then driven by finger
+  // deltas — moves are still sent as absolute positions, so the desktop side
+  // needs nothing new.
+  const vPos = useRef({ x: 0.5, y: 0.5 });
   const infoRef = useRef<OpenResult | null>(null);
   infoRef.current = info;
   const displayRef = useRef<string | null>(null); // which desktop display to capture
@@ -210,6 +223,10 @@ export default function ControlScreen() {
     const offFrame = conn.on('screen-frame', (f: Frame) => {
       if (f.seq <= lastSeq.current) return; // out-of-order frame is stale
       lastSeq.current = f.seq;
+      // Between gestures, keep the trackpad's virtual cursor pinned to where
+      // the desktop says the cursor really is — mid-gesture the lagging frame
+      // would yank it backwards, so the gesture owns it then.
+      if (f.cursor && !gesture.current.active) vPos.current = { x: f.cursor.cx, y: f.cursor.cy };
       setFrame(f);
     });
     return () => {
@@ -244,6 +261,19 @@ export default function ControlScreen() {
     return { x, y };
   }, []);
 
+  // Finger delta in view px → normalized screen delta, honouring the current
+  // letterbox scale and view zoom so 1 finger-px always moves the cursor 1
+  // displayed-px, whatever the zoom level.
+  const normDelta = useCallback((dx: number, dy: number): { x: number; y: number } => {
+    const f = frameRef.current; const { w, h } = viewRef.current;
+    if (!f || !w || !h) return { x: 0, y: 0 };
+    const { fw, fh } = impliedFull(f);
+    const s = Math.min(w / fw, h / fh) * zoomRef.current.scale;
+    return { x: dx / (fw * s), y: dy / (fh * s) };
+  }, []);
+
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
   // Scroll accumulation, flushed on a cadence so a fling is a few batched wheels.
   const scrollAcc = useRef({ dx: 0, dy: 0 });
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -256,6 +286,7 @@ export default function ControlScreen() {
 
   const gesture = useRef({
     last: { x: 0, y: 0 }, moved: false, twoFinger: false, dragging: false, panning: false,
+    active: false, longPressed: false, pressNorm: null as { x: number; y: number } | null,
     // Two-finger classification: 'none' until the fingers either spread/close
     // (pinch) or travel together (scroll); the first verdict sticks for the
     // whole gesture.
@@ -303,9 +334,12 @@ export default function ControlScreen() {
         pageOffset.current = { x: ne.pageX - ne.locationX, y: ne.pageY - ne.locationY };
       }
       g.moved = false;
+      g.active = true;
       g.twoFinger = evt.nativeEvent.touches.length >= 2;
       g.dragging = false;
       g.panning = false;
+      g.longPressed = false;
+      g.pressNorm = null;
       g.twoMode = 'none';
       g.lastDist = 0;
       g.last = localPoint(evt.nativeEvent);
@@ -313,25 +347,26 @@ export default function ControlScreen() {
       if (g.twoFinger) {
         const { dist, mid } = touchGeom(evt.nativeEvent.touches);
         g.startDist = dist; g.lastDist = dist; g.lastMid = mid; g.startMid = mid;
+      } else if (modeRef.current === 'trackpad') {
+        // Trackpad: the press point doesn't matter, only deltas. Arm the
+        // long-press so hold-then-move becomes a drag from the cursor.
+        g.longTimer = setTimeout(() => {
+          g.longTimer = null;
+          if (!g.moved) g.longPressed = true;
+        }, LONG_PRESS_MS);
       } else {
         const n = toNorm(g.last.x, g.last.y);
         if (!n && zoomRef.current.scale > 1) {
           // Touch on the letterbox/border while zoomed: drag pans the view.
           g.panning = true;
         } else if (n) {
-          if (dragLockRef.current) {
-            g.dragging = true;
-            send([{ k: 'down', x: n.x, y: n.y, button: 'left' }]);
-          } else {
-            // Long-press → right-click, unless the finger moves first.
-            g.longTimer = setTimeout(() => {
-              g.longTimer = null;
-              if (!g.moved) {
-                g.moved = true; // consume: release won't also left-click
-                send([{ k: 'tap', x: n.x, y: n.y, button: 'right', mods: activeMods() }]);
-              }
-            }, LONG_PRESS_MS);
-          }
+          g.pressNorm = n;
+          // AnyDesk-style long press: hold then release right-clicks, hold
+          // then move drags from the press point.
+          g.longTimer = setTimeout(() => {
+            g.longTimer = null;
+            if (!g.moved) g.longPressed = true;
+          }, LONG_PRESS_MS);
         }
       }
     },
@@ -384,8 +419,30 @@ export default function ControlScreen() {
         applyZoom(z.scale, z.tx + dx, z.ty + dy);
         return;
       }
-      // Single finger: move the cursor there live (throttled) so the user sees
-      // where a click will land, and so a drag-lock drag tracks the finger.
+      if (modeRef.current === 'trackpad') {
+        // Relative: the finger nudges the virtual cursor. A completed long
+        // press turns the first move into a left-button drag from the cursor.
+        const d = normDelta(dx, dy);
+        vPos.current = { x: clamp01(vPos.current.x + d.x), y: clamp01(vPos.current.y + d.y) };
+        if (g.longPressed && !g.dragging) {
+          g.dragging = true;
+          send([{ k: 'down', x: vPos.current.x, y: vPos.current.y, button: 'left' }]);
+        }
+        const now = Date.now();
+        if (now - g.lastMoveSent >= MOVE_THROTTLE_MS) {
+          g.lastMoveSent = now;
+          send([{ k: 'move', x: vPos.current.x, y: vPos.current.y }]);
+        }
+        return;
+      }
+      // Touch: a completed long press turns the first move into a drag from the
+      // press point (button down there, then the cursor tracks the finger).
+      if (g.longPressed && !g.dragging && g.pressNorm) {
+        g.dragging = true;
+        send([{ k: 'down', x: g.pressNorm.x, y: g.pressNorm.y, button: 'left' }]);
+      }
+      // Move the cursor there live (throttled) so the user sees where a click
+      // will land, and so a drag tracks the finger.
       const n = toNorm(x, y);
       const now = Date.now();
       if (n && now - g.lastMoveSent >= MOVE_THROTTLE_MS) {
@@ -393,27 +450,41 @@ export default function ControlScreen() {
         send([{ k: 'move', x: n.x, y: n.y }]);
       }
     },
-    onPanResponderRelease: (evt) => {
+    onPanResponderRelease: () => {
       const g = gesture.current;
       clearLong();
       if (scrollTimer.current) { clearTimeout(scrollTimer.current); flushScroll(); }
-      const n = toNorm(g.last.x, g.last.y);
-      if (g.dragging && n) {
-        send([{ k: 'move', x: n.x, y: n.y }, { k: 'up', button: 'left' }]);
-      } else if (!g.twoFinger && !g.panning && !g.moved && n) {
-        send([{ k: 'tap', x: n.x, y: n.y, button: 'left', mods: activeMods() }]);
+      const trackpad = modeRef.current === 'trackpad';
+      if (g.dragging) {
+        const end = trackpad ? vPos.current : toNorm(g.last.x, g.last.y);
+        send(end
+          ? [{ k: 'move', x: end.x, y: end.y }, { k: 'up', button: 'left' }]
+          : [{ k: 'up', button: 'left' }]);
+      } else if (g.twoFinger) {
+        // Two-finger tap (no scroll/pinch happened) right-clicks at the cursor
+        // — the trackpad convention; touch mode right-clicks via long press.
+        if (trackpad && g.twoMode === 'none' && !g.moved) {
+          send([{ k: 'tap', x: vPos.current.x, y: vPos.current.y, button: 'right', mods: activeMods() }]);
+        }
+      } else if (!g.panning && !g.moved) {
+        const p = trackpad ? vPos.current : (g.longPressed ? g.pressNorm : toNorm(g.last.x, g.last.y));
+        if (p) send([{ k: 'tap', x: p.x, y: p.y, button: g.longPressed ? 'right' : 'left', mods: activeMods() }]);
       }
+      g.active = false; g.longPressed = false; g.pressNorm = null;
       g.twoFinger = false; g.dragging = false; g.panning = false; g.twoMode = 'none';
     },
     onPanResponderTerminate: () => {
+      const g = gesture.current;
       clearLong();
-      gesture.current.dragging = false; gesture.current.panning = false; gesture.current.twoMode = 'none';
+      if (g.dragging) send([{ k: 'up', button: 'left' }]); // never leave the button stuck down
+      g.active = false; g.longPressed = false; g.pressNorm = null;
+      g.dragging = false; g.panning = false; g.twoMode = 'none';
     },
   })).current;
 
   const doubleClick = () => {
     const g = gesture.current;
-    const n = toNorm(g.last.x, g.last.y);
+    const n = modeRef.current === 'trackpad' ? vPos.current : toNorm(g.last.x, g.last.y);
     if (n) send([{ k: 'tap', x: n.x, y: n.y, button: 'left', double: true, mods: activeMods() }]);
   };
 
@@ -537,7 +608,9 @@ export default function ControlScreen() {
               fadeDuration={0}
               onLoad={() => setShown(frame)}
             />
-            {frame.cursor ? <Cursor cx={frame.cursor.cx} cy={frame.cursor.cy} frame={frame} view={view} /> : null}
+            {frame.cursor ? (
+              <Cursor cx={frame.cursor.cx} cy={frame.cursor.cy} frame={frame} view={view} zoom={zoom.scale} />
+            ) : null}
           </View>
         ) : (
           <View pointerEvents="none" style={styles.empty}>
@@ -570,15 +643,17 @@ export default function ControlScreen() {
         </ScrollView>
       </View>
 
-      {/* Action bar: double-click, drag-lock, and the typing toggle. */}
+      {/* Action bar: pointer-mode switch, double-click, and the typing toggle. */}
       <View style={styles.actions}>
+        <Pressable
+          style={({ pressed }) => [styles.action, styles.modeBtn, pressed && styles.keyPressed]}
+          onPress={() => setMode((m) => (m === 'touch' ? 'trackpad' : 'touch'))}
+        >
+          {mode === 'touch'
+            ? <Pointer size={18} color={color.text} />
+            : <Mouse size={18} color={color.text} />}
+        </Pressable>
         <Action icon="repeat" label="Double-click" onPress={doubleClick} />
-        <Action
-          icon="move"
-          label={dragLock ? 'Drag: on' : 'Drag'}
-          active={dragLock}
-          onPress={() => setDragLock((v) => !v)}
-        />
         <Action
           icon="keypad"
           label={typing ? 'Typing' : 'Type'}
@@ -606,7 +681,8 @@ export default function ControlScreen() {
 // The desktop's own cursor, painted over the frame at its reported position —
 // laid out against the letterboxed image, not the whole frame area.
 function Cursor(
-  { cx, cy, frame, view }: { cx: number; cy: number; frame: Frame; view: { w: number; h: number } },
+  { cx, cy, frame, view, zoom }:
+  { cx: number; cy: number; frame: Frame; view: { w: number; h: number }; zoom: number },
 ) {
   if (!view.w || !view.h) return null;
   const { fw, fh } = impliedFull(frame);
@@ -614,7 +690,16 @@ function Cursor(
   const dw = fw * scale; const dh = fh * scale;
   const ox = (view.w - dw) / 2; const oy = (view.h - dh) / 2;
   return (
-    <View pointerEvents="none" style={[styles.cursor, { left: ox + cx * dw - 6, top: oy + cy * dh - 6 }]} />
+    <View
+      pointerEvents="none"
+      style={[
+        styles.cursor,
+        { left: ox + cx * dw - CURSOR_SIZE / 2, top: oy + cy * dh - CURSOR_SIZE / 2 },
+        // The wrapper is zoomed, so counter-scale to keep a constant on-screen
+        // size. RN scales about the view's centre, which is the cursor point.
+        { transform: [{ scale: 1 / (zoom || 1) }] },
+      ]}
+    />
   );
 }
 
@@ -682,7 +767,7 @@ const styles = StyleSheet.create({
   frame: { flex: 1 },
   frameRegion: { position: 'absolute' },
   cursor: {
-    position: 'absolute', width: 12, height: 12, borderRadius: 6,
+    position: 'absolute', width: CURSOR_SIZE, height: CURSOR_SIZE, borderRadius: CURSOR_SIZE / 2,
     backgroundColor: color.accent, borderWidth: 1.5, borderColor: '#fff', opacity: 0.85,
   },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
@@ -711,6 +796,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
   },
   actionOn: { borderColor: color.accent },
+  modeBtn: { flex: 0, minWidth: 46, paddingHorizontal: 0 },
   actionLabel: { color: color.text, fontSize: font.size.sm, fontWeight: '600' },
   keyCatcher: { position: 'absolute', left: -1000, top: -1000, width: 50, height: 30 },
 });
