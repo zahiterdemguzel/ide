@@ -559,7 +559,7 @@ async function generateSessionName(id, prompt) {
   // ponytail: 2000-char cap is plenty for a title; bump if titles read truncated
   const text = 'Reply with ONLY a 2-4 word title (no quotes, no trailing punctuation) '
     + 'for this coding session:\n\n' + prompt.slice(0, 2000);
-  const out = await runHaiku(text, { cwd: getRepoPath() });
+  const out = await runHaiku(text);
   if (!out) return;
   const name = out.split('\n').pop().trim().slice(0, 60);
   const s = sessions.get(id);

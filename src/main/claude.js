@@ -108,12 +108,33 @@ function runApi(token, prompt) {
 // --- Fallback: one-shot CLI call ---------------------------------------------
 // Always works (and refreshes the OAuth token on disk), just slow. Used when the
 // API fast path is unavailable.
-async function runCli(prompt, { cwd } = {}) {
+//
+// The flags matter as much as the model. A bare `claude -p` boots a full agentic
+// session and bills its whole preamble — every built-in tool definition, the
+// repo's CLAUDE.md, its MCP server defs, its skill list — on every commit
+// message. This path only ever asks Haiku for one turn over a diff, so we
+// replace the system prompt, drop the tools, and run from a neutral cwd so no
+// project context is discovered. (`--bare` would do this in one flag, but it
+// refuses the OAuth token that this fallback exists to refresh.)
+const LEAN_ARGS = [
+  '-p', '--model', 'haiku',
+  '--system-prompt', `${CC_IDENTITY} ${OUTPUT_RULE}`,
+  '--tools', '',
+  '--strict-mcp-config',
+  '--disable-slash-commands',
+];
+
+async function runCli(prompt) {
   const exe = await resolveClaude();
   return new Promise((resolve) => {
     const win32 = process.platform === 'win32';
-    const child = execFile(win32 ? `"${exe}"` : exe, ['-p', '--model', 'haiku'],
-      { cwd, maxBuffer: 1024 * 1024, shell: win32 },
+    // Windows needs `shell` to launch the `claude.cmd` shim, and the shell
+    // re-splits argv — so quote each argument there, including the empty
+    // `--tools` value, which would otherwise be dropped instead of disabling
+    // the tools. None of LEAN_ARGS contains a double quote, so wrapping is enough.
+    const args = win32 ? LEAN_ARGS.map((a) => `"${a}"`) : LEAN_ARGS;
+    const child = execFile(win32 ? `"${exe}"` : exe, args,
+      { cwd: os.tmpdir(), maxBuffer: 1024 * 1024, shell: win32 },
       (err, stdout) => resolve(err ? null : stdout.trim()));
     child.stdin.end(prompt);
   });
@@ -142,15 +163,17 @@ async function claudeAvailable() {
 }
 
 // One-shot Haiku generation: API fast path, CLI fallback. The full instruction
-// is in `prompt` (the API uses a generic system prompt). Resolves to the trimmed
-// text, or null only when both paths fail.
-async function runHaiku(prompt, { cwd } = {}) {
+// is in `prompt` — both paths send it as the only user message, under the same
+// one-line system prompt and with no tools or project context, so a caller never
+// pays for more than the text it passed in. Resolves to the trimmed text, or
+// null only when both paths fail.
+async function runHaiku(prompt) {
   const token = readOauthToken();
   if (token) {
     const out = await runApi(token, prompt);
     if (out !== null) return out;
   }
-  return runCli(prompt, { cwd });
+  return runCli(prompt);
 }
 
 // --- Subscription usage (toolbar meter) --------------------------------------

@@ -239,7 +239,7 @@ bridge.handle('session-diff', guard('reading a session diff', async (_e, id) => 
 async function sessionCommitMessage(s, id, patch) {
   if (patch && patch.trim()) {
     const out = await Promise.race([
-      runHaiku(commitMessagePrompt(patch), { cwd: getRepoPath() }),
+      runHaiku(commitMessagePrompt(patch)),
       new Promise((resolve) => setTimeout(() => resolve(null), COMMIT_MSG_TIMEOUT_MS)),
     ]);
     const cleaned = cleanCommitMessage(out);

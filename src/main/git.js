@@ -184,7 +184,7 @@ bridge.handle('git-revert', (_e, { file, untracked }) => {
 async function generateCommitMessage() {
   const diff = (await git(['diff', '--cached'])).stdout;
   if (!diff.trim()) return '';
-  const out = await runHaiku(commitMessagePrompt(diff), { cwd: getRepoPath() });
+  const out = await runHaiku(commitMessagePrompt(diff));
   return cleanCommitMessage(out);
 }
 
