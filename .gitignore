@@ -4,6 +4,9 @@ dist/
 # and shipped via electron-builder extraResources. Too large to commit.
 vendor/
 *.log
+# Recolored dev-run icon, derived from assets/icon.png by scripts/gen-dev-icon.js
+# on `npm start`. Generated, and never shipped in a packaged build.
+assets/icon-dev.png
 crashlogs/
 .DS_Store
 package-lock.json
