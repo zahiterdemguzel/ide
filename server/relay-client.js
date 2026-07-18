@@ -39,6 +39,12 @@ function relayWsUrl(relayUrl, room, instance) {
   return u.toString();
 }
 
+// Tunnel upload flow control: pause the local read above this much unsent ws
+// buffer, resume below half of it. 4MB keeps a big transfer's memory flat while
+// staying far above any interactive traffic.
+const TUNNEL_HIGH_WATER = 4 * 1024 * 1024;
+const TUNNEL_DRAIN_POLL_MS = 50;
+
 // opts: { relayUrl, room, instance, hub, tunnel: { localPort(targetPort) → Promise<port> }, log }
 // Returns { url, connected(), close() }. Reconnects with backoff until closed.
 function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {} }) {
@@ -118,6 +124,23 @@ function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {
         socket.on('data', (b) => {
           debugTunnel('local → relay', { stream: id, bytes: b.length });
           send(F.tunnelData(id, b));
+          // Backpressure: a local server hands us a large body (a 150MB+ APK from
+          // apk-server) as fast as loopback goes, but the relay drains at WAN speed —
+          // unchecked, the whole file piles up in the ws send buffer. Pause the local
+          // read while the buffer is above the high-water mark; poll (ws has no drain
+          // event) and resume once it has half-emptied.
+          if (ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount > TUNNEL_HIGH_WATER && !s.throttled) {
+            s.throttled = true;
+            socket.pause();
+            const tick = setInterval(() => {
+              const gone = !streams.has(id);
+              if (gone || !ws || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount < TUNNEL_HIGH_WATER / 2) {
+                clearInterval(tick);
+                s.throttled = false;
+                if (!gone) socket.resume();
+              }
+            }, TUNNEL_DRAIN_POLL_MS);
+          }
         });
         socket.on('end', () => {
           debugTunnel('local ended', { stream: id });

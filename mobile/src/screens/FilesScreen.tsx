@@ -96,6 +96,8 @@ export default function FilesScreen() {
           req: (ch, args, opts) => conn.req(ch, args, opts),
           forwardPort: (port, path) => conn.forwardPort(port, path),
           closeForward: (port) => conn.closeForward(port),
+          state: () => conn.state,
+          onState: (fn) => conn.onState(fn),
         }, rel, name);
       } catch (err) {
         showError('Install APK', `Could not open the installer for ${name}.\n\n${errorText(err)}`);

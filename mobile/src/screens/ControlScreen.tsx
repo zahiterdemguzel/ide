@@ -198,6 +198,11 @@ export default function ControlScreen() {
 
   const applyInfo = useCallback((r: OpenResult) => {
     displayRef.current = r.display;
+    // Every control-open restarts the desktop's frame counter at 0, so the
+    // stale-frame guard must restart too — otherwise every frame after a
+    // display switch is dropped as "out of order" and the picture never
+    // changes.
+    lastSeq.current = 0;
     setInfo(r);
   }, []);
 

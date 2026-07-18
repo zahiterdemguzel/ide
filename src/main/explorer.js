@@ -367,8 +367,8 @@ bridge.handle('apk-http-url', async (_e, file) => {
     const inside = path.relative(repoPath, abs);
     if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
     const { size } = await fs.promises.stat(abs);
-    const urls = await publishApk(abs, path.basename(abs));
-    return { ok: true, urls, size };
+    const pub = await publishApk(abs, path.basename(abs));
+    return { ok: true, urls: pub.urls, size, port: pub.port, path: pub.path };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 bridge.handle('write-asset', async (_e, { file, base64 }) => {

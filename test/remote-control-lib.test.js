@@ -109,3 +109,36 @@ test('normalizeCursor maps into 0..1 and nulls outside the display', () => {
   assert.deepEqual(normalizeCursor({ x: 1920 + 960, y: 540 }, { x: 1920, y: 0, width: 1920, height: 1080 }), { cx: 0.5, cy: 0.5 });
   assert.equal(normalizeCursor({ x: 5, y: 5 }, null), null);
 });
+
+test('clampRegion clamps into 0..1, collapses full/invalid to null', () => {
+  assert.deepEqual(clampRegion({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 }), { x: 0.25, y: 0.25, w: 0.5, h: 0.5 });
+  // out-of-bounds origin slides back so the rect stays inside the screen
+  assert.deepEqual(clampRegion({ x: 0.9, y: -0.2, w: 0.5, h: 0.5 }), { x: 0.5, y: 0, w: 0.5, h: 0.5 });
+  // near-full rect (float drift from the phone) is just full screen
+  assert.equal(clampRegion({ x: 0, y: 0.001, w: 0.999, h: 0.998 }), null);
+  assert.equal(clampRegion(null), null);
+  assert.equal(clampRegion({ x: 0.1, y: 0.1, w: NaN, h: 0.5 }), null);
+  // tiny rect grows to the minimum size instead of a degenerate capture
+  const tiny = clampRegion({ x: 0.5, y: 0.5, w: 0.001, h: 0.001 });
+  assert.ok(tiny.w >= 0.02 && tiny.h >= 0.02);
+});
+
+test('regionSourceSize scales the full-screen capture so the crop hits the requested width, capped at native', () => {
+  const cap = { width: 640, height: 400 };
+  const screen = { w: 2560, h: 1600 };
+  // half-width region: source is 2x the requested width, aspect kept
+  assert.deepEqual(regionSourceSize({ x: 0, y: 0, w: 0.5, h: 0.5 }, cap, screen), { width: 1280, height: 800 });
+  // deep zoom would exceed native px — capped at the screen itself
+  assert.deepEqual(regionSourceSize({ x: 0, y: 0, w: 0.1, h: 0.1 }, cap, screen), { width: 2560, height: 1600 });
+  assert.equal(regionSourceSize(null, cap, screen), null);
+  assert.equal(regionSourceSize({ x: 0, y: 0, w: 0.5, h: 0.5 }, cap, { w: 0, h: 0 }), null);
+});
+
+test('cropRect maps a region to integer pixels inside the image', () => {
+  assert.deepEqual(cropRect({ x: 0.25, y: 0.5, w: 0.5, h: 0.25 }, 1280, 800),
+    { x: 320, y: 400, width: 640, height: 200 });
+  // rounding can push the rect past the edge — it slides back in bounds
+  const r = cropRect({ x: 0.667, y: 0.667, w: 0.334, h: 0.334 }, 999, 777);
+  assert.ok(r.x + r.width <= 999 && r.y + r.height <= 777);
+  assert.ok(r.width >= 1 && r.height >= 1);
+});

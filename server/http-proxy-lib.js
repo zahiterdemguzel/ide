@@ -34,9 +34,12 @@ function createAuthState(now = Date.now) {
     cookieValue,
     // Decide what to do with an incoming request (pathWithQuery + cookie header):
     //  { action: 'redirect', location, setCookie } — valid URL token: set cookie, strip token
-    //  { action: 'proxy' }                         — valid cookie
+    //  { action: 'proxy' }                         — valid cookie, or valid URL token + `direct`
     //  { action: 'deny' }                          — neither
-    decide(url, cookieHeader) {
+    // `direct` is for non-browser clients (the phone's APK downloader) that can't be
+    // trusted to carry a Set-Cookie across the 302 — with a valid URL token they get
+    // proxied in one round trip instead of the cookie handshake.
+    decide(url, cookieHeader, direct = false) {
       const cookies = parseCookies(cookieHeader);
       // Constant-time: this long-lived session secret is the more valuable of the two
       // credentials, so it gets at least the same care as the short-lived URL token.
@@ -45,6 +48,7 @@ function createAuthState(now = Date.now) {
       const params = new URLSearchParams(query);
       const token = params.get(TOKEN_PARAM);
       if (token && urlToken && now() <= expiresAt && safeEqual(token, urlToken)) {
+        if (direct) return { action: 'proxy' };
         params.delete(TOKEN_PARAM);
         const rest = params.toString();
         return {

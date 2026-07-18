@@ -62,15 +62,17 @@ function ensureServer() {
   });
 }
 
-// Publish `absPath` under a fresh token and return one candidate URL per LAN address
-// (empty when there's none to serve on). The phone tries them until one downloads.
+// Publish `absPath` under a fresh token. Returns one candidate URL per LAN address
+// (empty when there's none, or when a firewall silently eats them — the phone can't
+// tell, so it also gets `port` + `path` to reach the same server through the relay
+// port-forward proxy, which rides the desktop's *outbound* relay connection and so
+// works even when inbound LAN connections are blocked).
 async function publishApk(absPath, name) {
-  const hosts = lanAddresses();
-  if (!hosts.length) return [];
   await ensureServer();
   const token = crypto.randomBytes(16).toString('hex');
   tokens.set(token, { absPath, name, expires: Date.now() + TOKEN_TTL_MS });
-  return hosts.map((host) => `http://${host}:${port}/apk/${token}`);
+  const apkPath = `/apk/${token}`;
+  return { urls: lanAddresses().map((host) => `http://${host}:${port}${apkPath}`), port, path: apkPath };
 }
 
 module.exports = { publishApk };

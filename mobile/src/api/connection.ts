@@ -200,7 +200,10 @@ export class Connection {
     this.suspended = false;
   }
 
-  req<T = unknown>(ch: string, args?: unknown): Promise<T> {
+  // `timeoutMs` raises the default deadline for requests whose *response* is
+  // legitimately huge or slow (a multi-MB read-asset-chunk crossing the relay) —
+  // without it the 20s default declares the socket dead mid-transfer and closes it.
+  req<T = unknown>(ch: string, args?: unknown, opts?: { timeoutMs?: number }): Promise<T> {
     if (this.state !== 'ready' || !this.ws) return Promise.reject(new Error('not connected'));
     const id = this.nextId++;
     const ws = this.ws;
@@ -214,7 +217,7 @@ export class Connection {
         // the normal reconnect path heals it, instead of every later request also
         // burning 20s. Event-driven: no keepalive pings, no battery cost.
         if (this.ws === ws && this.state === 'ready') ws.close();
-      }, REQ_TIMEOUT_MS);
+      }, opts?.timeoutMs ?? REQ_TIMEOUT_MS);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
     });
   }

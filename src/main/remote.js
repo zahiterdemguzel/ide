@@ -25,12 +25,12 @@ const push = require('./push');
 const remoteBrowser = require('./remote-browser');
 const remoteControl = require('./remote-control');
 
-// Port forwarding is parked while the remote browser (remote-browser.js) covers
-// mobile testing: the desktop renders the page and streams it, instead of the
-// phone's own browser reaching through a proxy. Flip to true to re-enable —
-// nothing below is deleted, and the hub already answers 'forwarding-disabled'
-// when no `forward` is injected.
-const PORT_FORWARDING_ENABLED = false;
+// The Ports *tab* stays parked while the remote browser (remote-browser.js) covers
+// mobile testing, but the forwarding plumbing itself is back on: APK sideloading
+// uses it as its off-LAN/firewalled download path (the phone forwards the apk-server
+// port over the relay when no LAN URL answers — see installApk.ts). The phone UI
+// gate is SHOW_PORTS_TAB in mobile/.
+const PORT_FORWARDING_ENABLED = true;
 
 // Paired devices persist machine-wide (like recent-folders.json): pairing a
 // phone once should survive app restarts and instances. Only token hashes are

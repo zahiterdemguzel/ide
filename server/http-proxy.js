@@ -23,7 +23,7 @@ function startPortForward({ targetPort, host = '0.0.0.0', now } = {}) {
   const auth = createAuthState(now);
 
   const server = http.createServer((req, res) => {
-    const verdict = auth.decide(req.url, req.headers.cookie);
+    const verdict = auth.decide(req.url, req.headers.cookie, req.headers['x-ide-direct'] === '1');
     // The URL carries the one-time auth token, so log the path without its query.
     debug(verdict.action, { target: targetPort, method: req.method, path: req.url.split('?')[0] });
     if (verdict.action === 'deny') {
