@@ -193,6 +193,9 @@ async function enable() {
   // Now reachable, so say so: this is what puts this window in the list a phone
   // chooses from.
   publishInstance();
+  // ...and keep saying so: an entry that stops being refreshed is how a reader tells
+  // this window apart from one that was killed and left its entry behind.
+  registry.startHeartbeat();
   if (!config.enabled) saveConfig({ ...config, enabled: true });
   return status();
 }

@@ -14,7 +14,7 @@
 const path = require('path');
 const fs = require('fs');
 const { sharedDataDir, instanceId, startedAt } = require('./instance');
-const { liveInstances, upsertInstance } = require('./instance-lib');
+const { liveInstances, upsertInstance, HEARTBEAT_MS } = require('./instance-lib');
 
 const file = path.join(sharedDataDir, 'remote-instances.json');
 
@@ -39,10 +39,27 @@ function write(entries) {
 // instances saving at the same moment can still lose one entry — that self-heals,
 // because an instance republishes whenever its project changes and the phone refetches.
 function publish(fields) {
-  write(upsertInstance(read(), { id: instanceId, pid: process.pid, startedAt, ...fields }));
+  last = fields;
+  write(upsertInstance(read(), { id: instanceId, pid: process.pid, startedAt, seenAt: Date.now(), ...fields }));
+}
+
+// Keep proving this window is alive. Without it an entry is only as trustworthy as its
+// pid, and a dead instance's pid gets reused — see instance-lib.js `liveInstances`.
+// Unref'd so a pending beat can never hold the process open at quit.
+let last = null;
+let timer = null;
+function startHeartbeat() {
+  if (timer) return;
+  timer = setInterval(() => publish(last || {}), HEARTBEAT_MS);
+  if (timer.unref) timer.unref();
+}
+function stopHeartbeat() {
+  if (timer) clearInterval(timer);
+  timer = null;
 }
 
 function remove() {
+  stopHeartbeat();
   write(read().filter((e) => e && e.id !== instanceId));
 }
 
@@ -53,4 +70,4 @@ function remove() {
 // there and can pick another.
 const list = () => liveInstances(read(), isAlive);
 
-module.exports = { publish, remove, list, instanceId };
+module.exports = { publish, remove, list, startHeartbeat, stopHeartbeat, instanceId };
