@@ -16,7 +16,7 @@ const { installGuide: codexInstallGuide } = require('./codex-install');
 const { AUTO, cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
-const { tracksFs, editedFilePath, serialFsPlan, TEXT_EDIT_TOOLS } = require('./fs-track');
+const { tracksFs, editedFilePath, serialFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
@@ -364,6 +364,25 @@ async function statusMap() {
 // each changed path to the session as an 'add' (file now present — a created
 // binary, a moved-in file, or a Bash-modified file) or a 'delete' (file gone — a
 // moved-out or removed file). Returns whether anything was recorded.
+// Sessions must never leave changes staged: agents sometimes run `git rm`/`git
+// mv`/`git add`, which stage as a side effect and pollute the shared index the
+// user drives from the git pane. Unstage exactly the paths this tool call newly
+// staged (per the before/after snapshot window — a path the user staged before
+// the tool ran is left alone). Only the index entry is reset; the working-tree
+// change itself survives, so the per-session commit machinery (which reads HEAD
+// + working tree, never the real index) is unaffected. On an unborn HEAD
+// `reset` fails, so drop the entry with `rm --cached` instead (same fallback as
+// the git pane's unstage button). Returns whether anything was unstaged, so the
+// caller knows a cached snapshot is now stale.
+async function unstageToolStaged(before, after) {
+  const paths = newlyStagedPaths(before, after);
+  for (const rel of paths) {
+    const r = await git(['reset', '-q', 'HEAD', '--', rel]);
+    if (!r.ok) await git(['rm', '--cached', '-r', '-f', '-q', '--', rel]);
+  }
+  return paths.length > 0;
+}
+
 function applyFsDiff(s, before, after) {
   const repoPath = getRepoPath();
   let changed = false;
@@ -530,8 +549,13 @@ async function recordSessionActivity(payload) {
       // crashing in applyFsDiff.
       const base = s.preStatus;
       s.preStatus = null;
-      const now = await statusMap();
-      if (plan !== 'snapshot' && base && applyFsDiff(s, base, now)) changed = true;
+      let now = await statusMap();
+      if (plan !== 'snapshot' && base) {
+        if (applyFsDiff(s, base, now)) changed = true;
+        // Re-snapshot after an unstage so a stored baseline reflects the real
+        // index state, not the pre-unstage codes.
+        if (await unstageToolStaged(base, now) && plan !== 'diff') now = await statusMap();
+      }
       if (plan !== 'diff') s.preStatus = now;
     }
   } else if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
@@ -545,7 +569,9 @@ async function recordSessionActivity(payload) {
   } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload)) {
     s.fsInFlight = Math.max(0, (s.fsInFlight || 0) - 1);
     if (s.fsInFlight === 0 && s.preStatus) {
-      if (applyFsDiff(s, s.preStatus, await statusMap())) changed = true;
+      const now = await statusMap();
+      if (applyFsDiff(s, s.preStatus, now)) changed = true;
+      await unstageToolStaged(s.preStatus, now);
       s.preStatus = null;
     }
   }

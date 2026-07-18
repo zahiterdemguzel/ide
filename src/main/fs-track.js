@@ -101,4 +101,27 @@ function serialFsPlan(payload, hasBaseline) {
   return null;
 }
 
-module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, TEXT_EDIT_TOOLS, READONLY_TOOLS };
+// Merge-conflict codes — never touch these; unstaging mid-conflict corrupts the
+// resolution state git tracks in the index.
+const CONFLICT_CODES = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
+
+// Paths a tool call newly STAGED, from its before/after porcelain snapshots
+// (Map<relPath, "XY">; X is the index column). Agents sometimes run `git rm`/
+// `git mv`/`git add`, which stage as a side effect — these are the paths the
+// session tracker unstages again so the shared index stays under the user's
+// control. A path already staged before the tool ran (e.g. by the user in the
+// git pane) is not included.
+function newlyStagedPaths(before, after) {
+  const staged = (code) => {
+    if (!code || CONFLICT_CODES.has(code)) return false;
+    const x = code[0];
+    return x !== ' ' && x !== '?' && x !== '!';
+  };
+  const out = [];
+  for (const [rel, code] of after) {
+    if (staged(code) && !staged(before.get(rel))) out.push(rel);
+  }
+  return out;
+}
+
+module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS, READONLY_TOOLS };

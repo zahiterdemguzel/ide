@@ -100,3 +100,22 @@ test('editedFilePath reads file_path and NotebookEdit notebook_path', () => {
   assert.equal(editedFilePath({}), null);
   assert.equal(editedFilePath(undefined), null);
 });
+
+test('newlyStagedPaths finds only paths a tool call newly staged', () => {
+  const { newlyStagedPaths } = require('../src/main/fs-track');
+  const m = (o) => new Map(Object.entries(o));
+  // git rm: unstaged file becomes a staged delete → unstage it
+  assert.deepEqual(newlyStagedPaths(m({ 'a.txt': ' M' }), m({ 'a.txt': 'D ' })), ['a.txt']);
+  // git mv: staged delete + staged add pair → both unstaged
+  assert.deepEqual(
+    newlyStagedPaths(m({ 'old.txt': ' M' }), m({ 'old.txt': 'D ', 'new.txt': 'A ' })).sort(),
+    ['new.txt', 'old.txt']);
+  // git add of an untracked file
+  assert.deepEqual(newlyStagedPaths(m({ 'n.txt': '??' }), m({ 'n.txt': 'A ' })), ['n.txt']);
+  // already staged before the tool ran (user's own staging) → untouched
+  assert.deepEqual(newlyStagedPaths(m({ 'u.txt': 'M ' }), m({ 'u.txt': 'MM' })), []);
+  // plain unstaged edits and untracked files → untouched
+  assert.deepEqual(newlyStagedPaths(m({}), m({ 'w.txt': ' M', 'x.txt': '??' })), []);
+  // merge conflicts are never unstaged
+  assert.deepEqual(newlyStagedPaths(m({}), m({ 'c.txt': 'UU', 'd.txt': 'AA' })), []);
+});
