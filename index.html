@@ -328,6 +328,19 @@
         <ul id="branch-list" class="branch-list"></ul>
         <div id="branch-empty" class="branch-empty" data-i18n="git.noBranches" hidden>No branches</div>
       </div>
+      <div id="git-more-menu" class="git-menu" role="menu" hidden>
+        <button data-action="undo" role="menuitem"><span class="git-menu-icon">↶</span><span data-i18n="git.menu.undo">Undo last commit</span></button>
+        <button data-action="amend" role="menuitem"><span class="git-menu-icon">✎</span><span data-i18n="git.menu.amend">Amend last commit</span></button>
+        <div class="git-menu-sep"></div>
+        <button data-action="pr-create" role="menuitem"><span class="git-menu-icon">⤴</span><span data-i18n="git.menu.prCreate">Create pull request</span></button>
+        <button data-action="pr-view" role="menuitem"><span class="git-menu-icon">⇗</span><span data-i18n="git.menu.prView">Open pull request</span></button>
+        <button data-action="browse" role="menuitem"><span class="git-menu-icon">🗗</span><span data-i18n="git.menu.browse">Open repository on GitHub</span></button>
+        <div class="git-menu-sep"></div>
+        <button data-action="copy-branch" role="menuitem"><span class="git-menu-icon">⧉</span><span data-i18n="git.menu.copyBranch">Copy branch name</span></button>
+        <div class="git-menu-sep"></div>
+        <button data-action="force-push" class="git-menu-danger" role="menuitem"><span class="git-menu-icon">⇈</span><span data-i18n="git.menu.forcePush">Force push (with lease)</span></button>
+        <button data-action="clean" class="git-menu-danger" role="menuitem"><span class="git-menu-icon">🗑</span><span data-i18n="git.menu.clean">Delete untracked files</span></button>
+      </div>
       <div id="git-tabs" class="git-tabs">
         <button class="git-tab active" data-tab="changes" data-i18n="git.tab.changes">Changes</button>
         <button class="git-tab" data-tab="history" data-i18n="git.tab.history">History</button>
@@ -369,8 +382,8 @@
           <div class="commit-msg-wrap"><textarea id="commit-msg" rows="2" data-i18n-placeholder="git.commitPlaceholder" placeholder="Commit message"></textarea></div>
           <div class="git-commit-actions">
             <button id="git-commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 12h6"/><path d="M15 12h6"/></svg> <span data-i18n="git.commit">Commit</span></button>
-            <button id="git-undo" data-i18n-title="git.undoTitle" title="Undo last commit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/></svg> <span data-i18n="git.undo">Undo</span></button>
             <button id="git-push"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg> <span data-i18n="git.push">Push</span><span id="git-ahead" class="git-ahead-badge" hidden></span></button>
+            <button id="git-more" data-i18n-title="git.moreTitle" title="More git actions" aria-haspopup="menu" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
           </div>
         </div>
       </div>

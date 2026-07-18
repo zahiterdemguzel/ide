@@ -699,10 +699,6 @@ commitBtn.onclick = async () => {
     showGitMsg(r.stderr || 'Commit failed', false);
   }
   refreshGit(); refreshHistory();};
-document.getElementById('git-undo').onclick = async () => {
-  const r = await window.api.gitUndo();
-  showGitMsg(r.ok ? 'Last commit undone' : (r.stderr || 'Undo failed'), r.ok);
-  refreshGit(); refreshHistory();};
 const pushBtn = document.getElementById('git-push');
 pushBtn.onclick = async () => {
   const aheadEl = document.getElementById('git-ahead');
@@ -720,6 +716,117 @@ pushBtn.onclick = async () => {
   }
   refreshGit();
 };
+
+// --- the "⋯" overflow menu ---
+// Everything that doesn't earn a permanent button in the commit row lives here:
+// history rewrites (undo/amend), the GitHub hand-offs, and the destructive ones.
+// Same fixed-position trick as the branch popover — `#git-main` is overflow:hidden,
+// so an absolutely-positioned menu would be clipped at the pane border.
+const moreBtn = document.getElementById('git-more');
+const moreMenu = document.getElementById('git-more-menu');
+
+function positionMoreMenu() {
+  const pane = document.getElementById('git').getBoundingClientRect();
+  const btn = moreBtn.getBoundingClientRect();
+  // Opens upward: the button sits at the very bottom of the pane, so a menu below
+  // it would fall off the window.
+  moreMenu.style.bottom = `${Math.round(window.innerHeight - btn.top + 6)}px`;
+  moreMenu.style.right = `${Math.round(window.innerWidth - pane.right + 8)}px`;
+  moreMenu.style.top = 'auto';
+  moreMenu.style.left = 'auto';
+}
+
+function closeMoreMenu() {
+  moreMenu.hidden = true;
+  moreBtn.setAttribute('aria-expanded', 'false');
+}
+
+moreBtn.onclick = (e) => {
+  e.stopPropagation();
+  if (!moreMenu.hidden) { closeMoreMenu(); return; }
+  moreMenu.hidden = false;
+  moreBtn.setAttribute('aria-expanded', 'true');
+  positionMoreMenu();
+};
+document.addEventListener('click', (e) => {
+  if (!moreMenu.hidden && !moreMenu.contains(e.target) && !moreBtn.contains(e.target)) closeMoreMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMoreMenu(); });
+window.addEventListener('resize', () => { if (!moreMenu.hidden) positionMoreMenu(); });
+
+// Run one menu action, reporting through the same status line the commit row uses.
+// `refresh` says which views the action can have invalidated, so a read-only entry
+// (copy, open in browser) doesn't trigger a pointless status re-read.
+async function runMoreAction(action) {
+  const box = document.getElementById('commit-msg');
+
+  if (action === 'undo') {
+    const r = await window.api.gitUndo();
+    showGitMsg(r.ok ? 'Last commit undone' : (r.stderr || 'Undo failed'), r.ok);
+    refreshGit(); refreshHistory();
+
+  } else if (action === 'amend') {
+    // A message typed in the commit box replaces the old one; an empty box keeps it.
+    const msg = box.value.trim();
+    const r = await window.api.gitAmend(msg);
+    if (r.ok && msg) { box.value = ''; box.dispatchEvent(new Event('input')); }
+    showGitMsg(r.ok ? 'Last commit amended' : (r.stderr || 'Amend failed'), r.ok);
+    refreshGit(); refreshHistory();
+
+  } else if (action === 'pr-create') {
+    showGitMsg('Opening pull request…', true);
+    const r = await window.api.ghPrCreate();
+    if (!r.ok) { showGitErrorDialog(r.stderr || 'Could not create the pull request', 'Create pull request failed'); return; }
+    showGitMsg(r.existing ? 'Pull request already open' : ('Pull request created' + (r.url ? ': ' + r.url : '')), true);
+    refreshGit();
+
+  } else if (action === 'pr-view') {
+    const r = await window.api.ghPrView();
+    if (!r.ok) showGitErrorDialog(r.stderr || 'No pull request for this branch', 'Open pull request failed');
+
+  } else if (action === 'browse') {
+    const r = await window.api.ghBrowse();
+    if (!r.ok) showGitErrorDialog(r.stderr || 'Could not open the repository', 'Open on GitHub failed');
+
+  } else if (action === 'copy-branch') {
+    if (!currentBranch) { showGitMsg('No branch checked out', false); return; }
+    await navigator.clipboard.writeText(currentBranch);
+    showGitMsg(`Copied “${currentBranch}”`, true);
+
+  } else if (action === 'force-push') {
+    const ok = await confirmDialog({
+      title: t('git.forcePushTitle'),
+      message: t('git.forcePushMsg'),
+      ok: t('git.menu.forcePush'),
+      danger: true,
+    });
+    if (!ok) return;
+    const r = await window.api.gitForcePush();
+    if (!r.ok) showGitErrorDialog(r.stderr || 'Force push failed', 'Force push failed');
+    else showGitMsg('Force pushed', true);
+    refreshGit(); refreshHistory();
+
+  } else if (action === 'clean') {
+    const ok = await confirmDialog({
+      title: t('git.cleanTitle'),
+      message: t('git.cleanMsg'),
+      ok: t('git.menu.clean'),
+      danger: true,
+    });
+    if (!ok) return;
+    const r = await window.api.gitCleanUntracked();
+    showGitMsg(r.ok ? 'Untracked files deleted' : (r.stderr || 'Clean failed'), r.ok);
+    refreshGit();
+  }
+}
+
+moreMenu.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  e.stopPropagation();
+  closeMoreMenu();
+  runMoreAction(btn.dataset.action);
+});
 
 // --- create-repository panel (shown when the open folder isn't a git repo) ---
 // Init the repo, make the initial commit, and create + push a GitHub repo, all

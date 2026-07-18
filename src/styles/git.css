@@ -172,7 +172,7 @@
 }
 .git-commit-actions button:hover { background: var(--border); }
 /* Commit is the primary action of the pane — give it the full accent fill so it
-   leads; Undo / Push stay as quieter secondary buttons beside it. */
+   leads; Push / ⋯ stay as quieter secondary buttons beside it. */
 #git-commit { flex: 1; background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 #git-commit:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 /* #git-push needs positioning context for the corner badge */
@@ -191,6 +191,32 @@
   0%   { left: -60%; }
   100% { left: 110%; }
 }
+/* The overflow menu's trigger: icon-only, last in the row so it reads as "and the
+   rest" rather than competing with Commit/Push. */
+#git-more { flex: none; padding: 6px 8px; }
+#git-more[aria-expanded="true"] { background: var(--border); border-color: var(--accent); }
+
+.git-menu {
+  /* Fixed, not absolute — same reason as .branch-menu: `#git-main` is
+     overflow:hidden and would clip it. positionMoreMenu() in git-pane.js anchors
+     it above the button (it sits at the pane's bottom edge) and against the pane's
+     right edge. */
+  position: fixed; z-index: 20;
+  min-width: 220px; max-width: calc(100vw - 16px);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55); padding: 4px; box-sizing: border-box;
+}
+.git-menu[hidden] { display: none; }
+.git-menu button {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: 0; border-radius: 5px; cursor: pointer;
+  padding: 6px 8px; color: var(--fg); font-family: inherit; font-size: 12px; text-align: left;
+}
+.git-menu button:hover { background: var(--bg-3); }
+.git-menu .git-menu-icon { flex: none; width: 16px; text-align: center; color: var(--fg-dim); }
+.git-menu .git-menu-danger { color: var(--red); }
+.git-menu .git-menu-danger .git-menu-icon { color: var(--red); }
+.git-menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 
 /* Working-tree-clean empty state: fills the space where the file lists would be,
    so a clean repo reads as intentional rather than blank. */

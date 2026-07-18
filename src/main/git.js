@@ -2,7 +2,7 @@ const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runHaiku } = require('./claude');
-const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage } = require('./git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
 
@@ -201,16 +201,36 @@ bridge.handle('git-commit', async (_e, msg) => {
   const r = await git(['commit', '-m', msg]);
   return { ...r, message: msg };
 });
+// Is HEAD already on the upstream? Rewriting such a commit (undo, amend) would
+// diverge from the remote. With no upstream the rev-list fails, and nothing is
+// pushed, so the rewrite is allowed.
+async function headIsPushed() {
+  const r = await git(['rev-list', '--count', '@{u}..HEAD']);
+  return r.ok && (parseInt(r.stdout.trim(), 10) || 0) === 0;
+}
+
 // Undo last commit, keep its changes staged. Soft reset, no history rewrite beyond
-// one. Refuses when HEAD is already on the upstream: dropping a pushed commit would
-// diverge from the remote, so those must be reverted (a new commit) instead. With no
-// upstream, rev-list fails and nothing is pushed, so the undo is allowed.
+// one. Pushed commits must be reverted (a new commit) instead.
 bridge.handle('git-undo', async () => {
-  const pushed = await git(['rev-list', '--count', '@{u}..HEAD']);
-  if (pushed.ok && (parseInt(pushed.stdout.trim(), 10) || 0) === 0) {
+  if (await headIsPushed()) {
     return { ok: false, stderr: 'Last commit is already pushed — revert it instead of undoing.' };
   }
   return git(['reset', '--soft', 'HEAD~1']);
+});
+
+// Fold the current changes into the last commit. Mirrors git-commit: with nothing
+// staged, stage everything first, so "amend" means "and everything I've since
+// changed" rather than failing. An empty message keeps the original one
+// (--no-edit — there is no tty to open an editor on). Refuses on a pushed commit
+// for the same reason undo does: amending rewrites it.
+bridge.handle('git-amend', async (_e, msg) => {
+  if (await headIsPushed()) {
+    return { ok: false, stderr: 'Last commit is already pushed — amending it would rewrite remote history.' };
+  }
+  const nothingStaged = (await git(['diff', '--cached', '--quiet'])).ok;
+  if (nothingStaged) await git(['add', '-A']);
+  const text = (msg || '').trim();
+  return git(['commit', '--amend', ...(text ? ['-m', text] : ['--no-edit'])]);
 });
 
 // Push. A branch with no upstream fails with "has no upstream branch"; retry once
@@ -225,6 +245,47 @@ bridge.handle('git-push', async () => {
   // pull/merge/push — flag it so the renderer can offer to hand that to a session.
   return { ...r, needsMerge: !r.ok && pushNeedsMerge(r.stderr) };
 });
+
+// Overwrite the remote branch with the local one — what a rewritten history (undo,
+// amend, rebase) needs to publish. --force-with-lease, never a bare --force: it
+// refuses if the remote moved since our last fetch, so a colleague's push can't be
+// silently destroyed. The renderer confirms before calling this.
+bridge.handle('git-force-push', async () => {
+  let r = await git(['push', '--force-with-lease']);
+  if (!r.ok && /no upstream|set-upstream|--set-upstream/i.test(r.stderr)) {
+    r = await git(['push', '--force-with-lease', '-u', 'origin', 'HEAD']);
+  }
+  return r;
+});
+
+// Delete untracked files and folders. Ignored files (build output, node_modules)
+// are deliberately left alone — no -x — so this cleans up stray new files without
+// wiping the working setup. Destructive and unrecoverable; the renderer confirms.
+bridge.handle('git-clean-untracked', () => git(['clean', '-fdq']));
+
+// Open a pull request for the current branch. gh can only do that once the branch
+// exists on the remote, so push it (with -u, creating the tracking ref) first.
+// An already-open PR is surfaced as-is rather than failing on gh's "already
+// exists". Either way the PR is opened in the browser — gh does that itself, as
+// there is no openExternal path from main.
+bridge.handle('gh-pr-create', async () => {
+  const existing = await gh(['pr', 'view', '--json', 'url', '--jq', '.url']);
+  if (existing.ok && existing.stdout.trim()) {
+    await gh(['pr', 'view', '--web']);
+    return { ok: true, existing: true, url: existing.stdout.trim() };
+  }
+  const push = await git(['push', '-u', 'origin', 'HEAD']);
+  if (!push.ok) return { ok: false, stderr: push.stderr || 'Could not push the branch' };
+  const created = await gh(['pr', 'create', '--fill']);
+  if (!created.ok) return { ok: false, stderr: created.stderr || 'Could not create the pull request' };
+  await gh(['pr', 'view', '--web']);
+  return { ok: true, url: firstUrl(created.stdout) };
+});
+
+// Open the current branch's pull request / the repository on GitHub. Both are pure
+// browser hand-offs; gh reports cleanly when there is no PR or no GitHub remote.
+bridge.handle('gh-pr-view', () => gh(['pr', 'view', '--web']));
+bridge.handle('gh-browse', () => gh(['browse']));
 
 // --- history (History tab) ---
 // Hashes of commits on HEAD not yet on the upstream — what the History tab tags as

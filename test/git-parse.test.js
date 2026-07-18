@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -272,4 +272,24 @@ test('orderBranchesByUsage: empty/absent reflog leaves the order untouched', () 
   const branches = [{ name: 'main', remote: false }, { name: 'dev', remote: false }];
   assert.deepEqual(orderBranchesByUsage(branches, ''), branches);
   assert.deepEqual(orderBranchesByUsage(branches, undefined), branches);
+});
+
+test('firstUrl: picks the PR URL out of gh create chatter', () => {
+  const out = [
+    'Creating pull request for feature/x into main in acme/ide',
+    '',
+    'https://github.com/acme/ide/pull/42',
+  ].join('\n');
+  assert.equal(firstUrl(out), 'https://github.com/acme/ide/pull/42');
+});
+
+test('firstUrl: trims trailing punctuation and returns the first of several', () => {
+  assert.equal(firstUrl('see https://example.com/a/b, then later'), 'https://example.com/a/b');
+  assert.equal(firstUrl('http://a.test http://b.test'), 'http://a.test');
+});
+
+test('firstUrl: empty string when there is no URL', () => {
+  assert.equal(firstUrl('nothing here'), '');
+  assert.equal(firstUrl(''), '');
+  assert.equal(firstUrl(undefined), '');
 });

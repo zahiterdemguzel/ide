@@ -181,4 +181,13 @@ function orderBranchesByUsage(branches, reflogStdout) {
     .map((e) => e.b);
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage };
+// The first http(s) URL in a command's output. `gh pr create` prints the new PR's
+// URL, but can precede it with progress chatter ("Creating pull request for…"), so
+// the line position isn't fixed. Trailing punctuation is trimmed so a URL at the
+// end of a sentence still round-trips. Empty string when there is none.
+function firstUrl(text) {
+  const m = /https?:\/\/\S+/.exec(text || '');
+  return m ? m[0].replace(/[).,]+$/, '') : '';
+}
+
+module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl };
