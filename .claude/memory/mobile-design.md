@@ -73,7 +73,11 @@ applying, and the bar's own background becomes what shows through.
 ## The pieces
 
 `mobile/src/components/ui.tsx` holds the shared primitives (`Card`, `CategoryLabel`,
-`StatusBadge`, `Pill`, `Divider`, `Button`, `IconButton`, `UsageRing`).
+`StatusBadge`, `Pill`, `Divider`, `Button`, `IconButton`, `UsageRing`, `EmptyState`).
+`EmptyState` is the centred icon/title/message (+ optional action) a list shows when it
+has nothing — its no-project form is `NoProject` in `ScreenHeader.tsx` (it needs
+`ChromeContext.openProjects`), which Files/Git/Sessions early-return when
+`ChromeContext.project` is null so those project-scoped tabs read the same when empty.
 `UsagePanel.tsx` is the popup the ring opens — a screen-level piece rather than a
 primitive, so it sits beside `ScreenHeader` instead.
 

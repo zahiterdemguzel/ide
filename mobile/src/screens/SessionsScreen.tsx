@@ -13,7 +13,7 @@
 // main sorts newest-first and knows nothing of these categories, so a later page can
 // add rows to a group already on screen. That's the intended read (the groups are a
 // lens on what you've scrolled to), not a sync bug.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, TextInput, SectionList, Pressable, Alert, ActivityIndicator, Modal,
   Animated, Easing, StyleSheet,
@@ -23,7 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
 import StateDot from '../components/StateDot';
-import ScreenHeader from '../components/ScreenHeader';
+import ScreenHeader, { ChromeContext, NoProject } from '../components/ScreenHeader';
 import { Card, CategoryLabel, Pill, IconButton } from '../components/ui';
 import { showError } from '../components/ErrorDialog';
 import { shortAgo } from '../api/time';
@@ -83,6 +83,7 @@ const MENU_GAP = 8;
 
 export default function SessionsScreen({ navigation }: any) {
   const { conn } = useConnection();
+  const { project } = useContext(ChromeContext);
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState<Session[]>([]);
   const [total, setTotal] = useState(0);
@@ -421,6 +422,15 @@ export default function SessionsScreen({ navigation }: any) {
       <IconButton icon="archive-outline" label="Archive" onPress={() => archive(s)} />
     </>
   ));
+
+  if (!project) {
+    return (
+      <View style={styles.fill}>
+        <ScreenHeader title="Sessions" />
+        <NoProject />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.fill}>

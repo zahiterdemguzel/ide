@@ -20,7 +20,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { color, radius, type, inset } from '../theme';
 import { useUsage, windowUtil, windowResetIn, rampColor } from '../api/usage';
 import { useUnreadCount } from '../api/notifications';
-import { UsageRing } from './ui';
+import { UsageRing, EmptyState } from './ui';
 import UsagePanel from './UsagePanel';
 import { basename } from './ProjectDrawer';
 
@@ -152,6 +152,24 @@ export default function ScreenHeader(
 
       <UsagePanel visible={usageOpen} view={usage} onClose={() => setUsageOpen(false)} />
     </View>
+  );
+}
+
+// What the Files/Git/Sessions tabs show in place of their list when no project is
+// open: those tabs are all scoped to a project, so without one they have nothing to
+// list. The action opens the project switcher — the same drawer the header pill does —
+// so a first-run phone isn't stranded on an empty screen with no obvious next tap.
+export function NoProject() {
+  const { openProjects } = useContext(ChromeContext);
+  return (
+    <EmptyState
+      icon="folder-open-outline"
+      title="No project open"
+      message="Open a project to browse its files, sessions and git."
+      actionLabel="Select project"
+      actionIcon="folder-open-outline"
+      onAction={openProjects}
+    />
   );
 }
 

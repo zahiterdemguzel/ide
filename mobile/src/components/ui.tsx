@@ -158,6 +158,38 @@ export function Divider({ inset = 0 }: { inset?: number }) {
   return <View style={[styles.divider, { marginLeft: inset }]} />;
 }
 
+// The centred placeholder a screen shows when it has nothing to list — an icon in a
+// soft well, a title, a line of explanation, and an optional call to action. One
+// component so "no project open" reads the same on every tab (see NoProject in
+// ScreenHeader), rather than each screen respelling its own bare line of text.
+export function EmptyState(
+  { icon, title, message, actionLabel, actionIcon, onAction, style }:
+  {
+    icon: any; title: string; message?: string;
+    actionLabel?: string; actionIcon?: any; onAction?: () => void;
+    style?: StyleProp<ViewStyle>;
+  },
+) {
+  return (
+    <View style={[styles.emptyState, style]}>
+      <View style={styles.emptyIcon}>
+        <Ionicons name={icon} size={30} color={color.muted} />
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      {!!message && <Text style={styles.emptyMessage}>{message}</Text>}
+      {!!(actionLabel && onAction) && (
+        <Button
+          label={actionLabel}
+          icon={actionIcon}
+          tone="secondary"
+          onPress={onAction}
+          style={styles.emptyAction}
+        />
+      )}
+    </View>
+  );
+}
+
 // The system's filled button. `hue` defaults to the green every create/commit
 // action uses; `tone="secondary"` is the raised grey one.
 export function Button(
@@ -280,6 +312,16 @@ const styles = StyleSheet.create({
   pillLabel: { fontSize: 10.5, fontWeight: '600' },
 
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: color.borderSoft },
+
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 6 },
+  emptyIcon: {
+    width: 64, height: 64, borderRadius: 32, marginBottom: 12,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: color.surface, borderWidth: 1, borderColor: color.borderSoft,
+  },
+  emptyTitle: { color: color.text, fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  emptyMessage: { color: color.muted, fontSize: 13, lineHeight: 19, textAlign: 'center' },
+  emptyAction: { marginTop: 14, paddingHorizontal: 20 },
 
   button: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

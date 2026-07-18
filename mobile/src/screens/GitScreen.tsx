@@ -2,7 +2,7 @@
 // Mirrors the desktop git pane (src/renderer/git-pane.js) and its git-* IPC channels
 // (same payload shapes as src/main/git.js). Destructive actions the desktop arms with a
 // two-click confirm use a destructive Alert here — there's no hover-to-arm on touch.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import {
   View, Text, SectionList, FlatList, Pressable, TextInput, Modal,
   ActivityIndicator, Alert, StyleSheet,
@@ -13,7 +13,7 @@ import { useConnection } from '../api/context';
 import { newSessionWithPrompt } from '../api/session-prompt';
 import CommitHistory from '../components/CommitHistory';
 import FileIcon from '../components/FileIcon';
-import ScreenHeader from '../components/ScreenHeader';
+import ScreenHeader, { ChromeContext, NoProject } from '../components/ScreenHeader';
 import { CategoryLabel, Divider } from '../components/ui';
 import { showError } from '../components/ErrorDialog';
 import { color, radius, font, shadow } from '../theme';
@@ -102,6 +102,7 @@ function splitPath(rel: string) {
 
 export default function GitScreen({ navigation }: any) {
   const { conn } = useConnection();
+  const { project } = useContext(ChromeContext);
   const [status, setStatus] = useState<Status | null>(null);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -237,6 +238,15 @@ export default function GitScreen({ navigation }: any) {
     { key: 'staged', title: 'Staged', data: status.staged, staged: true, conflict: false },
     { key: 'unstaged', title: 'Changes', data: status.unstaged, staged: false, conflict: false },
   ] : []).filter((s) => s.data.length > 0);
+
+  if (!project) {
+    return (
+      <View style={styles.fill}>
+        <ScreenHeader title="Git" />
+        <NoProject />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.fill}>

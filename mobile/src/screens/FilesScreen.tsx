@@ -5,7 +5,7 @@
 // The browser is one card of rows under a breadcrumb; opening a file replaces the
 // whole screen with the viewer, which keeps its own compact bar (a large title
 // would cost the file half its height).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, Pressable, TextInput, Alert, StyleSheet, ActivityIndicator,
   ScrollView, KeyboardAvoidingView, Platform, BackHandler,
@@ -17,9 +17,9 @@ import { useConnection } from '../api/context';
 import { langFor } from '../generated/desktop-assets';
 import FileIcon from '../components/FileIcon';
 import CodeView from '../components/CodeView';
-import ScreenHeader from '../components/ScreenHeader';
+import ScreenHeader, { ChromeContext, NoProject } from '../components/ScreenHeader';
 import { Divider } from '../components/ui';
-import { showError, errorText } from '../components/ErrorDialog';
+import { showError } from '../components/ErrorDialog';
 import { isApk, installApk } from '../api/installApk';
 import { color, radius, font, inset } from '../theme';
 
@@ -30,6 +30,7 @@ const parent = (rel: string) => rel.split('/').slice(0, -1).join('/');
 
 export default function FilesScreen() {
   const { conn } = useConnection();
+  const { project } = useContext(ChromeContext);
   const insets = useSafeAreaInsets();
   const [cwd, setCwd] = useState('');
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -80,12 +81,13 @@ export default function FilesScreen() {
     // An .apk isn't text — on Android, pull its bytes and hand it to the OS
     // package installer instead of trying to render it in the viewer.
     if (Platform.OS === 'android' && isApk(e.name)) {
-      if (!conn) return;
       setOpening(true);
       try {
-        await installApk((ch, args) => conn.req(ch, args), rel, e.name);
-      } catch (err) {
-        showError('Install APK', `Could not open the installer for ${e.name}.\n\n${errorText(err)}`);
+        const r: any = await conn?.req('read-asset', rel);
+        if (!r?.ok) return showError('Files', r?.error ?? 'Could not read that file.');
+        await installApk(r.base64, e.name);
+      } catch {
+        showError('Files', 'Could not open the installer for this APK.');
       } finally { setOpening(false); }
       return;
     }
@@ -127,6 +129,15 @@ export default function FilesScreen() {
     });
     return () => sub.remove();
   }, [file, closeFile, list]));
+
+  if (!project) {
+    return (
+      <View style={styles.fill}>
+        <ScreenHeader title="Files" />
+        <NoProject />
+      </View>
+    );
+  }
 
   if (file) {
     const name = file.split('/').pop()!;
