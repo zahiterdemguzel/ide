@@ -178,6 +178,10 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     color: color.text, fontSize: font.size.md, lineHeight: 20,
+    // Android adds ascender/descender padding on top of the explicit padding, which
+    // pushes a one-line field past the 38px buttons. Drop it so 9 + 20 + 9 holds.
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     backgroundColor: color.raised,
     borderRadius: 19,
     paddingHorizontal: 14, paddingTop: 9, paddingBottom: 9,
