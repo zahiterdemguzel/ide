@@ -82,23 +82,23 @@ On Windows, Chromium runs its network service in a separate child process, and *
 
 Merely unsandboxing the service (`disable-features=NetworkServiceSandbox`) is **not** enough — the separate process is still present and still a target for DLL injection, so it keeps dying. The fix in `src/main/index.js` is `enable-features=NetworkServiceInProcess`, which runs the network service inside the main process: there is no separate child to crash, so the loop disappears. We keep `disable-features=NetworkServiceSandbox` alongside it as a harmless fallback. No security trade-off here since the app makes no network requests. Keep both.
 
-## Windows target is NSIS, not portable — startup time
+## Windows target is `dir` (win-unpacked), not portable — startup time
 
-The Windows build target is **`nsis`** (an assisted installer — classic wizard with
-a welcome page, install-directory selection, and a "run now" checkbox on finish),
-**not** `portable`.
-The `portable` target produces a single `.exe` that, on every launch,
-**self-extracts the entire ~70 MB bundle (Electron + `node_modules`) to a throwaway
-`%TEMP%\<guid>` dir, runs from there, and deletes it on exit** — so every cold start
-pays a full decompress + disk-write (and an antivirus scan of the freshly-extracted
-files) *before the window opens*. That made launch noticeably slow. NSIS extracts
-**once** at install time and then launches the installed files directly, so startup
-is near-instant. Don't switch back to `portable` without accepting that cost.
+The Windows build target is **`dir`**: `npm run build` produces
+`dist/win-unpacked/` with the exe and its files laid out on disk. No installer is
+built — we don't need one.
+
+Don't switch to `portable`. That target produces a single `.exe` that, on every
+launch, **self-extracts the entire ~70 MB bundle (Electron + `node_modules`) to a
+throwaway `%TEMP%\<guid>` dir, runs from there, and deletes it on exit** — so every
+cold start pays a full decompress + disk-write (and an antivirus scan of the
+freshly-extracted files) *before the window opens*. `dir` launches the laid-out
+files directly, so startup is near-instant.
 
 `crashDir()` in `src/main/crashlog.js` still prefers the `PORTABLE_EXECUTABLE_DIR`
 env var (set only by the portable target) so it keeps working if anyone ever rebuilds
-portable; for the NSIS build that var is unset and it falls back to next-to-exe (the
-install dir, which is writable and persistent), then the project root (dev). Keep the
+portable; for the `dir` build that var is unset and it falls back to next-to-exe (the
+unpacked dir, which is writable and persistent), then the project root (dev). Keep the
 fallback chain.
 
 Note: node-pty itself works fine in a packaged build — electron-builder's

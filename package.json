@@ -7,7 +7,7 @@
   "scripts": {
     "postinstall": "node scripts/fix-electron-signature.js",
     "start": "electron .",
-    "build": "electron-builder --win nsis --publish never",
+    "build": "electron-builder --win dir --publish never",
     "build:mac": "electron-builder --mac --publish never",
     "build:linux": "electron-builder --linux AppImage --publish never",
     "build:android": "node scripts/build-android.mjs",
@@ -37,18 +37,8 @@
       "node_modules/@nut-tree-fork/**"
     ],
     "win": {
-      "target": "nsis",
+      "target": "dir",
       "icon": "assets/icon.png"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "perMachine": false,
-      "runAfterFinish": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": false,
-      "include": "build/uninstall-ollama.nsh"
     },
     "mac": {
       "target": "dmg",

@@ -117,10 +117,10 @@ teardown while `s.respawning` is set. Same-family switches keep the fast in-plac
 `index.js`'s `window-all-closed` **and** `before-quit` call `stopOllamaRuntime()` →
 `ollama.stopOllama()` (→ engine `stop()`: cancels in-flight downloads, disposes the
 loaded model + context) + `ollama-proxy.stopProxyServer()`. There's no external process
-to kill anymore. **Uninstall:** Windows NSIS (`build/uninstall-ollama.nsh`, wired via
-`nsis.include`) `RMDir /r`s `%APPDATA%\Claude Session Editor\llama` — only the model
-dir, so `deleteAppDataOnUninstall` stays false. macOS has no uninstaller hook, so
-**Remove all local model data** (`ollama-remove-all`) is the supported reclaim path.
+to kill anymore. **Uninstall:** there is no installer/uninstaller on any platform
+(Windows ships as `win-unpacked`), so **Remove all local model data**
+(`ollama-remove-all`) is the only supported way to reclaim
+`%APPDATA%\Claude Session Editor\llama`.
 
 ## Build / install
 
