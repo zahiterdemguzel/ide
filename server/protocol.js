@@ -79,9 +79,14 @@ const REMOTE_CHANNELS = {
     'search-names',
     'search-refs',
     'read-text',
-    // binary bytes as base64 — the phone's file browser uses this to pull an .apk
-    // over to the device before handing it to Android's package installer.
+    // binary bytes as base64. The phone pulls an .apk over read-asset-chunk (one
+    // byte range per frame, staying under the relay's frame cap) before handing it
+    // to Android's package installer; read-asset ships a whole file in one frame.
     'read-asset',
+    'read-asset-chunk',
+    // hands back a LAN HTTP URL for a repo .apk, so the phone can stream the whole
+    // file to disk with downloadAsync instead of reassembling it from base64.
+    'apk-http-url',
     'write-text',
     'create-file',
     'create-folder',

@@ -19,7 +19,7 @@ import FileIcon from '../components/FileIcon';
 import CodeView from '../components/CodeView';
 import ScreenHeader from '../components/ScreenHeader';
 import { Divider } from '../components/ui';
-import { showError } from '../components/ErrorDialog';
+import { showError, errorText } from '../components/ErrorDialog';
 import { isApk, installApk } from '../api/installApk';
 import { color, radius, font, inset } from '../theme';
 
@@ -80,13 +80,12 @@ export default function FilesScreen() {
     // An .apk isn't text — on Android, pull its bytes and hand it to the OS
     // package installer instead of trying to render it in the viewer.
     if (Platform.OS === 'android' && isApk(e.name)) {
+      if (!conn) return;
       setOpening(true);
       try {
-        const r: any = await conn?.req('read-asset', rel);
-        if (!r?.ok) return showError('Files', r?.error ?? 'Could not read that file.');
-        await installApk(r.base64, e.name);
-      } catch {
-        showError('Files', 'Could not open the installer for this APK.');
+        await installApk((ch, args) => conn.req(ch, args), rel, e.name);
+      } catch (err) {
+        showError('Install APK', `Could not open the installer for ${e.name}.\n\n${errorText(err)}`);
       } finally { setOpening(false); }
       return;
     }

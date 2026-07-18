@@ -9,6 +9,7 @@ const { git } = require('./git');
 const { shouldSkipDir, GREP_EXCLUDE_PATHSPECS } = require('./search-ignore');
 const { sendToRenderer } = require('./window');
 const { withClipboardRetry } = require('./clipboard-lib');
+const { publishApk } = require('./apk-server');
 
 // Extension â†’ MIME for the asset viewer (image preview / pixel editor / audio /
 // 3D model). The model MIMEs are only used to label the bytes; the three.js
@@ -334,6 +335,40 @@ bridge.handle('read-asset', async (_e, file) => {
     const ext = path.extname(abs).slice(1).toLowerCase();
     return { ok: true, base64: (await fs.promises.readFile(abs)).toString('base64'),
       mime: ASSET_MIME[ext] || 'application/octet-stream' };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+// Read one byte range of a repo-relative binary as base64, so a large file (an
+// .apk the phone is sideloading) can be pulled over the relay without any single
+// frame exceeding its 16MB cap — read-asset ships the whole file in one frame and
+// would trip that. `size` is the total, so the caller knows when it's done. The
+// caller must request ranges whose length is a multiple of 3: base64 slices only
+// concatenate cleanly on 3-byte boundaries (else '=' padding lands mid-stream).
+const ASSET_CHUNK = 6 * 1024 * 1024;
+bridge.handle('read-asset-chunk', async (_e, { file, offset = 0, length = ASSET_CHUNK }) => {
+  let fh;
+  try {
+    const abs = path.join(getRepoPath(), file);
+    const { size } = await fs.promises.stat(abs);
+    const end = Math.min(offset + length, size);
+    const buf = Buffer.alloc(Math.max(0, end - offset));
+    if (buf.length) { fh = await fs.promises.open(abs, 'r'); await fh.read(buf, 0, buf.length, offset); }
+    return { ok: true, base64: buf.toString('base64'), size };
+  } catch (e) { return { ok: false, error: e.message }; }
+  finally { await fh?.close(); }
+});
+// Publish a repo-relative .apk on the LAN HTTP server and return candidate download
+// URLs (one per LAN address) plus its size. The phone prefers this (a streamed HTTP
+// GET) over read-asset-chunk for sideloading; an empty `urls` means no LAN address,
+// so it falls back to the chunked socket read. Guards traversal like write channels.
+bridge.handle('apk-http-url', async (_e, file) => {
+  try {
+    const repoPath = getRepoPath();
+    const abs = path.join(repoPath, file);
+    const inside = path.relative(repoPath, abs);
+    if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
+    const { size } = await fs.promises.stat(abs);
+    const urls = await publishApk(abs, path.basename(abs));
+    return { ok: true, urls, size };
   } catch (e) { return { ok: false, error: e.message }; }
 });
 bridge.handle('write-asset', async (_e, { file, base64 }) => {
