@@ -159,7 +159,7 @@ test('deriveStatus: a new user turn resets stale subagent bookkeeping', () => {
     { hook_event_name: 'Stop' }, // held (subagent still counted)
     { hook_event_name: 'UserPromptSubmit' }, // fresh turn wipes the orphaned count
   ]);
-  assert.deepEqual(tracking, { subagents: 0, mainStopped: false });
+  assert.deepEqual(tracking, { subagents: 0, mainStopped: false, stoppedIds: [] });
 });
 
 test('deriveStatus: a stray SubagentStop never drives the count negative', () => {
@@ -214,7 +214,36 @@ test('deriveStatus: subagent-context events never touch the dot or the bookkeepi
     { hook_event_name: 'Stop' }, // main done, but the subagent is still counted
   ]);
   assert.deepEqual(states, ['working', null, null, null, null, 'working']);
-  assert.deepEqual(tracking, { subagents: 1, mainStopped: true });
+  assert.deepEqual(tracking, { subagents: 1, mainStopped: true, stoppedIds: [] });
+});
+
+test('deriveStatus: duplicate stops for one subagent do not drain the count twice', () => {
+  // A finishing subagent can announce itself twice — SubagentStop AND a
+  // mis-routed Stop, both carrying its agent_id. Counting both would settle the
+  // session (and ring the chime) while another background agent still runs.
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'Stop' }, // main done, two background agents in flight
+    { hook_event_name: 'SubagentStop', agent_id: 'sub-1' },
+    { hook_event_name: 'Stop', agent_id: 'sub-1' }, // duplicate — must be ignored
+    { hook_event_name: 'SubagentStop', agent_id: 'sub-2' }, // real last agent
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'working', null, 'completed']);
+});
+
+test('deriveStatus: a new turn forgets which agents already stopped', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'SubagentStop', agent_id: 'sub-1' },
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'SubagentStop', agent_id: 'sub-1' }, // same id, new turn — must count
+  ]);
+  assert.deepEqual(states,
+    ['working', 'working', 'completed', 'working', 'working', 'working', 'completed']);
 });
 
 test('deriveStatus: a nested spawn inside a subagent does not inflate the count', () => {

@@ -90,10 +90,22 @@ function isSubagentStop(payload) {
 // alongside the next tracking. Pure and unit-tested (test/hook-events.test.js).
 function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) {
   let { subagents, mainStopped } = tracking;
+  // Agent ids already counted as stopped this turn. A finishing subagent can
+  // announce itself twice — a `SubagentStop` AND a mis-routed `Stop`, both with
+  // its agent_id — and counting both drains the in-flight count for two agents,
+  // settling the session (and ringing the chime) while another background agent
+  // is still running. Only the first stop per agent_id may decrement.
+  let stoppedIds = tracking.stoppedIds || [];
   const ev = payload.hook_event_name;
   const subagentStopped = isSubagentStop(payload);
 
   if (subagentStopped) {
+    const id = payload.agent_id;
+    if (id && stoppedIds.includes(id)) {
+      // Duplicate stop for an agent already drained — ignore entirely.
+      return { state: null, tracking };
+    }
+    if (id) stoppedIds = [...stoppedIds, id];
     subagents = Math.max(0, subagents - 1);
   } else if (ev === 'SubagentStart') {
     // Codex announces a subagent spawning as its own event (Claude signals it via
@@ -102,7 +114,7 @@ function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) 
     // fires it from; a spawn also proves the main agent is running.
     subagents += 1;
     mainStopped = false;
-    return { state: 'working', tracking: { subagents, mainStopped } };
+    return { state: 'working', tracking: { subagents, mainStopped, stoppedIds } };
   } else if (payload.agent_id) {
     // Every other event fired inside a subagent's own context (agent_id is set
     // only there) must touch neither the dot nor the bookkeeping: a subagent's
@@ -112,7 +124,7 @@ function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) 
   } else if (ev === 'UserPromptSubmit') {
     // A fresh user turn clears stale bookkeeping so a prior turn's counts (e.g.
     // an orphaned subagent stop we never saw) can't leak into this one.
-    subagents = 0; mainStopped = false;
+    subagents = 0; mainStopped = false; stoppedIds = [];
   } else if (ev === 'PreToolUse' || ev === 'PostToolUse') {
     // Main-thread tool activity means the main agent is running (again) — e.g.
     // re-invoked to process a finished background task — so a subagent stop
@@ -123,7 +135,7 @@ function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) 
     mainStopped = true;
   }
 
-  const next = { subagents, mainStopped };
+  const next = { subagents, mainStopped, stoppedIds };
 
   // A stop (main or subagent) settles the session to `completed` only once the
   // main agent has stopped AND no subagents remain; until then it's still working
