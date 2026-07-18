@@ -16,6 +16,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, Image, Pressable, PanResponder, ActivityIndicator, ScrollView, StyleSheet, PixelRatio,
+  Animated,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -104,6 +105,25 @@ export default function ControlScreen() {
   // deltas — moves are still sent as absolute positions, so the desktop side
   // needs nothing new.
   const vPos = useRef({ x: 0.5, y: 0.5 });
+  // The trackpad cursor the user *sees*: a local overlay driven straight by the
+  // gesture through an Animated value (setValue, no re-render), so it tracks
+  // the finger instantly instead of waiting for the ~5fps frame round-trip.
+  // The desktop's real cursor catches up underneath and is hidden in trackpad
+  // mode to avoid showing a laggy twin.
+  const localCursor = useRef(new Animated.ValueXY({ x: -100, y: -100 })).current;
+  // Place the local cursor overlay at vPos, in full-screen layout coords (the
+  // overlay lives inside the zoomed wrapper, so the zoom transform applies).
+  const syncLocalCursor = useCallback(() => {
+    const f = frameRef.current; const { w, h } = viewRef.current;
+    if (!f || !w || !h) return;
+    const { fw, fh } = impliedFull(f);
+    const s = Math.min(w / fw, h / fh);
+    const dw = fw * s; const dh = fh * s;
+    localCursor.setValue({
+      x: (w - dw) / 2 + vPos.current.x * dw - CURSOR_SIZE / 2,
+      y: (h - dh) / 2 + vPos.current.y * dh - CURSOR_SIZE / 2,
+    });
+  }, [localCursor]);
   const infoRef = useRef<OpenResult | null>(null);
   infoRef.current = info;
   const displayRef = useRef<string | null>(null); // which desktop display to capture
@@ -226,7 +246,10 @@ export default function ControlScreen() {
       // Between gestures, keep the trackpad's virtual cursor pinned to where
       // the desktop says the cursor really is — mid-gesture the lagging frame
       // would yank it backwards, so the gesture owns it then.
-      if (f.cursor && !gesture.current.active) vPos.current = { x: f.cursor.cx, y: f.cursor.cy };
+      if (f.cursor && !gesture.current.active) {
+        vPos.current = { x: f.cursor.cx, y: f.cursor.cy };
+        syncLocalCursor();
+      }
       setFrame(f);
     });
     return () => {
@@ -424,6 +447,7 @@ export default function ControlScreen() {
         // press turns the first move into a left-button drag from the cursor.
         const d = normDelta(dx, dy);
         vPos.current = { x: clamp01(vPos.current.x + d.x), y: clamp01(vPos.current.y + d.y) };
+        syncLocalCursor();
         if (g.longPressed && !g.dragging) {
           g.dragging = true;
           send([{ k: 'down', x: vPos.current.x, y: vPos.current.y, button: 'left' }]);
@@ -515,6 +539,7 @@ export default function ControlScreen() {
     setView({ w: width, h: height, x, y });
     frameAreaEl.current?.measureInWindow((px, py) => { pageOffset.current = { x: px, y: py }; });
     if (changed) applyZoom(1, 0, 0); // a resized viewport invalidates the pan clamp
+    syncLocalCursor(); // the letterbox rect moved with the viewport
     const cap = pickCapture(width, height);
     if (changed && conn?.state === 'ready' && cap) {
       conn.req<OpenResult>('control-open', { ...cap, display: displayRef.current }).then(applyInfo).catch(() => {});
@@ -608,7 +633,20 @@ export default function ControlScreen() {
               fadeDuration={0}
               onLoad={() => setShown(frame)}
             />
-            {frame.cursor ? (
+            {mode === 'trackpad' ? (
+              <Animated.View
+                pointerEvents="none"
+                style={[
+                  styles.cursor,
+                  styles.localCursor,
+                  {
+                    transform: [
+                      { translateX: localCursor.x }, { translateY: localCursor.y }, { scale: 1 / (zoom.scale || 1) },
+                    ],
+                  },
+                ]}
+              />
+            ) : frame.cursor ? (
               <Cursor cx={frame.cursor.cx} cy={frame.cursor.cy} frame={frame} view={view} zoom={zoom.scale} />
             ) : null}
           </View>
@@ -647,7 +685,7 @@ export default function ControlScreen() {
       <View style={styles.actions}>
         <Pressable
           style={({ pressed }) => [styles.action, styles.modeBtn, pressed && styles.keyPressed]}
-          onPress={() => setMode((m) => (m === 'touch' ? 'trackpad' : 'touch'))}
+          onPress={() => { syncLocalCursor(); setMode((m) => (m === 'touch' ? 'trackpad' : 'touch')); }}
         >
           {mode === 'touch'
             ? <Pointer size={18} color={color.text} />
@@ -770,6 +808,7 @@ const styles = StyleSheet.create({
     position: 'absolute', width: CURSOR_SIZE, height: CURSOR_SIZE, borderRadius: CURSOR_SIZE / 2,
     backgroundColor: color.accent, borderWidth: 1.5, borderColor: '#fff', opacity: 0.85,
   },
+  localCursor: { left: 0, top: 0 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   emptyText: { color: color.muted, fontSize: font.size.sm },
   keyBar: { paddingVertical: 8, backgroundColor: color.surface, borderTopWidth: 1, borderTopColor: color.border },
