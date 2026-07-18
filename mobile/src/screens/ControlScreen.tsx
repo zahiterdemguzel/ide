@@ -21,7 +21,8 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Mouse, Pointer } from 'lucide-react-native';
+import { Mouse, Pointer, Volume2, VolumeX } from 'lucide-react-native';
+import { WebView } from 'react-native-webview';
 import { useConnection } from '../api/context';
 import { color, font, radius, space } from '../theme';
 
@@ -73,6 +74,36 @@ const MOD_ORDER: Mod[] = ['ctrl', 'alt', 'shift', 'meta'];
 
 type PointerMode = 'touch' | 'trackpad';
 
+// Hidden audio player: system-audio webm/opus chunks from the desktop are
+// appended into a MediaSource. `sequence` mode lets a restarted recorder's
+// fresh header splice in; playback chases the live edge so latency can't
+// accumulate, and old buffer is trimmed so memory can't.
+const AUDIO_HTML = `<!doctype html><audio id="a" autoplay></audio><script>
+var a = document.getElementById('a');
+var ms = new MediaSource();
+var sb = null; var q = [];
+a.src = URL.createObjectURL(ms);
+ms.addEventListener('sourceopen', function () {
+  sb = ms.addSourceBuffer('audio/webm;codecs=opus');
+  sb.mode = 'sequence';
+  sb.addEventListener('updateend', pump);
+});
+function pump() {
+  if (!sb || sb.updating) return;
+  if (q.length) { try { sb.appendBuffer(q.shift()); } catch (e) {} }
+  if (!a.buffered.length) return;
+  var end = a.buffered.end(a.buffered.length - 1);
+  if (end - a.currentTime > 1.5) a.currentTime = end - 0.3;
+  if (!sb.updating && end - a.buffered.start(0) > 30) { try { sb.remove(0, end - 10); } catch (e) {} }
+  a.play().catch(function () {});
+}
+window.pushChunk = function (b64) {
+  var bin = atob(b64); var u8 = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  q.push(u8.buffer); pump();
+};
+</script>`;
+
 export default function ControlScreen() {
   const insets = useSafeAreaInsets();
   const { conn, state } = useConnection();
@@ -85,6 +116,9 @@ export default function ControlScreen() {
   const [mods, setMods] = useState<Set<Mod>>(new Set());
   const [mode, setMode] = useState<PointerMode>('touch');
   const [typing, setTyping] = useState(false);
+  const [sound, setSound] = useState(false);
+  const [audioWarn, setAudioWarn] = useState<string | null>(null);
+  const audioView = useRef<WebView>(null);
 
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -266,6 +300,32 @@ export default function ControlScreen() {
       setShown(null);
     };
   }, [conn, state, openControl]));
+
+  // Sound: while enabled and focused, ask the desktop to capture system audio
+  // and feed its chunks into the hidden player. Toggling off (or blurring the
+  // tab) tears capture down; the WebView remounts per toggle (key={}), so each
+  // listen starts from a fresh MediaSource matching the fresh recorder.
+  useFocusEffect(useCallback(() => {
+    if (!sound || !conn || state !== 'ready') return undefined;
+    conn.req<{ ok: boolean; warning?: string }>('audio-open').then((r) => {
+      if (!r?.ok) {
+        setSound(false);
+        setAudioWarn(r?.warning ?? 'System audio streaming is unavailable.');
+      }
+    }).catch(() => setSound(false));
+    const unwatch = conn.watch('audio-chunk', 'main');
+    let last = 0;
+    const off = conn.on('audio-chunk', (c: { seq: number; b64: string }) => {
+      if (c.seq <= last) return;
+      last = c.seq;
+      audioView.current?.injectJavaScript(`window.pushChunk("${c.b64}");true;`);
+    });
+    return () => {
+      off();
+      unwatch();
+      conn.send('audio-close');
+    };
+  }, [sound, conn, state]));
 
   // The image is `contain`ed in the frame area, so it may be letterboxed on one
   // axis. Map a touch in view px to 0..1 of the *image*, dropping touches that
@@ -605,9 +665,11 @@ export default function ControlScreen() {
         </View>
       ) : null}
 
-      {info?.warnings?.length ? (
+      {(info?.warnings?.length || audioWarn) ? (
         <View style={styles.warn}>
-          {info.warnings.map((w) => <Text key={w} style={styles.warnText}>{w}</Text>)}
+          {[...(info?.warnings ?? []), ...(audioWarn ? [audioWarn] : [])].map((w) => (
+            <Text key={w} style={styles.warnText}>{w}</Text>
+          ))}
         </View>
       ) : null}
 
@@ -696,6 +758,16 @@ export default function ControlScreen() {
             ? <Pointer size={18} color={color.text} />
             : <Mouse size={18} color={color.text} />}
         </Pressable>
+        <Pressable
+          style={({ pressed }) => [
+            styles.action, styles.modeBtn, sound && styles.actionOn, pressed && styles.keyPressed,
+          ]}
+          onPress={() => { setAudioWarn(null); setSound((v) => !v); }}
+        >
+          {sound
+            ? <Volume2 size={18} color={color.accent} />
+            : <VolumeX size={18} color={color.text} />}
+        </Pressable>
         <Action icon="repeat" label="Double-click" onPress={doubleClick} />
         <Action
           icon="keypad"
@@ -704,6 +776,20 @@ export default function ControlScreen() {
           onPress={() => { if (typing) keyInput.current?.blur(); else keyInput.current?.focus(); }}
         />
       </View>
+
+      {/* Invisible 1px player for the streamed system audio; mounted only while
+          sound is on so each listen starts with a fresh MediaSource. */}
+      {sound ? (
+        <WebView
+          ref={audioView}
+          source={{ html: AUDIO_HTML }}
+          style={styles.audioView}
+          mediaPlaybackRequiresUserAction={false}
+          allowsInlineMediaPlayback
+          javaScriptEnabled
+          originWhitelist={['*']}
+        />
+      ) : null}
 
       {/* Off-screen, not display:none — a hidden input can't hold the keyboard. */}
       <TextInput
@@ -841,6 +927,7 @@ const styles = StyleSheet.create({
   },
   actionOn: { borderColor: color.accent },
   modeBtn: { flex: 0, minWidth: 46, paddingHorizontal: 0 },
+  audioView: { position: 'absolute', left: -10, top: -10, width: 1, height: 1, opacity: 0 },
   actionLabel: { color: color.text, fontSize: font.size.sm, fontWeight: '600' },
   keyCatcher: { position: 'absolute', left: -1000, top: -1000, width: 50, height: 30 },
 });

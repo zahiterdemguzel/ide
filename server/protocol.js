@@ -121,6 +121,9 @@ const REMOTE_CHANNELS = {
     // here — a paired phone already holds terminal access, so this is the same
     // trust tier, not an escalation.
     'control-open',
+    // system audio streamed as webm/opus chunks (see src/main/remote-audio.js).
+    // A req so the phone learns whether capture is supported before watching.
+    'audio-open',
   ]),
   send: new Set([
     // which model runs the session, and how hard it thinks — retargeted live from the
@@ -146,6 +149,7 @@ const REMOTE_CHANNELS = {
     // zoom viewport: which sub-rect of the display to stream, and at what size
     'control-region',
     'control-close',
+    'audio-close',
   ]),
 };
 
@@ -183,6 +187,8 @@ const REMOTE_EVENTS = new Set([
   'browser-state',
   // remote desktop control: whole-screen JPEG frames (watched stream).
   'screen-frame',
+  // system audio: webm/opus chunks (watched stream).
+  'audio-chunk',
 ]);
 
 // The high-volume per-session streams among REMOTE_EVENTS. A client that has sent a
@@ -190,7 +196,7 @@ const REMOTE_EVENTS = new Set([
 // chat must not have it queue behind every other session's terminal bytes on the one
 // relay socket. A client that never sends `watch` (an older app) gets everything, as
 // before.
-const STREAM_EVENTS = new Set(['pty-data', 'term-data', 'transcript-data', 'browser-frame', 'screen-frame']);
+const STREAM_EVENTS = new Set(['pty-data', 'term-data', 'transcript-data', 'browser-frame', 'screen-frame', 'audio-chunk']);
 
 const ERR = {
   BAD_MESSAGE: 'bad-message',

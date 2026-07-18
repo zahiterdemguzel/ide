@@ -24,6 +24,7 @@ const {
 const push = require('./push');
 const remoteBrowser = require('./remote-browser');
 const remoteControl = require('./remote-control');
+const remoteAudio = require('./remote-audio');
 
 // The Ports *tab* stays parked while the remote browser (remote-browser.js) covers
 // mobile testing, but the forwarding plumbing itself is back on: APK sideloading
@@ -172,10 +173,12 @@ async function enable() {
       sendToRenderer('remote-clients-changed', count);
       remoteBrowser.onClientCount(count);
       remoteControl.onClientCount(count);
+      remoteAudio.onClientCount(count);
     },
   });
   remoteBrowser.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
   remoteControl.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
+  remoteAudio.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
   // The desktop dials out to the relay because a machine behind NAT can't be
   // dialled in to; every phone in its room rides that one socket. Failing to reach
   // the relay is not fatal — it retries in the background.
@@ -213,6 +216,7 @@ async function disable() {
   hub = null;
   remoteBrowser.setBroadcast(null);
   remoteControl.setBroadcast(null);
+  remoteAudio.setBroadcast(null);
   sendToRenderer('remote-clients-changed', 0);
   await closeAllForwards();
   return status();
