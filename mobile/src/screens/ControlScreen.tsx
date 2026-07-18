@@ -154,6 +154,10 @@ export default function ControlScreen() {
   }, [queueRegion]);
   // frameArea's absolute screen position, so multi-touch pageX/pageY can be
   // mapped into frameArea-local coords (locationX is unreliable with 2 touches).
+  // Measured once at layout as a seed, then re-calibrated from each gesture's
+  // grant event (pageY − locationY of the same touch) — measureInWindow's
+  // window coords drift on Android (status bar / late bars above the frame
+  // area), which showed up as taps landing below the finger while zoomed.
   const frameAreaEl = useRef<View>(null);
   const pageOffset = useRef({ x: 0, y: 0 });
   const lastSeq = useRef(0);
@@ -289,6 +293,15 @@ export default function ControlScreen() {
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: (evt) => {
       const g = gesture.current;
+      // Self-calibrate the window→frameArea offset from this very touch: it
+      // carries both window (pageX/Y) and frameArea-local (locationX/Y) coords,
+      // so their difference is the exact current offset. The zoomWrap children
+      // are pointerEvents="none", which keeps frameArea the touch target —
+      // otherwise locationX/Y would be relative to the scaled Image instead.
+      const ne = evt.nativeEvent;
+      if (Number.isFinite(ne.locationX) && Number.isFinite(ne.locationY)) {
+        pageOffset.current = { x: ne.pageX - ne.locationX, y: ne.pageY - ne.locationY };
+      }
       g.moved = false;
       g.twoFinger = evt.nativeEvent.touches.length >= 2;
       g.dragging = false;
@@ -500,6 +513,7 @@ export default function ControlScreen() {
       <View ref={frameAreaEl} style={styles.frameArea} onLayout={onFrameLayout} {...pan.panHandlers}>
         {frame ? (
           <View
+            pointerEvents="none"
             style={[
               styles.zoomWrap,
               { transform: [{ translateX: zoom.tx }, { translateY: zoom.ty }, { scale: zoom.scale }] },
@@ -526,7 +540,7 @@ export default function ControlScreen() {
             {frame.cursor ? <Cursor cx={frame.cursor.cx} cy={frame.cursor.cy} frame={frame} view={view} /> : null}
           </View>
         ) : (
-          <View style={styles.empty}>
+          <View pointerEvents="none" style={styles.empty}>
             {state === 'ready' ? <ActivityIndicator color={color.muted} /> : null}
             <Text style={styles.emptyText}>
               {state === 'ready' ? 'Starting desktop capture…' : 'Waiting for the desktop connection…'}
