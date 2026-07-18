@@ -9,6 +9,7 @@
 // an ASCII path outside any sync root and built there. The staging dir persists
 // between runs to keep Gradle's incremental caches warm.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -42,6 +43,12 @@ function run(command, args, cwd) {
   }
 }
 
+// The launcher icon is generated, not committed: a release APK gets the desktop
+// app's mark and a debug one its hue-rotated dev twin, so the two are told apart
+// on a phone that has both. app.config.js picks between them off APP_VARIANT.
+process.env.APP_VARIANT = isRelease ? 'production' : 'development';
+run(process.execPath, [join(repoDir, 'scripts', 'gen-icons.js')], repoDir);
+
 console.log(`Staging mobile app in ${stageDir}`);
 mkdirSync(stageDir, { recursive: true });
 cpSync(mobileDir, stageDir, {
@@ -65,10 +72,16 @@ if (staleDeps) {
   writeFileSync(lockStamp, lock);
 }
 
-// The native project is generated from app.json, so regenerate it whenever that
-// config changes — a stale android/ would silently ignore the edit.
+// The native project is generated from the app config, so regenerate it whenever
+// that changes — a stale android/ would silently ignore the edit. The variant is
+// part of the key because it decides which icon prebuild bakes in.
 const configStamp = join(stageDir, '.config-stamp');
-const config = readFileSync(join(mobileDir, 'app.json'), 'utf8');
+const config = [
+  variant,
+  readFileSync(join(mobileDir, 'app.json'), 'utf8'),
+  readFileSync(join(mobileDir, 'app.config.js'), 'utf8'),
+  createHash('sha1').update(readFileSync(join(mobileDir, 'assets', 'icon.png'))).digest('hex'),
+].join('\n');
 const staleConfig = !existsSync(configStamp) || readFileSync(configStamp, 'utf8') !== config;
 
 if (!existsSync(androidDir) || staleConfig) {

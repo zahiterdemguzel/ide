@@ -4,6 +4,7 @@
   "private": true,
   "main": "expo/AppEntry.js",
   "scripts": {
+    "prestart": "node ../scripts/gen-icons.js",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios"

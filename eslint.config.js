@@ -50,7 +50,8 @@ module.exports = [
 
   {
     // build/ holds electron-builder's packaging hooks — it loads them in Node.
-    files: ['eslint.config.js', 'scripts/**/*.js', 'build/**/*.js'],
+    // mobile/app.config.js is read by the Expo CLI in Node, same as those.
+    files: ['eslint.config.js', 'scripts/**/*.js', 'build/**/*.js', 'mobile/app.config.js'],
     languageOptions: { sourceType: 'commonjs', globals: { ...globals.node } },
   },
   {

@@ -4,9 +4,11 @@ dist/
 # and shipped via electron-builder extraResources. Too large to commit.
 vendor/
 *.log
-# Recolored dev-run icon, derived from assets/icon.png by scripts/gen-dev-icon.js
-# on `npm start`. Generated, and never shipped in a packaged build.
+# Icon variants derived from assets/icon.png by scripts/gen-icons.js. The
+# desktop dev icon is never shipped in a packaged build; mobile/assets holds the
+# copies expo prebuild reads.
 assets/icon-dev.png
+mobile/assets/
 crashlogs/
 .DS_Store
 package-lock.json

@@ -6,7 +6,7 @@
   "main": "src/main/index.js",
   "scripts": {
     "postinstall": "node scripts/fix-electron-signature.js",
-    "prestart": "node scripts/gen-dev-icon.js",
+    "prestart": "node scripts/gen-icons.js",
     "start": "electron .",
     "build": "electron-builder --win dir --publish never",
     "build:mac": "electron-builder --mac --publish never",
