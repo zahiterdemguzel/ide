@@ -115,32 +115,40 @@ async function tryInstallIntent(action: string, params: Record<string, unknown>)
 async function launchInstaller(fileUri: string) {
   const stat = await FileSystem.getInfoAsync(fileUri, { size: true });
   if (!stat.exists) throw new InstallError(`The downloaded file vanished before install (${fileUri}).`);
+
   const contentUri = await FileSystem.getContentUriAsync(fileUri);
   log(`launching installer: ${contentUri} (${stat.size} bytes)`);
-
-  // Direct intents first: ACTION_VIEW typed as an APK, then the older dedicated
-  // ACTION_INSTALL_PACKAGE. Either succeeding (and staying on screen long enough to
-  // have really been seen) is the good path.
+  // ACTION_VIEW typed as an APK, then the older dedicated ACTION_INSTALL_PACKAGE.
+  // Either succeeding (and staying on screen long enough to have really been seen)
+  // is the good path: the OS package installer, directly.
   if (await tryInstallIntent('android.intent.action.VIEW', { data: contentUri, type: APK_MIME, flags: 1 })) return;
   if (await tryInstallIntent('android.intent.action.INSTALL_PACKAGE', { data: contentUri, flags: 1 })) return;
 
-  // Both blocked. Hand the file to the share sheet: it always shows UI, and the
-  // system Files app it offers is itself allowed to install APKs — so this works
-  // even where the direct intent is silently swallowed (Expo Go, or a build whose
-  // unknown-sources toggle is off).
-  if (await Sharing.isAvailableAsync()) {
-    log('direct install blocked — opening the share sheet (pick Files, then Install)');
+  // Both intents were silently blocked. In Expo Go that's terminal — the host app
+  // doesn't declare REQUEST_INSTALL_PACKAGES, so the unknown-sources toggle doesn't
+  // even exist for it. The share sheet (→ Files → Install) is the only route there.
+  if (isRunningInExpoGo()) {
+    log('Expo Go cannot launch the installer directly — opening the share sheet');
     await Sharing.shareAsync(fileUri, { mimeType: APK_MIME, dialogTitle: 'Install APK' });
-    throw new InstallError('Android blocked the direct install, so the share sheet was opened instead. Pick "Files" (or your file manager) there and tap the APK to install it — or allow this app to install unknown apps in system settings and tap the APK here again.');
+    return;
   }
 
-  // No share sheet either — last resort: open this app's unknown-sources toggle.
-  const pkg = isRunningInExpoGo() ? 'host.exp.exponent' : Constants.expoConfig?.android?.package;
+  // Blocked: the app isn't an allowed install source yet. Open this app's own
+  // unknown-sources toggle so one switch fixes every future install.
+  const pkg = Constants.expoConfig?.android?.package;
   await IntentLauncher.startActivityAsync(
     'android.settings.MANAGE_UNKNOWN_APP_SOURCES',
     pkg ? { data: `package:${pkg}` } : {},
   ).catch(() => {});
-  throw new InstallError('Android wouldn\'t open the installer. Allow this app to install unknown apps in the settings screen that just opened, then tap the APK again.');
+  throw new InstallError('Android blocked the installer because this app isn\'t yet allowed to install unknown apps. Flip the switch in the settings screen that just opened, then tap the APK again — it installs directly from then on.');
+}
+
+// Open a binary the phone has no viewer for (a zip, a pdf, an unknown format) with
+// the system share sheet, letting the user pick whatever app can handle it.
+async function openWithShareSheet(fileUri: string, name: string) {
+  if (!(await Sharing.isAvailableAsync())) throw new InstallError('No app on this phone can open that file.');
+  log(`opening share sheet for ${name}`);
+  await Sharing.shareAsync(fileUri, { dialogTitle: name });
 }
 
 // Downloads to `dest` and verifies the whole file arrived (a wrong size means an
@@ -249,15 +257,17 @@ async function streamOverSocket(conn: InstallConn, rel: string, dest: string): P
   file.write(full ?? new Uint8Array(0));
 }
 
-export async function installApk(conn: InstallConn, rel: string, name: string) {
+// Pull a repo file into the phone's cache over the fastest transport that answers
+// (LAN HTTP → relay port-forward → chunked socket) and return its file:// path.
+async function fetchToCache(conn: InstallConn, rel: string, name: string): Promise<string> {
   const { req } = conn;
   // Spaces or exotic characters in the repo filename would land unescaped in the
   // file:// URI and can break the content-URI bridge to the installer.
   const safeName = name.replace(/[^\w.-]+/g, '_');
   const dest = `${FileSystem.cacheDirectory}${safeName}`;
-  log(`installing ${rel}`);
+  log(`fetching ${rel}`);
   const info: any = await req('apk-http-url', rel);
-  if (info && info.ok === false) throw new InstallError(info.error ?? 'The desktop could not publish the APK.');
+  if (info && info.ok === false) throw new InstallError(info.error ?? 'The desktop could not publish the file.');
   const size: number = info?.ok && typeof info.size === 'number' ? info.size : 0;
   const urls: string[] = info?.ok && Array.isArray(info.urls) ? info.urls : [];
   log(`desktop published ${size} bytes; ${urls.length} LAN url(s), relay port ${info?.port ?? 'n/a'}`);
@@ -269,8 +279,8 @@ export async function installApk(conn: InstallConn, rel: string, name: string) {
     for (const url of urls) {
       log(`trying LAN download: ${url}`);
       if (await downloadOverHttp(url, dest, size)) {
-        log('LAN download complete — launching installer');
-        return await launchInstaller(dest);
+        log('LAN download complete');
+        return dest;
       }
     }
 
@@ -289,8 +299,8 @@ export async function installApk(conn: InstallConn, rel: string, name: string) {
         log(`relay forward open — downloading ${relayUrl}`);
         try {
           if (await downloadOverHttp(relayUrl, dest, size, RELAY_FIRST_BYTE_MS)) {
-            log('relay download complete — launching installer');
-            return await launchInstaller(dest);
+            log('relay download complete');
+            return dest;
           }
         } finally {
           conn.closeForward?.(info.port);
@@ -308,10 +318,22 @@ export async function installApk(conn: InstallConn, rel: string, name: string) {
     await whenReady(conn);
     log('streaming over the relay socket in chunks');
     await streamOverSocket(conn, rel, dest);
-    log('socket stream complete — launching installer');
-    return await launchInstaller(dest);
+    log('socket stream complete');
+    return dest;
   } catch (e: any) {
-    warn(`install failed: ${e?.message ?? e}`);
+    warn(`fetch failed: ${e?.message ?? e}`);
     throw e;
   }
+}
+
+// An .apk goes straight to the OS package installer.
+export async function installApk(conn: InstallConn, rel: string, name: string) {
+  return launchInstaller(await fetchToCache(conn, rel, name));
+}
+
+// Any other binary the phone can't view as text: download it the same way, then
+// let the user pick an app for it via the share sheet.
+export async function openBinaryFile(conn: InstallConn, rel: string, name: string) {
+  const dest = await fetchToCache(conn, rel, name);
+  await openWithShareSheet(dest, name);
 }

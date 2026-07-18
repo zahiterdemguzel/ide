@@ -20,7 +20,7 @@ import CodeView from '../components/CodeView';
 import ScreenHeader, { ChromeContext, NoProject } from '../components/ScreenHeader';
 import { Divider } from '../components/ui';
 import { showError, errorText } from '../components/ErrorDialog';
-import { isApk, installApk } from '../api/installApk';
+import { isApk, installApk, openBinaryFile } from '../api/installApk';
 import { color, radius, font, inset } from '../theme';
 
 type Entry = { name: string; dir: boolean };
@@ -85,20 +85,21 @@ export default function FilesScreen() {
   }, [conn, file, list]);
 
   const openPath = async (rel: string) => {
+    if (!conn) return;
     const name = rel.split('/').pop()!;
+    const installConn = {
+      req: (ch: string, args?: any, opts?: any) => conn.req<any>(ch, args, opts),
+      forwardPort: (port: number, path?: string) => conn.forwardPort(port, path),
+      closeForward: (port: number) => conn.closeForward(port),
+      state: () => conn.state,
+      onState: (fn: (s: string) => void) => conn.onState(fn),
+    };
     // An .apk isn't text — on Android, pull its bytes and hand it to the OS
     // package installer instead of trying to render it in the viewer.
     if (Platform.OS === 'android' && isApk(name)) {
-      if (!conn) return;
       setOpening(true);
       try {
-        await installApk({
-          req: (ch, args, opts) => conn.req(ch, args, opts),
-          forwardPort: (port, path) => conn.forwardPort(port, path),
-          closeForward: (port) => conn.closeForward(port),
-          state: () => conn.state,
-          onState: (fn) => conn.onState(fn),
-        }, rel, name);
+        await installApk(installConn, rel, name);
       } catch (err) {
         showError('Install APK', `Could not open the installer for ${name}.\n\n${errorText(err)}`);
       } finally { setOpening(false); }
@@ -106,8 +107,17 @@ export default function FilesScreen() {
     }
     setOpening(true);
     try {
-      const r: any = await conn?.req('read-text', rel);
-      if (!r?.ok) return showError('Files', r?.error ?? 'That file cannot be opened as text.');
+      const r: any = await conn.req('read-text', rel);
+      if (!r?.ok) {
+        // Not text (an image, a zip, some unknown binary): pull the file down the
+        // same pipe the APK uses and let the user pick an app via the share sheet.
+        try {
+          await openBinaryFile(installConn, rel, name);
+        } catch (err) {
+          showError('Files', `Could not open ${name}.\n\n${errorText(err)}`);
+        }
+        return;
+      }
       setFile(rel);
       setText(r.text);
       setDirty(false);
