@@ -125,11 +125,22 @@ export async function refreshGit() {
   refreshStashes(); // independent of working-tree status; runs even when not in a repo
   const r = await window.api.gitStatus();
   if (r.repo) window.api.setWindowTitle(r.repo);
+  const cleanEl = document.getElementById('git-clean');
+  if (!r.ok) {
+    stagedEl.innerHTML = '';
+    unstagedEl.innerHTML = '';
+    conflictsEl.innerHTML = '';
+    conflictsSection.hidden = true; cleanEl.hidden = true; lastGitSig = null; return;
+  }
+  // Nothing changed since the last render: skip the full list rebuild — with
+  // many changed files, tearing down and recreating every row on each 3s poll
+  // is what made the pane lag.
+  const sig = gitStateSignature(r);
+  if (sig === lastGitSig) return;
+  lastGitSig = sig;
   stagedEl.innerHTML = '';
   unstagedEl.innerHTML = '';
   conflictsEl.innerHTML = '';
-  const cleanEl = document.getElementById('git-clean');
-  if (!r.ok) { conflictsSection.hidden = true; cleanEl.hidden = true; return; }
   // Nothing staged, unstaged, or conflicted → the working tree is clean; show a
   // reassuring empty state where the file lists would otherwise be.
   cleanEl.hidden = !!(r.staged.length || r.unstaged.length || (r.conflicts || []).length);
@@ -149,16 +160,20 @@ export async function refreshGit() {
   // session) edits it — it then moves out of conflicts on the next refresh.
   const conflicts = r.conflicts || [];
   conflictsSection.hidden = !conflicts.length;
-  for (const it of conflicts) conflictsEl.appendChild(conflictItem(it.file, it.status));
-  for (const it of r.staged) stagedEl.appendChild(gitItem(it.file, it.status, true, window.api.gitUnstage, '−'));
-  for (const it of r.unstaged) unstagedEl.appendChild(gitItem(it.file, it.status, false, window.api.gitStage, '+'));
-  // When the working-tree state actually changed (a commit moved HEAD, a file was
-  // staged/edited on disk), re-validate every session's commit-count — it's
-  // computed against HEAD and the poll/focus/commit paths all funnel through here.
-  // Gated on a signature so the 3s poll doesn't fan out a diff-per-session when
-  // nothing moved.
-  const sig = gitStateSignature(r);
-  if (sig !== lastGitSig) { lastGitSig = sig; refreshAllDiffStats(); }
+  // Build into fragments so the browser reflows once per list, not once per row.
+  const cFrag = document.createDocumentFragment();
+  const sFrag = document.createDocumentFragment();
+  const uFrag = document.createDocumentFragment();
+  for (const it of conflicts) cFrag.appendChild(conflictItem(it.file, it.status));
+  for (const it of r.staged) sFrag.appendChild(gitItem(it.file, it.status, true, window.api.gitUnstage, '−'));
+  for (const it of r.unstaged) uFrag.appendChild(gitItem(it.file, it.status, false, window.api.gitStage, '+'));
+  conflictsEl.appendChild(cFrag);
+  stagedEl.appendChild(sFrag);
+  unstagedEl.appendChild(uFrag);
+  // The working-tree state changed (we're past the signature gate), so
+  // re-validate every session's commit-count — it's computed against HEAD and
+  // the poll/focus/commit paths all funnel through here.
+  refreshAllDiffStats();
 }
 
 // A compact fingerprint of the working-tree state: branch + ahead/behind (so a
@@ -227,10 +242,10 @@ const revertAllBtn = document.getElementById('revert-all');
 const unstageAllBtn = document.getElementById('unstage-all');
 
 stageAllBtn.onclick = async () => {
-  for (const it of unstagedFiles) await window.api.gitStage(it.file);
+  if (unstagedFiles.length) await window.api.gitStage(unstagedFiles.map((it) => it.file));
   refreshGit();};
 unstageAllBtn.onclick = async () => {
-  for (const it of stagedFiles) await window.api.gitUnstage(it.file);
+  if (stagedFiles.length) await window.api.gitUnstage(stagedFiles.map((it) => it.file));
   refreshGit();};
 revertAllBtn.onclick = async () => {
   if (!revertAllBtn.classList.contains('armed')) {
@@ -241,7 +256,10 @@ revertAllBtn.onclick = async () => {
     return;
   }
   hideArmHint();
-  for (const it of unstagedFiles) await window.api.gitRevert({ file: it.file, untracked: it.status === '?' });
+  const untracked = unstagedFiles.filter((it) => it.status === '?').map((it) => it.file);
+  const tracked = unstagedFiles.filter((it) => it.status !== '?').map((it) => it.file);
+  if (untracked.length) await window.api.gitRevert({ file: untracked, untracked: true });
+  if (tracked.length) await window.api.gitRevert({ file: tracked, untracked: false });
   refreshGit();};
 
 // --- tabs: Changes / History ---

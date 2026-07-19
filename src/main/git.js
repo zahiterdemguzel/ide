@@ -36,7 +36,8 @@ async function gitStatus() {
   const r = await git(['status', '--porcelain=v1', '--untracked-files=all']);
   if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [], conflicts: [] };
   const { staged, unstaged, conflicts } = parsePorcelain(r.stdout);
-  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead: await aheadCount(), behind: await behindCount(), branch: await currentBranch() };
+  const [ahead, behind, branch] = await Promise.all([aheadCount(), behindCount(), currentBranch()]);
+  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead, behind, branch };
 }
 
 // The checked-out branch's short name, or 'HEAD' when detached (no branch).
@@ -158,11 +159,26 @@ bridge.handle('git-create-branch', (_e, branch) => git(['checkout', '-b', branch
 // not git's merged-only check, so the button reliably removes the branch the
 // user approved (git still refuses to delete the branch that's checked out).
 bridge.handle('git-delete-branch', (_e, branch) => git(['branch', '-D', branch]));
-bridge.handle('git-stage', (_e, file) => git(['add', '--', file]));
+// Run `git <prefix> -- <files>` over a possibly huge file list in chunks:
+// Windows caps a command line at ~32K chars, so thousands of paths can't go in
+// one spawn. Stops at the first failing chunk and returns its result.
+async function gitOverFiles(prefix, files) {
+  let last = { ok: true, stdout: '', stderr: '' };
+  for (let i = 0; i < files.length; i += 100) {
+    last = await git([...prefix, '--', ...files.slice(i, i + 100)]);
+    if (!last.ok) return last;
+  }
+  return last;
+}
+
+// `file` may be a single path or an array — stage/unstage-all pass the whole
+// list so it's a few chunked git spawns instead of one per file.
+bridge.handle('git-stage', (_e, file) => gitOverFiles(['add'], [].concat(file)));
 bridge.handle('git-unstage', async (_e, file) => {
-  const r = await git(['reset', '-q', 'HEAD', '--', file]);
+  const files = [].concat(file);
+  const r = await gitOverFiles(['reset', '-q', 'HEAD'], files);
   // ponytail: initial commit has no HEAD; fall back to removing from index
-  if (!r.ok) return git(['rm', '--cached', '--', file]);
+  if (!r.ok) return gitOverFiles(['rm', '--cached'], files);
   return r;
 });
 
@@ -175,8 +191,9 @@ bridge.handle('git-diff', (_e, { file, staged, untracked }) => {
 
 // Discard a file's changes: delete it if untracked, else restore index+worktree to HEAD.
 bridge.handle('git-revert', (_e, { file, untracked }) => {
-  if (untracked) return git(['clean', '-fq', '--', file]);
-  return git(['restore', '--staged', '--worktree', '--', file]);
+  const files = [].concat(file);
+  if (untracked) return gitOverFiles(['clean', '-fq'], files);
+  return gitOverFiles(['restore', '--staged', '--worktree'], files);
 });
 
 // Ask Haiku for a commit message describing the staged diff. Returns '' on an
