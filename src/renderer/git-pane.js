@@ -2,6 +2,7 @@ import { openGitFile, openCommit, openStash } from './viewer/center.js';
 import { statusLabel, normalizeBranchName } from './shared/git-status.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { confirmDialog } from './shared/confirm.js';
+import { promptText } from './shared/prompt.js';
 import { showError } from './shared/warn.js';
 import { newSessionWithPrompt, refreshAllDiffStats } from './sessions.js';
 import { t } from '../i18n/index.js';
@@ -270,6 +271,166 @@ const UNDO_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" st
 const UPLOAD_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>';
 const DOWNLOAD_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 10 5 5 5-5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>';
 
+// --- history row context menu ---
+// Right-clicking a commit opens the actions that don't fit on the row. Built once
+// and re-targeted per open (`ctxCommit`), like the explorer's tree menu. Which
+// entries are shown depends on the commit's kind, so the menu never offers
+// something that can't work: an **incoming** commit isn't in local history yet, so
+// it can only be previewed, copied, cherry-picked or opened on GitHub — reverting
+// or resetting to it is meaningless. An **unpushed** commit can be dropped
+// outright; a **pushed** one can only be reverted (a new commit on top).
+const commitCtx = document.createElement('div');
+commitCtx.id = 'commit-ctx-menu';
+commitCtx.className = 'git-menu';
+commitCtx.style.display = 'none'; // .git-menu has no hidden-by-default rule; showCommitCtx sets it
+document.body.appendChild(commitCtx);
+
+let ctxCommit = null;
+
+function hideCommitCtx() { commitCtx.style.display = 'none'; ctxCommit = null; }
+document.addEventListener('click', hideCommitCtx);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideCommitCtx(); });
+
+function ctxRow(action, icon, label, danger) {
+  return `<button data-action="${action}"${danger ? ' class="git-menu-danger"' : ''} role="menuitem">`
+    + `<span class="git-menu-icon">${icon}</span><span>${label}</span></button>`;
+}
+
+function showCommitCtx(ev, c) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  ctxCommit = c;
+  const sep = '<div class="git-menu-sep"></div>';
+  const rows = [
+    ctxRow('view', '⊞', t('commitCtx.view')),
+    ctxRow('copy-patch', '⧉', t('commitCtx.copyPatch')),
+    sep,
+    ctxRow('copy-hash', '#', t('commitCtx.copyHash')),
+    ctxRow('copy-subject', '“', t('commitCtx.copySubject')),
+    sep,
+  ];
+  if (c.incoming) {
+    rows.push(ctxRow('cherry-pick', '⑂', t('commitCtx.cherryPick')));
+  } else {
+    rows.push(
+      ctxRow('branch', '⌥', t('commitCtx.branch')),
+      ctxRow('tag', '🏷', t('commitCtx.tag')),
+      ctxRow('checkout', '⇥', t('commitCtx.checkout')),
+    );
+  }
+  rows.push(sep, ctxRow('browse', '⇗', t('commitCtx.browse')));
+  if (!c.incoming) {
+    rows.push(
+      sep,
+      ctxRow('revert', '↺', t('commitCtx.revert'), true),
+      ...(c.pushed ? [] : [ctxRow('undo', '↶', t('commitCtx.undo'), true)]),
+      ctxRow('reset-soft', '⇤', t('commitCtx.resetSoft'), true),
+      ctxRow('reset-hard', '⌫', t('commitCtx.resetHard'), true),
+    );
+  }
+  commitCtx.innerHTML = rows.join('');
+  commitCtx.style.cssText = `display:block; position:fixed; left:${ev.clientX}px; top:${ev.clientY}px;`;
+  // Flip back inside the viewport once it has a measurable size — the git pane sits
+  // at the window's right edge, so a menu opened there would otherwise overflow.
+  requestAnimationFrame(() => {
+    const r = commitCtx.getBoundingClientRect();
+    if (r.right > window.innerWidth) commitCtx.style.left = `${window.innerWidth - r.width - 4}px`;
+    if (r.bottom > window.innerHeight) commitCtx.style.top = `${window.innerHeight - r.height - 4}px`;
+  });
+}
+
+// Destructive entries confirm through a dialog rather than the rows' two-click
+// arming: the menu closes on click, so there is nothing left to arm.
+async function confirmCommitAction(titleKey, msgKey, okKey, c) {
+  return confirmDialog({
+    title: t(titleKey),
+    message: `${t(msgKey)}\n\n${c.short} — ${c.subject}`,
+    ok: t(okKey),
+    danger: true,
+  });
+}
+
+commitCtx.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn || !ctxCommit) return;
+  e.stopPropagation();
+  const c = ctxCommit;
+  const action = btn.dataset.action;
+  hideCommitCtx();
+
+  if (action === 'view') {
+    openCommit(c.hash, c.subject);
+
+  } else if (action === 'copy-patch') {
+    const r = await window.api.gitCommitDiff(c.hash);
+    if (!r.ok) { showGitMsg(r.stderr || 'Could not read the patch', false); return; }
+    await navigator.clipboard.writeText(r.stdout);
+    showGitMsg(`Copied patch for ${c.short}`, true);
+
+  } else if (action === 'copy-hash') {
+    await navigator.clipboard.writeText(c.hash);
+    showGitMsg(`Copied ${c.short}`, true);
+
+  } else if (action === 'copy-subject') {
+    await navigator.clipboard.writeText(c.subject);
+    showGitMsg('Copied commit subject', true);
+
+  } else if (action === 'branch') {
+    const raw = await promptText({ title: t('commitCtx.branch'), label: t('git.createBranch'), placeholder: 'fix/my-branch', ok: t('git.createBranch') });
+    if (!raw) return;
+    const r = await window.api.gitBranchAt({ branch: normalizeBranchName(raw), hash: c.hash });
+    if (!r.ok) { showGitErrorDialog(r.stderr || 'Create branch failed', 'Create branch failed'); return; }
+    refreshGit(); refreshHistory();
+
+  } else if (action === 'tag') {
+    const name = await promptText({ title: t('commitCtx.tag'), label: t('commitCtx.tagLabel'), placeholder: 'v1.0.0', ok: t('commitCtx.tag') });
+    if (!name) return;
+    const r = await window.api.gitTag({ name: name.trim(), hash: c.hash });
+    showGitMsg(r.ok ? `Tagged ${c.short} as ${name.trim()}` : (r.stderr || 'Tag failed'), r.ok);
+
+  } else if (action === 'checkout') {
+    // Checking out a commit detaches HEAD — say so, it surprises people.
+    if (!(await confirmCommitAction('commitCtx.checkoutTitle', 'commitCtx.checkoutMsg', 'commitCtx.checkout', c))) return;
+    const r = await window.api.gitCheckout(c.hash);
+    if (!r.ok) { showGitErrorDialog(r.stderr || 'Checkout failed', 'Checkout failed'); return; }
+    refreshGit(); refreshHistory();
+
+  } else if (action === 'cherry-pick') {
+    const r = await window.api.gitCherryPick(c.hash);
+    if (!r.ok) { showGitErrorDialog(r.stderr || 'Cherry-pick failed', 'Cherry-pick failed'); return; }
+    showGitMsg(`Cherry-picked ${c.short}`, true);
+    refreshGit(); refreshHistory();
+
+  } else if (action === 'browse') {
+    const r = await window.api.ghBrowseCommit(c.hash);
+    if (!r.ok) showGitErrorDialog(r.stderr || 'Could not open the commit', 'Open on GitHub failed');
+
+  } else if (action === 'revert') {
+    if (!(await confirmCommitAction('commitCtx.revertTitle', 'commitCtx.revertMsg', 'commitCtx.revert', c))) return;
+    const r = await window.api.gitRevertCommit(c.hash);
+    if (!r.ok) showGitErrorDialog(r.stderr || 'Revert failed', 'Revert failed');
+    refreshGit(); refreshHistory();
+
+  } else if (action === 'undo') {
+    if (!(await confirmCommitAction('commitCtx.undoTitle', 'commitCtx.undoMsg', 'commitCtx.undo', c))) return;
+    const r = await window.api.gitUndoCommit(c.hash);
+    if (!r.ok) showGitErrorDialog(r.stderr || 'Undo failed', 'Undo failed');
+    refreshGit(); refreshHistory();
+
+  } else if (action === 'reset-soft' || action === 'reset-hard') {
+    const hard = action === 'reset-hard';
+    const ok = await confirmCommitAction(
+      hard ? 'commitCtx.resetHardTitle' : 'commitCtx.resetSoftTitle',
+      hard ? 'commitCtx.resetHardMsg' : 'commitCtx.resetSoftMsg',
+      hard ? 'commitCtx.resetHard' : 'commitCtx.resetSoft', c);
+    if (!ok) return;
+    const r = await window.api.gitResetTo({ hash: c.hash, mode: hard ? 'hard' : 'soft' });
+    if (!r.ok) showGitErrorDialog(r.stderr || 'Reset failed', 'Reset failed');
+    else showGitMsg(`Branch reset to ${c.short}`, true);
+    refreshGit(); refreshHistory();
+  }
+});
+
 function commitItem(c) {
   // A commit's direction drives both its look and its action. A leading direction
   // icon (download = incoming, upload = unpushed) sits left of the subject, colour-
@@ -282,6 +443,7 @@ function commitItem(c) {
   //   (a new undo commit on top) instead.
   const li = document.createElement('li');
   li.onclick = () => openCommit(c.hash, c.subject);
+  li.oncontextmenu = (e) => showCommitCtx(e, c);
 
   const dir = document.createElement('span');
   dir.className = 'commit-dir';

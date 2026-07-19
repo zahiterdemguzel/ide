@@ -143,9 +143,9 @@
 #git-sync.loading svg { animation: git-sync-spin .8s linear infinite; }
 @keyframes git-sync-spin { to { transform: rotate(360deg); } }
 
-/* The commit area is pinned to the bottom of the changes view; the status line
-   rides just above the commit box's separator, at the bottom of the list space. */
-.git-commit-area { margin-top: auto; }
+/* The commit area is pinned to the bottom of the changes view; it's also the
+   positioning context for the status toast that floats above it. */
+.git-commit-area { margin-top: auto; position: relative; }
 .git-commit { padding: 10px 12px; border-top: 1px solid var(--border); background: var(--bg-2); }
 /* The box auto-grows to fit its content (panes.js sets the height as you type),
    so the manual resize handle is disabled. */
@@ -160,9 +160,25 @@
   outline: none; border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
 }
-/* Git status feedback (Synced / Committed / errors…) sits at the bottom of the
-   changes list space, just above the commit box's separator. Hidden when empty. */
-#git-status-line { text-align: center; padding: 0 12px 6px; }
+/* Git status feedback (Synced / Committed / Copied "master" / errors…). It floats
+   *over* the bottom of the changes list rather than taking a row in the flow: a
+   transient message shouldn't reflow the list and make rows jump under the cursor
+   as it appears and expires. Anchored to the top edge of the commit area
+   (`bottom: 100%`), so it needs no knowledge of the commit box's height, which
+   grows as you type. Card styling is the pane's popover recipe — same surface,
+   border, radius and shadow as .branch-menu / .git-menu — so an overlay always
+   reads the same way here; .git-msg's ok/err colours still tint the text.
+   pointer-events:none: it's read-only feedback and must never swallow a click
+   meant for the file row it covers. */
+#git-status-line {
+  position: absolute; bottom: 100%; left: 12px; right: 12px; z-index: 10;
+  margin: 0 0 8px; padding: 6px 10px; box-sizing: border-box;
+  text-align: center; pointer-events: none;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  /* Long text (a commit subject, a git error) wraps instead of stretching the pane. */
+  overflow-wrap: anywhere;
+}
 .git-commit-actions { display: flex; gap: 6px; margin-top: 8px; }
 .git-commit-actions button {
   background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);

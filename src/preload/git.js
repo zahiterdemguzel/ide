@@ -41,4 +41,9 @@ module.exports = {
   gitCommitDiff: (hash) => ipcRenderer.invoke('git-commit-diff', hash),
   gitRevertCommit: (hash) => ipcRenderer.invoke('git-revert-commit', hash),
   gitUndoCommit: (hash) => ipcRenderer.invoke('git-undo-commit', hash),
+  gitBranchAt: (args) => ipcRenderer.invoke('git-branch-at', args),
+  gitTag: (args) => ipcRenderer.invoke('git-tag', args),
+  gitCherryPick: (hash) => ipcRenderer.invoke('git-cherry-pick', hash),
+  gitResetTo: (args) => ipcRenderer.invoke('git-reset-to', args),
+  ghBrowseCommit: (hash) => ipcRenderer.invoke('gh-browse-commit', hash),
 };

@@ -395,6 +395,36 @@ bridge.handle('git-undo-commit', async (_e, hash) => {
   if (!r.ok) await git(['rebase', '--abort']);
   return r;
 });
+// --- History-tab commit actions (the row context menu) ---
+// Branch off an arbitrary commit rather than HEAD — "start a fix from where this
+// went in". Same `checkout -b` as git-create-branch, plus the start point.
+bridge.handle('git-branch-at', (_e, { branch, hash }) => git(['checkout', '-b', branch, hash]));
+
+// Name a commit. A lightweight tag (no -a/-m) is what a local marker wants; git
+// refuses a name that already exists or breaks ref rules, reported to the renderer.
+bridge.handle('git-tag', (_e, { name, hash }) => git(['tag', name, hash]));
+
+// Copy one commit onto the current branch — the point of the incoming rows, whose
+// commits are fetched (so `git show`/cherry-pick can read them) but not yet merged.
+// A conflicting pick is aborted rather than left half-applied, mirroring
+// git-undo-commit's rebase handling: the worktree stays clean and the user decides.
+bridge.handle('git-cherry-pick', async (_e, hash) => {
+  const r = await git(['cherry-pick', hash]);
+  if (!r.ok) await git(['cherry-pick', '--abort']);
+  return r;
+});
+
+// Move the current branch to a commit. `soft` keeps every later change staged (the
+// "re-do the last few commits as one" move); `hard` throws them away entirely, so
+// the renderer confirms first. Only these two modes are exposed — --mixed sits
+// between them with no clear use the other two don't cover better.
+bridge.handle('git-reset-to', (_e, { hash, mode }) =>
+  git(['reset', mode === 'hard' ? '--hard' : '--soft', hash]));
+
+// Open one commit on GitHub. `gh browse --commit` resolves the remote itself, so
+// this works for any host gh knows about, not just github.com URLs we'd hand-build.
+bridge.handle('gh-browse-commit', (_e, hash) => gh(['browse', '--commit=' + hash]));
+
 // --- stash ---
 // List stashes for the Stashes section. The selector (stash@{N}) is needed to
 // apply/pop/drop a specific one; the message + relative date fill the row.
