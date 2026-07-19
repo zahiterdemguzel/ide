@@ -48,7 +48,6 @@ export function switchableModels(currentId: string | null | undefined, all: Mode
 // that level outright alongside Codex's web_search tool, so it's a row that can only
 // break the session (mirror of CODEX_EFFORT_LEVELS in src/main/agent-effort.js).
 export const CODEX_EFFORTS: Effort[] = [
-  { id: 'auto', name: 'Auto', hint: "The model's own default" },
   { id: 'low', name: 'Low', hint: 'Quick answers' },
   { id: 'medium', name: 'Medium', hint: 'Balanced' },
   { id: 'high', name: 'High', hint: 'Thinks before it acts' },
@@ -67,15 +66,14 @@ export type OllamaModel = { id: string; name: string; size?: number | null; fit?
 export const isOllamaId = (v: string | null | undefined): boolean => typeof v === 'string' && v.startsWith('ollama:');
 export const ollamaLabel = (id: string): string => (isOllamaId(id) ? id.slice('ollama:'.length) : id);
 
-// How hard the model thinks before it answers. Unlike the model, this is never picked
-// up front — a session is created at its model's own default and the effort is switched
-// on it from the chat (set-session-effort), which is why nothing here is remembered for
-// the next session. `auto` is a real choice (reset to the model's default), not a
-// "nothing selected" sentinel. Keep in step with EFFORT_LEVELS in src/main/agent-effort.js.
+// How hard the model thinks before it answers. Like the model, the level picked in the
+// chat's badge is remembered (setSessionEffort) and becomes the default for the next
+// session. There is no `auto` row: every session runs at a level the badge can name, so
+// "the model's own default" — a level the user never chose and the badge can't show —
+// isn't offerable. Keep in step with EFFORT_LEVELS in src/main/agent-effort.js.
 export type Effort = { id: string; name: string; hint: string };
 
 export const EFFORTS: Effort[] = [
-  { id: 'auto', name: 'Auto', hint: "The model's own default" },
   { id: 'low', name: 'Low', hint: 'Fastest, barely thinks' },
   { id: 'medium', name: 'Medium', hint: 'Balanced' },
   { id: 'high', name: 'High', hint: 'Thinks before it acts' },
@@ -83,9 +81,13 @@ export const EFFORTS: Effort[] = [
   { id: 'max', name: 'Max', hint: 'Deepest thinking, slowest' },
 ];
 
-export const DEFAULT_EFFORT = 'auto';
+// Mirror of DEFAULT_EFFORT in src/main/agent-effort.js — the fallback before anything
+// has been picked. The desktop resolves the real level at creation; this only decides
+// what a fresh install starts on.
+export const DEFAULT_EFFORT = 'medium';
 
 const KEY_MODEL = storageKey('sessionModel');
+const KEY_EFFORT = storageKey('sessionEffort');
 
 // The last model picked from the menu, reused for the next session so the plain
 // "New session" button never has to ask. An id no longer in MODELS (list edited
@@ -127,7 +129,33 @@ export function modelBadgeName(id: string): string {
   return MODELS.find((m) => m.id === id)?.name ?? CODEX_MODELS.find((m) => m.id === id)?.name ?? (isOllamaId(id) ? ollamaLabel(id) : id);
 }
 
-export function effortName(id: string): string {
-  if (!id) return 'Auto';
-  return EFFORTS.find((e) => e.id === id)?.name ?? id;
+// The last effort picked from the chat's badge, reused as the starting level for the
+// next session. Stored without a family: the ladders overlap, and the desktop clamps
+// what doesn't fit (a remembered `max` landing on a Codex session) at creation, so the
+// raw last pick is the honest thing to keep here.
+export async function getSessionEffort(): Promise<string> {
+  try {
+    const v = await SecureStore.getItemAsync(KEY_EFFORT);
+    return EFFORTS.some((e) => e.id === v) ? (v as string) : DEFAULT_EFFORT;
+  } catch {
+    return DEFAULT_EFFORT;
+  }
+}
+
+export async function setSessionEffort(id: string): Promise<void> {
+  if (!EFFORTS.some((e) => e.id === id)) return;
+  try {
+    await SecureStore.setItemAsync(KEY_EFFORT, id);
+  } catch {
+    // A write failure only costs the sticky default; the session's own level still took.
+  }
+}
+
+// A running session's effort, as the chat's badge says it. Family-aware like the
+// desktop's effortNameForFamily: the ladders differ (no `max` on Codex), and a level
+// the session's family can't offer still shows as what it is running rather than being
+// relabelled to something it isn't.
+export function effortName(id: string, modelId?: string | null): string {
+  const level = id || DEFAULT_EFFORT;
+  return effortsFor(modelId).find((e) => e.id === level)?.name ?? level;
 }

@@ -6,7 +6,7 @@ import {
   availableLocales, currentLocale, setLocale, applyTranslations, pickLocale, t,
 } from '../i18n/index.js';
 import { refreshTermThemes } from './shared/terminal.js';
-import { effortsForFamily, effortNameForFamily } from './shared/effort-levels.js';
+import { EFFORTS, DEFAULT_EFFORT, effortsForFamily, effortNameForFamily } from './shared/effort-levels.js';
 // The badge reads the ladder through here (the model/effort facade), not around it.
 export { DEFAULT_EFFORT } from './shared/effort-levels.js';
 import {
@@ -59,6 +59,7 @@ const DEFAULT_MODEL = 'default';
 const STORE = {
   theme: 'ide.theme', locale: 'ide.locale',
   model: 'ide.sessionModel', subagentModel: 'ide.subagentModel',
+  effort: 'ide.sessionEffort',
   statusLine: 'ide.statusLine',
 };
 const DEFAULT_THEME = 'dark';
@@ -145,6 +146,19 @@ export function getSubagentModel() { return readModel(STORE.subagentModel); }
 export function setSessionModel(id) {
   const ok = MODELS.some((m) => m.id === id) || CODEX_MODELS.some((m) => m.id === id) || isOllamaId(id);
   localStorage.setItem(STORE.model, ok ? id : DEFAULT_MODEL);
+}
+
+// The last effort chosen from the per-session badge, reused as the starting level for
+// the next session. Stored without a family: the ladders overlap, and main clamps what
+// doesn't fit (a remembered `max` landing on a Codex session) at creation, so the raw
+// last pick is the honest thing to keep here.
+export function getSessionEffort() {
+  const v = localStorage.getItem(STORE.effort);
+  return EFFORTS.some((e) => e.id === v) ? v : DEFAULT_EFFORT;
+}
+
+export function setSessionEffort(id) {
+  if (EFFORTS.some((e) => e.id === id)) localStorage.setItem(STORE.effort, id);
 }
 
 function applyTheme(id) {

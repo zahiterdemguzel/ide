@@ -18,7 +18,7 @@
 const { feedLine } = require('./slash-parse');
 
 const MODEL_RE = /^\/model\s+(default|fable|opus|sonnet|haiku)$/i;
-const EFFORT_RE = /^\/effort\s+(auto|low|medium|high|xhigh|max)$/i;
+const EFFORT_RE = /^\/effort\s+(low|medium|high|xhigh|max)$/i;
 
 // Feed one input chunk through the running buffer. Returns { buf, model, effort } — the
 // updated buffer, plus the matched value when Enter closed a matching line this chunk

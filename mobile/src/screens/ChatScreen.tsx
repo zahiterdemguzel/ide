@@ -25,10 +25,10 @@ import { showError } from '../components/ErrorDialog';
 import { useConnection } from '../api/context';
 import {
   Answer, Ask, AskQuestion, Message, Pending, SlashCommand, Transcript,
-  answerAsk, pendingMessage, sendPrompt, settle, uploadImage, upsert,
+  answerAsk, dismissAsk, pendingMessage, sendPrompt, settle, uploadImage, upsert,
 } from '../api/chat';
 import {
-  DEFAULT_EFFORT, DEFAULT_MODEL, MODELS, CODEX_MODELS, switchableModels, effortsFor, effortName, modelBadgeName,
+  DEFAULT_EFFORT, DEFAULT_MODEL, MODELS, CODEX_MODELS, switchableModels, effortsFor, effortName, setSessionEffort, modelBadgeName,
 } from '../api/models';
 import { color, font, radius, space, shadow, tint, type } from '../theme';
 
@@ -225,6 +225,20 @@ export default function ChatScreen({ route, navigation }: any) {
     }
   };
 
+  // None of the options fit and you don't want to write one either — a fair answer to a
+  // question, and better than leaving the session blocked on a card you won't fill in.
+  const skip = async () => {
+    if (!conn) return;
+    const prev = ask;
+    setAsk(null);
+    try {
+      await dismissAsk(conn, id);
+    } catch (e: any) {
+      setAsk(prev);
+      showError('Could not skip the question', e);
+    }
+  };
+
   const working = state === 'working';
   const stop = () => conn?.send('pty-input', { id, data: '\x1b' });
 
@@ -233,7 +247,8 @@ export default function ChatScreen({ route, navigation }: any) {
   // the desktop answered would read as a picker that didn't work. A push that disagrees
   // corrects it.
   const pickModel = (m: string) => { setModel(m); conn?.send('set-session-model', { id, model: m }); };
-  const pickEffort = (e: string) => { setEffort(e); conn?.send('set-session-effort', { id, effort: e }); };
+  // Also remembered as the starting level for the next session, the way the model is.
+  const pickEffort = (e: string) => { setEffort(e); setSessionEffort(e); conn?.send('set-session-effort', { id, effort: e }); };
 
   const files = stat ? stat.files : 0;
   const commit = async () => {
@@ -295,8 +310,9 @@ export default function ChatScreen({ route, navigation }: any) {
             </View>
             <Text style={styles.statusText} numberOfLines={1}>{STATE_LABEL[state] || state}</Text>
             {/* What the session is running, and where you change it. The desktop keeps
-                the same two badges in the same place. Effort names "Auto" here even
-                though that's the default — a badge you can tap has to say what it is. */}
+                the same two badges in the same place. The effort badge always names a
+                real level — there is no "Auto" — so what it says is what the session is
+                actually reasoning at. */}
             {/* Only same-family switches are offered (a local model offers none) —
                 main enforces the same lock, this just keeps the menu honest. */}
             <BadgeMenu
@@ -307,7 +323,7 @@ export default function ChatScreen({ route, navigation }: any) {
               accessibilityLabel="Model"
             />
             <BadgeMenu
-              label={effortName(effort)}
+              label={effortName(effort, model)}
               items={effortsFor(model)}
               current={effort || DEFAULT_EFFORT}
               onPick={pickEffort}
@@ -393,7 +409,7 @@ export default function ChatScreen({ route, navigation }: any) {
             ListFooterComponent={
               <>
                 {working && <Working />}
-                {ask && <AskCard ask={ask} onAnswer={answer} />}
+                {ask && <AskCard ask={ask} onAnswer={answer} onSkip={skip} />}
               </>
             }
           />
@@ -427,13 +443,15 @@ const STATE_LABEL: Record<string, string> = {
 // A permission prompt is the same card with one question and two answers. Its options are
 // only ever Yes and No: the terminal also offers "yes, and stop asking this session", but
 // that one is a standing grant, and a phone is the wrong place to hand one out.
-function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) => void }) {
+function AskCard({ ask, onAnswer, onSkip }: {
+  ask: Ask;
+  onAnswer: (answers: Answer[]) => void;
+  onSkip: () => void;
+}) {
   const [answers, setAnswers] = useState<Answer[]>([]);
-  const [writingTo, setWritingTo] = useState<number | null>(null);
-  const [reply, setReply] = useState('');
 
   // A new question is a new answer — never carry the last one's into it.
-  useEffect(() => { setAnswers([]); setWritingTo(null); setReply(''); }, [ask]);
+  useEffect(() => { setAnswers([]); }, [ask]);
 
   const set = (i: number, a: Answer) => {
     const next = ask.questions.map((_, j) => (j === i ? a : answers[j]));
@@ -459,45 +477,6 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
       .join(', ');
   };
 
-  if (writingTo !== null) {
-    const q = ask.questions[writingTo];
-    return (
-      <View style={styles.ask}>
-        <AskCardHeader icon="create-outline" label="Your answer" />
-        <View style={styles.askBody}>
-        <Text style={[styles.askText, styles.askTextTight]}>{q.question}</Text>
-        <TextInput
-          value={reply}
-          onChangeText={setReply}
-          placeholder="Tell Claude what you'd rather it did…"
-          placeholderTextColor={color.faint}
-          style={styles.askInput}
-          multiline
-          autoFocus
-        />
-        <View style={styles.askRow}>
-          <Pressable
-            onPress={() => { setWritingTo(null); setReply(''); }}
-            style={({ pressed }) => [styles.askBtn, styles.askBtnGhost, pressed && styles.askBtnPressed]}
-          >
-            <Text style={styles.askBtnText}>Back</Text>
-          </Pressable>
-          <Pressable
-            disabled={!reply.trim()}
-            onPress={() => { const i = writingTo; setWritingTo(null); setReply(''); set(i, { text: reply.trim() }); }}
-            style={({ pressed }) => [
-              styles.askBtn, styles.askBtnPrimary, styles.askBtnGrow, styles.askBtnCenter,
-              !reply.trim() && styles.askBtnDim, pressed && styles.askBtnPressed,
-            ]}
-          >
-            <Text style={[styles.askBtnText, styles.askBtnTextPrimary]}>Use this answer</Text>
-          </Pressable>
-        </View>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.ask}>
       <AskCardHeader
@@ -507,14 +486,13 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
       <View style={styles.askBody}>
       {ask.questions.map((q, i) => (
         <AskQuestionView
-          key={`${q.header}:${q.question}`}
+          key={i}
           q={q}
           index={i}
           total={ask.questions.length}
           chosen={answers[i]}
           chosenLabel={label(i)}
           onPick={(a) => set(i, a)}
-          onWrite={() => { setReply(''); setWritingTo(i); }}
         />
       ))}
       {ask.questions.length > 1 && (
@@ -528,6 +506,18 @@ function AskCard({ ask, onAnswer }: { ask: Ask; onAnswer: (answers: Answer[]) =>
         >
           <Text style={[styles.askBtnText, styles.askBtnTextPrimary]}>
             {ready ? 'Send answers' : `Answer all ${ask.questions.length} questions`}
+          </Text>
+        </Pressable>
+      )}
+      {/* A permission box already says no with its own second option; only Claude's own
+          questions need a way out that isn't one of the answers. */}
+      {ask.kind === 'question' && (
+        <Pressable
+          onPress={onSkip}
+          style={({ pressed }) => [styles.askBtn, styles.askBtnGhost, styles.askBtnCenter, pressed && styles.askBtnPressed]}
+        >
+          <Text style={[styles.askBtnText, styles.askSkipText]}>
+            {ask.questions.length > 1 ? "Don't answer these" : "Don't answer"}
           </Text>
         </Pressable>
       )}
@@ -550,24 +540,34 @@ function AskCardHeader({ icon, label }: { icon: any; label: string }) {
 
 // One question. Once it's answered it collapses to its answer, so a card carrying four of
 // them doesn't bury the ones still waiting — tap it to change your mind.
-function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite }: {
+//
+// Writing your own answer happens *inside* the question rather than on a card-wide view:
+// with several questions on the card, taking the card over would unmount the siblings and
+// throw away their toggles and their drafts.
+function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick }: {
   q: AskQuestion;
   index: number;
   total: number;
   chosen?: Answer;
   chosenLabel: string;
   onPick: (a: Answer) => void;
-  onWrite: () => void;
 }) {
   const [open, setOpen] = useState(true);
   // A multiSelect question can't commit on a tap: the tap is a toggle, and only the
   // reader knows when the set is complete.
   const [picked, setPicked] = useState<string[]>([]);
+  // Each question keeps its own draft, so a half-typed answer to one survives while you
+  // deal with another.
+  const [writing, setWriting] = useState(false);
+  const [draft, setDraft] = useState('');
   const done = Boolean(chosen && (chosen.key || chosen.text || chosen.keys?.length));
 
   if (done && !open) {
     return (
-      <Pressable onPress={() => setOpen(true)} style={styles.askDone}>
+      <Pressable
+        onPress={() => { if (chosen?.text) { setDraft(chosen.text); setWriting(true); } setOpen(true); }}
+        style={styles.askDone}
+      >
         <Ionicons name="checkmark-circle" size={16} color={color.green} />
         <View style={styles.askBtnGrow}>
           {total > 1 && <Text style={styles.askHeader}>{q.header || q.question}</Text>}
@@ -578,7 +578,7 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite
     );
   }
 
-  const pick = (a: Answer) => { setOpen(false); onPick(a); };
+  const pick = (a: Answer) => { setOpen(false); setWriting(false); onPick(a); };
 
   return (
     <View style={styles.askGroup}>
@@ -586,6 +586,39 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite
         {total > 1 && <Text style={styles.askHeader}>{q.header || `Question ${index + 1} of ${total}`}</Text>}
         <Text style={[styles.askText, styles.askTextTight]}>{q.question}</Text>
       </View>
+      {writing ? (
+        <View style={styles.askOptions}>
+          <TextInput
+            value={draft}
+            onChangeText={setDraft}
+            placeholder="Tell Claude what you'd rather it did…"
+            placeholderTextColor={color.faint}
+            style={styles.askInput}
+            multiline
+            autoFocus
+          />
+          <View style={styles.askRow}>
+            <Pressable
+              onPress={() => setWriting(false)}
+              style={({ pressed }) => [styles.askBtn, styles.askBtnGhost, pressed && styles.askBtnPressed]}
+            >
+              <Text style={styles.askBtnText}>Back</Text>
+            </Pressable>
+            <Pressable
+              disabled={!draft.trim()}
+              onPress={() => pick({ text: draft.trim() })}
+              style={({ pressed }) => [
+                styles.askBtn, styles.askBtnPrimary, styles.askBtnGrow, styles.askBtnCenter,
+                !draft.trim() && styles.askBtnDim, pressed && styles.askBtnPressed,
+              ]}
+            >
+              <Text style={[styles.askBtnText, styles.askBtnTextPrimary]}>
+                {total > 1 ? 'Use this answer' : 'Send answer'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : (
       <View style={styles.askOptions}>
         {q.options.map((o, i) => {
           // Single-select highlights the first option, which is the one Claude leads with.
@@ -640,14 +673,17 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onWrite
         )}
         {!!q.customKey && (
           <Pressable
-            onPress={onWrite}
+            onPress={() => setWriting(true)}
             style={({ pressed }) => [styles.askBtn, styles.askBtnRow, pressed && styles.askBtnPressed]}
           >
-            <Text style={[styles.askBtnText, styles.askBtnGrow]}>Write my own answer</Text>
+            <Text style={[styles.askBtnText, styles.askBtnGrow]}>
+              {draft.trim() ? 'Keep writing my own answer' : 'Write my own answer'}
+            </Text>
             <Ionicons name="create-outline" size={14} color={color.muted} />
           </Pressable>
         )}
       </View>
+      )}
     </View>
   );
 }
@@ -805,6 +841,7 @@ const styles = StyleSheet.create({
   askBtnTextOn: { color: color.green },
   askBtnDim: { opacity: 0.45 },
   askBtnGhost: { backgroundColor: 'transparent' },
+  askSkipText: { color: color.muted },
   askBtnPressed: { opacity: 0.8 },
   askBtnRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   askBtnGrow: { flex: 1 },

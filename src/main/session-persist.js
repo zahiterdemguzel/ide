@@ -3,6 +3,9 @@
 // and enforce the on-disk budget by evicting the oldest sessions. The fs/IPC glue
 // lives in sessions.js; everything here is plain data so it stays unit-testable.
 
+const { defaultEffortFor } = require('./agent-effort');
+const { modelFamily } = require('./agent-providers');
+
 // The most we keep on disk for previous sessions and their tracking data. Once the
 // snapshot would exceed this, the oldest evictable sessions are dropped (see
 // enforceLimit) until it fits.
@@ -75,7 +78,12 @@ function deserializeSession(obj) {
     archived: !!obj.archived,
     model: obj.model || '',
     subagentModel: obj.subagentModel || '',
-    effort: obj.effort || '',
+    // Snapshots written by a build that had `auto` (or none at all) carry a level this
+    // ladder can't name. Resolve them here rather than at the badge: the record is what
+    // the next spawn re-applies, so normalizing it is what makes the badge's answer
+    // true. The cost is that such a session resumes at a stated level instead of the
+    // CLI's unstated one — which is the point.
+    effort: defaultEffortFor(modelFamily(obj.model), obj.effort),
     agentSessionId: obj.agentSessionId || '',
     transcript: obj.transcript || '',
     // A snapshot predating these fields has no timestamps; 0 means "unknown", which

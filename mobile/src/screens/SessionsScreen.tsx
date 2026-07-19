@@ -28,7 +28,7 @@ import { Card, CategoryLabel, Pill, IconButton } from '../components/ui';
 import { showError } from '../components/ErrorDialog';
 import { shortAgo } from '../api/time';
 import {
-  MODELS, CODEX_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, modelSuffix, modelBadgeName,
+  MODELS, CODEX_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, getSessionEffort, modelSuffix, modelBadgeName,
   OllamaModel,
 } from '../api/models';
 import { color, radius, font, type, motion, shadow, tint, TAB_BAR_HEIGHT } from '../theme';
@@ -293,7 +293,7 @@ export default function SessionsScreen({ navigation }: any) {
     if (chosen) await setSessionModel(chosen);
     setModel(model);
     try {
-      const r: any = await conn?.req('new-session', { cols: 80, rows: 30, model });
+      const r: any = await conn?.req('new-session', { cols: 80, rows: 30, model, effort: await getSessionEffort() });
       // The desktop wraps handler failures in { error } instead of rejecting.
       if (r?.error || !r?.id) {
         showError('Could not create session', r?.error ?? 'Unknown error');

@@ -135,4 +135,13 @@ function keystrokes(ask, answers) {
   return steps;
 }
 
-module.exports = { fromHook, clearsAsk, keystrokes, isAskTool, ESC };
+// Declining to answer at all. Esc cancels the box: the tool comes back rejected and the
+// session carries on with the turn, which is the honest outcome when none of the options
+// fit and the user doesn't want to write one either. It is also the only way out that
+// needs no row numbering, so it can never land on an answer nobody chose.
+function dismissSteps(ask) {
+  if (!ask || !Array.isArray(ask.questions) || !ask.questions.length) return [];
+  return [{ key: ESC }];
+}
+
+module.exports = { fromHook, clearsAsk, keystrokes, dismissSteps, isAskTool, ESC };

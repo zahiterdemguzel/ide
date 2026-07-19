@@ -4,12 +4,14 @@
 // slash command while it runs. Kept as plain data so it's unit-tested
 // (test/agent-effort.test.js); sessions.js applies it in both places.
 //
-// `auto` — and anything empty or unrecognized — means "don't pass the flag", leaving
-// the CLI to resolve the effort from the model's own default. The list is the CLI's;
-// the clients (settings.js on the desktop, models.ts on the phone) own which of these
-// they offer.
+// Every session runs at a level it can name. There is deliberately no `auto` and no
+// "unset": a session whose effort the badge can't state is one reasoning at some level
+// the user never chose and can't see, which is the surprise this module exists to
+// prevent. Anything empty or unrecognized is therefore resolved to a real level
+// (defaultEffortFor) rather than passed through as "let the CLI decide". The list is
+// the CLI's; the clients (settings.js on the desktop, models.ts on the phone) own which
+// of these they offer.
 
-const AUTO = 'auto';
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // The Codex CLI's own ladder (`model_reasoning_effort`): no `max`. Which ladder applies
 // is the session's model family — see effortLevelsFor; the clients read this to build
@@ -22,14 +24,13 @@ const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 // minimal can't answer at all. Offering a stop we can't make work is worse than not
 // offering it; the alternative — quietly switching web_search off to make it legal — trades
 // a tool the user wants for a level they rarely need. A record left on `minimal` by an
-// older build self-heals: codexEffortValue drops it (unknown → no override → Codex's own
-// default) and the badge shows Auto.
+// older build self-heals: defaultEffortFor doesn't recognize it and resolves it to a
+// level the ladder does have.
 const CODEX_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh'];
-// Codex sessions start here rather than unset: the Codex CLI's own default drifts with
-// the model, and a session that quietly reasons at some other level is a surprise the
-// badge can't show. `auto` remains reachable — it's a deliberate pick, not the absence
-// of one.
-const CODEX_DEFAULT_EFFORT = 'medium';
+// The fallback when nothing better is known — a fresh install with no remembered level,
+// or a record carrying one this build can't place. Balanced, and the one level both
+// ladders share.
+const DEFAULT_EFFORT = 'medium';
 
 function effortLevelsFor(family) {
   return family === 'codex' ? CODEX_EFFORT_LEVELS : EFFORT_LEVELS;
@@ -61,10 +62,14 @@ function codexEffortValue(v) {
   return CODEX_EFFORT_LEVELS.includes(s) ? s : '';
 }
 
-// The effort a newly created session starts on: Codex gets an explicit `medium`,
-// Claude stays unset (its own default, resolved by the CLI).
-function defaultEffortFor(family) {
-  return family === 'codex' ? CODEX_DEFAULT_EFFORT : '';
+// The level a session actually runs at, given what was remembered (the last level the
+// user picked, carried over from the client) and the family it belongs to. This is the
+// one place "no level" becomes a level: a remembered `max` doesn't survive into a Codex
+// session (not on its ladder), and an empty or stale record lands on DEFAULT_EFFORT
+// rather than on whatever the CLI would have chosen unseen.
+function defaultEffortFor(family, remembered) {
+  const s = typeof remembered === 'string' ? remembered.trim().toLowerCase() : '';
+  return effortLevelsFor(family).includes(s) ? s : DEFAULT_EFFORT;
 }
 
-module.exports = { AUTO, EFFORT_LEVELS, CODEX_EFFORT_LEVELS, CODEX_DEFAULT_EFFORT, defaultEffortFor, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue };
+module.exports = { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, DEFAULT_EFFORT, defaultEffortFor, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue };

@@ -161,9 +161,11 @@ CLI's two places, which is why it needs both: `--effort <level>` as a **spawn fl
 (`effortArgs()`, the pure, unit-tested `src/main/agent-effort.js`), so a session resumed
 after a restart comes back thinking as hard as it was last told to; and, on a live PTY,
 **typing `/effort <level>`** into the session (the model's story exactly — it queues
-behind the current turn). Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`,
-plus `auto` (reset to the model's own default, and the one value that adds no spawn
-flag). A Codex session takes its level as a spawn-time config override and has no
+behind the current turn). Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`.
+There is deliberately **no `auto` and no unset state**: a session whose level the badge
+can't name is one reasoning at a level the user never chose and can't see, so
+`defaultEffortFor(family, remembered)` resolves every empty, stale or off-ladder value
+to a real level. A Codex session takes its level as a spawn-time config override and has no
 `/effort` command, so it respawns instead — see [codex.md](codex.md), including the
 predecessor-exit race that used to kill the session on a Codex effort switch.
 
@@ -176,13 +178,15 @@ all — a session that won't start is worse than one running at the default effo
 `#session-effort-badge-menu` dropdown) sits next to the model badge and is its mirror
 image: same `.effort-badge`/`.effort-menu` chrome, same open/close/outside-click/Escape
 wiring, and choosing a level updates the record + badge and sends `set-session-effort`.
-It differs from the model in one way — **the level is never remembered as a default for
-the next session** (a session starts at its family's default, so there is no
-`setSessionModel()` counterpart to call, and no `typed` flag to tell origins apart:
-nothing here is this machine's to move). An empty record shows as **"Auto"**, which is
-what "no level set" means; a level off the session's own ladder (a record left by the
-other family) falls back to Auto rather than showing a row the menu can't offer. The
-phone (`ChatScreen.tsx`) has carried the same two badges since before the desktop did.
+Like the model, **the level is remembered as the default for the next session**:
+`setSessionEffort()` stores the last pick (`ide.sessionEffort` in localStorage, SecureStore
+`sessionEffort` on the phone) and `newSession()` passes it as `effort`, which main clamps
+to the family's ladder — a remembered `max` can't follow you into a Codex session.
+**The badge always names a real level.** Sessions persisted by a build that had `auto`
+are normalized on load (`deserializeSession`), so such a session resumes at a *stated*
+level rather than the CLI's unstated one — the deliberate cost of the badge telling the
+truth. The phone (`ChatScreen.tsx`) carries the same two badges, and its `effortName()`
+is family-aware for the same reason the desktop's is.
 
 **The ladder the menu offers** is the pure, unit-tested
 `src/renderer/shared/effort-levels.js` (`EFFORTS`/`CODEX_EFFORTS`, keyed by CLI family —

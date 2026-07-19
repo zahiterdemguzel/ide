@@ -11,7 +11,7 @@ import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
 import {
-  getSessionModel, getSubagentModel, setSessionModel,
+  getSessionModel, getSubagentModel, setSessionModel, getSessionEffort, setSessionEffort,
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
   effortsFor, effortName, DEFAULT_EFFORT,
 } from './settings.js';
@@ -427,12 +427,12 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModel
 // re-applied on every spawn, choosing a level drives the running session (main's
 // set-session-effort), and a change made anywhere else — an `/effort <level>` typed into
 // the terminal, or a switch made on a paired phone — comes back as a session-effort push
-// that redraws the badge (see onSessionEffort). It differs from the model in one way: the
-// level is never remembered as a default for the next session (a session starts at its
-// family's default), so there's no setSessionModel counterpart to call.
+// that redraws the badge (see onSessionEffort) — including the sticky default: choosing a
+// level here remembers it (setSessionEffort) so the next session starts on it, exactly as
+// the model badge does.
 //
-// An empty record shows as "Auto" — the badge names what the session is running, and
-// "no level set" is exactly what auto means.
+// The badge always names a real level: main resolves every record to one at creation and
+// on load, so there is no "unset" state left for it to render.
 function effortId(s) {
   const v = s && s.effort;
   // A level from the other family's ladder (a record written before a Codex respawn
@@ -474,6 +474,7 @@ function chooseEffort(effort) {
   const s = sessions.get(activeId);
   if (!s) return;
   s.effort = effort;
+  setSessionEffort(effort);
   renderEffortBadge(s);
   window.api.setSessionEffort(activeId, effort);
 }
@@ -765,7 +766,7 @@ export async function newSession(opts = {}) {
   if (modelFamily(model) === 'codex' && !(await ensureCodex())) return;
   const subagentModel = opts.subagentModel || getSubagentModel();
   // probe a size from a temporary fit after open
-  const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel });
+  const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel, effort: opts.effort || getSessionEffort() });
   // A failed spawn already raised a session-error dialog from main; bail rather
   // than build a broken row around a missing id.
   if (!res || !res.id) return;

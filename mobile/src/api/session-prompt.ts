@@ -8,6 +8,7 @@
 // the TUI has finished ingesting a multi-line paste, firing the prompt half-typed.
 // Same timings here, for the same reasons.
 import { Connection } from './connection';
+import { getSessionEffort } from './models';
 
 const TYPE_DELAY_MS = 1000;
 const ENTER_DELAY_MS = 1400;
@@ -45,7 +46,9 @@ export function primePrompt(conn: Connection, id: string, text: string) {
 // reason on failure: new-session is guard()ed on main, so a failure comes back as a
 // *successful* response carrying { error }, never a rejection.
 export async function newSessionWithPrompt(conn: Connection, text: string): Promise<string> {
-  const r = await conn.req<NewSession>('new-session', { cols: 80, rows: 30 });
+  // No model (this path deliberately inherits the CLI's), but the effort still carries
+  // over: a session started from a git error should think as hard as the last one did.
+  const r = await conn.req<NewSession>('new-session', { cols: 80, rows: 30, effort: await getSessionEffort() });
   if (!r?.id) throw new Error(r?.error || 'Could not start a session');
   primePrompt(conn, r.id, text);
   return r.id;

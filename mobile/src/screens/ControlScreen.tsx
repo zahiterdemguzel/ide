@@ -59,7 +59,10 @@ function pickCapture(w: number, h: number): { width: number; height: number; max
   const width = Math.min(MAX_CAPTURE_W, Math.round(w * PixelRatio.get()));
   return { width, height: Math.round((h / w) * width), maxFps: FPS };
 }
-const TAP_SLOP = 6;
+// Distance from the *grant point* a finger may wander and still count as a tap.
+// Measured from the origin, never between consecutive move events: a slow drift
+// of 2px per event adds up to a real drag while no single event ever exceeds it.
+const TAP_SLOP = 8;
 const PINCH_SLOP = 12; // inter-finger distance change before a 2-finger gesture becomes pinch
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 5;
@@ -373,7 +376,8 @@ export default function ControlScreen() {
   }, [send]);
 
   const gesture = useRef({
-    last: { x: 0, y: 0 }, moved: false, twoFinger: false, dragging: false, panning: false,
+    start: { x: 0, y: 0 }, last: { x: 0, y: 0 },
+    moved: false, twoFinger: false, dragging: false, panning: false,
     active: false, longPressed: false, pressNorm: null as { x: number; y: number } | null,
     // Two-finger classification: 'none' until the fingers either spread/close
     // (pinch) or travel together (scroll); the first verdict sticks for the
@@ -431,6 +435,7 @@ export default function ControlScreen() {
       g.twoMode = 'none';
       g.lastDist = 0;
       g.last = localPoint(evt.nativeEvent);
+      g.start = g.last;
       clearLong();
       if (g.twoFinger) {
         const { dist, mid } = touchGeom(evt.nativeEvent.touches);
@@ -463,7 +468,7 @@ export default function ControlScreen() {
       const touches = evt.nativeEvent.touches.length;
       const { x, y } = localPoint(evt.nativeEvent);
       const dx = x - g.last.x; const dy = y - g.last.y;
-      if (Math.abs(x - g.last.x) > TAP_SLOP || Math.abs(y - g.last.y) > TAP_SLOP) { g.moved = true; clearLong(); }
+      if (!g.moved && Math.hypot(x - g.start.x, y - g.start.y) > TAP_SLOP) { g.moved = true; clearLong(); }
 
       if (touches >= 2 || g.twoFinger) {
         g.twoFinger = true;
@@ -508,8 +513,13 @@ export default function ControlScreen() {
         return;
       }
       if (modeRef.current === 'trackpad') {
-        // Relative: the finger nudges the virtual cursor. A completed long
-        // press turns the first move into a left-button drag from the cursor.
+        // Relative: the finger nudges the virtual cursor. Inside the tap slop
+        // nothing moves at all — a finger always rolls a pixel or two while
+        // tapping, and letting that through drifts the cursor off the target
+        // the user aimed at before the click lands.
+        if (!g.moved) return;
+        // A completed long press turns the first *real* move (past the slop)
+        // into a left-button drag from the cursor.
         const d = normDelta(dx, dy);
         vPos.current = { x: clamp01(vPos.current.x + d.x), y: clamp01(vPos.current.y + d.y) };
         syncLocalCursor();
@@ -526,7 +536,7 @@ export default function ControlScreen() {
       }
       // Touch: a completed long press turns the first move into a drag from the
       // press point (button down there, then the cursor tracks the finger).
-      if (g.longPressed && !g.dragging && g.pressNorm) {
+      if (g.longPressed && g.moved && !g.dragging && g.pressNorm) {
         g.dragging = true;
         send([{ k: 'down', x: g.pressNorm.x, y: g.pressNorm.y, button: 'left' }]);
       }

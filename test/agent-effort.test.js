@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('../src/main/agent-effort');
+const { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, DEFAULT_EFFORT, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('../src/main/agent-effort');
 
 test('every offered level is a spawn flag', () => {
   for (const level of EFFORT_LEVELS) {
@@ -8,11 +8,14 @@ test('every offered level is a spawn flag', () => {
   }
 });
 
-test('auto, empty and absent mean no flag at all (the CLI picks)', () => {
-  assert.deepEqual(effortArgs('auto'), []);
+test('empty and absent add no flag — but no session is left holding one', () => {
+  // effortArgs is the last step, not the policy: by the time a record reaches it,
+  // defaultEffortFor has already turned "nothing" into a real level. These cases are
+  // the floor under that, not a state the UI can produce.
   assert.deepEqual(effortArgs(''), []);
   assert.deepEqual(effortArgs(undefined), []);
   assert.deepEqual(effortArgs(null), []);
+  assert.deepEqual(effortArgs('auto'), []); // no longer a level; treated as unknown
 });
 
 test('an unknown level is dropped, never passed through', () => {
@@ -47,10 +50,30 @@ test('minimal is not a codex level: the API rejects it alongside web_search', ()
   assert.equal(codexEffortValue('minimal'), '');
 });
 
-test('a new codex session starts on medium; claude on the CLI default', () => {
-  assert.equal(defaultEffortFor('codex'), 'medium');
-  assert.equal(defaultEffortFor('claude'), '');
-  assert.equal(defaultEffortFor(''), '');
-  // The default must be a level the codex spawn will actually accept.
-  assert.equal(codexEffortValue(defaultEffortFor('codex')), 'medium');
+test('a session starts on the level last picked', () => {
+  assert.equal(defaultEffortFor('claude', 'xhigh'), 'xhigh');
+  assert.equal(defaultEffortFor('codex', 'low'), 'low');
+  assert.equal(defaultEffortFor('claude', ' High '), 'high');
+});
+
+test('a remembered level the family cannot run falls back rather than breaking it', () => {
+  // `max` is claude-only: carried into a codex session it would fail the spawn outright.
+  assert.equal(defaultEffortFor('codex', 'max'), DEFAULT_EFFORT);
+  assert.equal(defaultEffortFor('claude', 'max'), 'max');
+});
+
+test('nothing remembered still yields a real level — never an unset session', () => {
+  // This is the whole point: every session runs at a level its badge can name, so there
+  // is no input that resolves to "" and lets the CLI pick unseen.
+  for (const family of ['claude', 'codex', 'ollama', '']) {
+    for (const remembered of ['', undefined, null, 'auto', 'ludicrous', 42]) {
+      const start = defaultEffortFor(family, remembered);
+      assert.ok(effortLevelsFor(family).includes(start), `${family}/${remembered} → ${start}`);
+    }
+  }
+});
+
+test('the fallback is a level both ladders can actually run', () => {
+  assert.equal(cleanEffort(DEFAULT_EFFORT), DEFAULT_EFFORT);
+  assert.equal(codexEffortValue(DEFAULT_EFFORT), DEFAULT_EFFORT);
 });

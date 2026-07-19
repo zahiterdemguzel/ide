@@ -11,8 +11,9 @@ test('detects a plainly-typed /model command on Enter', () => {
 test('detects a plainly-typed /effort command on Enter', () => {
   assert.deepEqual(feedSessionCommand('', '/effort high\r'), { buf: '', model: null, effort: 'high' });
   assert.equal(feedSessionCommand('', '/effort xhigh\n').effort, 'xhigh');
-  // `auto` is a real level to track: it resets the session to the model's own default.
-  assert.equal(feedSessionCommand('', '/effort auto\r').effort, 'auto');
+  // `auto` is no longer a level, so it isn't tracked: the badge would have nothing to
+  // show for it. The CLI still sees the keystrokes; only the badge declines to follow.
+  assert.equal(feedSessionCommand('', '/effort auto\r').effort, null);
 });
 
 test('value is lowercased and surrounding whitespace tolerated', () => {

@@ -13,7 +13,7 @@ const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
 const { installGuide: codexInstallGuide } = require('./codex-install');
-const { AUTO, cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
+const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
 const { tracksFs, editedFilePath, serialFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS } = require('./fs-track');
@@ -31,7 +31,7 @@ const statusline = require('./statusline');
 // transcript stream and the question the TUI is blocked on. It reads what we hand it
 // and never reaches back in here.
 const chat = require('./chat');
-const { keystrokes } = require('./ask-lib');
+const { keystrokes, dismissSteps } = require('./ask-lib');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
 //         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
@@ -819,21 +819,22 @@ bridge.handle('get-usage', async () => {
 // spawned session gets a statusLine (live sessions keep what they spawned with).
 bridge.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
 
-bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows, model, subagentModel }) => {
+bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows, model, subagentModel, effort }) => {
   const id = crypto.randomUUID();
   const repo = getRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo. `model`/`subagentModel` are the per-session agent choice (see
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
-  // `effort` isn't picked at creation — it's switched on a running session
-  // (set-session-effort) and re-applied on every spawn — so it starts at the family's
-  // default: `medium` for Codex, unset (the model's own default) for Claude.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model)), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
+  // `effort` is the level the client last picked, carried over so a new session starts
+  // where the user left off. defaultEffortFor clamps it to the family's ladder (a
+  // remembered `max` isn't reachable on Codex) and supplies a real level when nothing
+  // is remembered — a session never starts at a level its badge can't name.
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model), effort), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   broadcastSessions();
   // `effort` rides back so the creating client's badge opens on the level the session
-  // actually spawned at: the family default is decided here, and the sessions-changed
+  // actually spawned at: the clamp is decided here, and the sessions-changed
   // broadcast only builds rows the client doesn't have yet — it never re-reads them
   // onto a row this call is about to create.
   return { id, repo, effort: sessions.get(id).effort };
@@ -947,9 +948,8 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
 // Change a session's reasoning effort — the same two-place story as the model above,
 // but the spawn half is a CLI flag rather than an env var (see agent-effort.js). An
 // unknown level is dropped rather than typed: `/effort gpt` would land in the TUI as a
-// prompt, and `--effort gpt` on the next resume wouldn't start at all. `auto` is a real
-// choice (reset to the model's default), so it's accepted here and typed at the CLI,
-// even though it's the one value that adds no spawn flag.
+// prompt, and `--effort gpt` on the next resume wouldn't start at all. There is no
+// "clear it" value — every level the menu offers is a real one.
 bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, effort }) => {
   const s = sessions.get(id);
   if (!s) return;
@@ -958,14 +958,14 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
     // Codex has its own ladder (low…xhigh, no max) and takes the level as a
     // spawn-time config override, so — like its model switch above — a live
     // change is a conversation-preserving respawn.
-    if (!chosen || (chosen !== AUTO && !codexEffortValue(chosen))) return;
+    if (!codexEffortValue(chosen)) return;
     s.effort = chosen;
     persistSession(id);
     if (s.pty) respawnSession(id, s, 'respawning for effort switch');
     sendToRenderer('session-effort', { id, effort: chosen });
     return;
   }
-  if (!chosen || (chosen !== AUTO && !cleanEffort(chosen))) return;
+  if (!cleanEffort(chosen)) return;
   s.effort = chosen;
   persistSession(id);
   // Same as the model above: type the command and let it queue behind the current turn.
@@ -1070,10 +1070,11 @@ async function waitForPaint(s) {
   }
 }
 
-bridge.handle('answer-ask', guard('answering a question', async (_e, { id, answers } = {}) => {
+bridge.handle('answer-ask', guard('answering a question', async (_e, { id, answers, dismiss } = {}) => {
   const s = sessions.get(id);
   if (!s || !s.pty) return { ok: false, error: 'This session is not running.' };
-  const steps = keystrokes(chat.currentAsk(id), answers);
+  const ask = chat.currentAsk(id);
+  const steps = dismiss ? dismissSteps(ask) : keystrokes(ask, answers);
   if (!steps.length) return { ok: false, error: 'That answer does not fit the question.' };
   // Settled the moment the keys go out: the hook that confirms it lands later, and a
   // card still on screen until then invites a second answer into a menu that has moved on.

@@ -125,3 +125,10 @@ export async function answerAsk(conn: Connection, id: string, answers: Answer[])
   const r = await conn.req<{ ok: boolean; error?: string }>('answer-ask', { id, answers });
   if (!r?.ok) throw new Error(r?.error || 'Could not answer');
 }
+
+// Decline the whole box. Main sends Esc, which cancels it: Claude is told the question
+// went unanswered and gets on with the turn.
+export async function dismissAsk(conn: Connection, id: string) {
+  const r = await conn.req<{ ok: boolean; error?: string }>('answer-ask', { id, dismiss: true });
+  if (!r?.ok) throw new Error(r?.error || 'Could not skip the question');
+}

@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { fromHook, clearsAsk, keystrokes, ESC } = require('../src/main/ask-lib');
+const { fromHook, clearsAsk, keystrokes, dismissSteps, ESC } = require('../src/main/ask-lib');
 
 // The PreToolUse payload Claude Code actually sends for AskUserQuestion, captured from a
 // live CLI. Two questions in one call, each with its own options and descriptions.
@@ -63,6 +63,13 @@ test('keystrokes: an option per question, then the box\'s own Submit', () => {
   // lands on its Submit tab, where "1" is "Submit answers".
   assert.deepEqual(keystrokes(ask, [{ key: '1' }, { key: '2' }]),
     [{ key: '1' }, { key: '2' }, { key: '1' }]);
+});
+
+test('dismissSteps: declining the whole box is one Esc, however many questions it holds', () => {
+  // Esc cancels the box outright, so no number is ever pressed and no question can be
+  // answered by accident — the tool comes back rejected and the turn goes on.
+  assert.deepEqual(dismissSteps(fromHook(ASK)), [{ key: ESC }]);
+  assert.deepEqual(dismissSteps(null), []);
 });
 
 test('keystrokes: a custom answer is the extra option, the words, then Enter', () => {

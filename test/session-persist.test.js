@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { MAX_PERSIST_BYTES, persistedState, serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit } = require('../src/main/session-persist');
+const { DEFAULT_EFFORT } = require('../src/main/agent-effort');
 
 // A live in-memory session entry the way sessions.js holds it.
 function liveSession({ repo = '', firstPrompt = '', name = '', archived = false, state = 'completed', model = '', subagentModel = '', effort = '', transcript = '', startedAt = 0, lastActiveAt = 0, tool = null, edits = [], fileOps = [] } = {}) {
@@ -98,11 +99,26 @@ test('serialize -> deserialize round-trips the per-session model and effort choi
   // Effort is a spawn flag, so this is what makes a resumed session think as hard as it
   // was last told to (sessions.js re-applies it via `--effort` on every spawn).
   assert.equal(restored.effort, 'xhigh');
-  // A snapshot predating the feature deserializes to the inherit-everything default.
+  // A snapshot predating the feature inherits everything it can — but not the effort:
+  // that resolves to a real level, since a session whose level the badge can't name is
+  // exactly what this normalization exists to prevent.
   const old = deserializeSession({ id: 'x' });
   assert.equal(old.model, '');
   assert.equal(old.subagentModel, '');
-  assert.equal(old.effort, '');
+  assert.equal(old.effort, DEFAULT_EFFORT);
+});
+
+test('a snapshot written when auto was a level resolves to a real one', () => {
+  // `auto` meant "no flag, let the CLI decide" — a level the badge could not state.
+  // Normalizing on load is what makes the badge's answer true, at the cost of such a
+  // session resuming at a stated level rather than the CLI's unstated one.
+  assert.equal(deserializeSession({ id: 'x', effort: 'auto' }).effort, DEFAULT_EFFORT);
+  // A codex session carrying claude's `max` can't spawn with it — clamped to the shared
+  // fallback rather than left to fail.
+  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-5.4', effort: 'max' }).effort, DEFAULT_EFFORT);
+  // A level the family does have is left exactly as it was.
+  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-5.4', effort: 'high' }).effort, 'high');
+  assert.equal(deserializeSession({ id: 'x', model: 'sonnet', effort: 'max' }).effort, 'max');
 });
 
 test('deserializeSession: tolerates a malformed snapshot', () => {
