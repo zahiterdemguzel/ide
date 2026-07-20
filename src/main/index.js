@@ -54,28 +54,23 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess');
 app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
 
-// The remote browser (src/main/remote-browser.js) renders an offscreen
-// BrowserWindow and reads each frame off the CPU via image.toJPEG() in the
-// `paint` event — Electron's "software output device" OSR mode. That mode
-// requires hardware acceleration to be OFF: with it on, creating the offscreen
-// window crashes the GPU process on Windows (crashpad "not connected", taking
-// the whole app down). This is the documented requirement for CPU-side OSR
-// frames, so it MUST come before app is ready and it supersedes the GPU
-// rasterization tuning below (those switches are inert without HW accel).
-app.disableHardwareAcceleration();
-// Distinctive startup marker so a running app can be confirmed to include this
-// fix (the "GPU stall / GL Driver Message" renderer logs persist under software
-// WebGL and are NOT a reliable signal). If this line is absent from the log, the
-// process is stale/prebuilt and the offscreen browser will still crash.
-console.log('[gpu] hardware acceleration disabled for offscreen remote-browser OSR');
+// Hardware acceleration stays ON. The remote browser's offscreen window
+// (src/main/remote-browser.js) runs in Electron's GPU-accelerated OSR mode,
+// which still delivers CPU-side NativeImage frames in the `paint` event (the
+// GPU frame is read back internally) — app.disableHardwareAcceleration() is
+// only required for the *software output device* OSR mode, not for OSR per se.
+// Verified on this machine (Electron 31/Windows): visible window + offscreen
+// window together, HW accel on, paints and toJPEG() work, no GPU-process crash.
+// (An earlier crash blamed on this pairing was actually device-metrics
+// emulation on an offscreen window — see remote-browser.js.)
+// Startup marker so a running build can be confirmed to include this state.
+console.log('[gpu] hardware acceleration on; remote-browser uses GPU-accelerated OSR');
 
-// Would offload web-content rasterization to the GPU and skip the CPU copy of
-// tiles (zero-copy) for smoother panel scrolling / terminal compositing — but
-// these are no-ops now that hardware acceleration is disabled for the remote
-// browser's software OSR (above). Kept as intent markers: if OSR ever moves to
-// the GPU shared-texture path (webPreferences.offscreen.useSharedTexture), drop
-// disableHardwareAcceleration and these become live again. Deliberately moderate
-// either way: we do NOT pass ignore-gpu-blocklist.
+// Offload web-content rasterization to the GPU and skip the CPU copy of tiles
+// (zero-copy) for smoother panel scrolling / terminal compositing. Deliberately
+// moderate: we do NOT pass ignore-gpu-blocklist — a blocklisted GPU/driver
+// falls back to software rendering (and the remote browser keeps working there;
+// software OSR paints were verified too).
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 

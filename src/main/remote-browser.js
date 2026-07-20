@@ -2,9 +2,11 @@
 // desktop. Frames leave as base64 JPEG `browser-frame` events (watched — see
 // STREAM_EVENTS), input arrives as normalized `browser-input` items and is
 // injected with webContents.sendInputEvent. Offscreen rendering is push-based:
-// the `paint` event fires only on dirty frames (software compositing on
-// Windows), and setFrameRate caps it; paint goes quiet on an idle page, so
-// invalidate() is called after loads and resizes to force a first frame.
+// the `paint` event fires only on dirty frames, and setFrameRate caps it; paint
+// goes quiet on an idle page, so invalidate() is called after loads and resizes
+// to force a first frame. This is GPU-accelerated OSR (app-wide hardware
+// acceleration stays on — see index.js); paint still hands us a CPU-side
+// NativeImage, read back from the GPU frame internally.
 //
 // One instance per desktop window (id 'main'): the feature mirrors one phone
 // driving one page, and a second watcher simply sees the same frames.
