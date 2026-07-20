@@ -21,6 +21,14 @@ const debug = debugFor('client');
 const debugTunnel = debugFor('tunnel');
 
 const MAX_BACKOFF_MS = 30000;
+// Client-side liveness. The relay pings us (relay.js) and `ws` answers pongs for
+// free, but that only tells the *relay* we are gone — this socket carries no
+// traffic of its own while nobody is using it, so a path that dies quietly (wifi
+// dropped, laptop slept, NAT entry expired) leaves us OPEN and happy forever while
+// the relay has long since terminated its end. A phone then dials a room whose
+// desktop looks present and nothing answers. So ping the relay too, and treat a
+// missed pong as a dead socket: terminate it and let the reconnect run.
+const PING_INTERVAL_MS = 20000;
 // Pre-connect buffer bound per stream: bytes arrive before the local socket is up and
 // are queued, so a large upload against a slow-to-bind dev server would grow this
 // without limit. Past the cap the stream is aborted rather than buffered forever.
@@ -54,6 +62,7 @@ function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {
   let ws = null;
   let retry = 0;
   let timer = null;
+  let ping = null;
   let closed = false;
 
   const send = (msg) => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); };
@@ -204,6 +213,22 @@ function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {
       retry = 0;
       debug('connected', { url });
       log(`[relay] connected to ${url}`);
+      const sock = ws;
+      let alive = true;
+      sock.on('pong', () => { alive = true; });
+      clearInterval(ping);
+      ping = setInterval(() => {
+        if (sock.readyState !== WebSocket.OPEN) return;
+        if (!alive) {
+          debug('ping timeout', { url });
+          log('[relay] no response, reconnecting');
+          sock.terminate(); // 'close' fires, which drops clients and redials
+          return;
+        }
+        alive = false;
+        try { sock.ping(); } catch { /* already closing */ }
+      }, PING_INTERVAL_MS);
+      ping.unref?.();
     });
     ws.on('message', (raw) => {
       let msg;
@@ -220,6 +245,7 @@ function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {
     // whatever they held (a session's PTY, say). They come back on reconnect.
     ws.on('close', (code) => {
       debug('disconnected', { code, clients: clients.size, streams: streams.size });
+      clearInterval(ping);
       dropClients();
       dropStreams();
       if (closed) return;
@@ -239,10 +265,29 @@ function startRelayClient({ relayUrl, room, instance, hub, tunnel, log = () => {
   return {
     url,
     connected: () => !!ws && ws.readyState === WebSocket.OPEN,
+    // Redial now. A socket that survived a suspend looks OPEN but is talking to a
+    // relay that dropped us minutes ago, and waiting for the next ping (or a full
+    // backoff) is time the phone spends unable to reach this machine — so on a
+    // resume the caller says so and we start over from a known-good socket.
+    wake() {
+      if (closed) return;
+      debug('wake', { connected: !!ws && ws.readyState === WebSocket.OPEN });
+      retry = 0;
+      clearTimeout(timer);
+      clearInterval(ping);
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.removeAllListeners('close'); // this teardown is ours, not a reconnect trigger
+        ws.terminate();
+        dropClients();
+        dropStreams();
+      }
+      connect();
+    },
     close() {
       debug('closing', { clients: clients.size, streams: streams.size });
       closed = true;
       clearTimeout(timer);
+      clearInterval(ping);
       dropClients();
       dropStreams();
       if (ws) ws.terminate();

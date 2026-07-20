@@ -5,7 +5,9 @@
 // phone in the room. Off by default. These desktop-control channels use raw
 // ipcMain deliberately — they must never be remotely callable.
 
-const { ipcMain, app } = require('electron');
+const {
+  ipcMain, app, powerMonitor, powerSaveBlocker,
+} = require('electron');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -86,6 +88,28 @@ const phoneRelayUrl = () => relayUrlForPhone(relayUrl, lanAddresses()[0]);
 let hub = null;
 let relay = null; // outbound socket to the cloud relay, while enabled
 let enabled = false;
+let awakeBlocker = null; // powerSaveBlocker id, while enabled
+
+// Remote access is a *service*: a phone must reach this machine at any hour, and a
+// sleeping machine answers nothing — the relay drops the desktop socket, and the
+// phone finds an empty room until someone walks over and touches the keyboard. So
+// hold the system awake for as long as the service is on, and only that long.
+// 'prevent-app-suspension' keeps the system running while still letting the display
+// sleep, which is what an unattended desktop should do.
+function holdSystemAwake() {
+  if (awakeBlocker !== null) return;
+  try {
+    awakeBlocker = powerSaveBlocker.start('prevent-app-suspension');
+  } catch (err) {
+    console.error('[remote power blocker]', err);
+    awakeBlocker = null;
+  }
+}
+function releaseSystemAwake() {
+  if (awakeBlocker === null) return;
+  try { powerSaveBlocker.stop(awakeBlocker); } catch (err) { console.error('[remote power blocker]', err); }
+  awakeBlocker = null;
+}
 const forwards = new Map(); // targetPort -> proxy handle ({ port, issueUrlToken, close })
 
 async function proxyFor(targetPort) {
@@ -192,6 +216,7 @@ async function enable() {
     log: (msg) => console.log(msg),
   });
   enabled = true;
+  holdSystemAwake();
   push.setEnabled(true); // notifications are part of the service: off means silent
   // Now reachable, so say so: this is what puts this window in the list a phone
   // chooses from.
@@ -210,6 +235,7 @@ async function disable() {
   if (!enabled) return status();
   registry.remove();
   enabled = false;
+  releaseSystemAwake();
   push.setEnabled(false);
   if (relay) relay.close();
   relay = null;
@@ -220,6 +246,25 @@ async function disable() {
   sendToRenderer('remote-clients-changed', 0);
   await closeAllForwards();
   return status();
+}
+
+// A machine can still leave the network under us — the user sleeps it by hand, closes
+// the lid, or the wifi drops — and what comes back is a socket that *looks* connected
+// to a relay that evicted us long ago. The relay client notices on its own within a
+// ping interval, but the OS knows first, so redial the moment it says so rather than
+// leaving the phone knocking on an empty room. Also re-arm the power blocker: a
+// suspend the OS forced through doesn't stop the service, and the blocker doesn't
+// necessarily survive it.
+const wakeRelay = () => {
+  if (!enabled) return;
+  holdSystemAwake();
+  relay?.wake();
+};
+// powerMonitor cannot be touched before the app is ready, so subscribe from there.
+function watchPower() {
+  for (const event of ['resume', 'unlock-screen', 'user-did-become-active']) {
+    try { powerMonitor.on(event, wakeRelay); } catch { /* not on this platform */ }
+  }
 }
 
 // The project is the one thing in a window's entry that changes while it runs, and it
@@ -255,6 +300,7 @@ handle('list-instances', () => registry.list()
 // reach until the server is listening again — and it can't ask anyone to re-open
 // Settings — so restore the last state as soon as the app is up.
 app.whenReady().then(() => {
+  watchPower();
   if (config.enabled) enable().catch((err) => console.error('[remote autostart]', err));
 });
 
@@ -303,6 +349,7 @@ app.on('before-quit', () => {
   // that is on its way out. A window that is killed or crashes never reaches this, so
   // the reader prunes dead entries too (see instance-registry.js).
   registry.remove();
+  releaseSystemAwake();
   if (relay) relay.close();
   closeAllForwards();
 });

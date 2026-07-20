@@ -91,6 +91,7 @@ async function startDesktop({ relayPort, room, instance = 'win-1', invoke = asyn
   });
   return {
     hub,
+    relay,
     close: async () => {
       relay.close();
       await Promise.all([...forwards.values()].map((p) => p.close()));
@@ -327,4 +328,30 @@ test('the health check still answers on the shared port', async () => {
     assert.equal(res.status, 200);
     assert.match(res.body, /ide-relay ok/);
   } finally { await relay.close(); }
+});
+
+// After a suspend the desktop's socket can look OPEN while the relay dropped it long
+// ago, and a phone then dials a room whose desktop is a ghost. wake() is what the
+// power monitor calls: throw the socket away and redial, so the room has a live
+// desktop again without waiting on a ping timeout or a backoff.
+test('wake() redials and the desktop is reachable again', async () => {
+  const relay = await startRelay({ port: 0, host: '127.0.0.1' });
+  const room = 'room-wake';
+  const desktop = await startDesktop({ relayPort: relay.port, room });
+  await settle();
+
+  try {
+    const before = await openMobile(`ws://127.0.0.1:${relay.port}/?role=mobile&room=${room}`);
+    assert.deepEqual(await before.next(), { t: 'hello', protoVersion: 1 });
+    before.ws.close();
+
+    desktop.relay.wake();
+    await settle();
+    assert.equal(desktop.relay.connected(), true);
+
+    // A phone arriving after the redial is served by the fresh socket.
+    const after = await openMobile(`ws://127.0.0.1:${relay.port}/?role=mobile&room=${room}`);
+    assert.deepEqual(await after.next(), { t: 'hello', protoVersion: 1 });
+    after.ws.close();
+  } finally { await desktop.close(); await relay.close(); }
 });
