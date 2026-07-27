@@ -19,14 +19,17 @@ const { sendToRenderer } = require('./window');
 const { createLimiter } = require('./concurrency');
 const {
   pickModelId, findModel, modelsRoot, modelFiles, vadPath, modelReady, modelStates,
-  normalizeTranscript, shouldEmit, statSize,
+  normalizeTranscript, shouldEmit, statSize, pickLanguage, whisperLanguage, LANGUAGES,
   SAMPLE_RATE, VAD_CONFIG, VAD_BUFFER_SECONDS, recognizerThreads,
+  TAIL_PADDING_SECONDS, withTailPadding,
 } = require('./stt-lib');
+
+const TAIL_PADDING = Math.round(SAMPLE_RATE * TAIL_PADDING_SECONDS);
 
 let sherpa = null;      // the native module, loaded on first use
 let loadError = null;   // why it couldn't load (reported as unavailable, not thrown)
 let recognizer = null;  // LRU-of-1: loading Whisper weights is the expensive step
-let recognizerId = null;
+let recognizerKey = null; // `<modelId>:<languageId>` — language is baked in at load
 let loading = null;     // in-flight load, so warm + first arm share one
 let vad = null;
 let target = null;      // the session id the current capture is dictating into
@@ -63,17 +66,20 @@ function load() {
 // the recognizer, and without sharing the in-flight promise they would each load
 // ~1 GB of weights concurrently — double the memory and slower than either alone,
 // which showed up as an indicator stuck on "Starting…".
-function ensureRecognizer(modelId) {
-  if (recognizer && recognizerId === modelId) return Promise.resolve(recognizer);
-  if (loading && loading.id === modelId) return loading.promise;
-  const promise = loadRecognizer(modelId).finally(() => {
-    if (loading && loading.id === modelId) loading = null;
+// The language is a load-time property of the recognizer, so it's part of the key:
+// switching language reloads, exactly like switching model.
+function ensureRecognizer(modelId, languageId) {
+  const key = `${modelId}:${languageId}`;
+  if (recognizer && recognizerKey === key) return Promise.resolve(recognizer);
+  if (loading && loading.key === key) return loading.promise;
+  const promise = loadRecognizer(modelId, languageId).finally(() => {
+    if (loading && loading.key === key) loading = null;
   });
-  loading = { id: modelId, promise };
+  loading = { key, promise };
   return promise;
 }
 
-async function loadRecognizer(modelId) {
+async function loadRecognizer(modelId, languageId) {
   const lib = load();
   if (!lib) throw new Error(`speech recognition is unavailable on this platform: ${loadError}`);
   const dir = root();
@@ -81,16 +87,18 @@ async function loadRecognizer(modelId) {
   if (!modelReady(dir, modelId, statSize, path.join)) {
     throw new Error('the voice model is missing — run "npm run fetch:stt" to download it');
   }
-  // A multilingual model detects the language itself (so English and Turkish can
-  // be mixed mid-sentence); an English-only one is pinned, because letting one of
-  // those guess produces garbage.
+  // An English-only model is always pinned to `en` — letting one of those guess
+  // produces garbage. A multilingual model takes the user's choice, where '' means
+  // detect per segment.
   const multilingual = !!(findModel(modelId) || {}).multilingual;
+  const language = multilingual ? whisperLanguage(languageId) : 'en';
   recognizer = await lib.OfflineRecognizer.createAsync({
     modelConfig: {
       whisper: {
         encoder: files.encoder,
         decoder: files.decoder,
-        language: multilingual ? '' : 'en',
+        language,
+        // Never 'translate' — the user must get back what they actually said.
         task: 'transcribe',
       },
       tokens: files.tokens,
@@ -100,7 +108,7 @@ async function loadRecognizer(modelId) {
     },
     decodingMethod: 'greedy_search',
   });
-  recognizerId = modelId;
+  recognizerKey = `${modelId}:${languageId}`;
   return recognizer;
 }
 
@@ -147,7 +155,9 @@ function drain() {
         // A stop mid-decode means the user has moved on; drop the rest.
         if (target !== forSession) return;
         const stream = recognizer.createStream();
-        stream.acceptWaveform({ samples, sampleRate: SAMPLE_RATE });
+        // Padded: a segment whose audio stops on the final phoneme loses that
+        // syllable ("kaydet" -> "kay"). See TAIL_PADDING_SECONDS.
+        stream.acceptWaveform({ samples: withTailPadding(samples, TAIL_PADDING), sampleRate: SAMPLE_RATE });
         const result = await recognizer.decodeAsync(stream);
         // Filter here rather than in the renderer so a silence hallucination never
         // crosses the IPC boundary at all; the renderer only decides spacing.
@@ -175,6 +185,7 @@ bridge.handle('stt-status', async () => {
   return {
     available: !!lib && vadReady && models.some((m) => m.ready),
     models,
+    languages: LANGUAGES.map(({ id, labelKey }) => ({ id, labelKey })),
     error: lib ? null : loadError,
   };
 });
@@ -182,9 +193,9 @@ bridge.handle('stt-status', async () => {
 // Load the weights without arming anything. Called when the user switches voice
 // input on, so the ~2.7s model load happens then rather than inside the first
 // hover, where it would swallow the opening words of the first phrase.
-bridge.handle('stt-warm', async (_e, { modelId } = {}) => {
+bridge.handle('stt-warm', async (_e, { modelId, language } = {}) => {
   try {
-    await ensureRecognizer(pickModelId(modelId));
+    await ensureRecognizer(pickModelId(modelId), pickLanguage(language));
     ensureVad();
     return { ok: true };
   } catch (err) {
@@ -195,15 +206,16 @@ bridge.handle('stt-warm', async (_e, { modelId } = {}) => {
 
 // Arm a capture for one session. Cheap once warmed — it only points the recognizer
 // at a session and resets the VAD.
-bridge.handle('stt-start', async (_e, { sessionId, modelId } = {}) => {
+bridge.handle('stt-start', async (_e, { sessionId, modelId, language } = {}) => {
   try {
     const id = pickModelId(modelId);
-    await ensureRecognizer(id);
+    const lang = pickLanguage(language);
+    await ensureRecognizer(id, lang);
     ensureVad();
     vad.reset();
     audioErrorReported = false;
     target = sessionId || null;
-    return { ok: true, modelId: id };
+    return { ok: true, modelId: id, language: lang };
   } catch (err) {
     console.error('[voice] start failed:', err && err.message);
     return { error: err && err.message ? err.message : String(err) };
@@ -243,7 +255,7 @@ function stopStt() {
   target = null;
   vad = null;
   recognizer = null;
-  recognizerId = null;
+  recognizerKey = null;
   loading = null;
 }
 bridge.on('stt-release', () => stopStt());

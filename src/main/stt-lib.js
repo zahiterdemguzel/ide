@@ -40,6 +40,42 @@ const MODELS = [
 
 const DEFAULT_MODEL_ID = 'turbo';
 
+// The dictation languages offered in Settings. `auto` ('' to Whisper) detects the
+// language per *segment*, which is what lets a sentence mix Turkish and English —
+// but segments here are often under a second, and Whisper's language ID is
+// unreliable on clips that short. A misdetected phrase comes back as garbage even
+// though the audio was fine, so pinning a language is the fix for "it transcribes
+// nonsense sometimes", and it skips the detection pass as a bonus.
+//
+// Deliberately three options rather than all 99 Whisper knows: this is a dictation
+// box, not a translation tool. `labelKey` is an i18n key — these are UI words, not
+// product names. Removing a language is deleting one entry here.
+const LANGUAGES = [
+  { id: 'auto', whisper: '', labelKey: 'voice.langAuto' },
+  { id: 'en', whisper: 'en', labelKey: 'voice.langEnglish' },
+  { id: 'tr', whisper: 'tr', labelKey: 'voice.langTurkish' },
+];
+
+// English rather than auto: auto's per-segment misdetection is the bigger practical
+// risk, and a pinned language is always at least as accurate for that language.
+const DEFAULT_LANGUAGE = 'en';
+
+function findLanguage(id) {
+  return LANGUAGES.find((l) => l.id === id) || null;
+}
+
+// A stored/incoming language resolved to one we offer, for the same reason as
+// pickModelId: a stale localStorage value must not break dictation. An English-only
+// model ignores this entirely and is pinned to `en` by the caller.
+function pickLanguage(id) {
+  return findLanguage(id) ? id : DEFAULT_LANGUAGE;
+}
+
+// What Whisper's `language` config field should be for a chosen language id.
+function whisperLanguage(id) {
+  return (findLanguage(id) || findLanguage(DEFAULT_LANGUAGE)).whisper;
+}
+
 // Silero VAD — segments the mic stream on natural pauses so each phrase is
 // recognized as soon as the speaker stops, instead of only when they stop hovering.
 const VAD_ASSET = { name: 'silero_vad.onnx', bytes: 643854 };
@@ -108,6 +144,25 @@ function modelStates(root, statSize, join) {
     label: m.label,
     ready: modelReady(root, m.id, statSize, join),
   }));
+}
+
+// --- audio shaping -----------------------------------------------------------
+
+// Silence appended to every segment before decoding. Whisper truncates the last
+// syllable of an utterance whose audio stops dead on the final phoneme — measured:
+// "kaydet" came back "kay", "oluştur" came back "oluş", and the same clip with
+// 0.5s of trailing silence transcribed perfectly. Whisper pads every clip to a
+// 30-second window anyway, so these zeros cost nothing.
+const TAIL_PADDING_SECONDS = 0.4;
+
+// A copy of `samples` with `padSamples` zeros appended. Returns the input untouched
+// when there's nothing to add, so the common path allocates only when it must.
+function withTailPadding(samples, padSamples) {
+  if (!samples || !samples.length) return samples;
+  if (!(padSamples > 0)) return samples;
+  const out = new Float32Array(samples.length + padSamples);
+  out.set(samples, 0);
+  return out;
 }
 
 // --- runtime tuning ----------------------------------------------------------
@@ -201,10 +256,17 @@ function shouldEmit(text) {
 module.exports = {
   MODELS,
   DEFAULT_MODEL_ID,
+  LANGUAGES,
+  DEFAULT_LANGUAGE,
+  findLanguage,
+  pickLanguage,
+  whisperLanguage,
   VAD_ASSET,
   VAD_CONFIG,
   VAD_BUFFER_SECONDS,
   SAMPLE_RATE,
+  TAIL_PADDING_SECONDS,
+  withTailPadding,
   recognizerThreads,
   statSize,
   assetUrl,

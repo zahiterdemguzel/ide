@@ -6,6 +6,8 @@ const {
   MODELS, DEFAULT_MODEL_ID, VAD_ASSET, assetUrl, findModel, pickModelId,
   modelsRoot, modelFiles, vadPath, modelReady, modelStates,
   normalizeTranscript, shouldEmit, recognizerThreads,
+  LANGUAGES, DEFAULT_LANGUAGE, pickLanguage, whisperLanguage,
+  withTailPadding, TAIL_PADDING_SECONDS,
 } = require('../src/main/stt-lib');
 
 // --- registry ----------------------------------------------------------------
@@ -102,6 +104,66 @@ test('modelStates lists every model, marking which ones are on disk', () => {
   assert.equal(states.length, MODELS.length);
   assert.deepEqual(states.map((s) => s.ready), MODELS.map(() => false));
   for (const s of states) assert.equal(typeof s.label, 'string');
+});
+
+// --- tail padding ------------------------------------------------------------
+
+test('withTailPadding appends silence without disturbing the speech', () => {
+  // Whisper drops the last syllable of a clip that ends on the final phoneme, so
+  // every segment gets trailing zeros before it is decoded.
+  const speech = Float32Array.from([0.5, -0.5, 0.25]);
+  const padded = withTailPadding(speech, 4);
+  assert.equal(padded.length, 7);
+  assert.deepEqual(Array.from(padded.subarray(0, 3)), [0.5, -0.5, 0.25]);
+  assert.deepEqual(Array.from(padded.subarray(3)), [0, 0, 0, 0]);
+  // The input must not be mutated — the VAD owns that buffer.
+  assert.equal(speech.length, 3);
+});
+
+test('withTailPadding allocates nothing when there is nothing to do', () => {
+  const speech = Float32Array.from([1, 2]);
+  assert.equal(withTailPadding(speech, 0), speech);
+  assert.equal(withTailPadding(speech, -1), speech);
+  const empty = new Float32Array(0);
+  assert.equal(withTailPadding(empty, 100), empty);
+});
+
+test('the tail padding is long enough to matter but not a whole phrase', () => {
+  assert.ok(TAIL_PADDING_SECONDS >= 0.2 && TAIL_PADDING_SECONDS <= 1);
+});
+
+// --- languages ---------------------------------------------------------------
+
+test('every offered language carries a translatable label and a whisper code', () => {
+  for (const l of LANGUAGES) {
+    assert.match(l.labelKey, /^voice\./, `${l.id} needs an i18n key, not a literal`);
+    assert.equal(typeof l.whisper, 'string');
+  }
+  assert.ok(LANGUAGES.some((l) => l.id === DEFAULT_LANGUAGE));
+});
+
+test('auto-detect is the empty string Whisper expects, not a code', () => {
+  assert.equal(whisperLanguage('auto'), '');
+  assert.equal(whisperLanguage('en'), 'en');
+  assert.equal(whisperLanguage('tr'), 'tr');
+});
+
+test('the default is a pinned language, not auto', () => {
+  // Auto-detect runs per segment, and segments here are often under a second —
+  // short clips are exactly where Whisper's language ID misfires and returns a
+  // confidently wrong transcript. Pinning is the safer default.
+  assert.notEqual(DEFAULT_LANGUAGE, 'auto');
+  assert.equal(whisperLanguage(DEFAULT_LANGUAGE), DEFAULT_LANGUAGE);
+});
+
+test('pickLanguage falls back to the default for unknown or missing values', () => {
+  assert.equal(pickLanguage('tr'), 'tr');
+  assert.equal(pickLanguage('auto'), 'auto');
+  assert.equal(pickLanguage('kl'), DEFAULT_LANGUAGE);
+  assert.equal(pickLanguage(undefined), DEFAULT_LANGUAGE);
+  assert.equal(pickLanguage(''), DEFAULT_LANGUAGE);
+  // A language dropped from the registry must degrade, not throw.
+  assert.equal(whisperLanguage('kl'), whisperLanguage(DEFAULT_LANGUAGE));
 });
 
 // --- thread count ------------------------------------------------------------

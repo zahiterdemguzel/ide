@@ -1,9 +1,17 @@
-# Voice input (dictate on hover)
+# Voice input (dictate into the focused session)
 
-**While the mouse cursor rests over a session terminal, the microphone is live and
-what the user says is typed into that session.** No hotkey, no button — cursor
-position *is* the control. Recognition is fully offline: a bundled Whisper model
-runs in the main process, so nothing is ever uploaded.
+**While a session terminal has keyboard focus, the microphone is live and what the
+user says is typed into that session.** No hotkey, no button — the mic follows the
+caret. The rule is exactly *"could I type into this panel right now?"*, so the same
+act that makes a session ready for the keyboard makes it ready for the voice.
+Recognition is fully offline: a bundled Whisper model runs in the main process, so
+nothing is ever uploaded.
+
+> **The mouse is irrelevant.** An earlier version armed on *hover*, which is worse on
+> both counts: moving the cursor across the app could open a microphone, and it
+> needed a dwell delay, a pointer-position cache and `pointermove` bookkeeping to
+> approximate intent that focus states already express exactly.
+> `test/voice-focus.test.js` fails if a pointer listener creeps back in.
 
 Text is **typed into the session, never submitted**. The user reviews it and presses
 Enter themselves.
@@ -29,28 +37,50 @@ Enter themselves.
    that batches mono Float32 frames to 1024 samples (~64 ms) before posting them.
    It's a **real file, not a blob URL**, because the renderer's CSP is
    `script-src 'self'` and a blob-backed worklet is blocked.
-4. **Interaction** — `src/renderer/voice.js`: hover tracking, the guards, the
+4. **Interaction** — `src/renderer/voice.js`: focus tracking, the guards, the
    indicator, and writing text into the session's PTY via the existing `sendInput`.
    Owns its own settings row, storage and IPC (same shape as `custom-models.js`);
    `settings.js` only calls `initVoice()` and `refreshVoiceSection()`.
 
-## The three guards (don't remove these)
+## How arming is decided
 
-A microphone that opens from cursor position alone is a privacy surface, so:
+Everything routes through one `syncToFocus()` — a focus change, the window regaining
+focus, the feature being switched on — so there is a single definition of "should
+this be listening": **voice enabled, window focused, and the caret inside a live
+`.term-container`**.
 
-- **300 ms dwell** before arming — crossing a terminal to reach the git pane must
-  not start listening.
-- **`document.hasFocus()`** — hovering while another app is focused is inert, and a
-  window `blur` disarms immediately.
-- **A visible indicator** — the pulsing `.voice-hot` pill (`layout.css`) sits in the
-  corner of the terminal that is listening.
+- Bound to **`focusin` + `focusout`** (they bubble; `focus`/`blur` don't).
+  `focusout` is deferred a tick so `document.activeElement` has settled, and it's
+  needed for the case where focus leaves for something that never takes focus itself
+  (clicking blank chrome), where no `focusin` follows.
+- xterm focuses a **hidden textarea inside** the pane, so the caret is always on a
+  *descendant* of `.term-container`, never the container itself — hence `closest()`.
+- A **suspended** pane never arms: no live PTY behind it, which is the same reason it
+  can't be typed into by hand.
+- A **modal dialog traps focus**, so nothing arms while the settings or setup dialog
+  is open. That falls out of the rule rather than being special-cased, and it's
+  correct — the terminal can't be typed into then either.
+- `selectSession()` already calls `term.focus()`, so picking a session in the sidebar
+  arms it without the user clicking into the pane.
 
-The mic stream is opened once and **kept open between hovers, with the worklet
+Two guards remain non-negotiable, because a mic that opens without a button press is
+still a mic that opens on its own:
+
+- **`document.hasFocus()`** — a focused terminal in an *unfocused window* is inert
+  (the user is talking to another app), and a window `blur` disarms immediately.
+- **A visible indicator** — the pulsing `.voice-hot` pill (`layout.css`) plus a ring
+  on the session that is listening.
+
+A **120 ms settle** sits in front of arming, because a click that moves focus between
+panes can flicker for a frame. It is *not* the old dwell delay: it guards against
+transient focus, not against accidental proximity.
+
+The mic stream is opened once and **kept open between sessions, with the worklet
 gated** rather than torn down: `getUserMedia` costs 200–500 ms, which would eat the
 first words of a phrase. It's released after 3 minutes idle, so the OS recording
 indicator doesn't stay lit after the user has moved on.
 
-`.term-container` carries **`data-session-id`** — that's how the hovered element maps
+`.term-container` carries **`data-session-id`** — that's how the focused element maps
 to a session. A phrase is always typed into the session it was *captured* for, even
 if the cursor has since moved.
 
@@ -59,15 +89,15 @@ if the cursor has since moved.
 > used to be two (`buildTerminal` for a fresh session, `restoreSessionRow` for one
 > restored from disk) and only the first stamped the attribute, which shipped a
 > feature that did **nothing at all, silently**, for every restored session — i.e.
-> most sessions after a restart — because `sessionUnder()` resolved `null` and hover
-> never armed. `test/voice-hover.test.js` holds the line by asserting there is still
+> most sessions after a restart — because `sessionOf()` resolved `null` and it
+> never armed. `test/voice-focus.test.js` holds the line by asserting there is still
 > exactly **one** creation site (and that `voice.js` still reads the attribute the
 > writer sets); with one site the invariant is structural rather than policed.
 
 ## The indicator (three states)
 
 The pill is painted **before** arming starts, not when recognition is ready: a cold
-first hover pays mic acquisition plus a model load, and each phrase costs ~1 s to
+first arm pays mic acquisition plus a model load, and each phrase costs ~1 s to
 decode — silence through either reads as "the feature is broken".
 
 | state | means | look |
@@ -87,8 +117,8 @@ when it isn't.
 Whisper is not a streaming model, so text can't appear word by word. Silero VAD cuts
 the stream on natural pauses (`minSilenceDuration: 0.35`, tuned for a fast talker)
 and each segment is decoded whole; `maxSpeechDuration: 12` force-cuts a monologue
-that never pauses. Leaving mid-phrase **flushes** rather than discards — the user
-stopped hovering, but they still said the words. True word-by-word streaming would
+that never pauses. Losing focus mid-phrase **flushes** rather than discards — the user
+lost focus, but they still said the words. True word-by-word streaming would
 need a transducer (Parakeet), i.e. a second model format and decode path.
 
 ## Latency: thread count is the only lever
@@ -106,12 +136,12 @@ uninterrupted monologue can decode slower than it's spoken; the backlog drains o
 next pause.
 
 Model load is ~2.7 s, which is why **`stt-warm` exists**: the weights load when the
-user switches the feature on, not inside the first hover where the delay would swallow
+user switches the feature on, not inside the first arm where the delay would swallow
 their opening words. At startup (feature already on) the warm is deferred to
 `requestIdleCallback` — pulling in a native module and ~1 GB of weights competes with
 exactly the window where sessions and terminals are being restored. Warming deliberately does
 *not* touch the microphone — that would light the OS recording indicator while the
-user isn't even hovering a terminal.
+no session is even focused.
 
 ## Hallucination filter
 
@@ -136,9 +166,38 @@ second one would have to fit in the remaining ~35 MB and none does (even `tiny.e
 in `MODELS` plus the fetch. `test/stt-lib.test.js` asserts the budget so a future
 entry can't silently blow it.
 
-`decodingMethod` is `greedy_search`; the multilingual model gets `language: ''` so it
-detects the language itself (an English-only model is pinned to `en`, because letting
-one of those guess produces garbage).
+`decodingMethod` is `greedy_search`, and `task` is always `'transcribe'` — never
+`'translate'`, so the user gets back what they actually said.
+
+## Spoken language (measured, not assumed)
+
+`LANGUAGES` in stt-lib offers **Auto-detect / English / Turkish**, defaulting to
+**English**. The language is a *load-time* property of the recognizer, so it's part
+of the cache key (`<modelId>:<languageId>`) and switching it reloads, exactly like
+switching model. An English-only model ignores the setting and is pinned to `en`.
+
+Measured with Turkish speech (Piper `tr_TR` TTS, six dictation sentences, decoded
+three ways):
+
+- **Turkish quality is good.** All six came back correct, differing only in
+  punctuation. Turbo being weak in Turkish was *not* the problem.
+- **`auto` and `tr` produced identical output on every sentence** — auto-detect was
+  not misfiring on clean audio. Auto is still the riskier default in principle
+  (detection runs per segment and segments are often under a second), which is why
+  the default is a pinned language, but don't claim auto is broken.
+- **A wrong pin is catastrophic**, which is the real argument for the setting:
+  Turkish forced through `en` came back as invented English ("Bu dosyayı açar mısın"
+  → "This document will be opened by the"). Whisper *will* confabulate rather than
+  admit the language is wrong.
+
+**Tail padding.** The same test found Whisper drops the final syllable of a clip
+whose audio stops on the last phoneme ("kaydet" → "kay", "oluştur" → "oluş"); the
+identical clip with trailing silence transcribed perfectly. Every segment therefore
+gets `TAIL_PADDING_SECONDS` (0.4 s) of zeros before decoding — free, since Whisper
+pads to a 30-second window regardless. On *real* VAD segments the effect is mostly
+cosmetic (the VAD already carries some trailing context: 9 of 16 segments changed,
+nearly all punctuation, one recovered a dropped word, none got worse) — so keep it as
+cheap insurance, but don't expect it to transform real dictation.
 
 ## Install & build
 
@@ -189,16 +248,16 @@ why they're listed rather than just fixed:
    after the model, the mic and the VAD all report fine. Same argument exists on
    `CircularBuffer.get()` and `readWave()`. **A Node-only test cannot catch this**;
    it only appears under Electron.
-2. **`pointerover` alone never armed a resting cursor.** It fires only when the
-   cursor *enters a new element*. The normal flow — switch voice input on in the
-   Settings dialog, close it with the mouse already over the terminal — produces no
-   further `pointerover`, so nothing happened until the user left the pane and came
-   back. Fixed by also listening to **`pointermove`** (cheap: `hoverTo()` early-outs
-   unless the resolved session changed) and by `reevaluateHover()` — an
-   `elementFromPoint` re-read — on enable and on window focus.
+2. **The trigger itself was wrong (historical).** While it was hover-driven,
+   `pointerover` alone never armed a cursor that was *already* resting over the
+   terminal — the normal flow after closing the Settings dialog — because it fires
+   only when the cursor enters a *new* element. That was patched with `pointermove`
+   plus an `elementFromPoint` re-read, and then removed entirely when the trigger
+   moved to keyboard focus, where "is this session ready for input" is a state to
+   read rather than an intent to infer.
 3. **`data-session-id` on both container paths** — see the note above.
 4. **`ensureRecognizer` needed in-flight dedupe.** `stt-warm` (on enable) and
-   `stt-start` (first hover) both asked for the recognizer, each loading ~1 GB of
+   `stt-start` (first arm) both asked for the recognizer, each loading ~1 GB of
    weights concurrently: double the memory, slower than either alone, and the
    indicator sat on "Starting…". The pending promise is now shared.
 

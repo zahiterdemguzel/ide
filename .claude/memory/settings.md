@@ -211,9 +211,11 @@ input stream, so the badge won't see it until something else pushes. See
 
 ## Voice input
 
-The **Voice input** group (`#voice-input`, left column) holds the dictate-on-hover
-toggle (`#settings-voice`, default **off**) and the voice-model dropdown
-(`#settings-voice-model`). Unlike the other settings groups this one is owned by its
+The **Voice input** group (`#voice-input`, left column) holds the dictate-into-the-focused-session
+toggle (`#settings-voice`, default **off**), the voice-model dropdown
+(`#settings-voice-model`) and the spoken-language dropdown
+(`#settings-voice-language`, Auto-detect / English / Turkish, default English —
+the language list comes from main so it can't drift from what the recognizer accepts). Unlike the other settings groups this one is owned by its
 own module — `src/renderer/voice.js` wires both controls, persists them
 (`localStorage` `ide.voiceEnabled` / `ide.voiceModel`) and drives the mic capture;
 `settings.js` only calls `initVoice()` once and `refreshVoiceSection()` on dialog

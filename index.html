@@ -520,10 +520,10 @@
       </div>
       <div class="settings-group" id="voice-input">
         <div class="settings-group-title" data-i18n="voice.title">Voice input</div>
-        <div class="settings-group-hint" data-i18n="voice.hint">While the mouse cursor rests over a session terminal, what you say is transcribed on this device and typed into that session. Nothing is sent until you press Enter.</div>
+        <div class="settings-group-hint" data-i18n="voice.hint">While a session terminal has focus, what you say is transcribed on this device and typed into that session. Nothing is sent until you press Enter.</div>
         <div class="panel-grid">
           <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="voice.enable">Dictate on hover</span>
+            <span class="panel-toggle-label" data-i18n="voice.enable">Dictate into the focused session</span>
             <input type="checkbox" id="settings-voice" class="switch-input" />
             <span class="switch-ui"></span>
           </label>
@@ -531,6 +531,10 @@
         <label class="settings-row">
           <span data-i18n="voice.model">Voice model</span>
           <select id="settings-voice-model"></select>
+        </label>
+        <label class="settings-row">
+          <span data-i18n="voice.language">Spoken language</span>
+          <select id="settings-voice-language"></select>
         </label>
         <div id="voice-note" class="settings-group-hint" hidden></div>
       </div>

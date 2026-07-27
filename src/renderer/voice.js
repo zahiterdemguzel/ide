@@ -1,13 +1,15 @@
-// Voice input: while the mouse cursor rests over a session terminal, the
-// microphone is live and what the user says is typed into that session.
+// Voice input: while a session terminal has keyboard focus, the microphone is live
+// and what the user says is typed into that session.
 //
-// The interaction is cursor-driven on purpose — no hotkey, no button. That makes
-// three guards non-negotiable, because a hot mic that fires by accident is worse
-// than no feature:
-//   * a dwell delay, so crossing the terminal on the way to another pane doesn't
-//     start listening;
-//   * a window-focus check, so hovering while another app is focused is inert;
-//   * a visible indicator on the terminal that is listening.
+// **Focus, not the mouse.** Where the cursor happens to sit is irrelevant; the mic
+// follows the caret. The rule is exactly "could I type into this panel right now?" —
+// so the same act that makes a session ready for the keyboard makes it ready for the
+// voice, and moving the mouse across the app can never open a microphone.
+//
+// Two guards remain non-negotiable, because a mic that opens without a button press
+// is still a mic that opens on its own:
+//   * a window-focus check, so a focused terminal in an unfocused window is inert;
+//   * a visible indicator on the session that is listening.
 //
 // Only the audio capture lives here. Recognition (Whisper + Silero VAD) is in the
 // main process (src/main/stt.js), which pushes back finished phrases as `stt-text`.
@@ -16,13 +18,17 @@
 import { t } from '../i18n/index.js';
 import { showWarning } from './shared/warn.js';
 
-const STORE = { enabled: 'ide.voiceEnabled', model: 'ide.voiceModel' };
+const STORE = { enabled: 'ide.voiceEnabled', model: 'ide.voiceModel', language: 'ide.voiceLanguage' };
 const DEFAULT_MODEL = 'turbo';
+// Matches DEFAULT_LANGUAGE in src/main/stt-lib.js, which is the authority — main
+// re-resolves whatever it's sent, so a drift here degrades to English, not to broken.
+const DEFAULT_LANGUAGE = 'en';
 
-// Long enough that a cursor passing over a terminal doesn't arm the mic, short
-// enough that deliberately pointing at one feels immediate.
-const DWELL_MS = 300;
-// The mic stream is kept open between hovers (acquiring it costs 200-500ms, which
+// Focus can flicker for a frame while a click moves it between panes (sidebar row →
+// terminal), so a change is allowed to settle before it arms or disarms. Short
+// enough that clicking into a terminal and speaking still feels immediate.
+const SETTLE_MS = 120;
+// The mic stream is kept open between sessions (acquiring it costs 200-500ms, which
 // would eat the first words of a phrase) but not forever — the OS mic indicator
 // staying lit while the user has moved on reads as spyware.
 const IDLE_RELEASE_MS = 3 * 60 * 1000;
@@ -33,20 +39,12 @@ let available = true;
 let stream = null;
 let ctx = null;
 let node = null;
-let starting = null;      // in-flight arm, so a fast hover-out can await it
+let starting = null;      // in-flight arm, so a focus change during it can bail out
 let armedSession = null;  // session id currently being dictated into
-let dwellTimer = null;
+let settleTimer = null;
 let idleTimer = null;
-let hoveredSession = null;
-// Last known cursor position, so enabling the feature can act on where the mouse
-// already is instead of waiting for it to move. Kept as scalars — this is written
-// on every pointermove, and an object per event is pure GC churn.
-let lastX = 0;
-let lastY = 0;
-let havePointer = false;
-// The live indicator, held directly rather than re-queried: disarm runs on every
-// move onto a non-terminal element, and scanning the document for it each time is
-// wasted work when there is only ever one.
+let focusedSession = null; // session whose terminal currently holds the caret
+// The live indicator, held directly rather than re-queried — there is only ever one.
 let hotPill = null;
 let hotContainer = null;
 // Whether we've already typed a phrase into the current hover. Decides whether the
@@ -56,6 +54,10 @@ let typedThisArm = false;
 
 export function isVoiceEnabled() { return localStorage.getItem(STORE.enabled) === '1'; }
 export function getVoiceModel() { return localStorage.getItem(STORE.model) || DEFAULT_MODEL; }
+export function getVoiceLanguage() { return localStorage.getItem(STORE.language) || DEFAULT_LANGUAGE; }
+
+// What every stt-warm / stt-start call carries.
+function engineOpts() { return { modelId: getVoiceModel(), language: getVoiceLanguage() }; }
 
 // The single question the hover path asks: should a hover start listening?
 function active() { return available && isVoiceEnabled(); }
@@ -157,8 +159,8 @@ function containerFor(sessionId) {
 function arm(sessionId) {
   if (armedSession === sessionId || starting) return;
   clearTimeout(idleTimer);
-  // Paint "starting" before any awaiting, so the hover is acknowledged instantly
-  // even on the first arm of the session (mic acquisition + a cold model load).
+  // Paint "starting" before any awaiting, so focusing a terminal is acknowledged
+  // instantly even on the first arm (mic acquisition + a cold model load).
   showHot(containerFor(sessionId), 'starting');
   const attempt = armNow(sessionId).catch(disableVoice).finally(() => {
     if (starting === attempt) starting = null;
@@ -168,14 +170,14 @@ function arm(sessionId) {
 
 async function armNow(sessionId) {
   // The mic (renderer) and the recognizer (main) load independently, so don't pay
-  // for them one after the other on a cold first hover.
+  // for them one after the other on a cold first arm.
   const [, res] = await Promise.all([
     ctx ? null : buildGraph(),
-    window.api.sttStart({ sessionId, modelId: getVoiceModel() }),
+    window.api.sttStart({ sessionId, ...engineOpts() }),
   ]);
   if (res && res.error) throw new Error(res.error);
-  // The cursor may have left while the weights were loading.
-  if (hoveredSession !== sessionId) { hideHot(); window.api?.sttStop?.(); return; }
+  // Focus may have moved on while the weights were loading.
+  if (focusedSession !== sessionId) { hideHot(); window.api?.sttStop?.(); return; }
   armedSession = sessionId;
   typedThisArm = false;
   gate(true);
@@ -194,81 +196,58 @@ function disableVoice(err) {
 
 // Clears the pill even when arming never completed — a "starting" pill left behind
 // would claim the mic is live when it isn't. An arm still in flight sees
-// `hoveredSession` has moved on and bails out on its own.
+// `focusedSession` has moved on and bails out on its own.
 function disarm() {
   hideHot();
   if (!armedSession) return;
   gate(false);
   armedSession = null;
-  // Flushes the phrase in progress in main: the user stopped hovering mid-sentence,
-  // but they still said the words.
+  // Flushes the phrase in progress in main: focus left mid-sentence, but the user
+  // still said the words.
   window.api?.sttStop?.();
   scheduleIdleRelease();
 }
 
-// --- hover tracking ----------------------------------------------------------
+// --- focus tracking ----------------------------------------------------------
 
-function sessionUnder(target) {
-  if (!(target instanceof Element)) return null;
-  const container = target.closest('.term-container');
+// The session the caret is in, or null. A suspended pane has no live PTY behind it,
+// so there is nothing to type into — the same reason it can't be typed into by hand.
+function sessionOf(element) {
+  if (!(element instanceof Element)) return null;
+  const container = element.closest('.term-container');
   if (!container || container.classList.contains('suspended')) return null;
   return container.dataset.sessionId || null;
 }
 
-// Both `pointerover` and `pointermove` feed this. `pointerover` alone is not
-// enough: it only fires when the cursor *enters a new element*, so a cursor already
-// resting over the terminal — the normal case right after closing the Settings
-// dialog where voice input was just switched on — would never arm until the user
-// deliberately left the pane and came back.
-function onPointerActivity(e) {
-  if (typeof e.clientX === 'number') { lastX = e.clientX; lastY = e.clientY; havePointer = true; }
-  // Fires up to ~120x a second anywhere in the window, and the feature is off by
-  // default — so bail before the ancestor walk rather than resolving a session
-  // whose answer would be thrown away.
-  if (!active()) return;
-  hoverTo(sessionUnder(e.target));
+// xterm keeps a hidden textarea inside the pane and focuses that, so the caret is
+// always on a descendant of `.term-container` rather than the container itself.
+function focusedTerminalSession() {
+  return sessionOf(document.activeElement);
 }
 
-// Only reacts to a *change* of hovered session, which is what makes the pointermove
-// path cheap.
-function hoverTo(id) {
-  if (id === hoveredSession) return;
-  applyHover(id);
-}
-
-function applyHover(id) {
-  hoveredSession = id;
-  clearTimeout(dwellTimer);
-  if (!id || !active()) { disarm(); return; }
-  // Hovering while another application is focused must be inert — the user isn't
-  // talking to this app.
-  if (!document.hasFocus()) { disarm(); return; }
-  dwellTimer = setTimeout(() => {
-    if (hoveredSession === id && active() && document.hasFocus()) arm(id);
-  }, DWELL_MS);
+// Re-reads where the caret is and arms or disarms to match. Every trigger routes
+// through here — a focus change, the window regaining focus, the feature being
+// switched on — so there is one definition of "should this be listening".
+function syncToFocus() {
+  const id = active() && document.hasFocus() ? focusedTerminalSession() : null;
+  if (id === focusedSession && (!id || armedSession === id || starting)) return;
+  focusedSession = id;
+  clearTimeout(settleTimer);
+  if (!id) { disarm(); return; }
+  // Let a click that moves focus between panes settle before opening the mic.
+  settleTimer = setTimeout(() => {
+    if (focusedSession === id && active() && document.hasFocus()) arm(id);
+  }, SETTLE_MS);
 }
 
 // Re-read what the cursor is over right now, without waiting for it to move. Needed
 // when the *feature* changes rather than the cursor: switching voice input on while
-// already pointing at a terminal must start listening. Goes through applyHover, not
-// hoverTo, because the resolved session is usually the one already stored.
-function reevaluateHover() {
-  if (!havePointer) return;
-  applyHover(sessionUnder(document.elementFromPoint(lastX, lastY)));
-}
-
-function onPointerOut(e) {
-  // Moving between children of the same container is not a leave.
-  if (e.relatedTarget && sessionUnder(e.relatedTarget) === hoveredSession) return;
-  hoverTo(sessionUnder(e.relatedTarget));
-}
-
 // --- text delivery -----------------------------------------------------------
 
 function onText(msg) {
   if (!msg || !msg.text) return;
-  // Only ever type into the session the phrase was captured for, even if the
-  // cursor has since moved somewhere else.
+  // Only ever type into the session the phrase was captured for, even if focus has
+  // since moved somewhere else.
   const id = msg.sessionId;
   if (!id) return;
   const text = typedThisArm ? ` ${msg.text}` : msg.text;
@@ -280,24 +259,24 @@ function onText(msg) {
 
 export function setVoiceEnabled(on) {
   localStorage.setItem(STORE.enabled, on ? '1' : '0');
-  if (!on) { clearTimeout(dwellTimer); disarm(); releaseStream(); return; }
-  // Load the weights now, not on the first hover — the model load is ~2.7s and
-  // would otherwise swallow the first words the user says. Deliberately does not
-  // touch the microphone: that would light the OS recording indicator while the
-  // user isn't even hovering a terminal.
-  window.api?.sttWarm?.({ modelId: getVoiceModel() });
-  // The user very likely just closed the Settings dialog with the cursor already
-  // over a terminal. Arm from where the mouse is, rather than making them move it
-  // out of the pane and back to discover that the feature works.
-  reevaluateHover();
+  if (!on) { clearTimeout(settleTimer); focusedSession = null; disarm(); releaseStream(); return; }
+  // Load the weights now, not on the first arm — the model load is ~2.7s and would
+  // otherwise swallow the first words the user says. Deliberately does not touch the
+  // microphone: that would light the OS recording indicator while no session is even
+  // focused.
+  window.api?.sttWarm?.(engineOpts());
+  // The caret may already be in a terminal (the dialog was opened from one), so act
+  // on where focus is rather than waiting for the user to click away and back.
+  syncToFocus();
 }
 
-function setVoiceModel(id) {
-  localStorage.setItem(STORE.model, id);
-  // Drop the loaded recognizer so the switch takes effect even if the user never
-  // toggles the feature off, then warm the new one straight away.
+// Model and language are both load-time properties of the recognizer, so changing
+// either drops the loaded one and warms a fresh one — otherwise the switch wouldn't
+// take effect until the user toggled the feature off and on.
+function setEngineChoice(key, value) {
+  localStorage.setItem(key, value);
   window.api?.sttRelease?.();
-  if (active()) window.api?.sttWarm?.({ modelId: id });
+  if (active()) window.api?.sttWarm?.(engineOpts());
 }
 
 // Fill the model dropdown and enable/disable the section from what main reports is
@@ -306,6 +285,7 @@ function setVoiceModel(id) {
 export async function refreshVoiceSection() {
   const box = document.getElementById('settings-voice');
   const sel = document.getElementById('settings-voice-model');
+  const langSel = document.getElementById('settings-voice-language');
   const note = document.getElementById('voice-note');
   if (!box || !sel) return;
 
@@ -323,10 +303,24 @@ export async function refreshVoiceSection() {
     sel.appendChild(opt);
   }
 
+  // Languages come from main so the offered list and the list the recognizer will
+  // actually accept can't drift; the labels are ours to translate.
+  if (langSel) {
+    langSel.replaceChildren();
+    for (const l of (status && status.languages) || []) {
+      const opt = document.createElement('option');
+      opt.value = l.id;
+      opt.textContent = t(l.labelKey);
+      if (l.id === getVoiceLanguage()) opt.selected = true;
+      langSel.appendChild(opt);
+    }
+  }
+
   const usable = !!(status && status.available);
   available = usable;
   box.disabled = !usable;
   sel.disabled = !usable;
+  if (langSel) langSel.disabled = !usable;
   box.checked = usable && isVoiceEnabled();
   if (note) {
     note.textContent = usable ? '' : (status && status.error) || t('voice.unavailable');
@@ -336,33 +330,32 @@ export async function refreshVoiceSection() {
 
 export function initVoice() {
   // A user who left the feature on gets the weights loaded up front, so their first
-  // hover is as responsive as every later one — but *after* the app has settled.
+  // dictation is as responsive as every later one — but *after* the app has settled.
   // The load pulls in a native module and ~1 GB of weights, and startup is exactly
   // when sessions and terminals are being restored.
   if (isVoiceEnabled()) {
-    const warm = () => window.api?.sttWarm?.({ modelId: getVoiceModel() });
+    const warm = () => window.api?.sttWarm?.(engineOpts());
     if (window.requestIdleCallback) requestIdleCallback(warm, { timeout: 5000 });
     else setTimeout(warm, 2000);
   }
 
   const box = document.getElementById('settings-voice');
   const sel = document.getElementById('settings-voice-model');
+  const langSel = document.getElementById('settings-voice-language');
   if (box) box.onchange = () => setVoiceEnabled(box.checked);
-  if (sel) sel.onchange = () => setVoiceModel(sel.value);
+  if (sel) sel.onchange = () => setEngineChoice(STORE.model, sel.value);
+  if (langSel) langSel.onchange = () => setEngineChoice(STORE.language, langSel.value);
 
-  // Delegated so terminals created later are covered without re-binding.
-  // `pointermove` is what catches a cursor that is already parked over a terminal;
-  // it's cheap because it returns immediately unless the feature is on, and then
-  // unless the resolved session changed. `pointerover` stays for the case where the
-  // DOM changes under a stationary cursor (a session's terminal being built).
-  document.addEventListener('pointerover', onPointerActivity, true);
-  document.addEventListener('pointermove', onPointerActivity, true);
-  document.addEventListener('pointerout', onPointerOut, true);
-  // Alt-tabbing away with the cursor parked over a terminal must stop the mic.
-  window.addEventListener('blur', () => { clearTimeout(dwellTimer); disarm(); });
-  // Coming back to the window with the cursor still over a terminal should resume
-  // listening — the blur above disarmed it.
-  window.addEventListener('focus', () => reevaluateHover());
+  // Delegated, so terminals created later are covered without re-binding. focusin
+  // and focusout both bubble (unlike focus/blur), and both are needed: focusin
+  // catches the caret arriving, focusout catches it leaving for something that never
+  // takes focus itself (clicking blank chrome), where no focusin follows.
+  document.addEventListener('focusin', syncToFocus);
+  document.addEventListener('focusout', () => setTimeout(syncToFocus, 0));
+  // A focused terminal in an unfocused window must be inert — the user is talking to
+  // some other app — and coming back should resume listening.
+  window.addEventListener('blur', () => { clearTimeout(settleTimer); focusedSession = null; disarm(); });
+  window.addEventListener('focus', syncToFocus);
 
   window.api?.onSttText?.(onText);
   // Main tells us when a phrase is being decoded, so the pill can say
