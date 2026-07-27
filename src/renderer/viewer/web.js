@@ -96,8 +96,8 @@ export function hideWeb() {
 // Navigate to a URL and reveal the overlay (terminal-link Ctrl+click).
 export function showWeb(url) {
   syncScope();
-  webUrlEl.value = url;
-  webUrlEl.title = url;
+  webUrlEl.value = isBlank(url) ? '' : url;
+  webUrlEl.title = webUrlEl.value;
   webFrame.src = url;
   setActive(!isBlank(url));
   webView.style.display = 'flex';
@@ -192,9 +192,13 @@ webUrlEl.addEventListener('keydown', (e) => {
 
 // Keep the address bar in sync as the guest page navigates (but don't clobber
 // what the user is mid-typing), and record the address for future suggestions.
+// `about:blank` is never shown in the bar — it's the empty webview, not an
+// address the user can act on, so it empties the bar instead of overwriting the
+// pre-filled default with a URL that means "nothing loaded".
 function onNav(e) {
-  if (document.activeElement !== webUrlEl) { webUrlEl.value = e.url; }
-  webUrlEl.title = e.url;
+  const url = isBlank(e.url) ? '' : e.url;
+  if (document.activeElement !== webUrlEl) { webUrlEl.value = url; }
+  webUrlEl.title = url;
   setActive(!isBlank(e.url));
   pushHistory(e.url);
 }
@@ -208,10 +212,9 @@ document.getElementById('web-fwd').onclick = () => { try { if (webFrame.canGoFor
 // history entry to reload, so re-navigate to the address bar URL instead.
 function forceReload() {
   try {
+    if (isBlank(webFrame.getURL())) { navigateTo(webUrlEl.value); return; }
     if (webFrame.isLoading()) webFrame.stop();
     webFrame.reloadIgnoringCache();
-    const url = webFrame.getURL();
-    if (!url || isBlank(url)) navigateTo(webUrlEl.value);
   } catch {
     try { navigateTo(webUrlEl.value); } catch {}
   }
