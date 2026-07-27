@@ -3,6 +3,39 @@ import { isPanelEnabled, onPanelsChanged } from './panels.js';
 import { promptText, pickOption } from './shared/prompt.js';
 import { showError } from './shared/warn.js';
 import { getActiveFile } from './viewer/file.js';
+import { newSessionWithPrompt } from './sessions.js';
+
+// Sent to a fresh session when the folder has no run configs yet. Deliberately
+// stack-agnostic: it tells the session to derive everything from the project's
+// own manifests/scripts rather than assuming a language or runner.
+const CREATE_RUN_CONFIGS_PROMPT = [
+  'Set up VS Code run configurations for this project so its build/run/test commands are one click away.',
+  '',
+  '1. Identify the project. Look at the repo root and any obvious subprojects for manifests and scripts',
+  '   (e.g. package.json, pyproject.toml/requirements.txt, Cargo.toml, go.mod, pom.xml/build.gradle,',
+  '   *.csproj/*.sln, Makefile/CMakeLists.txt, Dockerfile/compose files, CI workflows, README).',
+  '   Use what you find to determine the real entry points, package manager, and existing scripts.',
+  '   Do not guess a stack or invent commands that are not in the project.',
+  '',
+  '2. Write .vscode/tasks.json with one task per command the project actually supports —',
+  '   typically build, run/dev/start, test, and lint. Prefer invoking the project\'s own scripts',
+  '   (npm run <script>, make <target>, cargo <cmd>, ...) over hand-rolled command lines.',
+  '   Give each task a short, clear label, set the correct "type" (shell/process), set "group" for',
+  '   build and test tasks, and set "options.cwd" when a task belongs to a subdirectory.',
+  '',
+  '3. Write .vscode/launch.json with one launch configuration per thing that is actually debuggable/runnable',
+  '   (app entry point, server, CLI, test suite). Use the debug adapter that matches the stack',
+  '   (node, python/debugpy, go, coreclr, lldb/cppdbg, ...) and only reference adapters appropriate to it.',
+  '   Point "program"/"args"/"cwd" at real files and directories, use ${workspaceFolder} for paths,',
+  '   and wire "preLaunchTask" to the matching build task when a build step is required.',
+  '   If nothing in the project is debuggable, skip launch.json rather than inventing a configuration.',
+  '',
+  '4. If either file already exists, merge into it instead of overwriting, and keep existing entries intact.',
+  '',
+  '5. Verify: the JSON must parse (comments are allowed, trailing commas are not), every referenced path',
+  '   must exist, and every task command must be one you can actually run in this project. Run each task',
+  '   command once to confirm it starts, then tell me the list of configs and tasks you created.',
+].join('\n');
 
 // --- top run toolbar (.vscode/launch.json + tasks.json) ---
 // One button per launch config, a separator, then one per task. Clicking a button
@@ -148,6 +181,19 @@ export async function loadToolbar() {
     hint.className = 'toolbar-hint';
     hint.textContent = 'No .vscode/launch.json or tasks.json in this folder';
     toolbarRuns.appendChild(hint);
+    // With no folder open there is nowhere to write the files, so the button is
+    // inert until one is opened (opening a folder re-runs loadToolbar).
+    let repo = '';
+    try { repo = await window.api.getRepoPath(); } catch {}
+    const cta = document.createElement('button');
+    cta.className = 'tool-btn toolbar-cta';
+    cta.textContent = 'Create run configs';
+    cta.disabled = !repo;
+    cta.title = repo
+      ? 'Ask a new session to write .vscode/launch.json and tasks.json for this project'
+      : 'Open a folder first';
+    cta.onclick = () => newSessionWithPrompt(CREATE_RUN_CONFIGS_PROMPT);
+    toolbarRuns.appendChild(cta);
     return;
   }
   // The folder has configs, but the user may have hidden one or both groups.
