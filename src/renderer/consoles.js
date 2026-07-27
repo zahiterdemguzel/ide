@@ -168,21 +168,51 @@ async function createConsole(opts = {}) {
 // is still open (fresh shell, same tab), otherwise open a new one. Either way it
 // gets focus. `spec.kind` distinguishes a .vscode config ('config', the default)
 // from an editor "run this file" ('run'), so the two never collide on a tab.
+// A task's VS Code `presentation`: `panel: "new"` always opens its own terminal
+// instead of reusing the same-named one, and `reveal: "never"` (or `focus: false`
+// with reveal unset) leaves the current tab selected. `clear` is what we already
+// do on reuse. The rest (`echo`, `close`, `revealProblems`, `group`) needs
+// terminal lifecycle/diagnostics we don't model.
+const wantsOwnTab = (p) => !!p && p.panel === 'new';
+const wantsFocus = (p) => !p || p.reveal !== 'never';
+
 export async function runSpecInConsole(spec) {
   const kind = spec.kind || 'config';
-  for (const [id, c] of consoles) {
-    if (c.kind === kind && c.name === spec.name) {
-      c.term.reset();
-      await window.api.termRestart({
-        id, cols: c.term.cols, rows: c.term.rows,
-        command: spec.command, cwd: spec.cwd, env: spec.env,
-        name: spec.name, kind,
-      });
-      selectConsole(id);
-      return id;
+  const p = spec.presentation;
+  const reveal = (id) => { if (wantsFocus(p)) selectConsole(id); };
+  if (!wantsOwnTab(p)) {
+    for (const [id, c] of consoles) {
+      if (c.kind === kind && c.name === spec.name) {
+        c.term.reset();
+        c.serverReady = serverReadyWatcher(spec);
+        c.readyTail = '';
+        await window.api.termRestart({
+          id, cols: c.term.cols, rows: c.term.rows,
+          command: spec.command, cwd: spec.cwd, env: spec.env,
+          name: spec.name, kind,
+        });
+        reveal(id);
+        return id;
+      }
     }
   }
-  return createConsole({ command: spec.command, cwd: spec.cwd, env: spec.env, name: spec.name, kind });
+  const previous = activeConsole; // createConsole always selects the new tab
+  const id = await createConsole({ command: spec.command, cwd: spec.cwd, env: spec.env, name: spec.name, kind });
+  const c = consoles.get(id);
+  if (c) c.serverReady = serverReadyWatcher(spec);
+  if (!wantsFocus(p) && previous && previous !== id && consoles.has(previous)) selectConsole(previous);
+  return id;
+}
+
+// A launch config's `serverReadyAction`: watch the terminal output for the
+// pattern the program prints when its server is up, then open the URI. VS Code
+// would attach a browser debugger for the debugWithChrome/Edge actions; with no
+// debugger we do what we can and just open it. Fires once per run.
+function serverReadyWatcher(spec) {
+  if (!spec.serverReady) return null;
+  try {
+    return { re: new RegExp(spec.serverReady.pattern), uriFormat: spec.serverReady.uriFormat, fired: false };
+  } catch { return null; } // a pattern we can't compile: skip rather than break the run
 }
 
 let shellMenuDismiss = null;
@@ -210,7 +240,26 @@ function openShellMenu(anchor) {
   setTimeout(() => document.addEventListener('pointerdown', shellMenuDismiss), 0);
 }
 
-window.api.onTermData(({ id, data }) => { const c = consoles.get(id); if (c) c.term.write(data); });
+window.api.onTermData(({ id, data }) => {
+  const c = consoles.get(id);
+  if (!c) return;
+  c.term.write(data);
+  checkServerReady(c, data);
+});
+
+// Match a `serverReadyAction` pattern against the terminal output and open the
+// resulting URI. The output arrives in arbitrary chunks, so we keep a small tail
+// of it — otherwise a URL split across two writes would never match.
+function checkServerReady(c, data) {
+  const w = c.serverReady;
+  if (!w || w.fired) return;
+  c.readyTail = ((c.readyTail || '') + data).slice(-2048);
+  const m = w.re.exec(c.readyTail);
+  if (!m) return;
+  w.fired = true;
+  c.readyTail = '';
+  window.api.openExternal(w.uriFormat.replace('%s', m[1] != null ? m[1] : m[0]));
+}
 window.api.onTermExit(({ id }) => closeConsole(id)); // shell exited (e.g. user typed `exit`)
 
 export async function initConsoles() {

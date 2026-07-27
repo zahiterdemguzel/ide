@@ -6,7 +6,7 @@ const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
 const { sendToRenderer } = require('./window');
 const { stopConfigNamed } = require('./consoles');
-const { parseJsonc, parseEnvFile, compoundMembers, listRunConfigs, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('./run-configs-lib');
+const { parseJsonc, parseEnvFile, compoundMembers, listRunConfigs, autoDetectedNpmTask, findInputIds, findCommandIds, defaultBuildTaskName, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
 // We don't run a real debugger; each launch config / task is translated into a
@@ -19,21 +19,38 @@ function readVscodeJson(name) {
   catch { return null; }
 }
 
+// package.json scripts, which VS Code surfaces as auto-detected `npm: <script>`
+// tasks whether or not a tasks.json exists. Honours the same `npm.autoDetect`
+// setting VS Code reads from .vscode/settings.json.
+function npmScripts() {
+  const settings = readVscodeJson('settings.json') || {};
+  if (settings['npm.autoDetect'] === 'off') return [];
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(getRepoPath(), 'package.json'), 'utf8'));
+    return Object.keys(pkg.scripts || {});
+  } catch { return []; }
+}
+
 bridge.handle('get-run-configs', () =>
-  listRunConfigs(readVscodeJson('launch.json'), readVscodeJson('tasks.json')));
+  listRunConfigs(readVscodeJson('launch.json'), readVscodeJson('tasks.json'), npmScripts()));
 
 // The pure lib bound to the open folder plus everything it can't know itself:
 // ${userHome}, ${config:...} (settings.json), ${defaultBuildTask}, collected
 // ${input:...} answers, and the renderer's active file for the ${file} family.
-function makeLib(tasksJson, inputs, activeFile) {
+function makeLib(tasksJson, inputs, editor) {
   const repo = getRepoPath();
+  const { activeFile, lineNumber, columnNumber, selectedText } = editor || {};
   const file = activeFile ? (path.isAbsolute(activeFile) ? activeFile : path.join(repo, activeFile)) : undefined;
   return makeRunConfigLib(repo, process.platform, {
     home: os.homedir(),
+    execPath: process.execPath,
     settings: readVscodeJson('settings.json') || {},
     defaultBuildTask: defaultBuildTaskName((tasksJson && tasksJson.tasks) || []),
     inputs: inputs || {},
     activeFile: file,
+    lineNumber,
+    columnNumber,
+    selectedText,
   });
 }
 
@@ -43,7 +60,8 @@ function makeLib(tasksJson, inputs, activeFile) {
 // specs are ready to run.
 function pendingInputs(runs, ...inputSources) {
   const ids = findInputIds(runs);
-  if (!ids.length) return null;
+  const commands = findCommandIds(runs);
+  if (!ids.length && !commands.length) return null;
   const defs = inputSources.flatMap((src) => (src && src.inputs) || []);
   const needs = [];
   for (const id of ids) {
@@ -54,6 +72,15 @@ function pendingInputs(runs, ...inputSources) {
     needs.push({
       id: d.id, type: d.type, description: d.description || d.id,
       default: d.default, options: d.options, password: !!d.password,
+    });
+  }
+  // ${command:...} normally runs a VS Code extension command to produce a value
+  // (a target path, a process id, …). With no extension host we ask the user for
+  // it rather than running a command line with the placeholder still in it.
+  for (const id of commands) {
+    needs.push({
+      id: `command:${id}`, type: 'promptString',
+      description: `\${command:${id}} runs a VS Code extension command, which this app has no host for. Enter the value to use.`,
     });
   }
   return { needsInputs: needs };
@@ -76,27 +103,38 @@ function withEnvFile(spec, cfg, lib) {
   return spec;
 }
 
-// Resolve a launch config's `preLaunchTask` (a task label, or
-// "${defaultBuildTask}") into task specs to chain in front of the launch command.
-function preLaunchSpecs(cfg, tasksJson, lib) {
-  if (!cfg.preLaunchTask) return [];
+// Resolve a task referenced by label from a launch config (`preLaunchTask` /
+// `postDebugTask`, either a label or "${defaultBuildTask}") into its run specs.
+// Falls back to an auto-detected `npm: <script>` so a config can depend on one.
+function taskSpecsNamed(label, tasksJson, lib) {
+  if (!label) return [];
   const all = lib.normalizeTasks(tasksJson);
-  const name = lib.substVars(String(cfg.preLaunchTask));
-  const t = all.find((x) => (x.label || x.taskName) === name);
+  const name = lib.substVars(String(label));
+  const t = all.find((x) => (x.label || x.taskName) === name) || autoDetectedNpmTask(name);
   return t ? lib.resolveTask(all, t) : [];
 }
 
+// A launch config resolves to one or more terminals: its own command, plus a
+// terminal for each background pre-launch task that can't be chained (see
+// prependTasks). Returns [] when the config isn't runnable.
 function resolveLaunchConfig(cfg, tasksJson, lib) {
   const spec = withEnvFile(lib.launchSpec(cfg), cfg, lib);
-  return spec ? lib.prependTasks(preLaunchSpecs(cfg, tasksJson, lib), spec) : null;
+  if (!spec) return [];
+  return lib.prependTasks(
+    taskSpecsNamed(cfg.preLaunchTask, tasksJson, lib),
+    spec,
+    taskSpecsNamed(cfg.postDebugTask, tasksJson, lib),
+  );
 }
 
-function resolveRunConfig({ kind, name, inputs, activeFile }) {
+function resolveRunConfig({ kind, name, inputs, editor }) {
   const tasksJson = readVscodeJson('tasks.json');
-  const lib = makeLib(tasksJson, inputs, activeFile);
+  const lib = makeLib(tasksJson, inputs, editor);
   if (kind === 'task') {
     const all = lib.normalizeTasks(tasksJson);
-    const t = all.find((x) => (x.label || x.taskName) === name);
+    // An `npm: <script>` button with no matching tasks.json entry is one VS Code
+    // auto-detected from package.json — synthesize its definition.
+    const t = all.find((x) => (x.label || x.taskName) === name) || autoDetectedNpmTask(name);
     if (!t) return { ok: false, error: 'Task not found' };
     const runs = lib.resolveTask(all, t);
     if (!runs.length) return { ok: false, error: 'Task has no runnable command (a compound must reference tasks that do)' };
@@ -115,23 +153,42 @@ function resolveRunConfig({ kind, name, inputs, activeFile }) {
   if (compound) {
     // A compound-level preLaunchTask runs once, in its own terminal, before the
     // members (best effort: members start in parallel, as VS Code does).
-    const runs = preLaunchSpecs(compound, tasksJson, lib);
+    const runs = taskSpecsNamed(compound.preLaunchTask, tasksJson, lib);
     for (const ref of (compound.configurations || [])) {
       const refName = typeof ref === 'object' ? ref.name : ref;
       const cfg = (launch.configurations || []).find((c) => c.name === refName);
-      if (cfg) { const s = resolveLaunchConfig(cfg, tasksJson, lib); if (s) runs.push(s); }
+      if (cfg) runs.push(...resolveLaunchConfig(cfg, tasksJson, lib));
     }
     return runs.length ? done(runs) : { ok: false, error: 'Compound references no runnable configs' };
   }
   const cfg = (launch.configurations || []).find((c) => c.name === name);
   if (!cfg) return { ok: false, error: 'Config not found' };
-  const s = resolveLaunchConfig(cfg, tasksJson, lib);
-  if (s) return done([s]);
+  const specs = resolveLaunchConfig(cfg, tasksJson, lib);
+  if (specs.length) return done(specs);
   const ofType = cfg.type ? ` of type "${cfg.type}"` : '';
   return { ok: false, error: `Couldn't derive a run command for "${name}"${ofType}. This config has no runnable "program" or "runtimeExecutable" (and no browser "url"/"file") — it's likely an attach config, which this app can't launch as a terminal command.` };
 }
 
 ipcMain.handle('run-config', (_e, args) => resolveRunConfig(args || {}));
+
+// VS Code's `runOptions.runOn: "folderOpen"` — tasks the project wants started as
+// soon as it's opened. Opening a folder would then run commands the repo chose,
+// so (like VS Code, which gates this behind "Allow Automatic Tasks") we resolve
+// them but never run them: the renderer asks once per opened folder. `repo` is
+// what lets it tell "same folder, toolbar rebuilt" from "a new folder opened".
+ipcMain.handle('get-auto-tasks', () => {
+  const tasksJson = readVscodeJson('tasks.json');
+  const repo = getRepoPath();
+  if (!tasksJson) return { repo, names: [], runs: [] };
+  const lib = makeLib(tasksJson);
+  const all = lib.normalizeTasks(tasksJson);
+  const auto = all.filter((t) => t && t.runOptions && t.runOptions.runOn === 'folderOpen');
+  return {
+    repo,
+    names: auto.map((t) => t.label || t.taskName),
+    runs: auto.flatMap((t) => lib.resolveTask(all, t)),
+  };
+});
 
 // Start a config/task on behalf of a remote client. The phone can't open a
 // terminal tab — the desktop renderer owns those — so main resolves the specs and

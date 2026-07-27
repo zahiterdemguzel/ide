@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
-const { parseJsonc, parseEnvFile, compoundMembers, listRunConfigs, findInputIds, defaultBuildTaskName, makeRunConfigLib } = require('../src/main/run-configs-lib');
+const { parseJsonc, parseEnvFile, compoundMembers, listRunConfigs, autoDetectedNpmTask, findInputIds, findCommandIds, defaultBuildTaskName, makeRunConfigLib } = require('../src/main/run-configs-lib');
 
 const REPO = '/repo';
 const lin = makeRunConfigLib(REPO, 'linux');
@@ -105,6 +105,35 @@ test('listRunConfigs: missing files and nameless entries', () => {
   assert.deepEqual(listRunConfigs({ configurations: [{}, null] }, { tasks: [{}, null] }), { launch: [], tasks: [] });
 });
 
+// VS Code lists a task per package.json script even with no tasks.json at all.
+test('listRunConfigs: package.json scripts appear as auto-detected npm tasks', () => {
+  assert.deepEqual(listRunConfigs(null, null, ['build', 'test']).tasks, [
+    { name: 'npm: build' }, { name: 'npm: test' },
+  ]);
+  // A tasks.json entry with the same label is the customized version and wins.
+  const r = listRunConfigs(null, { tasks: [{ label: 'npm: build', command: 'yarn build' }] }, ['build', 'dev']);
+  assert.deepEqual(r.tasks, [{ name: 'npm: build' }, { name: 'npm: dev' }]);
+});
+
+test('autoDetectedNpmTask: only the npm: prefix synthesizes a task', () => {
+  assert.deepEqual(autoDetectedNpmTask('npm: build'), { type: 'npm', script: 'build', label: 'npm: build' });
+  assert.equal(autoDetectedNpmTask('build'), null);
+  assert.equal(lin.buildTaskCommand(autoDetectedNpmTask('npm: test')), 'npm run test');
+});
+
+test('findCommandIds: ${command:...} left unresolved is reported', () => {
+  const specs = [{ command: 'gdb ${command:cmake.launchTargetPath}', cwd: '/repo', env: { P: '${command:pickProcess}' } }];
+  assert.deepEqual(findCommandIds(specs).sort(), ['cmake.launchTargetPath', 'pickProcess']);
+  assert.deepEqual(findCommandIds([{ command: 'ls', cwd: '/repo', env: {} }]), []);
+});
+
+test('substVars: a collected ${command:...} answer is substituted', () => {
+  const withAnswer = makeRunConfigLib(REPO, 'linux', { inputs: { 'command:cmake.launchTargetPath': '/repo/build/app' } });
+  assert.equal(withAnswer.substVars('${command:cmake.launchTargetPath}'), '/repo/build/app');
+  // No answer yet: left alone, which is how findCommandIds finds it.
+  assert.equal(lin.substVars('${command:pickProcess}'), '${command:pickProcess}');
+});
+
 // --- substVars ---
 
 test('substVars: resolves workspace + path variables', () => {
@@ -193,9 +222,57 @@ test('buildLaunchCommand: pwa-node type still maps to node', () => {
   assert.equal(lin.buildLaunchCommand({ type: 'pwa-node', program: 'app.js' }), 'node app.js');
 });
 
+test('substVars: editor caret/selection, execPath, and the multi-root folder form', () => {
+  const ed = makeRunConfigLib(REPO, 'linux', {
+    execPath: '/usr/bin/code', lineNumber: 42, columnNumber: 7, selectedText: 'foo',
+  });
+  assert.equal(ed.substVars('${execPath} ${lineNumber}:${columnNumber} ${selectedText}'), '/usr/bin/code 42:7 foo');
+  // Only one folder is ever open, so the named form resolves to it rather than
+  // leaving a ${...} on the command line.
+  assert.equal(lin.substVars('${workspaceFolder:api}/x'), '/repo/x');
+  // With no editor open they stay literal, like ${file} does.
+  assert.equal(lin.substVars('${lineNumber}'), '${lineNumber}');
+});
+
+test('launchSpec: serverReadyAction becomes a pattern for the renderer to watch', () => {
+  const spec = lin.launchSpec({ name: 'Web', type: 'node', program: 'server.js', serverReadyAction: { pattern: 'ready at (https?://\\S+)', uriFormat: '%s/app', action: 'openExternally' } });
+  assert.deepEqual(spec.serverReady, { pattern: 'ready at (https?://\\S+)', uriFormat: '%s/app' });
+  // Defaults match what most dev servers print.
+  const dflt = lin.launchSpec({ name: 'W', type: 'node', program: 's.js', serverReadyAction: { action: 'openExternally' } });
+  assert.equal(dflt.serverReady.uriFormat, '%s');
+  // No action, or one that needs a real debugger: nothing to watch for.
+  assert.equal(lin.launchSpec({ name: 'W', type: 'node', program: 's.js' }).serverReady, undefined);
+  assert.equal(lin.launchSpec({ name: 'W', type: 'node', program: 's.js', serverReadyAction: { action: 'startDebugging' } }).serverReady, undefined);
+});
+
 test('buildLaunchCommand: python and debugpy map to python', () => {
   assert.equal(lin.buildLaunchCommand({ type: 'python', program: 'main.py' }), 'python main.py');
   assert.equal(lin.buildLaunchCommand({ type: 'debugpy', program: 'main.py' }), 'python main.py');
+});
+
+test('buildLaunchCommand: debugpy module runs python -m', () => {
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'debugpy', module: 'mypkg.cli', args: ['talk', '--mic'] }),
+    'python -m mypkg.cli talk --mic',
+  );
+});
+
+test('buildLaunchCommand: debugpy uses the python/pythonPath interpreter and pythonArgs', () => {
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'debugpy', python: '${workspaceFolder}/.venv/bin/python', module: 'app' }),
+    '/repo/.venv/bin/python -m app',
+  );
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'python', pythonPath: 'python3', program: 'main.py', pythonArgs: ['-u'] }),
+    'python3 -u main.py',
+  );
+});
+
+test('buildLaunchCommand: debugpy code runs python -c', () => {
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'debugpy', code: ['import app', 'app.main()'] }),
+    'python -c "import app\napp.main()"',
+  );
 });
 
 test('buildLaunchCommand: runtimeExecutable/runtimeArgs honoured', () => {
@@ -205,8 +282,117 @@ test('buildLaunchCommand: runtimeExecutable/runtimeArgs honoured', () => {
   );
 });
 
-test('buildLaunchCommand: TYPE_RUNTIME (go) needs a program', () => {
+test('buildLaunchCommand: go modes map to run/test/exec', () => {
   assert.equal(lin.buildLaunchCommand({ type: 'go', program: 'main.go' }), 'go run main.go');
+  assert.equal(lin.buildLaunchCommand({ type: 'go', mode: 'debug', program: 'main.go', buildFlags: '-tags=dev' }), 'go run -tags=dev main.go');
+  assert.equal(lin.buildLaunchCommand({ type: 'go', mode: 'test' }), 'go test ./...');
+  assert.equal(lin.buildLaunchCommand({ type: 'go', mode: 'test', program: './pkg', args: ['-run', 'TestX'] }), 'go test ./pkg -run TestX');
+  assert.equal(lin.buildLaunchCommand({ type: 'go', mode: 'exec', program: './bin/app' }), './bin/app');
+  assert.equal(lin.buildLaunchCommand({ type: 'go', mode: 'core', program: 'main.go' }), null);
+});
+
+test('buildLaunchCommand: node-terminal runs its command line verbatim', () => {
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'node-terminal', command: 'npm run dev -- --port 3000' }),
+    'npm run dev -- --port 3000',
+  );
+  assert.equal(lin.buildLaunchCommand({ type: 'node-terminal' }), null);
+});
+
+test('buildLaunchCommand: java builds the classpath and honours string vmArgs/args', () => {
+  assert.equal(
+    lin.buildLaunchCommand({
+      type: 'java',
+      mainClass: 'com.example.App',
+      vmArgs: '-Xmx512m -Dfoo=bar',
+      classPaths: ['${workspaceFolder}/build', 'lib/a.jar'],
+      args: 'one two',
+    }),
+    'java -Xmx512m -Dfoo=bar -cp /repo/build:lib/a.jar com.example.App one two',
+  );
+  // Single-file source launch: no mainClass, just the .java file.
+  assert.equal(lin.buildLaunchCommand({ type: 'java', program: 'App.java' }), 'java App.java');
+  assert.equal(lin.buildLaunchCommand({ type: 'java', request: 'attach' }), null);
+});
+
+// On Windows the separator is `;`, which PowerShell would read as a statement
+// separator, so the joined list must arrive quoted.
+test('buildLaunchCommand: java joins classpaths with the platform separator', () => {
+  assert.equal(
+    win.buildLaunchCommand({ type: 'java', mainClass: 'App', classPaths: ['build', 'lib.jar'] }),
+    'java -cp "build;lib.jar" App',
+  );
+});
+
+test('buildLaunchCommand: dotnet/coreclr runs the assembly through the dotnet host', () => {
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'coreclr', program: '${workspaceFolder}/bin/Debug/net8.0/App.dll' }),
+    'dotnet exec /repo/bin/Debug/net8.0/App.dll',
+  );
+  assert.equal(lin.buildLaunchCommand({ type: 'coreclr', program: './bin/App' }), './bin/App'); // apphost
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'dotnet', projectPath: '${workspaceFolder}/App.csproj', args: ['--verbose'] }),
+    'dotnet run --project /repo/App.csproj -- --verbose',
+  );
+  assert.equal(lin.buildLaunchCommand({ type: 'coreclr', request: 'attach' }), null);
+});
+
+test('buildLaunchCommand: a cargo target becomes cargo run', () => {
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'lldb', cargo: { args: ['build', '--bin=server'] }, args: ['--port', '80'] }),
+    'cargo run --bin=server -- --port 80',
+  );
+  // A test target: --no-run exists only so the debugger can launch the binary.
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'lldb', cargo: { args: ['test', '--no-run', '--lib'] } }),
+    'cargo test --lib',
+  );
+  assert.equal(lin.buildLaunchCommand({ type: 'lldb', cargo: { args: ['--bin=x'] } }), 'cargo run --bin=x');
+});
+
+test('buildLaunchCommand: dart and flutter', () => {
+  assert.equal(lin.buildLaunchCommand({ type: 'dart', program: 'bin/main.dart' }), 'dart run bin/main.dart');
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'dart', program: 'lib/main.dart', flutterMode: 'profile', deviceId: 'chrome', toolArgs: ['--web-port=8080'] }),
+    'flutter run --web-port=8080 --profile -d chrome -t lib/main.dart',
+  );
+  // debug is flutter's default mode, so it needs no flag.
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'dart', program: 'lib/main.dart', flutterMode: 'debug' }),
+    'flutter run -t lib/main.dart',
+  );
+  assert.equal(lin.buildLaunchCommand({ type: 'dart' }), null);
+});
+
+test('buildLaunchCommand: bun, powershell and extensionHost', () => {
+  assert.equal(lin.buildLaunchCommand({ type: 'bun', program: 'index.ts', args: ['--watch'] }), 'bun run index.ts --watch');
+  assert.equal(lin.buildLaunchCommand({ type: 'PowerShell', script: '${workspaceFolder}/build.ps1', args: ['-Clean'] }), 'pwsh -File /repo/build.ps1 -Clean');
+  assert.equal(lin.buildLaunchCommand({ type: 'PowerShell', script: 'Invoke-Build' }), 'pwsh -Command Invoke-Build');
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'extensionHost', args: ['--extensionDevelopmentPath=${workspaceFolder}'] }),
+    'code --extensionDevelopmentPath=/repo',
+  );
+});
+
+test('buildLaunchCommand: rdbg, mix_task, R and lua-local', () => {
+  assert.equal(lin.buildLaunchCommand({ type: 'rdbg', script: 'main.rb' }), 'ruby main.rb');
+  assert.equal(lin.buildLaunchCommand({ type: 'rdbg', command: 'rails', script: 'server', useBundler: true }), 'bundle exec rails server');
+  assert.equal(lin.buildLaunchCommand({ type: 'mix_task', task: 'test', taskArgs: ['--trace'] }), 'mix test --trace');
+  assert.equal(lin.buildLaunchCommand({ type: 'R-Debugger', debugMode: 'file', file: 'analysis.R' }), 'Rscript analysis.R');
+  assert.equal(lin.buildLaunchCommand({ type: 'lua-local', program: { lua: 'lua5.3', file: 'main.lua' } }), 'lua5.3 main.lua');
+  assert.equal(lin.buildLaunchCommand({ type: 'lua-local', program: { command: 'love', args: ['.'] } }), 'love .');
+});
+
+test('buildLaunchCommand: julia and mojo run through their interpreter', () => {
+  assert.equal(lin.buildLaunchCommand({ type: 'julia', program: 'src/main.jl' }), 'julia src/main.jl');
+  assert.equal(lin.buildLaunchCommand({ type: 'mojo', program: 'hello.mojo' }), 'mojo hello.mojo');
+});
+
+test('buildLaunchCommand: gdb (Native Debug) runs its target with string arguments', () => {
+  assert.equal(
+    lin.buildLaunchCommand({ type: 'gdb', target: './build/app', arguments: '--verbose -n 3' }),
+    './build/app --verbose -n 3',
+  );
 });
 
 test('buildLaunchCommand: resolves ${workspaceFolder} inside program/args', () => {
@@ -522,20 +708,66 @@ test('normalizeTasks: global platform block overrides global options', () => {
 test('prependTasks: chains preLaunchTask steps before the launch command', () => {
   const taskSpecs = [{ command: 'npm run build', cwd: REPO, env: { A: '1' } }];
   const launch = { command: 'node app.js', cwd: REPO, env: { B: '2' }, name: 'Server' };
-  assert.deepEqual(lin.prependTasks(taskSpecs, launch), {
-    command: 'npm run build && node app.js', cwd: REPO, env: { A: '1', B: '2' }, name: 'Server',
-  });
+  assert.deepEqual(lin.prependTasks(taskSpecs, launch), [
+    { command: 'npm run build && node app.js', cwd: REPO, env: { A: '1', B: '2' }, name: 'Server' },
+  ]);
   // No tasks: the launch spec passes through untouched.
-  assert.equal(lin.prependTasks([], launch), launch);
+  assert.deepEqual(lin.prependTasks([], launch), [launch]);
 });
 
 test('prependTasks: a step (or the launch) in another cwd gets a cd prefix', () => {
   const taskSpecs = [{ command: 'make', cwd: '/repo/sub', env: {} }];
   const launch = { command: 'run', cwd: '/repo/app', env: {}, name: 'L' };
   assert.equal(
-    lin.prependTasks(taskSpecs, launch).command,
+    lin.prependTasks(taskSpecs, launch)[0].command,
     "cd '/repo/sub' && make && cd '/repo/app' && run",
   );
+});
+
+// A watcher never exits, so chaining it would mean the launch never starts. VS
+// Code doesn't wait for one either — its background problem matcher signals
+// "ready" — so it gets its own terminal and the launch starts alongside.
+test('prependTasks: a background preLaunchTask runs beside the launch, not before it', () => {
+  const watch = { command: 'tsc -w', cwd: REPO, env: {}, name: 'watch', background: true };
+  const build = { command: 'npm run build', cwd: REPO, env: {}, name: 'build' };
+  const launch = { command: 'node app.js', cwd: REPO, env: {}, name: 'Server' };
+  assert.deepEqual(lin.prependTasks([watch], launch), [watch, launch]);
+  // A foreground step alongside it still gates the launch.
+  const both = lin.prependTasks([watch, build], launch);
+  assert.deepEqual(both[0], watch);
+  assert.equal(both[1].command, 'npm run build && node app.js');
+});
+
+test('prependTasks: postDebugTask runs after the launch, whatever its exit code', () => {
+  const launch = { command: 'node app.js', cwd: REPO, env: {}, name: 'Server' };
+  const post = [{ command: 'docker compose down', cwd: REPO, env: {} }];
+  assert.equal(
+    lin.prependTasks([], launch, post)[0].command,
+    'node app.js; docker compose down',
+  );
+  assert.equal(
+    lin.prependTasks([{ command: 'make', cwd: REPO, env: {} }], launch, post)[0].command,
+    'make && node app.js; docker compose down',
+  );
+});
+
+test('resolveTask: a background task is marked so it is never chained', () => {
+  const watch = { label: 'watch', type: 'shell', command: 'tsc -w', isBackground: true };
+  const build = { label: 'build', type: 'shell', command: 'make' };
+  const all = [watch, build];
+  assert.equal(lin.resolveTask(all, watch)[0].background, true);
+  assert.equal(lin.resolveTask(all, build)[0].background, undefined);
+  // In a sequence the watcher is split out instead of stalling the chain.
+  const seq = { label: 'all', dependsOn: ['watch', 'build'], dependsOrder: 'sequence' };
+  const specs = lin.resolveTask([...all, seq], seq);
+  assert.equal(specs.length, 2);
+  assert.equal(specs[0].name, 'watch');
+  assert.equal(specs[1].command, 'make');
+});
+
+test('resolveTask: presentation rides along for the renderer', () => {
+  const t = { label: 'x', command: 'run', presentation: { panel: 'new', reveal: 'never' } };
+  assert.deepEqual(lin.resolveTask([t], t)[0].presentation, { panel: 'new', reveal: 'never' });
 });
 
 test('resolveTask: a single string dependsOn is accepted', () => {

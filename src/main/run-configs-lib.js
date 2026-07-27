@@ -27,15 +27,17 @@ function parseJsonc(text) {
 }
 
 // Debug `type`s whose interpreter is the type's own runtime, so a config with a
-// `program` but no explicit `runtimeExecutable` still resolves (e.g. a `go` config
-// -> `go run <program>`). node/python are handled inline in buildLaunchCommand.
+// `program` but no explicit `runtimeExecutable` still resolves (e.g. a `php` config
+// -> `php <program>`). Types needing more than "prefix the runtime" (node, python,
+// go, java, …) have their own builder in buildLaunchCommand.
 const TYPE_RUNTIME = {
-  go: ['go', 'run'],
   php: ['php'],
   ruby: ['ruby'],
   rdebug: ['ruby'],
   perl: ['perl'],
   lua: ['lua'],
+  julia: ['julia'],
+  mojo: ['mojo'],
   bashdb: ['bash'],
   shell: ['bash'],
 };
@@ -54,7 +56,24 @@ const BROWSER_TYPES = new Set([
 // Per-platform command that opens a URL/path in the default handler (browser).
 const OPEN_CMD = { win32: ['Start-Process'], darwin: ['open'], linux: ['xdg-open'] };
 
-const quoteArg = (a) => { a = String(a); return /\s/.test(a) ? `"${a}"` : a; };
+// Quote an argument that would otherwise be split by the shell. Already-quoted
+// values pass through untouched so a caller that had to quote earlier (a Windows
+// `;`-joined classpath) isn't double-wrapped.
+const quoteArg = (a) => {
+  a = String(a);
+  if (/^".*"$/.test(a)) return a;
+  return /\s/.test(a) ? `"${a}"` : a;
+};
+
+// Several adapters accept a list attribute as either an array or a single
+// space-separated string (Java's `vmArgs`/`args`, Go's `buildFlags`, Native
+// Debug's `arguments`). Normalize so every builder can just map over it.
+function toArray(v) {
+  if (v == null) return [];
+  if (Array.isArray(v)) return v;
+  const s = String(v).trim();
+  return s ? s.split(/\s+/) : [];
+}
 
 // Build-tool wrappers ship an extensionless Unix script (used as a launch
 // `runtimeExecutable`) next to a Windows variant. PowerShell can't run the
@@ -104,7 +123,21 @@ function compoundMembers(compound) {
 // stopped *by name* (run-config-start / stopConfigNamed), so a second entry with a
 // name already taken can never be addressed separately — showing it would offer a
 // button that runs the first one.
-function listRunConfigs(launchJson, tasksJson) {
+// VS Code auto-detects a task per package.json script even with no tasks.json at
+// all, labelled `npm: <script>`. Many projects ship no tasks.json, so without this
+// their toolbar would be empty here while VS Code shows every script. A tasks.json
+// entry with the same label still wins (that's how VS Code lets you customize a
+// detected task) — listRunConfigs adds these last and its dedupe drops the rest.
+const npmTaskLabel = (script) => `npm: ${script}`;
+
+// The task definition behind an auto-detected `npm: <script>` button. Returns null
+// for any other name, so the caller can fall through to "task not found".
+function autoDetectedNpmTask(name) {
+  const m = /^npm: (.+)$/.exec(String(name || ''));
+  return m ? { type: 'npm', script: m[1], label: name } : null;
+}
+
+function listRunConfigs(launchJson, tasksJson, npmScripts) {
   const isHidden = (c) => !!(c && c.presentation && c.presentation.hidden);
   const orderOf = (c) => (c && c.presentation && typeof c.presentation.order === 'number') ? c.presentation.order : Infinity;
   const byOrder = (a, b) => orderOf(a) - orderOf(b);
@@ -132,16 +165,18 @@ function listRunConfigs(launchJson, tasksJson) {
       if (t && !t.hide) take(tasks, t.label || t.taskName, { name: t.label || t.taskName });
     }
   }
+  for (const script of (npmScripts || [])) take(tasks, npmTaskLabel(script), { name: npmTaskLabel(script) });
   return { launch, tasks };
 }
 
-// Scan resolved run specs for unresolved ${input:id} placeholders — the ids the
-// caller must collect values for (VS Code's `inputs`) before the run can start.
-function findInputIds(specs) {
+// Scan every string a run spec puts on the command line for a `${<prefix>:id}`
+// placeholder that survived substitution, and return the distinct ids.
+function scanSpecs(specs, prefix) {
+  const re = new RegExp(`\\$\\{${prefix}:([^}]+)\\}`, 'g');
   const ids = new Set();
   const scan = (s) => {
     if (typeof s !== 'string') return;
-    for (const m of s.matchAll(/\$\{input:([^}]+)\}/g)) ids.add(m[1]);
+    for (const m of s.matchAll(re)) ids.add(m[1]);
   };
   for (const spec of specs || []) {
     scan(spec.command); scan(spec.cwd);
@@ -149,6 +184,17 @@ function findInputIds(specs) {
   }
   return [...ids];
 }
+
+// Unresolved ${input:id}s — the ids the caller must collect values for (VS Code's
+// `inputs`) before the run can start.
+const findInputIds = (specs) => scanSpecs(specs, 'input');
+
+// Unresolved ${command:id}s. VS Code runs an extension command to produce these
+// (`${command:cmake.launchTargetPath}`, `${command:pickProcess}`, …), which we
+// have no extension host for. Rather than run a command line with the literal
+// placeholder still in it, the caller asks the user for the value — so these are
+// reported alongside the inputs.
+const findCommandIds = (specs) => scanSpecs(specs, 'command');
 
 // Label of the default build task (`group: "build"` with isDefault, or the first
 // plain `"build"` group). Backs the ${defaultBuildTask} variable and lets a
@@ -227,7 +273,15 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
         case 'pathSeparator': case '/': return path.sep;
         case 'userHome': return ctx.home != null ? ctx.home : m;
         case 'defaultBuildTask': return ctx.defaultBuildTask != null ? ctx.defaultBuildTask : m;
+        case 'execPath': return ctx.execPath != null ? ctx.execPath : m;
+        case 'lineNumber': return ctx.lineNumber != null ? String(ctx.lineNumber) : m;
+        case 'columnNumber': return ctx.columnNumber != null ? String(ctx.columnNumber) : m;
+        case 'selectedText': return ctx.selectedText != null ? ctx.selectedText : m;
       }
+      // Multi-root `${workspaceFolder:name}`: we only ever have one folder open,
+      // so the named form resolves to it rather than staying literal (which would
+      // put a `${…}` on the command line).
+      if (key.startsWith('workspaceFolder:') || key.startsWith('workspaceRoot:')) return repoPath;
       if (key.startsWith('env:')) return process.env[key.slice(4)] || '';
       if (key.startsWith('config:')) {
         const v = (ctx.settings || {})[key.slice(7)]; // settings.json keys are literal dotted strings
@@ -235,6 +289,12 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
       }
       if (key.startsWith('input:')) {
         const v = (ctx.inputs || {})[key.slice(6)];
+        return v == null ? m : String(v);
+      }
+      // A `${command:id}` answer is collected under its full key, so it can't
+      // collide with an `${input:id}` of the same name.
+      if (key.startsWith('command:')) {
+        const v = (ctx.inputs || {})[key];
         return v == null ? m : String(v);
       }
       const fv = fileVars();
@@ -259,17 +319,133 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
     return out;
   }
 
+  // Python (`python`/`debugpy`) launch configs name their target three ways:
+  // `program` (a script), `module` (`-m pkg.cli`) or `code` (`-c "…"`, which may
+  // arrive as an array of lines). The interpreter comes from the python-specific
+  // `python`/`pythonPath` keys as often as from `runtimeExecutable`, and
+  // `pythonArgs` are interpreter flags that must precede the target. Returns null
+  // when none of the three targets is present and there's no explicit interpreter
+  // — that's the attach shape, and running a bare REPL would be worse than saying so.
+  function buildPythonParts(cfg, { program, args, runExe, runArgs }) {
+    const exe = runExe
+      || (cfg.python ? winExe(substVars(cfg.python)) : '')
+      || (cfg.pythonPath ? winExe(substVars(cfg.pythonPath)) : '')
+      || 'python';
+    const pyArgs = [...(cfg.pythonArgs || []).map(substVars), ...runArgs];
+    const mod = cfg.module ? substVars(cfg.module) : '';
+    const code = Array.isArray(cfg.code) ? cfg.code.map(substVars).join('\n')
+      : cfg.code ? substVars(cfg.code) : '';
+    if (mod) return [exe, ...pyArgs, '-m', mod, ...args];
+    if (code) return [exe, ...pyArgs, '-c', code, ...args];
+    if (program || runExe || cfg.python || cfg.pythonPath) return [exe, ...pyArgs, program, ...args];
+    return null;
+  }
+
+  // Java's `classPaths`/`modulePaths` are joined with the *target* platform's
+  // path separator, not the host's — the translator is parameterised by platform.
+  // On Windows that separator is `;`, which PowerShell reads as a statement
+  // separator, so the joined list has to reach the shell quoted.
+  const joinPathList = (list) => (platform === 'win32' ? `"${list.join(';')}"` : list.join(':'));
+
+  // `java [vmArgs] [--module-path …] [-cp …] <mainClass|program> [args]`. The
+  // extension normally resolves the classpath from the project model; when
+  // launch.json doesn't spell it out we omit `-cp` and let `java` use CLASSPATH /
+  // the single-file source launcher (`java Main.java`, JDK 11+).
+  function buildJavaParts(cfg, { program, args, runExe }) {
+    const main = cfg.mainClass ? substVars(cfg.mainClass) : '';
+    if (!main && !program) return null;
+    const cp = toArray(cfg.classPaths).map(substVars);
+    const mp = toArray(cfg.modulePaths).map(substVars);
+    const parts = [runExe || 'java', ...toArray(cfg.vmArgs).map(substVars)];
+    if (mp.length) parts.push('--module-path', joinPathList(mp));
+    if (cp.length) parts.push('-cp', joinPathList(cp));
+    return [...parts, main || program, ...args];
+  }
+
+  // Go's `mode` decides the tool: `test` runs the package's tests, `exec` runs an
+  // already-built binary, `debug`/`auto` compile-and-run the program. `replay`
+  // and `core` only make sense to a debugger, so they yield nothing to run.
+  function buildGoParts(cfg, { program, args }) {
+    const mode = (cfg.mode || 'auto').toLowerCase();
+    const buildFlags = toArray(cfg.buildFlags).map(substVars);
+    if (mode === 'test') return ['go', 'test', ...buildFlags, program || './...', ...args];
+    if (mode === 'exec') return program ? [program, ...args] : null;
+    if (mode !== 'debug' && mode !== 'auto') return null;
+    return program ? ['go', 'run', ...buildFlags, program, ...args] : null;
+  }
+
+  // CodeLLDB/rust-analyzer describe a Rust target by its cargo invocation instead
+  // of a `program` — the binary doesn't exist until cargo builds it. `cargo build`
+  // becomes `cargo run` (and `--no-run` drops off a test target) so the config
+  // actually runs; the config's own `args` go after `--`, as cargo requires.
+  function buildCargoParts(cargo, args) {
+    let cargoArgs = toArray(cargo.args).map(substVars).filter((a) => a !== '--no-run');
+    const sub = cargoArgs.findIndex((a) => !String(a).startsWith('-'));
+    if (sub < 0) cargoArgs = ['run', ...cargoArgs];
+    else if (cargoArgs[sub] === 'build') cargoArgs[sub] = 'run';
+    return ['cargo', ...cargoArgs, ...(args.length ? ['--', ...args] : [])];
+  }
+
+  // .NET: `program` is the built assembly, which needs the `dotnet` host unless
+  // it's a native apphost. The newer `dotnet` type points at a project instead,
+  // which `dotnet run` builds and launches.
+  function buildDotnetParts(cfg, { program, args }) {
+    const project = cfg.projectPath ? substVars(cfg.projectPath) : '';
+    if (project) return ['dotnet', 'run', '--project', project, ...(args.length ? ['--', ...args] : [])];
+    if (!program) return null;
+    return /\.dll$/i.test(program) ? ['dotnet', 'exec', program, ...args] : [program, ...args];
+  }
+
+  // Dart-Code uses one `dart` type for both; a Flutter-only attribute
+  // (`flutterMode`/`deviceId`/`flutterPlatform`) is what marks it as a Flutter app.
+  // `toolArgs` are flags for the tool, `args` are for the app — hence the `--`.
+  function buildDartParts(cfg, { program, args }) {
+    const toolArgs = toArray(cfg.toolArgs).map(substVars);
+    const mode = cfg.flutterMode ? substVars(cfg.flutterMode) : '';
+    const isFlutter = (cfg.type || '').toLowerCase() === 'flutter' || !!(mode || cfg.deviceId || cfg.flutterPlatform);
+    if (!isFlutter) return program ? ['dart', 'run', ...toolArgs, program, ...args] : null;
+    return [
+      'flutter', 'run', ...toolArgs,
+      ...(mode && mode !== 'debug' ? [`--${mode}`] : []),
+      ...(cfg.deviceId ? ['-d', substVars(cfg.deviceId)] : []),
+      ...(program ? ['-t', program] : []),
+      ...(args.length ? ['--', ...args] : []),
+    ];
+  }
+
+  // The Ruby `debug` gem's config: `command` is the executable (`ruby`, or a
+  // binstub like `rails`) and `script` its first argument, so `{command: "rails",
+  // script: "server"}` and `{script: "main.rb"}` both fall out of one shape.
+  function buildRdbgParts(cfg, { args }) {
+    const script = cfg.script ? substVars(cfg.script) : '';
+    const command = cfg.command ? substVars(cfg.command) : '';
+    if (!script && !command) return null;
+    return [...(cfg.useBundler ? ['bundle', 'exec'] : []), command || 'ruby', script, ...args];
+  }
+
+  // Local Lua Debugger's `program` is an object, not a path: either a Lua
+  // interpreter + file, or a host command (e.g. `love`) with its own args.
+  function buildLuaLocalParts(cfg, { args }) {
+    const p = cfg.program;
+    if (!p || typeof p !== 'object') return null;
+    if (p.command) return [substVars(p.command), ...toArray(p.args).map(substVars), ...args];
+    if (p.file) return [p.lua ? substVars(p.lua) : 'lua', substVars(p.file), ...args];
+    return null;
+  }
+
   // Turn a launch config into a runnable command line. Covers the common node /
   // python cases, known interpreter types (TYPE_RUNTIME), plus a generic
   // runtimeExecutable/program fallback; returns null when there's nothing
   // executable to derive (e.g. a browser/attach config with no program).
   function buildLaunchCommand(cfg) {
     cfg = mergePlatform(cfg);
-    const program = cfg.program ? substVars(cfg.program) : '';
-    const args = (cfg.args || []).map(substVars);
+    // `program` is a path for every type but lua-local, where it's an object.
+    const program = typeof cfg.program === 'string' && cfg.program ? substVars(cfg.program) : '';
+    const args = toArray(cfg.args).map(substVars);
     const runExe = cfg.runtimeExecutable ? winExe(substVars(cfg.runtimeExecutable)) : '';
-    const runArgs = (cfg.runtimeArgs || []).map(substVars);
+    const runArgs = toArray(cfg.runtimeArgs).map(substVars);
     const type = (cfg.type || '').toLowerCase();
+    const ctxArgs = { program, args, runExe, runArgs };
     // Godot configs carry `project` + `scene` (not a `program`) and run the engine
     // binary. The Godot Tools extension keeps the binary path in a VS Code setting,
     // not in launch.json, so we can't know it — default to `godot` on PATH, letting
@@ -293,11 +469,42 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
       const opener = runExe ? [runExe, ...runArgs] : (OPEN_CMD[platform] || OPEN_CMD.linux);
       return [...opener, target].map(quoteArg).join(' ');
     }
+    // `node-terminal` is VS Code's "just run this command line" launch type: its
+    // `command` is a whole shell line, so it passes through unquoted like a shell task.
+    if (type === 'node-terminal') return cfg.command ? substVars(cfg.command) : null;
+    // A Rust config names a cargo target instead of a program, under any of the
+    // native debug types (lldb/cppdbg) that can host it.
+    if (cfg.cargo && typeof cfg.cargo === 'object') {
+      return buildCargoParts(cfg.cargo, args).map(quoteArg).join(' ');
+    }
     let parts;
     // An interpreter type with neither a program nor a runtimeExecutable (the
     // attach-config shape) has nothing to run — don't fall through to a bare REPL.
     if (type.includes('node')) parts = (program || runExe) ? [runExe || 'node', ...runArgs, program, ...args] : null;
-    else if (type.includes('python') || type === 'debugpy') parts = (program || runExe) ? [runExe || 'python', ...runArgs, program, ...args] : null;
+    else if (type.includes('python') || type === 'debugpy') parts = buildPythonParts(cfg, ctxArgs);
+    else if (type === 'java') parts = buildJavaParts(cfg, ctxArgs);
+    else if (type === 'go') parts = buildGoParts(cfg, ctxArgs);
+    else if (type === 'coreclr' || type === 'clr' || type === 'dotnet') parts = buildDotnetParts(cfg, ctxArgs);
+    else if (type === 'dart' || type === 'flutter') parts = buildDartParts(cfg, ctxArgs);
+    else if (type === 'rdbg') parts = buildRdbgParts(cfg, ctxArgs);
+    else if (type === 'lua-local') parts = buildLuaLocalParts(cfg, ctxArgs);
+    // The Bun extension names its interpreter `runtime`, not `runtimeExecutable`,
+    // and Bun needs `run` to execute a source file.
+    else if (type === 'bun') parts = program ? [runExe || (cfg.runtime ? substVars(cfg.runtime) : '') || 'bun', ...runArgs, 'run', program, ...args] : null;
+    // PowerShell's `script` is a .ps1 path or, historically, a command to invoke.
+    else if (type === 'powershell') {
+      const script = cfg.script ? substVars(cfg.script) : program;
+      parts = script ? [runExe || 'pwsh', /[\\/]|\.ps1$/i.test(script) ? '-File' : '-Command', script, ...args] : null;
+    }
+    // An extension-development host is just VS Code launched with the config's
+    // `--extensionDevelopmentPath=…`-style args.
+    else if (type === 'extensionhost') parts = (args.length || runExe) ? [runExe || 'code', ...runArgs, ...args] : null;
+    // Elixir's task runner: `mix <task> <taskArgs>`.
+    else if (type === 'mix_task') parts = cfg.task ? ['mix', substVars(cfg.task), ...toArray(cfg.taskArgs).map(substVars), ...args] : null;
+    // The R debugger names the script `file` and only "file" mode runs standalone.
+    else if (type === 'r-debugger') parts = cfg.file ? ['Rscript', substVars(cfg.file), ...args] : null;
+    // Native Debug (gdb/lldb-mi) calls the binary `target` and its args `arguments`.
+    else if ((type === 'gdb' || type === 'lldb-mi') && cfg.target) parts = [substVars(cfg.target), ...toArray(cfg.arguments).map(substVars), ...args];
     else if (runExe) parts = [runExe, ...runArgs, program, ...args];
     else if (TYPE_RUNTIME[type] && program) parts = [...TYPE_RUNTIME[type], ...runArgs, program, ...args];
     else if (program) parts = [program, ...args];
@@ -404,7 +611,13 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
       // an explicit options.cwd still wins.
       let cwd = opt.cwd ? substVars(opt.cwd) : repoPath;
       if (!opt.cwd && merged.type === 'npm' && merged.path) cwd = path.join(repoPath, substVars(merged.path));
-      return [{ command: cmd, cwd, env: envMap(opt.env), name: label }];
+      const spec = { command: cmd, cwd, env: envMap(opt.env), name: label };
+      // Carried only when set, so a spec stays the minimal { command, cwd, env,
+      // name } the renderer already knows. `background` keeps the task out of a
+      // chain (it never exits); `presentation` decides tab reuse/focus there.
+      if (merged.isBackground) spec.background = true;
+      if (merged.presentation) spec.presentation = merged.presentation;
+      return [spec];
     }
 
     const depSpecs = deps.flatMap((d) => {
@@ -418,10 +631,15 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
 
     if (task.dependsOrder === 'sequence') {
       // One terminal, commands chained; merge the steps' envs onto it (last wins).
-      return [{
-        command: chainCommands(ordered.map(stepCommand)),
+      // A background step (a watcher) never exits, so chaining it would stall
+      // everything after it — those keep their own terminal and start alongside.
+      const bg = ordered.filter((s) => s.background);
+      const fg = ordered.filter((s) => !s.background);
+      if (!fg.length) return bg;
+      return [...bg, {
+        command: chainCommands(fg.map(stepCommand)),
         cwd: repoPath,
-        env: Object.assign({}, ...ordered.map((s) => s.env)),
+        env: Object.assign({}, ...fg.map((s) => s.env)),
         name: label,
       }];
     }
@@ -441,19 +659,35 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
     });
   }
 
-  // VS Code's `preLaunchTask`: chain the task's resolved steps in front of the
-  // launch command in ONE terminal, so the launch only starts once the task
-  // succeeded. The terminal sits at the repo root; every step (including the
-  // launch itself) carries its own cd prefix when it runs elsewhere.
-  function prependTasks(taskSpecs, spec) {
-    if (!spec || !taskSpecs || !taskSpecs.length) return spec;
-    const all = [...taskSpecs, spec];
-    return {
-      command: chainCommands(all.map(stepCommand)),
+  // VS Code's `preLaunchTask`/`postDebugTask`, resolved into the specs to run.
+  // The pre-launch steps are chained in front of the launch command in ONE
+  // terminal so the launch only starts once the task succeeded, and the post-debug
+  // steps are appended so they run when the launched process exits. The terminal
+  // sits at the repo root; every step (including the launch itself) carries its
+  // own cd prefix when it runs elsewhere.
+  //
+  // A background task (`isBackground`: a watcher like `tsc -w`) is the exception:
+  // it never exits, so chaining it would mean the launch never runs. VS Code
+  // doesn't wait for it either — its background problem matcher signals "ready"
+  // and the session starts alongside — so those get a terminal of their own and
+  // the launch starts immediately. Returns an ARRAY: one spec per terminal.
+  function prependTasks(preSpecs, spec, postSpecs = []) {
+    if (!spec) return [];
+    const pre = preSpecs || [];
+    const background = pre.filter((s) => s.background);
+    const chained = [...pre.filter((s) => !s.background), spec, ...postSpecs];
+    if (chained.length === 1) return [...background, spec];
+    const merged = {
+      // Pre-launch steps gate the launch (`&&`), but a post-debug step is cleanup:
+      // it runs whether the launch succeeded or not, hence the plain `;` join.
+      command: [chainCommands(chained.slice(0, chained.length - postSpecs.length).map(stepCommand)),
+        ...postSpecs.map(stepCommand)].join('; '),
       cwd: repoPath,
-      env: Object.assign({}, ...all.map((s) => s.env || {})),
+      env: Object.assign({}, ...chained.map((s) => s.env || {})),
       name: spec.name,
     };
+    if (spec.serverReady) merged.serverReady = spec.serverReady;
+    return [...background, merged];
   }
 
   // A run spec the renderer turns into an in-app terminal tab: the command line plus
@@ -462,10 +696,33 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
     const cmd = buildLaunchCommand(cfg);
     if (!cmd) return null;
     const m = mergePlatform(cfg);
-    return { command: cmd, cwd: m.cwd ? substVars(m.cwd) : repoPath, env: envMap(m.env), name: m.name };
+    const spec = { command: cmd, cwd: m.cwd ? substVars(m.cwd) : repoPath, env: envMap(m.env), name: m.name };
+    // The renderer watches the terminal's output for this (VS Code opens the
+    // browser when the program prints a matching URL) — see serverReadyMatcher.
+    const ready = serverReadyMatcher(m.serverReadyAction);
+    if (ready) spec.serverReady = ready;
+    return spec;
   }
 
-  return { substVars, envMap, winExe, mergePlatform, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec, normalizeTasks, prependTasks };
+  // Normalize a launch config's `serverReadyAction` into what the renderer needs:
+  // the pattern to look for in the terminal output and the URI to open when it
+  // hits. VS Code's default pattern matches the "listening on http://…" line most
+  // dev servers print; `uriFormat` places the pattern's first capture group.
+  // Only the URI-opening actions are meaningful here — `startDebugging` would
+  // start a second debug session, which we have no debugger for.
+  function serverReadyMatcher(action) {
+    if (!action || (action.action && action.action !== 'openExternally' && action.action !== 'debugWithChrome' && action.action !== 'debugWithEdge')) return null;
+    return {
+      pattern: action.pattern || 'listening on.* (https?://\\S+)',
+      uriFormat: action.uriFormat || '%s',
+    };
+  }
+
+  return { substVars, envMap, winExe, mergePlatform, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec, serverReadyMatcher, normalizeTasks, prependTasks };
 }
 
-module.exports = { parseJsonc, TYPE_RUNTIME, quoteArg, parseEnvFile, compoundMembers, listRunConfigs, findInputIds, defaultBuildTaskName, makeRunConfigLib };
+module.exports = {
+  parseJsonc, TYPE_RUNTIME, quoteArg, toArray, parseEnvFile, compoundMembers,
+  listRunConfigs, npmTaskLabel, autoDetectedNpmTask, findInputIds, findCommandIds,
+  defaultBuildTaskName, makeRunConfigLib,
+};
