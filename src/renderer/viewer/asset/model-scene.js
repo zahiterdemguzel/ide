@@ -187,8 +187,15 @@ export function frameObject(object, camera, controls, grid) {
 // ancestor's — colliders are physics volumes, so they read better as a wireframe
 // cage than as solid textured geometry.
 const COLLIDER_RE = /collider/i;
+
+// A "_box" suffix is the other collision-volume convention exporters use, and is
+// treated exactly like "collider". isBoxProxy tests the node's own name — the
+// outliner uses it to keep such a node as its own row instead of folding it.
+const BOX_RE = /_box$/i;
+export const isBoxProxy = (obj) => BOX_RE.test(obj.name || '');
+
 export function isCollider(obj) {
-  for (let n = obj; n; n = n.parent) if (COLLIDER_RE.test(n.name || '')) return true;
+  for (let n = obj; n; n = n.parent) if (COLLIDER_RE.test(n.name || '') || BOX_RE.test(n.name || '')) return true;
   return false;
 }
 
@@ -376,7 +383,10 @@ export function buildHierarchy(root, wrap, controls, scene, markers, opts = {}) 
     row.style.paddingLeft = (depth * 14 + 8) + 'px';
     rowByObj.set(obj, row);
 
-    const kids = obj.children.filter((c) => !c.isLight && !c.isCamera && !c.userData.isEmptyMarker && !meshPrimitives.has(c));
+    // Collision proxies ("_box") keep their own row even when the loader folded
+    // them in with a mesh's other primitives — they're a distinct authored volume.
+    const kids = obj.children.filter((c) => !c.isLight && !c.isCamera && !c.userData.isEmptyMarker
+      && (!meshPrimitives.has(c) || isBoxProxy(c)));
 
     const caret = document.createElement('span');
     caret.className = 'model-row-caret';

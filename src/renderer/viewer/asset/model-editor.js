@@ -7,7 +7,7 @@ import { enumerateTextures } from '../../shared/model-textures.js';
 import {
   createViewer, loadModel, frameObject,
   applyColliderWireframe, addEmptyMarkers, buildHierarchy,
-  isPrimitiveGroup, isMeshPrimitive, copyPrimitiveTags,
+  isPrimitiveGroup, isMeshPrimitive, isBoxProxy, copyPrimitiveTags,
 } from './model-scene.js';
 import { assetBtn } from './ui.js';
 import { refreshGit } from '../../git-pane.js';
@@ -353,7 +353,8 @@ export function renderModelEditor(file, base64, ext, body, tools, registerCleanu
     raycaster.setFromCamera(ndc, camera);
     for (const hit of raycaster.intersectObject(modelRoot, true)) {
       if (hit.object.userData.isEmptyMarker || !isPickable(hit.object)) continue;
-      outliner.selectObject(isMeshPrimitive(hit.object) ? hit.object.parent : hit.object);
+      const rollUp = isMeshPrimitive(hit.object) && !isBoxProxy(hit.object);
+      outliner.selectObject(rollUp ? hit.object.parent : hit.object);
       return;
     }
     outliner.deselect();
