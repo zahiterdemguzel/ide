@@ -615,6 +615,19 @@ export function sendToActiveSession(text) {
   s.term.focus();
 }
 
+// The one place a session's terminal pane is created. Single site on purpose: the
+// pane carries `data-session-id`, which is how voice input maps the element under
+// the mouse cursor back to a session (see voice.js and voice-input.md). When a
+// second creation path existed and forgot the attribute, hover-to-dictate silently
+// did nothing for every session restored from disk.
+function createTermContainer(id) {
+  const container = document.createElement('div');
+  container.className = 'term-container';
+  container.dataset.sessionId = id;
+  hostEl.appendChild(container);
+  return container;
+}
+
 // Create an xterm.js terminal inside an existing container and wire its
 // input/links. Split out from buildTerminal so a suspended session can rebuild
 // its terminal into the same container on restore.
@@ -634,9 +647,7 @@ function attachTerminal(id, container, repo) {
 // Used for a fresh session; resuming a suspended one reuses the container via
 // attachTerminal — the row, dot, and tracked-file state outlive the terminal.
 function buildTerminal(id, repo) {
-  const container = document.createElement('div');
-  container.className = 'term-container';
-  hostEl.appendChild(container);
+  const container = createTermContainer(id);
   const { term, fit } = attachTerminal(id, container, repo);
   return { container, term, fit };
 }
@@ -803,9 +814,7 @@ export async function newSessionWithPrompt(text) {
 // is intact, so the commit button works against it before it's even resumed.
 function restoreSessionRow(meta) {
   const { id, repo, firstPrompt, name, archived, files, state, model, effort } = meta;
-  const container = document.createElement('div');
-  container.className = 'term-container';
-  hostEl.appendChild(container);
+  const container = createTermContainer(id);
   showSuspendedHint(container, archived
     ? 'Session archived — restore it to continue.'
     : 'Session restored — select to resume.');

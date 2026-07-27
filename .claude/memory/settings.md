@@ -209,6 +209,18 @@ a level changed via the CLI's **own Alt+P picker** (or a bare `/effort`) isn't i
 input stream, so the badge won't see it until something else pushes. See
 [remote-access.md](remote-access.md) — "The session as a chat".
 
+## Voice input
+
+The **Voice input** group (`#voice-input`, left column) holds the dictate-on-hover
+toggle (`#settings-voice`, default **off**) and the voice-model dropdown
+(`#settings-voice-model`). Unlike the other settings groups this one is owned by its
+own module — `src/renderer/voice.js` wires both controls, persists them
+(`localStorage` `ide.voiceEnabled` / `ide.voiceModel`) and drives the mic capture;
+`settings.js` only calls `initVoice()` once and `refreshVoiceSection()` on dialog
+open (the same split as the Custom Models section). Both controls disable themselves
+when main reports the speech weights are missing, with the reason in `#voice-note`.
+See [voice-input.md](voice-input.md).
+
 ## General preferences
 
 The **General** group (same frameless switch rows as Panels) holds standalone

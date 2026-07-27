@@ -5,7 +5,8 @@
   "author": "zahiterdemguzel",
   "main": "src/main/index.js",
   "scripts": {
-    "postinstall": "node scripts/fix-electron-signature.js",
+    "postinstall": "node scripts/fix-electron-signature.js && node scripts/fetch-stt-model.mjs",
+    "fetch:stt": "node scripts/fetch-stt-model.mjs",
     "prestart": "node scripts/gen-icons.js",
     "start": "electron .",
     "build": "electron-builder --win dir --publish never",
@@ -36,7 +37,18 @@
     "asarUnpack": [
       "node_modules/node-llama-cpp/**",
       "node_modules/@node-llama-cpp/**",
-      "node_modules/@nut-tree-fork/**"
+      "node_modules/@nut-tree-fork/**",
+      "node_modules/sherpa-onnx-*/**"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/stt",
+        "to": "stt",
+        "filter": [
+          "**/*",
+          "!.cache/**"
+        ]
+      }
     ],
     "win": {
       "target": "dir",
@@ -44,7 +56,12 @@
     },
     "mac": {
       "target": "dmg",
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Voice input dictates what you say into a session terminal. Audio is transcribed on this device and never leaves it."
+      }
     },
     "linux": {
       "target": "AppImage",
@@ -65,6 +82,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.624",
     "qrcode-generator": "^2.0.4",
+    "sherpa-onnx-node": "^1.13.4",
     "sql.js": "^1.14.1",
     "three": "^0.185.0",
     "ws": "^8.21.0",

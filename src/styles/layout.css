@@ -149,12 +149,44 @@
 #center-body { position: relative; flex: 1; min-height: 0; }
 
 #terminal-host { position: absolute; inset: 0; padding: 6px; }
-.term-container { width: 100%; height: 100%; display: none; }
-.term-container.suspended { position: relative; }
+/* `position: relative` unconditionally: the pane is the containing block for its
+   absolutely-positioned children (the archived hint, the voice indicator). Making it
+   conditional on a state meant those states fought over the containing block. */
+.term-container { width: 100%; height: 100%; display: none; position: relative; }
 .term-suspended-hint {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--fg-dim); font-size: 12px; text-align: center; padding: 0 24px;
 }
+/* Voice input's hot-mic indicator: a state pill in the corner of the terminal that
+   is listening, plus a ring around the terminal itself. A microphone opened by
+   nothing more than a hovering cursor must be impossible to miss — see
+   src/renderer/voice.js, which paints the pill before it even starts arming. */
+.term-container.voice-listening {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--danger, #e5534b) 55%, transparent);
+}
+.voice-hot {
+  position: absolute; top: 8px; right: 12px; z-index: 5;
+  display: flex; align-items: center; gap: 7px;
+  padding: 3px 10px 3px 8px; border-radius: 11px; pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border: 1px solid var(--border); color: var(--fg); font-size: 11px;
+  backdrop-filter: blur(2px);
+}
+.voice-hot::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--danger, #e5534b);
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+/* Arming: not recording yet, so the dot is neutral and merely breathing. */
+.voice-hot[data-state="starting"] { color: var(--fg-dim); }
+.voice-hot[data-state="starting"]::before { background: var(--fg-dim); }
+/* Decoding a finished phrase: steady accent dot, no pulse — the mic is still open
+   but the thing the user is waiting on is the transcription. */
+.voice-hot[data-state="transcribing"]::before {
+  background: var(--accent); animation: none;
+}
+@keyframes voice-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
 /* Welcome / watermark shown when no session, file, or overlay is open. The
    center is the app's largest blank surface, so it carries the product's
    identity instead of a bare line of text. */

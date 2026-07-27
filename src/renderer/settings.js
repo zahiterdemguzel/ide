@@ -17,6 +17,7 @@ import {
   isOsNotificationsEnabled, setOsNotificationsEnabled,
 } from './sessions.js';
 import { initCustomModels, refreshCustomModels } from './custom-models.js';
+import { initVoice, refreshVoiceSection } from './voice.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -292,6 +293,8 @@ export function initSettings() {
     // them off the open path and re-fill the dropdowns when they resolve.
     refreshOllamaModels().then(() => { if (dialog.open) fillModelSelects(); });
     refreshCustomModels();
+    // Same reason: it asks main what voice weights are actually on disk.
+    refreshVoiceSection();
   };
 
   document.getElementById('settings-btn').onclick = open;
@@ -301,6 +304,10 @@ export function initSettings() {
   // The Custom Models section (install/uninstall Ollama models) lives in its own
   // module; it calls back here to refresh the shared cache when the model set
   // changes, and re-fills the default-model dropdowns if the dialog is open.
+  // Voice input (dictate-on-hover) owns its own settings row, IPC and mic capture;
+  // it only needs to be started once, from here, like the Custom Models section.
+  initVoice();
+
   initCustomModels(async () => {
     await refreshOllamaModels();
     if (dialog.open) fillModelSelects();

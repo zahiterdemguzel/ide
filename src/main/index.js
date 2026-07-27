@@ -28,6 +28,7 @@ require('./consoles');
 require('./onboarding-store');
 require('./remote');
 require('./ollama'); // embedded Ollama engine + custom-models IPC (lazy — nothing starts here)
+require('./stt'); // voice input: Whisper recognizer + VAD (lazy — loads on first hover)
 
 // Log every crash (uncaught exception, unhandled rejection, renderer/child-process
 // death) to a file under crashlogs/ — without exiting, so the app stays usable.
@@ -90,19 +91,22 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   persistSessions();
   killAllSessions();
-  stopOllamaRuntime();
+  releaseNativeRuntimes();
   if (process.platform !== 'darwin') app.quit();
 });
 
 // macOS keeps the app alive after the window closes; persist on the real quit too
 // so an active session that was never archived still survives the next launch.
 // Also tear the engine/proxy down here so nothing leaks on the darwin quit path.
-app.on('before-quit', () => { persistSessions(); stopOllamaRuntime(); });
+app.on('before-quit', () => { persistSessions(); releaseNativeRuntimes(); });
 
-// Kill the embedded Ollama engine (and its model-runner children) and close the
-// translation proxy. Lazy-required so a launch that never touches Ollama pays
-// nothing; both are no-ops when never started.
-function stopOllamaRuntime() {
+// Release every subsystem that holds native resources or model weights in RAM: the
+// local-model engine (and its translation proxy) and the voice recognizer. Each is
+// lazy-required so a launch that never touched one pays nothing, and each is a no-op
+// when it was never started.
+function releaseNativeRuntimes() {
   try { require('./ollama').stopOllama(); } catch { /* never started */ }
   try { require('./ollama-proxy').stopProxyServer(); } catch { /* never started */ }
+  // The voice recognizer holds its weights in RAM once armed — drop them too.
+  try { require('./stt').stopStt(); } catch { /* never armed */ }
 }

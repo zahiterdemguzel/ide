@@ -13,4 +13,5 @@ contextBridge.exposeInMainWorld('api', {
   ...require('./onboarding'),
   ...require('./remote'),
   ...require('./ollama'),
+  ...require('./stt'),
 });
