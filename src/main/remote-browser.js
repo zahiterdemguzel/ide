@@ -184,7 +184,7 @@ on('browser-nav', (_event, { action } = {}) => {
   const wc = win.webContents;
   if (action === 'back') wc.goBack();
   else if (action === 'forward') wc.goForward();
-  else if (action === 'reload') wc.reload();
+  else if (action === 'reload') wc.reloadIgnoringCache();
   else if (action === 'stop') wc.stop();
 });
 

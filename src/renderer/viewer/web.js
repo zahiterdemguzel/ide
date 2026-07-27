@@ -40,23 +40,45 @@ const disarmTerminate = () => { terminateBtn.classList.remove('armed'); hideArmH
 // Visited addresses, most-recent-first, persisted so the address bar can offer
 // them as suggestions across restarts (the page cookies persist; this is just
 // the URL list the bar shows).
+// The list is **per project**: the key is suffixed with the open folder, so each
+// folder gets its own addresses (its own dev-server port, its own last page).
 const HISTORY_KEY = 'web.history';
 const HISTORY_MAX = 30;
-const loadHistory = () => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; } };
-let history = loadHistory();
+let historyKey = null; // null until the first syncScope() resolves the open folder
+let history = [];
+const loadHistory = () => { try { return JSON.parse(localStorage.getItem(historyKey)) || []; } catch { return []; } };
+
+// Re-point the history at the currently open folder. The in-app "Open folder"
+// flow doesn't notify the renderer modules, so this runs on every browser open
+// rather than once at import time.
+async function syncScope() {
+  let repo = '';
+  try { repo = (await window.api.getRepoPath()) || ''; } catch { /* no folder open */ }
+  const key = repo ? `${HISTORY_KEY}:${repo}` : HISTORY_KEY;
+  if (key === historyKey) return;
+  historyKey = key;
+  history = loadHistory();
+}
+syncScope();
 
 function pushHistory(url) {
-  if (!url || url === 'about:blank') return;
-  history = [url, ...history.filter((u) => u !== url)].slice(0, HISTORY_MAX);
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch {}
+  if (isBlank(url) || !historyKey) return;
+  history =[url, ...history.filter((u) => u !== url)].slice(0, HISTORY_MAX);
+  try { localStorage.setItem(historyKey, JSON.stringify(history)); } catch {}
 }
 
+// Shown in the address bar when the browser opens with no page and no history —
+// a dev server is the overwhelmingly common case, so the user only types the port.
+const DEFAULT_URL = 'localhost:';
+
 // Turn whatever the user typed into a navigable URL: keep a real scheme as-is,
-// otherwise default to https:// (so "example.com" works like a browser bar).
+// local addresses get http:// (dev servers are rarely TLS), everything else
+// defaults to https:// (so "example.com" works like a browser bar).
 function normalizeUrl(input) {
   const s = String(input || '').trim();
-  if (!s) return '';
+  if (!s || s === DEFAULT_URL) return '';
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s) || s.startsWith('about:')) return s;
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(s)) return 'http://' + s;
   return 'https://' + s;
 }
 
@@ -73,6 +95,7 @@ export function hideWeb() {
 
 // Navigate to a URL and reveal the overlay (terminal-link Ctrl+click).
 export function showWeb(url) {
+  syncScope();
   webUrlEl.value = url;
   webUrlEl.title = url;
   webFrame.src = url;
@@ -81,10 +104,16 @@ export function showWeb(url) {
 }
 
 // Reveal the overlay without navigating (toolbar browser button): the already
-// loaded page is shown as-is; an empty browser just focuses the address bar.
+// loaded page is shown as-is; an empty browser pre-fills the address bar with the
+// last visited page (selected, so Enter goes straight there or typing replaces it).
 export function openWeb() {
   webView.style.display = 'flex';
-  if (!isLoaded()) setTimeout(() => webUrlEl.focus(), 0);
+  if (isLoaded()) return;
+  syncScope().then(() => {
+    if (!webUrlEl.value) { webUrlEl.value = history[0] || DEFAULT_URL; webUrlEl.title = webUrlEl.value; }
+    webUrlEl.focus();
+    webUrlEl.select();
+  });
 }
 
 // Whether the overlay is currently visible (toolbar button toggles on this).
@@ -174,7 +203,21 @@ webFrame.addEventListener('did-navigate-in-page', onNav);
 
 document.getElementById('web-back').onclick = () => { try { if (webFrame.canGoBack()) webFrame.goBack(); } catch {} };
 document.getElementById('web-fwd').onclick = () => { try { if (webFrame.canGoForward()) webFrame.goForward(); } catch {} };
-document.getElementById('web-reload').onclick = () => { try { webFrame.reload(); } catch {} };
+// Always a *force* refresh: `reload()` keeps the HTTP cache, and it is a no-op
+// when the last navigation failed (error page) — in that case the webview has no
+// history entry to reload, so re-navigate to the address bar URL instead.
+function forceReload() {
+  try {
+    if (webFrame.isLoading()) webFrame.stop();
+    webFrame.reloadIgnoringCache();
+    const url = webFrame.getURL();
+    if (!url || isBlank(url)) navigateTo(webUrlEl.value);
+  } catch {
+    try { navigateTo(webUrlEl.value); } catch {}
+  }
+}
+
+document.getElementById('web-reload').onclick = forceReload;
 
 
 // --- ⋮ menu (clean cookies control) ---
@@ -201,7 +244,7 @@ document.getElementById('web-reset-cookies').onclick = async () => {
   });
   if (!ok) return;
   await window.api.clearWebData();
-  try { webFrame.reload(); } catch {}
+  forceReload();
 };
 
 // --- inspect element (color-picker button) ---
