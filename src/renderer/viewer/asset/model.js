@@ -3,6 +3,7 @@ import {
   createViewer, loadModel, frameObject,
   applyColliderWireframe, addEmptyMarkers, buildHierarchy,
 } from './model-scene.js';
+import { createAnimationBar } from './model-anim.js';
 import { assetBtn } from './ui.js';
 
 // Read-only 3D model view: a three.js scene (built by the shared core in
@@ -19,12 +20,14 @@ export function renderModel(base64, ext, body, tools, registerCleanup, onEdit) {
   const buffer = base64ToArrayBuffer(base64);
 
   let framed = null; // remembered camera framing, for the Reset view button
+  let anim = null; // animation transport, when the file carries clips
   const onLoaded = (object) => {
     viewer.scene.add(object);
     applyColliderWireframe(object);
     framed = frameObject(object, viewer.camera, viewer.controls, viewer.grid);
     const markers = addEmptyMarkers(object);
     buildHierarchy(object, viewer.wrap, viewer.controls, viewer.scene, markers);
+    anim = createAnimationBar(object, viewer.wrap, viewer.addUpdate);
     viewer.resize();
     viewer.start();
   };
@@ -44,5 +47,5 @@ export function renderModel(base64, ext, body, tools, registerCleanup, onEdit) {
     tools.append(edit);
   }
 
-  registerCleanup?.(viewer.dispose);
+  registerCleanup?.(() => { anim?.dispose(); viewer.dispose(); });
 }

@@ -9,6 +9,7 @@ import {
   applyColliderWireframe, addEmptyMarkers, buildHierarchy,
   isPrimitiveGroup, isMeshPrimitive, isBoxProxy, copyPrimitiveTags,
 } from './model-scene.js';
+import { createAnimationBar } from './model-anim.js';
 import { assetBtn } from './ui.js';
 import { refreshGit } from '../../git-pane.js';
 
@@ -59,7 +60,13 @@ export function renderModelEditor(file, base64, ext, body, tools, registerCleanu
   const snapXform = (o) => ({ position: o.position.clone(), quaternion: o.quaternion.clone(), scale: o.scale.clone() });
   const applyXform = (o, s) => { o.position.copy(s.position); o.quaternion.copy(s.quaternion); o.scale.copy(s.scale); };
   const sameXform = (a, b) => a.position.equals(b.position) && a.quaternion.equals(b.quaternion) && a.scale.equals(b.scale);
-  gizmo.addEventListener('mouseDown', () => { dragObj = gizmo.object; dragBefore = dragObj && snapXform(dragObj); });
+  gizmo.addEventListener('mouseDown', () => {
+    // A running clip writes the animated transforms every frame, which would
+    // silently undo the drag — stop playback and edit from the authored pose.
+    anim?.rest();
+    dragObj = gizmo.object;
+    dragBefore = dragObj && snapXform(dragObj);
+  });
   gizmo.addEventListener('mouseUp', () => {
     if (!dragObj || !dragBefore) return;
     const o = dragObj, before = dragBefore, after = snapXform(o);
@@ -70,6 +77,7 @@ export function renderModelEditor(file, base64, ext, body, tools, registerCleanu
 
   let modelRoot = null; // the exported root (the loaded glTF scene)
   let outliner = null;
+  let anim = null; // animation transport, when the model carries clips
 
   const setMode = (mode) => {
     gizmo.setMode(mode);
@@ -395,6 +403,7 @@ export function renderModelEditor(file, base64, ext, body, tools, registerCleanu
     refreshTextureList();
     updateSelection(null);
     setMode('translate');
+    anim = createAnimationBar(object, viewer.wrap, viewer.addUpdate);
     viewer.resize();
     viewer.start();
   };
@@ -410,6 +419,11 @@ export function renderModelEditor(file, base64, ext, body, tools, registerCleanu
     if (!dirty || saving || !modelRoot) return;
     saving = true; refreshSave(); setStatus('Saving…');
 
+    // The exporter serialises the live graph, so a playing animation would bake
+    // whatever frame is showing into the saved node transforms. Stop it and put
+    // the authored pose back first.
+    anim?.rest();
+
     // Empty-marker crosses are children of model nodes; strip them so they don't
     // export as junk LineSegments, then restore after.
     const detached = [];
@@ -417,7 +431,12 @@ export function renderModelEditor(file, base64, ext, body, tools, registerCleanu
     for (const [marker, parent] of detached) parent && parent.remove(marker);
 
     try {
-      const result = await new GLTFExporter().parseAsync(modelRoot, { binary: ext === 'glb', onlyVisible: false });
+      // The clips are passed back through explicitly — the exporter reads them
+      // from the options, not from the root — so saving an edit doesn't strip a
+      // model's animations.
+      const result = await new GLTFExporter().parseAsync(modelRoot, {
+        binary: ext === 'glb', onlyVisible: false, animations: modelRoot.animations || [],
+      });
       const bytes = ext === 'glb' ? result : new TextEncoder().encode(JSON.stringify(result));
       const out64 = arrayBufferToBase64(bytes);
       const r = await window.api.writeAsset(file, out64);
@@ -458,6 +477,7 @@ export function renderModelEditor(file, base64, ext, body, tools, registerCleanu
     document.removeEventListener('keydown', onKey, true);
     renderer.domElement.removeEventListener('pointerdown', onPointerDown);
     renderer.domElement.removeEventListener('pointerup', onPointerUp);
+    anim?.dispose();
     gizmo.detach();
     scene.remove(gizmo.getHelper());
     gizmo.dispose();

@@ -48,8 +48,21 @@ export function createViewer(body) {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
+  // Per-frame hooks (the animation mixer is the only one today). The clock's
+  // delta is what an AnimationMixer needs, and it must be read once per frame —
+  // hence a shared updater list rather than each feature running its own rAF.
+  const clock = new THREE.Clock();
+  const updates = new Set();
+  const addUpdate = (fn) => { updates.add(fn); return () => updates.delete(fn); };
+
   let raf = 0;
-  const tick = () => { controls.update(); renderer.render(scene, camera); raf = requestAnimationFrame(tick); };
+  const tick = () => {
+    const delta = clock.getDelta();
+    for (const fn of updates) fn(delta);
+    controls.update();
+    renderer.render(scene, camera);
+    raf = requestAnimationFrame(tick);
+  };
 
   const resize = () => {
     const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -70,11 +83,14 @@ export function createViewer(body) {
     renderer.forceContextLoss();
   };
 
-  return { wrap, scene, camera, renderer, controls, grid, resize, start: tick, dispose };
+  return { wrap, scene, camera, renderer, controls, grid, resize, addUpdate, start: tick, dispose };
 }
 
 // Dispatch to the right loader and normalise every result to a single Object3D.
 // The async loaders (glTF/USDZ) take a callback; the sync ones return directly.
+// Any clips the format carries end up on the root's standard `.animations` array
+// (where FBXLoader already puts them; glTF hands them back beside the scene), so
+// callers get animations the same way whatever the format.
 export function loadModel(ext, buffer) {
   if (ext === 'glb' || ext === 'gltf') {
     // .glb is binary (ArrayBuffer); .gltf is JSON text. Both parse from a single
@@ -82,7 +98,11 @@ export function loadModel(ext, buffer) {
     // resolve them (we have only the one file's bytes), which is an accepted limit.
     const data = ext === 'gltf' ? new TextDecoder().decode(buffer) : buffer;
     return parseAsync((onLoad, onError) => new GLTFLoader().parse(data, '', onLoad, onError))
-      .then((gltf) => { tagPrimitiveGroups(gltf); return gltf.scene; });
+      .then((gltf) => {
+        tagPrimitiveGroups(gltf);
+        gltf.scene.animations = gltf.animations || [];
+        return gltf.scene;
+      });
   }
   if (ext === 'usdz') {
     return parseAsync((onLoad, onError) => new USDZLoader().parse(buffer, '', onLoad, onError));

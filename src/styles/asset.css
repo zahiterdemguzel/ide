@@ -230,6 +230,54 @@
 .model-row-wire.on { color: var(--accent-hi); }
 .model-row.sel .model-row-eye, .model-row.sel .model-row-wire { color: var(--on-accent); }
 
+/* animation transport: a translucent bar centred along the viewport's bottom edge
+   (same chrome as the outliner/dock panels), shown only for a model that carries
+   clips. Sits over the canvas in both the read-only viewer and the editor. */
+.model-anim-bar {
+  position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); z-index: 2;
+  display: flex; align-items: center; gap: 10px;
+  max-width: calc(100% - 20px); padding: 6px 10px;
+  font-family: Consolas, monospace; font-size: 12px; color: var(--fg);
+  background: color-mix(in srgb, var(--bg-2) 72%, transparent);
+  border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+}
+
+.model-anim-play {
+  flex: none; display: grid; place-items: center;
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+  border: none; color: var(--on-accent); font-size: 11px; line-height: 1;
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+}
+.model-anim-play:hover { filter: brightness(1.12); }
+
+.model-anim-clip, .model-anim-fps {
+  background: var(--bg-3); color: var(--fg); font: inherit;
+  border: 1px solid var(--border); border-radius: 3px; padding: 3px 4px;
+}
+.model-anim-clip { flex: none; max-width: 160px; cursor: pointer; }
+.model-anim-name {
+  flex: none; max-width: 160px; color: var(--fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.model-anim-scrub { flex: 1; min-width: 120px; accent-color: var(--accent-hi); cursor: pointer; }
+.model-anim-time {
+  flex: none; min-width: 108px; text-align: right;
+  color: var(--fg-dim); font-variant-numeric: tabular-nums;
+}
+
+.model-anim-loop {
+  flex: none; background: none; border: none; cursor: pointer; padding: 0;
+  color: var(--fg-dim); font-size: 14px; line-height: 1;
+}
+.model-anim-loop:hover { color: var(--fg); }
+.model-anim-loop.on { color: var(--accent-hi); }
+
+.model-anim-rate { flex: none; display: flex; align-items: center; gap: 4px; color: var(--fg-dim); }
+.model-anim-fps { width: 46px; text-align: right; }
+
 /* Code | Preview segmented switch in an asset header (the Godot scene editor):
    the same control as the HTML editor's #diff-preview (diff.css), but flowing
    inline in the tools row instead of absolutely centred in the head. */
