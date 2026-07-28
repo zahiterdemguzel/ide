@@ -1152,11 +1152,14 @@ window.api.onPtyData(({ id, data }) => {
   // Enter is sent as a SEPARATE write after a further delay: bundling "\r" with the
   // text submits before the TUI has finished ingesting a multi-line paste, so the
   // prompt fires half-typed. Typing first, then Enter, makes it submit reliably.
+  // The gap scales with the text: a fixed short delay truncates long prompts (the
+  // run-config setup prompt is ~60 lines) because the TUI is still ingesting.
   if (pendingPrompts.has(id)) {
     const text = pendingPrompts.get(id);
     pendingPrompts.delete(id);
+    const settle = Math.min(3000, 400 + text.length / 4);
     setTimeout(() => window.api.sendInput(id, text), 1000);
-    setTimeout(() => window.api.sendInput(id, '\r'), 1400);
+    setTimeout(() => window.api.sendInput(id, '\r'), 1000 + settle);
   }
 });
 window.api.onStatus(({ id, state }) => setState(id, state));

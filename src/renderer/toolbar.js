@@ -224,8 +224,14 @@ onPanelsChanged(() => loadToolbar());
 onConsolesChanged(refreshRunStates);
 setInterval(refreshRunStates, 10000);
 
+// loadToolbar is triggered from several independent events (file watcher, panel
+// toggles, folder open) and awaits between clearing and appending, so two runs can
+// interleave and each append its own buttons. Only the newest run may touch the DOM.
+let toolbarRender = 0;
 export async function loadToolbar() {
+  const render = ++toolbarRender;
   const r = await window.api.getRunConfigs();
+  if (render !== toolbarRender) return;
   offerAutoTasks();
   toolbarRuns.innerHTML = '';
   launchButtons = [];
@@ -239,6 +245,7 @@ export async function loadToolbar() {
     // inert until one is opened (opening a folder re-runs loadToolbar).
     let repo = '';
     try { repo = await window.api.getRepoPath(); } catch { /* no folder open */ }
+    if (render !== toolbarRender) return;
     const cta = document.createElement('button');
     cta.className = 'tool-btn toolbar-cta';
     cta.textContent = 'Create run configs';
