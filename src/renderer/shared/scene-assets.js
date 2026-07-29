@@ -1,4 +1,4 @@
-import { MODEL_EXT, extOf } from './ext.js';
+import { MODEL_EXT, IMG_EXT, extOf } from './ext.js';
 
 // Pure model for the Godot scene editor's resources panel: which of the
 // project's 3D model files can be dropped into a scene, what to call them,
@@ -22,18 +22,19 @@ export function godotRootOf(sceneFile, files) {
   }
 }
 
-// Every droppable model reachable from the scene's project: repo-relative
+// Every droppable asset of the given extensions reachable from the scene's
+// project (models for the 3D editor, images for the UI editor): repo-relative
 // `file`, display `name` (basename, no extension), repo-relative `thumb` (or
 // null), and the `res://` path Godot will load it by. Models outside the
 // project root are excluded (Godot can't reference them); with no
 // project.godot the repo root stands in as the res:// root, best-effort.
-export function modelEntries(sceneFile, files) {
+export function assetEntries(sceneFile, files, extSet) {
   const set = new Set(files);
   const root = godotRootOf(sceneFile, files) ?? '';
   const prefix = root ? root + '/' : '';
   const out = [];
   for (const f of files) {
-    if (!MODEL_EXT.has(extOf(f))) continue;
+    if (!extSet.has(extOf(f))) continue;
     if (prefix && !f.startsWith(prefix)) continue;
     const stem = f.replace(/\.[^.]+$/, '');
     const base = f.split('/').pop();
@@ -45,6 +46,15 @@ export function modelEntries(sceneFile, files) {
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name) || a.file.localeCompare(b.file));
+}
+
+// The 3D models the scene editor's resources panel drops into a scene.
+export function modelEntries(sceneFile, files) { return assetEntries(sceneFile, files, MODEL_EXT); }
+
+// The images the UI editor's resources panel drops in as TextureRects, and
+// which back its texture picker. An image *is* its own thumbnail.
+export function textureEntries(sceneFile, files) {
+  return assetEntries(sceneFile, files, IMG_EXT).map((e) => ({ ...e, thumb: e.file }));
 }
 
 // A model filename as a legal Godot node name (no . / : @ % ").

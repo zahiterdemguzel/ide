@@ -26,7 +26,7 @@ import { modelEntries, nodeNameFor, godotRootOf } from '../../shared/scene-asset
 // instances, .res meshes) still appear in the outliner and get a placeholder
 // in the viewport so they can be selected and transformed.
 
-export function renderSceneEditor(file, text, body, tools, registerCleanup) {
+export function renderSceneEditor(file, text, body, tools, registerCleanup, onSwitchTo2d) {
   let doc = parseTscn(text);
   const nodes = doc.header && doc.header.tag === 'gd_scene' ? nodeSections(doc) : [];
   if (!nodes.length) {
@@ -96,7 +96,12 @@ export function renderSceneEditor(file, text, body, tools, registerCleanup) {
   modeButtons.scale.title = 'Scale (R)';
   const delBtn = assetBtn('Delete', () => deleteSelected());
   delBtn.title = 'Delete the selected node and its children (Del)';
-  tools.append(seg, modeButtons.translate, modeButtons.rotate, modeButtons.scale, delBtn, saveBtn, status);
+  // Mixed scenes (a 3D root with a Control branch) can be opened in the UI
+  // editor by hand; the coordinator re-reads the file when switching.
+  const uiBtn = onSwitchTo2d ? assetBtn('UI view', () => onSwitchTo2d()) : null;
+  if (uiBtn) uiBtn.title = 'Open this scene in the 2D UI editor instead';
+  tools.append(seg, modeButtons.translate, modeButtons.rotate, modeButtons.scale, delBtn,
+    ...(uiBtn ? [uiBtn] : []), saveBtn, status);
 
   // --- undo/redo ---
   // Each command carries the serialized document before/after (the doc is

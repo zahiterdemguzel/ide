@@ -168,10 +168,13 @@ function renderModelCoordinator(file, base64, ext, body, tools, registerCleanup)
   showView();
 }
 
-// Godot scene coordinator: a single edit mode (the 3D scene editor is also the
-// viewer), so unlike the model/PDF/vector coordinators there's no view↔edit
-// switch — just the lazy import that keeps three.js off this module's eager
-// graph. "Open externally" stays visible (it hands the scene to Godot itself).
+// Godot scene coordinator. A .tscn opens in one of two editors depending on
+// what the scene is: a UI (Control) scene gets the 2D canvas editor, anything
+// else the three.js scene editor. The kind is decided from the parsed document
+// (shared/scene-kind.js — cheap and pure) *before* either editor is imported,
+// so opening a UI scene never loads three.js at all. A header button switches
+// modes by hand for scenes the heuristic can't call, or mixed ones.
+// "Open externally" stays visible (it hands the scene to Godot itself).
 function renderSceneCoordinator(file, body, tools, registerCleanup) {
   const viewTools = document.createElement('span');
   viewTools.className = 'asset-view-tools';
@@ -179,19 +182,58 @@ function renderSceneCoordinator(file, body, tools, registerCleanup) {
 
   let subCleanup = null;
   const registerSub = (fn) => { subCleanup = fn; };
+  const clear = () => {
+    if (subCleanup) { subCleanup(); subCleanup = null; }
+    viewTools.innerHTML = '';
+    body.innerHTML = '';
+  };
   registerCleanup(() => { if (subCleanup) subCleanup(); });
 
   (async () => {
+    let text;
     try {
-      const [{ renderSceneEditor }, r] = await Promise.all([
-        import('./scene-editor.js'),
-        window.api.readText(file),
-      ]);
+      const r = await window.api.readText(file);
       if (!r.ok) { body.textContent = r.error || 'Could not read file'; return; }
-      renderSceneEditor(file, r.text, body, viewTools, registerSub);
+      text = r.text;
     } catch (e) {
-      body.textContent = 'Could not open scene: ' + (e && e.message ? e.message : e);
+      body.textContent = 'Could not read scene: ' + (e && e.message ? e.message : e);
+      return;
     }
+
+    // Each editor owns its own parsed copy, so switching modes re-reads the
+    // file — unsaved edits in the mode being left are not carried across.
+    const reread = async () => {
+      const r = await window.api.readText(file);
+      if (r.ok) text = r.text;
+      return text;
+    };
+    const show2d = async () => {
+      clear();
+      try {
+        const [{ renderUiSceneEditor }, fresh] = await Promise.all([import('./ui-editor.js'), reread()]);
+        renderUiSceneEditor(file, fresh, body, viewTools, registerSub, show3d);
+      } catch (e) {
+        body.textContent = 'Could not open UI editor: ' + (e && e.message ? e.message : e);
+      }
+    };
+    const show3d = async () => {
+      clear();
+      try {
+        const [{ renderSceneEditor }, fresh] = await Promise.all([import('./scene-editor.js'), reread()]);
+        renderSceneEditor(file, fresh, body, viewTools, registerSub, show2d);
+      } catch (e) {
+        body.textContent = 'Could not open scene: ' + (e && e.message ? e.message : e);
+      }
+    };
+
+    try {
+      const [{ parseTscn }, { sceneKind }] = await Promise.all([
+        import('../../shared/tscn.js'),
+        import('../../shared/scene-kind.js'),
+      ]);
+      if (sceneKind(parseTscn(text)) === '2d') { show2d(); return; }
+    } catch { /* fall through to the 3D editor */ }
+    show3d();
   })();
 }
 

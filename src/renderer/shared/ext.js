@@ -47,8 +47,10 @@ export const DB_EXT = new Set([
   'duckdb', 'ddb', 'mdb', 'accdb', 'mdf', 'ndf', 'ldf',
   'myd', 'myi', 'frm', 'ibd', 'fdb', 'gdb', 'dbf', 'realm', 'bdb', 'nsf', 'odb',
 ]);
-// Godot scene files open the 3D scene editor (a three.js view over the parsed
-// .tscn text — see shared/tscn.js). .escn/.tres stay with the text editor:
+// Godot scene files open a scene editor over the parsed .tscn text (shared/
+// tscn.js). Which one depends on the scene: a Control-based UI scene gets the
+// 2D canvas editor, anything else the three.js one — see shared/scene-kind.js
+// and the coordinator in viewer/asset/index.js. .escn/.tres stay with the text editor:
 // .escn is an export artifact and .tres holds a single resource, not a scene.
 export const SCENE_EXT = new Set(['tscn']);
 // HTML files the editor offers a Preview/Code toggle for: Preview swaps the text

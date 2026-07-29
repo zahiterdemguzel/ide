@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { godotRootOf, modelEntries, nodeNameFor } from '../src/renderer/shared/scene-assets.js';
+import { godotRootOf, modelEntries, textureEntries, nodeNameFor } from '../src/renderer/shared/scene-assets.js';
 import { parseTscn, serializeTscn, addExtResource, addNode, getAttr, attrStr, nodePathOf } from '../src/renderer/shared/tscn.js';
 
 // --- resources-panel model (shared/scene-assets.js) ---
@@ -34,6 +34,16 @@ test('modelEntries falls back to the repo root when there is no project.godot', 
   assert.deepEqual(entries, [
     { file: 'assets/car.glb', name: 'car', thumb: null, res: 'res://assets/car.glb' },
   ]);
+});
+
+test('textureEntries lists project images, each its own thumbnail', () => {
+  const files = [...FILES, 'game/ui/logo.png', 'game/ui/bg.jpg', 'outside/sky.png'];
+  assert.deepEqual(textureEntries('game/scenes/main.tscn', files), [
+    { file: 'game/ui/bg.jpg', name: 'bg', thumb: 'game/ui/bg.jpg', res: 'res://ui/bg.jpg' },
+    { file: 'game/ui/logo.png', name: 'logo', thumb: 'game/ui/logo.png', res: 'res://ui/logo.png' },
+    // robot.png is a model thumbnail, but it is still a usable texture
+    { file: 'game/models/robot.png', name: 'robot', thumb: 'game/models/robot.png', res: 'res://models/robot.png' },
+  ].sort((a, b) => a.name.localeCompare(b.name)));
 });
 
 test('nodeNameFor strips characters Godot forbids in node names', () => {

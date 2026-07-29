@@ -5,6 +5,7 @@ import {
   getProp, parseNums, parseRef, fmtNum, unquote, quote,
   transformOfNode, setNodeTransform, serializeTransform3d, IDENTITY_TRANSFORM,
   addNode, removeNodeTree, addSubResource, uniqueChildName, reparentNode,
+  renameNode, duplicateNode, moveSibling,
 } from '../src/renderer/shared/tscn.js';
 
 // A small but representative scene, written in the canonical layout the
@@ -173,6 +174,45 @@ test('reparentNode renames on sibling collision and rejects bad targets', () => 
   assert.deepEqual(reparentNode(doc, 'UI', '.'), { path: 'UI', name: 'UI' });
   assert.throws(() => reparentNode(doc, '.', 'UI'), /root/);
   assert.throws(() => reparentNode(doc, 'Player', 'Player'), /own subtree/);
+});
+
+test('renameNode rebases descendants and connection endpoints', () => {
+  const doc = parseTscn(SCENE);
+  const { path, name } = renameNode(doc, 'Player', 'Hero');
+  assert.equal(path, 'Hero');
+  assert.equal(name, 'Hero');
+  assert.deepEqual(nodeSections(doc).map(nodePathOf), ['.', 'Hero', 'Hero/Mesh', 'UI']);
+  assert.equal(attrStr(findNode(doc, 'Hero/Mesh'), 'parent'), 'Hero');
+  assert.equal(attrStr(doc.sections.find((s) => s.tag === 'connection'), 'from'), 'Hero');
+  // Renaming onto a taken sibling name dedupes, and renaming to itself is a no-op.
+  assert.equal(renameNode(doc, 'Hero', 'UI').name, 'UI2');
+  assert.equal(renameNode(doc, 'UI', 'UI').path, 'UI');
+  assert.throws(() => renameNode(doc, '.', 'X'), /root/);
+});
+
+test('duplicateNode deep-copies a subtree as the next sibling', () => {
+  const doc = parseTscn(SCENE);
+  const path = duplicateNode(doc, 'Player');
+  assert.equal(path, 'Player2');
+  assert.deepEqual(nodeSections(doc).map(nodePathOf),
+    ['.', 'Player', 'Player/Mesh', 'Player2', 'Player2/Mesh', 'UI']);
+  // Properties come across, and the copy is independent of the original.
+  assert.equal(getProp(findNode(doc, 'Player2/Mesh'), 'mesh'), 'SubResource("BoxMesh_1")');
+  findNode(doc, 'Player2').props[0].value = 'x';
+  assert.notEqual(getProp(findNode(doc, 'Player'), 'transform'), 'x');
+  // Connections are not duplicated (Godot doesn't either).
+  assert.equal(doc.sections.filter((s) => s.tag === 'connection').length, 1);
+});
+
+test('moveSibling reorders whole subtrees and clamps at the ends', () => {
+  const doc = parseTscn(SCENE);
+  assert.equal(moveSibling(doc, 'UI', -1), true);
+  assert.deepEqual(nodeSections(doc).map(nodePathOf), ['.', 'UI', 'Player', 'Player/Mesh']);
+  assert.equal(moveSibling(doc, 'UI', -1), false);
+  assert.equal(moveSibling(doc, 'UI', 1), true);
+  assert.deepEqual(nodeSections(doc).map(nodePathOf), ['.', 'Player', 'Player/Mesh', 'UI']);
+  assert.equal(moveSibling(doc, 'UI', 1), false);
+  assert.equal(serializeTscn(doc), SCENE); // back where it started, byte for byte
 });
 
 test('addSubResource makes a unique id and keeps load_steps honest', () => {

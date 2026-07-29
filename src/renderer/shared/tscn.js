@@ -246,23 +246,11 @@ export function reparentNode(doc, path, newParentPath) {
 
   const name = uniqueChildName(doc, newParentPath, oldName);
   const newPath = newParentPath === '.' ? name : newParentPath + '/' + name;
-  const rebase = (p) => (p === path ? newPath : newPath + p.slice(path.length));
-
-  const subtree = doc.sections.filter((s) => s.tag === 'node' && inSubtree(nodePathOf(s), path));
+  const subtree = subtreeSections(doc, path);
   doc.sections = doc.sections.filter((s) => !subtree.includes(s));
   setAttr(node, 'name', quote(name));
   setAttr(node, 'parent', quote(newParentPath));
-  for (const s of subtree) {
-    if (s === node) continue;
-    setAttr(s, 'parent', quote(rebase(attrStr(s, 'parent'))));
-  }
-  for (const s of doc.sections) {
-    if (s.tag !== 'connection') continue;
-    for (const key of ['from', 'to']) {
-      const p = attrStr(s, key);
-      if (p !== undefined && inSubtree(p, path)) setAttr(s, key, quote(rebase(p)));
-    }
-  }
+  rebasePaths(doc, subtree, path, newPath);
 
   let insertAt = -1;
   for (let i = 0; i < doc.sections.length; i++) {
@@ -272,6 +260,92 @@ export function reparentNode(doc, path, newParentPath) {
   if (insertAt < 0) throw new Error(`parent node not found: ${newParentPath}`);
   doc.sections.splice(insertAt + 1, 0, ...subtree);
   return { path: newPath, name };
+}
+
+// Rewrite every path that lives under `fromPath` — the moved subtree's own
+// `parent` attributes and any connection endpoints into it. Shared by the
+// rename / reparent / duplicate operations, which differ only in where the
+// subtree ends up.
+function rebasePaths(doc, subtree, fromPath, toPath, { connections = true } = {}) {
+  const rebase = (p) => (p === fromPath ? toPath : toPath + p.slice(fromPath.length));
+  for (const s of subtree) {
+    const parent = attrStr(s, 'parent');
+    if (parent !== undefined && inSubtree(parent, fromPath)) setAttr(s, 'parent', quote(rebase(parent)));
+  }
+  if (!connections) return;
+  for (const s of doc.sections) {
+    if (s.tag !== 'connection') continue;
+    for (const key of ['from', 'to']) {
+      const p = attrStr(s, key);
+      if (p !== undefined && inSubtree(p, fromPath)) setAttr(s, key, quote(rebase(p)));
+    }
+  }
+}
+
+// Every section of a node's subtree, in document order.
+function subtreeSections(doc, path) {
+  return doc.sections.filter((s) => s.tag === 'node' && inSubtree(nodePathOf(s), path));
+}
+
+// Rename a node, deduplicating against its siblings like Godot does, and
+// rebase every descendant path and connection endpoint onto the new name.
+export function renameNode(doc, path, newName) {
+  if (path === '.') throw new Error('cannot rename the scene root');
+  const node = findNode(doc, path);
+  if (!node) throw new Error(`node not found: ${path}`);
+  const parentPath = attrStr(node, 'parent');
+  const oldName = attrStr(node, 'name');
+  if (newName === oldName) return { path, name: oldName };
+  const subtree = subtreeSections(doc, path);
+  setAttr(node, 'name', quote(' ')); // free the old name before deduping
+  const name = uniqueChildName(doc, parentPath, newName);
+  setAttr(node, 'name', quote(name));
+  const newPath = parentPath === '.' ? name : parentPath + '/' + name;
+  rebasePaths(doc, subtree, path, newPath);
+  return { path: newPath, name };
+}
+
+// Copy a node and its whole subtree in as the next sibling, Godot's Duplicate.
+// Signal connections are not copied — Godot doesn't either.
+export function duplicateNode(doc, path) {
+  if (path === '.') throw new Error('cannot duplicate the scene root');
+  const node = findNode(doc, path);
+  if (!node) throw new Error(`node not found: ${path}`);
+  const parentPath = attrStr(node, 'parent');
+  const subtree = subtreeSections(doc, path);
+  const copies = subtree.map((s) => ({
+    tag: s.tag,
+    attrs: s.attrs.map((a) => ({ ...a })),
+    props: s.props.map((p) => ({ ...p })),
+  }));
+  const name = uniqueChildName(doc, parentPath, attrStr(node, 'name'));
+  setAttr(copies[0], 'name', quote(name));
+  const newPath = parentPath === '.' ? name : parentPath + '/' + name;
+  rebasePaths(doc, copies, path, newPath, { connections: false });
+  const lastIndex = doc.sections.lastIndexOf(subtree[subtree.length - 1]);
+  doc.sections.splice(lastIndex + 1, 0, ...copies);
+  return newPath;
+}
+
+// Move a node among its siblings (delta -1 / +1), which is what decides draw
+// order for overlapping Controls. Returns whether anything moved.
+export function moveSibling(doc, path, delta) {
+  if (path === '.' || !delta) return false;
+  const node = findNode(doc, path);
+  if (!node) throw new Error(`node not found: ${path}`);
+  const parentPath = attrStr(node, 'parent');
+  const siblings = nodeSections(doc).filter((n) => attrStr(n, 'parent') === parentPath);
+  const from = siblings.indexOf(node);
+  const to = from + delta;
+  if (to < 0 || to >= siblings.length) return false;
+  const subtree = subtreeSections(doc, path);
+  const targetTree = subtreeSections(doc, nodePathOf(siblings[to]));
+  doc.sections = doc.sections.filter((s) => !subtree.includes(s));
+  const anchor = delta > 0
+    ? doc.sections.indexOf(targetTree[targetTree.length - 1]) + 1
+    : doc.sections.indexOf(targetTree[0]);
+  doc.sections.splice(anchor, 0, ...subtree);
+  return true;
 }
 
 // Insert an `[ext_resource]` (or return the id of an existing one for the same
