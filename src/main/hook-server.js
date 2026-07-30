@@ -25,7 +25,7 @@ const clearTracking = (id) => subagentTracking.delete(id);
 // --- hooks injected per session via `claude --settings <json>` ---
 // Every event posts its raw stdin payload to our local server, which derives
 // state from hook_event_name. Bound to the live server port at spawn time.
-const hooksSettings = () => buildHooksSettings(hookPort, statusLineCommand());
+const hooksSettings = (ideId) => buildHooksSettings(hookPort, statusLineCommand(), ideId);
 
 function startHookServer() {
   const server = http.createServer((req, res) => {
@@ -37,9 +37,10 @@ function startHookServer() {
       // whose stdin piping prepends a UTF-8 BOM that JSON.parse rejects.
       try { payload = JSON.parse(body.replace(/^\uFEFF/, '')); } catch { res.end('{}'); return; } // ignore malformed
       try {
-        // A Codex hook URL carries the IDE's own session id (`?ide=`); rewrite the
-        // payload to speak it, and remember the id Codex invented — it's the handle
-        // `codex resume` needs (see hook-events.normalizeHookPayload).
+        // Every hook URL carries the IDE's own session id (`?ide=`); rewrite the
+        // payload to speak it, and remember the id the CLI is really running under
+        // — Codex invents one (the handle `codex resume` needs), and Claude mints a
+        // new one whenever the conversation forks (see normalizeHookPayload).
         const ideId = new URL(req.url, 'http://localhost').searchParams.get('ide');
         const normalized = normalizeHookPayload(payload, ideId);
         payload = normalized.payload;

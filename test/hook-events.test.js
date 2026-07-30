@@ -330,10 +330,28 @@ test('hooksSettings: wires every tracked event to a curl POST on the given port'
   assert.deepEqual(Object.keys(cfg.hooks).sort(), [...events].sort());
   for (const e of events) {
     const cmd = cfg.hooks[e][0].hooks[0].command;
-    assert.match(cmd, /^curl -s -X POST http:\/\/127\.0\.0\.1:54321\/hook -d @-$/);
+    assert.match(cmd, /^curl -s -X POST "http:\/\/127\.0\.0\.1:54321\/hook" -d @-$/);
     assert.equal(cfg.hooks[e][0].matcher, '*');
     assert.equal(cfg.hooks[e][0].hooks[0].type, 'command');
   }
+});
+
+// A `/fork` makes the Claude CLI continue under a NEW session id, so the payload
+// alone can no longer identify our session — the `?ide=` tag on the hook URL is
+// what keeps the fork's edits, status and chat attributed to it.
+test('hooksSettings: tags every hook URL with the IDE session id', () => {
+  const cfg = JSON.parse(hooksSettings(54321, '', 'ide-uuid'));
+  for (const e of Object.keys(cfg.hooks)) {
+    assert.equal(cfg.hooks[e][0].hooks[0].command,
+      'curl -s -X POST "http://127.0.0.1:54321/hook?ide=ide-uuid" -d @-');
+  }
+});
+
+test('normalizeHookPayload maps a forked claude session back onto ours', () => {
+  const raw = { session_id: 'forked-uuid', hook_event_name: 'PostToolUse' };
+  const { payload, agentSessionId } = normalizeHookPayload(raw, 'ide-uuid');
+  assert.equal(payload.session_id, 'ide-uuid');
+  assert.equal(agentSessionId, 'forked-uuid');
 });
 
 test('hooksSettings: no statusLine unless a command is supplied', () => {

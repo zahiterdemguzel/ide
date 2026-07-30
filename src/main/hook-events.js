@@ -173,8 +173,19 @@ function shouldApplyState(next, current) {
 // `statusLineCommand` is given it's injected as the session's statusLine, so the
 // per-session token/cost meter rides on the same settings flag as the hooks —
 // the user's global settings are still never touched.
-function hooksSettings(port, statusLineCommand) {
-  const cmd = `curl -s -X POST http://127.0.0.1:${port}/hook -d @-`;
+// `ideId` tags every hook with the IDE's own session id (`?ide=`), exactly as the
+// Codex hooks do. Claude is spawned with `--session-id <our uuid>`, so its
+// payloads normally already carry it — but the CLI *changes* its session id
+// mid-run: `/fork` (and a forked agent's own turns) continue in a brand-new
+// session with a new id and a new transcript file. Those payloads then named a
+// session this app has never heard of, so recordSessionActivity dropped them on
+// the floor and the fork's edits, status and chat were all invisible. The URL tag
+// is the one thing the CLI can't rewrite, so normalizeHookPayload can always map
+// the payload back onto our session. Quoted because Claude runs hook commands
+// through the platform shell.
+function hooksSettings(port, statusLineCommand, ideId) {
+  const url = `http://127.0.0.1:${port}/hook${ideId ? `?ide=${ideId}` : ''}`;
+  const cmd = `curl -s -X POST "${url}" -d @-`;
   const entry = [{ matcher: '*', hooks: [{ type: 'command', command: cmd }] }];
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
     'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'SubagentStop'];
@@ -193,13 +204,15 @@ function hooksSettings(port, statusLineCommand) {
   return JSON.stringify(settings);
 }
 
-// Map a hook payload onto the IDE's own session id. Claude sessions are spawned
-// with `--session-id <our uuid>`, so their payloads already carry it. Codex has
-// no such flag — it invents its own session UUID — so its hook URL carries ours
-// as `?ide=<id>` and this rewrite makes the payload speak our id everywhere
-// downstream (status, tracking, chat). The id Codex invented is returned as
-// `agentSessionId`: it's what `codex resume` needs later. Payloads that already
-// match (Claude's) pass through untouched.
+// Map a hook payload onto the IDE's own session id. Every hook URL carries ours
+// as `?ide=<id>`, and this rewrite makes the payload speak our id everywhere
+// downstream (status, tracking, chat) whenever the CLI's own id differs — Codex
+// invents its session UUID (it has no --session-id), and Claude *replaces* the
+// one we gave it whenever the conversation forks (`/fork`). Without the rewrite
+// those payloads name a session the app doesn't know and are dropped entirely.
+// The CLI's own id is returned as `agentSessionId`: it's what `codex resume`
+// needs later, and for Claude it's the id of the conversation actually running.
+// Payloads that already match pass through untouched.
 function normalizeHookPayload(payload, ideId) {
   if (!ideId || !payload || payload.session_id === ideId) return { payload, agentSessionId: '' };
   return { payload: { ...payload, session_id: ideId }, agentSessionId: String(payload.session_id || '') };

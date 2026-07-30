@@ -639,7 +639,7 @@ async function spawnPty(id, cols, rows, resume) {
     // the effort it was last set to (see agent-effort.js). `auto` passes no flag at all.
     const startArg = resume ? ['--resume', id] : ['--session-id', id];
     exe = await resolveClaude();
-    args = [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings()];
+    args = [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings(id)];
   }
   // An Ollama model routes the CLI through the local proxy; a Claude (or Codex)
   // model adds nothing. Computed before the spawn because it may start the
