@@ -568,11 +568,15 @@ async function recordSessionActivity(payload) {
     if (first) s.preStatus = await statusMap();
   } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload)) {
     s.fsInFlight = Math.max(0, (s.fsInFlight || 0) - 1);
-    if (s.fsInFlight === 0 && s.preStatus) {
-      const now = await statusMap();
-      if (applyFsDiff(s, s.preStatus, now)) changed = true;
-      await unstageToolStaged(s.preStatus, now);
+    // Claim the baseline BEFORE the await, same as the codex plan above: a
+    // UserPromptSubmit reset (or another Post) landing while statusMap() is in
+    // flight would otherwise null s.preStatus out from under applyFsDiff.
+    const base = s.fsInFlight === 0 ? s.preStatus : null;
+    if (base) {
       s.preStatus = null;
+      const now = await statusMap();
+      if (applyFsDiff(s, base, now)) changed = true;
+      await unstageToolStaged(base, now);
     }
   }
   if (changed) schedulePersist(payload.session_id);
