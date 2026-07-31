@@ -18,6 +18,10 @@
   flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
 }
 .run-strip::-webkit-scrollbar { display: none; }
+/* When both groups are present (the separator only exists then), neither may take
+   more than 7/10 of the bar, so a project with many tasks can't starve the launch
+   configs of button space. Each strip scrolls internally within its share. */
+#toolbar-runs:has(.tool-sep) .run-strip { max-width: 70%; }
 .tool-btn {
   display: inline-flex; align-items: center; gap: 5px;
   background: var(--bg-2); color: var(--fg); border: 1px solid var(--border);
