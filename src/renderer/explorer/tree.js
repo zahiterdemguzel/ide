@@ -191,7 +191,16 @@ async function loadDir(rel, container, depth, expandedSet = null) {
   }
 }
 
-export async function refreshTree() {
+// Serializes refreshes: a rebuild empties #file-tree, so two overlapping ones
+// would each capture the other's half-built state (and a zeroed scrollTop).
+let refreshChain = Promise.resolve();
+
+export function refreshTree() {
+  refreshChain = refreshChain.then(rebuildTree, rebuildTree);
+  return refreshChain;
+}
+
+async function rebuildTree() {
   // Capture which folders are currently open so we can restore them after the rebuild.
   const expanded = new Set(
     [...fileTree.querySelectorAll('.tree-row')]
@@ -199,7 +208,11 @@ export async function refreshTree() {
       .map(row => row.dataset.rel)
       .filter(Boolean)
   );
+  // Emptying the container clamps scrollTop to 0, so remember it and put it back
+  // once the rows exist again — otherwise every file add/remove jumps to the top.
+  const scroll = fileTree.scrollTop;
   await loadDir('', fileTree, 0, expanded.size ? expanded : null);
+  fileTree.scrollTop = scroll;
   // Re-apply the selection highlight (select() cleared it when the DOM was wiped).
   if (selected) {
     for (const row of fileTree.querySelectorAll('.tree-row')) {
