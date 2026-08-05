@@ -101,6 +101,37 @@ function serialFsPlan(payload, hasBaseline) {
   return null;
 }
 
+// Hook events that end a stretch of agent work: the main agent finished its
+// answer (Stop) or a subagent/sidechain finished (SubagentStop).
+const TURN_END_EVENTS = new Set(['Stop', 'SubagentStop']);
+
+// Snapshot/diff plan for the TURN-wide baseline — the second, coarser tracker
+// that catches files the CLI changes OUTSIDE any tool window. The per-tool
+// plans above only ever see changes made between a tracked tool's Pre and Post
+// hooks; a write the CLI performs on its own (auto-memory files under the
+// configured `autoMemoryDirectory`, for one — they land in the repo when that
+// directory points inside it) happens in no tool window at all, so nothing
+// attributed it to the session and the per-session commit silently omitted it.
+//
+// Baseline at the user's prompt, diff at each turn end:
+// - `UserPromptSubmit` (main thread only) re-baselines WITHOUT diffing, so
+//   anything the user did with their own editor while the session sat idle is
+//   absorbed into the baseline rather than blamed on the session.
+// - `Stop`/`SubagentStop` diff and immediately re-baseline, so a write that
+//   lands just after the stop hook is still caught at the next turn end.
+// - The Post of a bulk-VCS Bash command re-baselines too: a `git pull` mid-turn
+//   is excluded from the per-tool diff (isBulkVcsCommand) and must not sneak
+//   back in through the wider turn window.
+// Returns 'snapshot' | 'diff-and-snapshot' | null.
+function turnFsPlan(payload, hasBaseline) {
+  const ev = payload.hook_event_name;
+  if (ev === 'UserPromptSubmit') return payload.agent_id ? null : 'snapshot';
+  if (TURN_END_EVENTS.has(ev)) return hasBaseline ? 'diff-and-snapshot' : 'snapshot';
+  if (ev === 'PostToolUse' && payload.tool_name === 'Bash'
+    && isBulkVcsCommand(payload.tool_input && payload.tool_input.command)) return 'snapshot';
+  return null;
+}
+
 // Merge-conflict codes — never touch these; unstaging mid-conflict corrupts the
 // resolution state git tracks in the index.
 const CONFLICT_CODES = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
@@ -124,4 +155,4 @@ function newlyStagedPaths(before, after) {
   return out;
 }
 
-module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS, READONLY_TOOLS };
+module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS, READONLY_TOOLS };

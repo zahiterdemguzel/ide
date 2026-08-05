@@ -73,6 +73,7 @@ function deserializeSession(obj) {
     edits: new Map(Array.isArray(obj.edits) ? obj.edits : []),
     fileOps: new Map(Array.isArray(obj.fileOps) ? obj.fileOps : []),
     preStatus: null,
+    turnStatus: null,
     firstPrompt: obj.firstPrompt || '',
     name: obj.name || '',
     archived: !!obj.archived,

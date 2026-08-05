@@ -94,6 +94,33 @@ test('serialFsPlan: no-ops without a baseline or for untracked tools', () => {
   assert.equal(serialFsPlan({ hook_event_name: 'UserPromptSubmit' }, true), null);
 });
 
+test('turnFsPlan: baseline at the prompt, diff at each turn end', () => {
+  const { turnFsPlan } = require('../src/main/fs-track');
+  // The prompt only re-baselines: changes made while the session sat idle are the
+  // user's, not the session's.
+  assert.equal(turnFsPlan({ hook_event_name: 'UserPromptSubmit' }, true), 'snapshot');
+  // Both stop events flush AND re-baseline, so an out-of-band write landing just
+  // after the hook is still caught at the next turn end.
+  assert.equal(turnFsPlan({ hook_event_name: 'Stop' }, true), 'diff-and-snapshot');
+  assert.equal(turnFsPlan({ hook_event_name: 'SubagentStop' }, true), 'diff-and-snapshot');
+  assert.equal(turnFsPlan({ hook_event_name: 'Stop' }, false), 'snapshot');
+});
+
+test('turnFsPlan: no turn baseline for a subagent prompt or an ordinary tool call', () => {
+  const { turnFsPlan } = require('../src/main/fs-track');
+  // A subagent's prompt arrives mid-turn — wiping the main thread's baseline
+  // there would drop everything the turn had written so far.
+  assert.equal(turnFsPlan({ hook_event_name: 'UserPromptSubmit', agent_id: 'a1' }, true), null);
+  assert.equal(turnFsPlan({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'mv a b' } }, true), null);
+  assert.equal(turnFsPlan({ hook_event_name: 'PostToolUse', tool_name: 'Write', tool_input: {} }, true), null);
+});
+
+test('turnFsPlan: a bulk-VCS command re-baselines so a mid-turn `git pull` is not attributed', () => {
+  const { turnFsPlan } = require('../src/main/fs-track');
+  assert.equal(turnFsPlan({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'git pull' } }, true), 'snapshot');
+  assert.equal(turnFsPlan({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'npm test' } }, true), null);
+});
+
 test('editedFilePath reads file_path and NotebookEdit notebook_path', () => {
   assert.equal(editedFilePath({ file_path: '/repo/a.js' }), '/repo/a.js');
   assert.equal(editedFilePath({ notebook_path: '/repo/n.ipynb' }), '/repo/n.ipynb');

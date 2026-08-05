@@ -16,7 +16,7 @@ const { installGuide: codexInstallGuide } = require('./codex-install');
 const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
-const { tracksFs, editedFilePath, serialFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS } = require('./fs-track');
+const { tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
@@ -34,7 +34,7 @@ const chat = require('./chat');
 const { keystrokes, dismissSteps } = require('./ask-lib');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
-//         preStatus, fsInFlight, firstPrompt, name, archived, suspended }
+//         preStatus, turnStatus, fsInFlight, firstPrompt, name, archived, suspended }
 // `pty` is null while a session is suspended (archived in the UI, or freshly
 // restored from disk after a restart): the Claude process is killed/absent to free
 // resources, but the entry — and all its tracked-file state — is kept so resuming
@@ -579,6 +579,26 @@ async function recordSessionActivity(payload) {
       await unstageToolStaged(base, now);
     }
   }
+  // Second, TURN-wide baseline, on top of the per-tool windows above: files the
+  // CLI itself writes outside any tool call — auto-memory files, which land in
+  // the repo whenever `autoMemoryDirectory` points inside it — are invisible to
+  // both channels, so the session's own docs never reached its diff or its
+  // commit. `turnFsPlan` (pure, fs-track.js) baselines at the user's prompt and
+  // diffs at each turn end. Two deliberate differences from the tool windows:
+  // nothing is unstaged (a turn-long window would fight the user staging in the
+  // git pane), and a between-turn change is absorbed by the next prompt's
+  // snapshot rather than attributed to an idle session.
+  const turnPlan = turnFsPlan(payload, !!s.turnStatus);
+  if (turnPlan) {
+    // Claim the baseline before the await, same as the plans above: hook
+    // payloads are handled concurrently and a second planner landing mid-await
+    // would otherwise diff the same baseline twice (or find it nulled).
+    const base = s.turnStatus;
+    s.turnStatus = null;
+    const now = await statusMap();
+    if (turnPlan === 'diff-and-snapshot' && base && applyFsDiff(s, base, now)) changed = true;
+    s.turnStatus = now;
+  }
   if (changed) schedulePersist(payload.session_id);
   return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) } : null;
 }
@@ -833,7 +853,7 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // where the user left off. defaultEffortFor clamps it to the family's ladder (a
   // remembered `max` isn't reachable on Codex) and supplies a real level when nothing
   // is remembered — a session never starts at a level its badge can't name.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model), effort), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, turnStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model), effort), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   broadcastSessions();
