@@ -153,6 +153,15 @@ and `normalizeTranscript()` strips bracketed sound events (`[BLANK_AUDIO]`,
 never crosses the IPC boundary. A phrase that merely *contains* a stock word
 ("thank you for the review, now fix it") is kept.
 
+## No dots or commas
+
+`normalizeTranscript()` also **removes `.` and `,`** from what Whisper returns. The
+text lands in a prompt the user goes on to edit, so auto-punctuation is one more
+thing to delete rather than a help. Dots/commas *between digits* survive (`3.14`,
+`1,000`) — there they're part of the number. The cost is that a spoken filename
+comes back as `sttjs`; that's accepted, since dictating code paths isn't what this
+box is for. Other punctuation (`?`, `!`, `:`) is untouched.
+
 ## The model, and the 1 GB budget
 
 **Whisper large-v3-turbo, int8** — one model, 990 MB extracted, English + Turkish

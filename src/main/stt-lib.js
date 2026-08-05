@@ -224,12 +224,20 @@ const HALLUCINATIONS = [
 // Bracketed non-speech events Whisper emits: [BLANK_AUDIO], (music), *laughs*.
 const NON_SPEECH = /[[(*][^\])*]*[\])*]/g;
 
+// Whisper punctuates what it hears, but this text is typed into a prompt the user
+// keeps editing, so the sentence dots and commas are noise they then have to delete.
+// Dropped unless they sit between digits (3.14, 1,000), where they're part of the
+// number rather than punctuation.
+const SENTENCE_PUNCTUATION = /(?<!\d)[.,]|[.,](?!\d)/g;
+
 // Recognized text as it should appear: no surrounding whitespace, no bracketed
-// sound events, single spaces. Returns '' for anything with no words left.
+// sound events, no sentence dots/commas, single spaces. Returns '' for anything
+// with no words left.
 function normalizeTranscript(raw) {
   if (typeof raw !== 'string') return '';
   return raw
     .replace(NON_SPEECH, ' ')
+    .replace(SENTENCE_PUNCTUATION, '')
     .replace(/\s+/g, ' ')
     .trim();
 }

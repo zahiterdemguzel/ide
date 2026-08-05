@@ -195,6 +195,13 @@ test('normalizeTranscript trims, collapses whitespace and drops sound events', (
   assert.equal(normalizeTranscript('fix\nthe\tbug'), 'fix the bug');
 });
 
+test('normalizeTranscript drops sentence dots and commas but keeps them in numbers', () => {
+  assert.equal(normalizeTranscript('Fix the bug, then run the tests.'), 'Fix the bug then run the tests');
+  assert.equal(normalizeTranscript('Wait... really?'), 'Wait really?');
+  assert.equal(normalizeTranscript('set it to 3.14 and 1,000'), 'set it to 3.14 and 1,000');
+  assert.equal(normalizeTranscript('open src/main/stt.js'), 'open src/main/sttjs');
+});
+
 test('normalizeTranscript survives non-string input', () => {
   assert.equal(normalizeTranscript(undefined), '');
   assert.equal(normalizeTranscript(null), '');
