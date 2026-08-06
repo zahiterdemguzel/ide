@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { eventToState, deriveStatus, interruptState, shouldApplyState, hooksSettings, normalizeHookPayload } = require('../src/main/hook-events');
+const { eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState, hooksSettings, normalizeHookPayload, ORIGIN_STALE_MS } = require('../src/main/hook-events');
 
 test('eventToState: Stop -> completed', () => {
   assert.equal(eventToState({ hook_event_name: 'Stop' }), 'completed');
@@ -103,11 +103,13 @@ test('eventToState: any event carrying agent_id (a Task-tool subagent context) i
 
 // deriveStatus: subagent-aware gating of the completed state / finish chime.
 // Threads its returned tracking through a sequence of events like the hook server.
+// Each payload may carry a non-standard `origin` (the CLI session id it came
+// from, as the hook server supplies it) and `at` (the clock reading).
 function runEvents(payloads) {
-  let tracking = { subagents: 0, mainStopped: false };
+  let tracking = {};
   const states = [];
-  for (const p of payloads) {
-    const r = deriveStatus(p, tracking);
+  for (const { origin, at, ...p } of payloads) {
+    const r = deriveStatus(p, tracking, { originId: origin, now: at });
     tracking = r.tracking;
     states.push(r.state);
   }
@@ -159,7 +161,8 @@ test('deriveStatus: a new user turn resets stale subagent bookkeeping', () => {
     { hook_event_name: 'Stop' }, // held (subagent still counted)
     { hook_event_name: 'UserPromptSubmit' }, // fresh turn wipes the orphaned count
   ]);
-  assert.deepEqual(tracking, { subagents: 0, mainStopped: false, stoppedIds: [] });
+  assert.deepEqual(tracking,
+    { subagents: 0, active: [{ id: 'main', at: 0 }], stopped: false, stoppedIds: [] });
 });
 
 test('deriveStatus: a stray SubagentStop never drives the count negative', () => {
@@ -214,7 +217,7 @@ test('deriveStatus: subagent-context events never touch the dot or the bookkeepi
     { hook_event_name: 'Stop' }, // main done, but the subagent is still counted
   ]);
   assert.deepEqual(states, ['working', null, null, null, null, 'working']);
-  assert.deepEqual(tracking, { subagents: 1, mainStopped: true, stoppedIds: [] });
+  assert.deepEqual(tracking, { subagents: 1, active: [], stopped: true, stoppedIds: [] });
 });
 
 test('deriveStatus: duplicate stops for one subagent do not drain the count twice', () => {
@@ -283,24 +286,83 @@ test('deriveStatus: non-terminal events fall through to eventToState', () => {
   );
 });
 
-test('interruptState: ESC or Ctrl+C while working -> interrupted', () => {
-  assert.equal(interruptState('\x1b', 'working'), 'interrupted');
-  assert.equal(interruptState('\x03', 'working'), 'interrupted');
+test('isInterruptKey: ESC or Ctrl+C while working asks to interrupt', () => {
+  assert.equal(isInterruptKey('\x1b', 'working'), true);
+  assert.equal(isInterruptKey('\x03', 'working'), true);
 });
 
-test('interruptState: ESC/Ctrl+C only interrupts a working session', () => {
+test('isInterruptKey: ESC/Ctrl+C only means interrupt in a working session', () => {
   for (const state of ['idle', 'needs-input', 'completed', 'pushed', 'interrupted', undefined]) {
-    assert.equal(interruptState('\x1b', state), null);
-    assert.equal(interruptState('\x03', state), null);
+    assert.equal(isInterruptKey('\x1b', state), false);
+    assert.equal(isInterruptKey('\x03', state), false);
   }
 });
 
-test('interruptState: ordinary input and multi-byte escape sequences leave the dot unchanged', () => {
-  assert.equal(interruptState('a', 'working'), null);
-  assert.equal(interruptState('\r', 'working'), null);
+test('isInterruptKey: ordinary input and multi-byte escape sequences are not interrupts', () => {
+  assert.equal(isInterruptKey('a', 'working'), false);
+  assert.equal(isInterruptKey('\r', 'working'), false);
   // arrow/function keys arrive as multi-byte sequences, not a bare ESC
-  assert.equal(interruptState('\x1b[A', 'working'), null);
-  assert.equal(interruptState('\x1b[1;5C', 'working'), null);
+  assert.equal(isInterruptKey('\x1b[A', 'working'), false);
+  assert.equal(isInterruptKey('\x1b[1;5C', 'working'), false);
+});
+
+test('interruptOutcome: a turn ending right after the keystroke is the interrupt landing', () => {
+  assert.equal(interruptOutcome('completed'), 'interrupted');
+});
+
+test('interruptOutcome: any other event proves the agent kept working — dot unchanged', () => {
+  // The keystroke was swallowed by the TUI (an overlay, a half-typed prompt);
+  // believing it alone is what used to paint a still-running session red.
+  for (const derived of ['working', 'needs-input', 'pushed', 'idle', null]) {
+    assert.equal(interruptOutcome(derived), derived);
+  }
+});
+
+// --- forked conversations (`/fork`): separate session ids, no agent_id ---
+
+test('deriveStatus: a fork still working holds the session yellow past the main Stop', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'UserPromptSubmit', origin: 'fork-1' }, // the fork starts its own turn
+    { hook_event_name: 'PreToolUse', tool_name: 'Edit', origin: 'fork-1' },
+    { hook_event_name: 'Stop' },                    // main agent done, fork still running
+    { hook_event_name: 'Stop', origin: 'fork-1' },  // last conversation out settles it
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'working', 'completed']);
+});
+
+test('deriveStatus: a fork finishing first does not settle the session', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Read', origin: 'fork-1' },
+    { hook_event_name: 'Stop', origin: 'fork-1' },
+    { hook_event_name: 'Stop' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'completed']);
+});
+
+test('deriveStatus: a forks own prompt does not wipe live bookkeeping', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },       // main spawns a subagent
+    { hook_event_name: 'UserPromptSubmit', origin: 'fork-1' },  // fork prompts itself mid-run
+    { hook_event_name: 'Stop', origin: 'fork-1' },
+    { hook_event_name: 'Stop' },                                // subagent still in flight
+    { hook_event_name: 'SubagentStop' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'working', 'working', 'completed']);
+});
+
+test('deriveStatus: a fork that replaced the conversation ages its old id out', () => {
+  // `/fork` can also *replace* the conversation: the old session id simply stops
+  // existing and never fires its Stop. Without the staleness sweep it would sit in
+  // the in-flight set forever and the session could never go green again.
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit', at: 1000 },
+    { hook_event_name: 'UserPromptSubmit', origin: 'fork-1', at: 2000 },
+    { hook_event_name: 'Stop', origin: 'fork-1', at: 2000 + ORIGIN_STALE_MS + 1 },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'completed']);
 });
 
 test('shouldApplyState: any non-idle state always applies', () => {

@@ -12,11 +12,12 @@ const sessions = require('./sessions');
 let hookPort = 0;
 const getHookPort = () => hookPort;
 
-// Per-session subagent bookkeeping for deriveStatus: { subagents, mainStopped }.
-// In-memory only — nothing is running across a restart, so there's nothing to
-// persist. Keyed by session_id; reset each turn by deriveStatus itself.
+// Per-session agent bookkeeping for deriveStatus:
+// { subagents, active: [{id, at}], stopped, stoppedIds }. In-memory only —
+// nothing is running across a restart, so there's nothing to persist. Keyed by
+// session_id; reset each turn by deriveStatus itself.
 const subagentTracking = new Map();
-const getTracking = (id) => subagentTracking.get(id) || { subagents: 0, mainStopped: false };
+const getTracking = (id) => subagentTracking.get(id) || {};
 // A session's PTY dying takes every agent in it down with it — drop the
 // bookkeeping so a later resume (same session id) starts from a clean slate
 // instead of inheriting a stale in-flight count.
@@ -47,12 +48,17 @@ function startHookServer() {
         if (normalized.agentSessionId) sessions.noteAgentSessionId(ideId, normalized.agentSessionId);
         let state = null;
         if (payload.session_id) {
-          // Subagent-aware gating: a session with background subagents still in
-          // flight stays "working" through the main agent's Stop, so the finish
-          // chime waits for the last agent (see deriveStatus).
-          const { state: derived, tracking } = deriveStatus(payload, getTracking(payload.session_id));
+          // Agent-aware gating: a session with background subagents — or forked
+          // conversations, which run under their own session ids — still in flight
+          // stays "working" through one agent's Stop, so the finish chime waits
+          // for the last one out (see deriveStatus). `originId` is which
+          // conversation this payload came from.
+          const opts = { originId: normalized.agentSessionId, now: Date.now() };
+          const { state: derived, tracking } = deriveStatus(payload, getTracking(payload.session_id), opts);
           subagentTracking.set(payload.session_id, tracking);
-          state = derived;
+          // An ESC/Ctrl+C keystroke on its own never moves the dot — this event is
+          // the trusted word on whether it actually cut the turn short.
+          state = sessions.resolveInterrupt(payload, derived);
         }
         if (state && payload.session_id) {
           // Don't let a resume's SessionStart → idle wipe the meaningful colour a

@@ -77,19 +77,52 @@ function isSubagentStop(payload) {
     || (payload.hook_event_name === 'Stop' && Boolean(payload.agent_id));
 }
 
-// Layer subagent-aware gating over eventToState so the finish chime waits for the
-// LAST agent in a session, not the first. Background subagents can outlive the
-// main agent's turn: Claude Code fires the main `Stop` while they keep working,
-// then one subagent stop per subagent as each finishes. We hold the `completed`
-// state — and with it the celebrate/chime the renderer triggers on the
-// working -> completed transition — until the main agent has stopped AND no
-// subagents remain in flight.
+// The conversation a payload belongs to when the CLI reports no id of its own —
+// i.e. an ordinary Claude session still running under the id we spawned it with.
+const MAIN_ORIGIN = 'main';
+// A conversation that hasn't fired a single hook in this long is not running.
+// Every tool call refreshes its stamp, so only a truly abandoned origin ages out
+// — which is the escape hatch for the one shape we can't observe directly: a
+// `/fork` that *replaces* the conversation (the old id simply stops existing and
+// never fires its `Stop`), as opposed to one that runs alongside it.
+const ORIGIN_STALE_MS = 5 * 60 * 1000;
+
+// Layer agent-aware gating over eventToState so the finish chime waits for the
+// LAST agent in a session, not the first. Two different things can outlive the
+// main agent's turn, and both must hold the session yellow:
 //
-// `tracking` is the caller-held per-session bookkeeping { subagents, mainStopped }.
+//  - **Subagents** (`Task`/`Agent` tool spawns, Codex `SubagentStart`). They run
+//    inside the session and announce themselves with `agent_id`, so they're
+//    counted: spawns against subagent stops.
+//  - **Forked conversations** (`/fork`). These are not subagents at all — the CLI
+//    runs each one as a *separate conversation with its own session_id*, so their
+//    hooks carry no `agent_id` and, once `normalizeHookPayload` maps them back
+//    onto our session, a fork's `Stop` looked exactly like the main agent
+//    finishing. That's why a session with forks still working went green: the
+//    first `Stop` from any of them settled the whole session. So instead of one
+//    `mainStopped` boolean we track the *set of conversation ids currently in
+//    flight* (`active`), keyed by the CLI's own session id (`opts.originId`,
+//    which the hook server takes from normalizeHookPayload). Each conversation's
+//    activity adds it, each conversation's `Stop` removes only itself.
+//
+// `tracking` is the caller-held per-session bookkeeping
+// { subagents, active: [{id, at}], stoppedIds }. `opts` is { originId, now }.
 // deriveStatus returns the state to apply (or null to leave the dot unchanged)
 // alongside the next tracking. Pure and unit-tested (test/hook-events.test.js).
-function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) {
-  let { subagents, mainStopped } = tracking;
+function deriveStatus(payload, tracking = {}, opts = {}) {
+  const origin = opts.originId || MAIN_ORIGIN;
+  const now = opts.now || 0;
+  let subagents = tracking.subagents || 0;
+  // Whether any conversation in this session has reported a `Stop` this turn. An
+  // empty in-flight set means "nothing running" both before the first event and
+  // after the last stop, so this is what tells the two apart — without it a stray
+  // subagent stop arriving before any work would settle the session.
+  let stopped = Boolean(tracking.stopped);
+  // `now` of 0 means the caller isn't supplying a clock (tests, mostly) — then
+  // nothing ages out and the set is driven purely by stops.
+  let active = (tracking.active || []).filter((a) => !now || now - a.at < ORIGIN_STALE_MS);
+  const touchOrigin = () => { active = [...active.filter((a) => a.id !== origin), { id: origin, at: now }]; };
+  const dropOrigin = () => { active = active.filter((a) => a.id !== origin); };
   // Agent ids already counted as stopped this turn. A finishing subagent can
   // announce itself twice — a `SubagentStop` AND a mis-routed `Stop`, both with
   // its agent_id — and counting both drains the in-flight count for two agents,
@@ -107,14 +140,16 @@ function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) 
     }
     if (id) stoppedIds = [...stoppedIds, id];
     subagents = Math.max(0, subagents - 1);
+    // Deliberately no touchOrigin(): a subagent finishing says nothing about
+    // whether its parent conversation is still running.
   } else if (ev === 'SubagentStart') {
     // Codex announces a subagent spawning as its own event (Claude signals it via
     // the Task/Agent PreToolUse below). Counted before the agent_id early-return
     // so the count balances its SubagentStop regardless of which context Codex
     // fires it from; a spawn also proves the main agent is running.
     subagents += 1;
-    mainStopped = false;
-    return { state: 'working', tracking: { subagents, mainStopped, stoppedIds } };
+    touchOrigin();
+    return { state: 'working', tracking: { subagents, active, stopped, stoppedIds } };
   } else if (payload.agent_id) {
     // Every other event fired inside a subagent's own context (agent_id is set
     // only there) must touch neither the dot nor the bookkeeping: a subagent's
@@ -123,39 +158,64 @@ function deriveStatus(payload, tracking = { subagents: 0, mainStopped: false }) 
     return { state: null, tracking };
   } else if (ev === 'UserPromptSubmit') {
     // A fresh user turn clears stale bookkeeping so a prior turn's counts (e.g.
-    // an orphaned subagent stop we never saw) can't leak into this one.
-    subagents = 0; mainStopped = false; stoppedIds = [];
+    // an orphaned subagent stop we never saw) can't leak into this one — but only
+    // when nothing is in flight. A fork prompting itself mid-run is not a fresh
+    // turn for the session, and wiping the counts there is what would settle it
+    // while its siblings are still working.
+    if (!active.length) { subagents = 0; stoppedIds = []; stopped = false; }
+    touchOrigin();
   } else if (ev === 'PreToolUse' || ev === 'PostToolUse') {
-    // Main-thread tool activity means the main agent is running (again) — e.g.
-    // re-invoked to process a finished background task — so a subagent stop
+    // Tool activity means this conversation is running (again) — e.g. a main
+    // agent re-invoked to process a finished background task — so a stop
     // arriving mid-work must not settle the session out from under it.
     if (spawnsSubagent(payload)) subagents += 1;
-    mainStopped = false;
+    touchOrigin();
   } else if (ev === 'Stop') {
-    mainStopped = true;
+    // Only the conversation that stopped leaves the in-flight set; a fork's Stop
+    // must not stand in for the main agent's (or another fork's).
+    dropOrigin();
+    stopped = true;
   }
 
-  const next = { subagents, mainStopped, stoppedIds };
+  const next = { subagents, active, stopped, stoppedIds };
 
-  // A stop (main or subagent) settles the session to `completed` only once the
-  // main agent has stopped AND no subagents remain; until then it's still working
-  // (through its remaining agents), which also withholds the completion chime.
+  // A stop (conversation or subagent) settles the session to `completed` only
+  // once every conversation has stopped AND no subagents remain; until then it's
+  // still working, which also withholds the completion chime.
   if (subagentStopped || ev === 'Stop') {
-    return { state: mainStopped && subagents === 0 ? 'completed' : 'working', tracking: next };
+    return { state: stopped && !active.length && subagents === 0 ? 'completed' : 'working', tracking: next };
   }
   return { state: eventToState(payload), tracking: next };
 }
 
-// A bare ESC (`\x1b`) or Ctrl+C (`\x03`) typed into a *working* session interrupts
-// the in-flight agent turn. Claude Code emits no hook for this, so we read it off
-// the raw PTY input instead. Only a session that's actually working can be
-// interrupted — the same bytes mean other things (closing a menu, etc.) in any
-// other state — and arrow/function keys arrive as multi-byte escape sequences
-// (`\x1b[…`), so an exact match never catches them. Returns the new state, or null
-// to leave the dot unchanged.
-function interruptState(data, current) {
-  if (current !== 'working') return null;
-  return data === '\x1b' || data === '\x03' ? 'interrupted' : null;
+// A bare ESC (`\x1b`) or Ctrl+C (`\x03`) typed into a *working* session is a
+// *candidate* interrupt of the in-flight turn — not proof of one. The keystroke is
+// only ever a request: the TUI may swallow it (dismissing its own overlay,
+// clearing a half-typed prompt, a stray keypress while our dot is merely stale),
+// and the agent then keeps working while the dot has already gone red. So this
+// answers "is the user asking to interrupt", and the hook stream — the trusted
+// source — decides whether one actually happened (see interruptOutcome).
+//
+// Only a session that's currently working can be interrupted, the same bytes mean
+// other things in any other state, and arrow/function keys arrive as multi-byte
+// escape sequences (`\x1b[…`) so an exact match never catches them.
+function isInterruptKey(data, current) {
+  return current === 'working' && (data === '\x1b' || data === '\x03');
+}
+
+// Arbitrate a pending keystroke interrupt against the next hook event from the
+// session — the only account of what the agent is really doing.
+//
+//  - The turn ending right after the keystroke (`derived === 'completed'`) is the
+//    interrupt landing: the same event a natural finish produces, but here it was
+//    cut short, so it's red, not green — and no completion chime.
+//  - Any other event proves the agent kept running (a tool call, a new prompt, a
+//    permission ask), so the keystroke meant something else and the derived state
+//    stands untouched.
+//
+// Either way the pending interrupt is resolved; the caller drops it.
+function interruptOutcome(derived) {
+  return derived === 'completed' ? 'interrupted' : derived;
 }
 
 // Whether a derived state should overwrite the current one. Resuming a saved
@@ -218,4 +278,7 @@ function normalizeHookPayload(payload, ideId) {
   return { payload: { ...payload, session_id: ideId }, agentSessionId: String(payload.session_id || '') };
 }
 
-module.exports = { eventToState, deriveStatus, interruptState, shouldApplyState, hooksSettings, normalizeHookPayload };
+module.exports = {
+  eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState,
+  hooksSettings, normalizeHookPayload, ORIGIN_STALE_MS,
+};
