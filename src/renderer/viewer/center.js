@@ -20,12 +20,13 @@ import { showArmHint, hideArmHint } from '../shared/arm-hint.js';
 // common path. `mod.<key>` caches the resolved module so the synchronous hide*
 // paths can no-op when a viewer was never opened (its overlay is already hidden,
 // so there's nothing to tear down).
-const mod = { asset: null, sheet: null, db: null, web: null };
+const mod = { asset: null, sheet: null, db: null, web: null, diagram: null };
 const importers = {
   asset: () => import('./asset/index.js'),
   sheet: () => import('./sheet/index.js'),
   db: () => import('./db/index.js'),
   web: () => import('./web.js'),
+  diagram: () => import('./diagram/index.js'),
 };
 const pending = {};
 async function load(key) {
@@ -42,6 +43,7 @@ export function hideAllOverlays() {
   if (mod.sheet) mod.sheet.hideSheet();
   if (mod.db) mod.db.hideDb();
   if (mod.web) mod.web.hideWeb();
+  if (mod.diagram) mod.diagram.hideDiagram();
 }
 
 // Hide the per-session terminal containers via the DOM (no import of sessions).
@@ -94,6 +96,21 @@ export async function toggleWeb() {
   (await load('web')).openWeb();
 }
 
+// Toolbar diagram button: toggle the project-structure overlay. Unlike the
+// browser, reopening always re-indexes (openDiagram does the refresh) — a
+// diagram that describes an older version of the project is worse than none.
+export async function toggleDiagram() {
+  if (mod.diagram && mod.diagram.isDiagramOpen()) { closeOverlay(); return; }
+  clearCenter();
+  await (await load('diagram')).openDiagram();
+}
+
+// Command palette: re-scan the project without leaving the panel.
+export async function refreshDiagram() {
+  if (mod.diagram && mod.diagram.isDiagramOpen()) mod.diagram.refreshDiagram();
+  else await toggleDiagram();
+}
+
 // Closing any overlay returns to the active session, or the empty hint if none.
 // sessions registers showActiveSession() here so this module needn't import it.
 let onCloseCb = null;
@@ -110,7 +127,9 @@ document.getElementById('asset-close').onclick = closeOverlay;
 document.getElementById('sheet-close').onclick = closeOverlay;
 document.getElementById('db-close').onclick = closeOverlay;
 document.getElementById('web-close').onclick = closeOverlay;
+document.getElementById('diagram-close').onclick = closeOverlay;
 document.getElementById('browser-btn').onclick = toggleWeb;
+document.getElementById('diagram-btn').onclick = toggleDiagram;
 
 // Terminate is destructive (it unloads the page), so it arms on the first click
 // and only kills the browser on the second — the same two-click pattern as the

@@ -18,12 +18,13 @@ export const PANELS = [
   { id: 'launch', labelKey: 'settings.panel.launch' },
   { id: 'tasks', labelKey: 'settings.panel.tasks' },
   { id: 'browser', labelKey: 'settings.panel.browser' },
+  { id: 'diagram', labelKey: 'settings.panel.diagram' },
   { id: 'usage', labelKey: 'settings.panel.usage' },
 ];
 
 const DEFAULTS = {
   explorer: true, git: true, terminal: true, launch: true, tasks: true, browser: true,
-  usage: true,
+  diagram: true, usage: true,
 };
 
 let state = { ...DEFAULTS };
@@ -79,8 +80,9 @@ export function applyPanels() {
   // With the git pane hidden, the console alone fills the aside.
   gitAside.classList.toggle('solo-console', terminal && !git);
 
-  // Browser button in the top toolbar (settings gear stays put beside it).
+  // Toolbar buttons that open a center-area panel (settings gear stays put).
   showEl(document.getElementById('browser-btn'), isPanelEnabled('browser'));
+  showEl(document.getElementById('diagram-btn'), isPanelEnabled('diagram'));
 
   for (const fn of listeners) fn();
   // A layout change can resize the terminals; let the resize handler reflow them.

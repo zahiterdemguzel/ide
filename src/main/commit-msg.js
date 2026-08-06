@@ -52,7 +52,23 @@ function cleanCommitMessage(out, maxLen = 4000) {
   if (msg.length >= 2 && '"\'`'.includes(msg[0]) && msg[msg.length - 1] === msg[0]) {
     msg = msg.slice(1, -1).trim();
   }
+  // Local models like to close (and sometimes open) the reply with a markdown
+  // horizontal rule — "-----", "=====", "***". It's decoration, not part of the
+  // message, and it would land in the git log. Only a line that is ENTIRELY 3+ of
+  // the same rule character counts, so a "- bullet" body line is never touched.
+  msg = stripRules(msg);
   return msg.slice(0, maxLen);
+}
+
+const RULE_LINE = /^\s*([-=_*])\1{2,}\s*$/;
+function stripRules(msg) {
+  const lines = msg.split('\n');
+  // Blank lines around a rule go with it (the model writes "\n\n-----\n"), so keep
+  // eating them — a trailing blank run with no rule is dropped by trim() anyway.
+  const rubbish = (l) => !l.trim() || RULE_LINE.test(l);
+  while (lines.length && rubbish(lines[0])) lines.shift();
+  while (lines.length && rubbish(lines[lines.length - 1])) lines.pop();
+  return lines.join('\n').trim();
 }
 
 // Deterministic message used when Haiku is slow/unavailable: the session's title

@@ -74,6 +74,21 @@ test('cleanCommitMessage: keeps a conventional subject + body + footer intact', 
   assert.equal(cleanCommitMessage(msg), msg);
 });
 
+test('cleanCommitMessage: strips a trailing/leading horizontal rule', () => {
+  // What the local model actually emits: the message, then a rule line.
+  assert.equal(cleanCommitMessage('fix(git): stop the hang\n\n-------------------'), 'fix(git): stop the hang');
+  assert.equal(cleanCommitMessage('---\nfix: a\n===\n'), 'fix: a');
+  assert.equal(cleanCommitMessage('fix: a\n\n***\n\n'), 'fix: a');
+  // A body bullet is not a rule and survives.
+  assert.equal(cleanCommitMessage('feat: x\n\n- one\n- two'), 'feat: x\n\n- one\n- two');
+  // Neither is a short dash run inside prose or a mixed line.
+  assert.equal(cleanCommitMessage('fix: a\n\n-- two dashes\n--> arrow'), 'fix: a\n\n-- two dashes\n--> arrow');
+  // A rule between paragraphs is left alone — only the ends are decoration.
+  assert.equal(cleanCommitMessage('feat: x\n\n---\n\nbody'), 'feat: x\n\n---\n\nbody');
+  // Rule-only replies clean to empty, so the caller falls back.
+  assert.equal(cleanCommitMessage('-----'), '');
+});
+
 test('fallbackCommitMessage: prefers the session name (title)', () => {
   assert.equal(fallbackCommitMessage({ name: 'Add git panel', firstPrompt: 'please make the git panel nicer', id: 'abcd1234ef' }), 'Add git panel');
 });

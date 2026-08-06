@@ -22,6 +22,7 @@ require('./chat'); // the chat view of a session (transcript, prompts, attachmen
 require('./session-commit');
 require('./explorer');
 require('./db');
+require('./diagram'); // project structure diagrams (lazy — the worker spawns on first open)
 require('./run-configs');
 require('./runners');
 require('./consoles');

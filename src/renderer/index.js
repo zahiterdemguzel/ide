@@ -2,7 +2,7 @@
 // effect (DOM event handlers, IPC listeners); this file then registers the
 // cross-module hand-offs and kicks off the initial loads.
 import './shared/bootstrap.js';
-import { onClose } from './viewer/center.js';
+import { onClose, refreshDiagram } from './viewer/center.js';
 import { showActiveSession, restoreSessions, setSessionsRepo, newSession } from './sessions.js';
 import { refreshGit, autoFetch } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
@@ -160,6 +160,7 @@ registerCommands([
   { id: 'cycle-theme', titleKey: 'command.cycleTheme', keywordsKey: 'command.cycleTheme.kw', run: cycleTheme },
   { id: 'refresh-git', titleKey: 'command.refreshGit', keywordsKey: 'command.refreshGit.kw', run: refreshGit },
   { id: 'refresh-tree', titleKey: 'command.refreshTree', keywordsKey: 'command.refreshTree.kw', run: refreshTree },
+  { id: 'refresh-diagram', titleKey: 'command.refreshDiagram', keywordsKey: 'command.refreshDiagram.kw', run: refreshDiagram },
   { id: 'guided-tour', titleKey: 'command.guidedTour', keywordsKey: 'command.guidedTour.kw', run: startTour },
   { id: 'keyboard-shortcuts', titleKey: 'command.keyboardShortcuts', keywordsKey: 'command.keyboardShortcuts.kw', run: openCheatSheet },
 ]);

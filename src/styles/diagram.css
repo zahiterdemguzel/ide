@@ -1,0 +1,144 @@
+/* Diagram panel: project structure as class / dependency / call diagrams.
+ * Every colour comes from a theme variable so the diagram re-themes with the
+ * rest of the app. The box and row metrics here must agree with the sizing
+ * constants in src/main/diagram-elk.js, which reserved the space. */
+#diagram-view { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); }
+#diagram-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+}
+#diagram-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+}
+#diagram-body { position: relative; flex: 1; min-height: 0; overflow: hidden; cursor: grab; }
+#diagram-body.is-panning { cursor: grabbing; }
+#diagram-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+/* Diagram-type switcher. Same pill shape as the editor's Code|Preview toggle,
+ * but with five options rather than two, so the selection is painted on the
+ * active option instead of by a sliding thumb (which only ever works for two). */
+#diagram-views {
+  position: relative; display: inline-flex; align-items: stretch;
+  background: var(--bg-3); border: 1px solid var(--border); border-radius: 999px;
+  user-select: none; overflow: hidden;
+}
+#diagram-views .seg-opt {
+  background: none; border: none; cursor: pointer;
+  padding: 4px 12px; font-size: 12px; line-height: 1.3; white-space: nowrap;
+  color: var(--fg-dim); transition: color .15s ease, background .15s ease;
+}
+#diagram-views .seg-opt:hover { color: var(--fg); }
+#diagram-views .seg-opt.active { color: var(--on-accent); background: var(--accent); }
+
+/* head controls */
+.diag-btn {
+  background: none; border: none; color: var(--fg-dim);
+  cursor: pointer; font-size: 15px; line-height: 1; padding: 3px 7px; border-radius: 4px;
+  transition: background .12s ease, color .12s ease;
+}
+.diag-btn:hover { color: var(--fg); background: var(--bg-3); }
+.diag-btn svg { display: block; }
+#diagram-close { background: none; border: none; color: var(--fg-dim); cursor: pointer; font-size: 18px; line-height: 1; border-radius: 4px; transition: color .12s ease; }
+#diagram-close:hover { color: var(--fg); }
+#diagram-search {
+  width: 190px; box-sizing: border-box; font-family: Consolas, monospace; font-size: 12px;
+  color: var(--fg); background: var(--bg-3); border: 1px solid var(--border); border-radius: 5px;
+  padding: 5px 8px; outline: none;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+#diagram-search:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.diag-spacer { flex: 1; }
+/* The ⟳ spins while the worker is re-indexing, so a slow project still reads
+ * as "working" rather than "stuck". */
+#diagram-view.is-busy #diagram-refresh { animation: dg-spin 1s linear infinite; color: var(--accent); }
+@keyframes dg-spin { to { transform: rotate(360deg); } }
+
+/* pass switches */
+#diagram-tools { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.diag-pass {
+  background: var(--bg-3); border: 1px solid var(--border); color: var(--fg-dim);
+  cursor: pointer; font-size: 11px; line-height: 1; padding: 4px 8px; border-radius: 999px;
+  transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.diag-pass:hover { color: var(--fg); }
+.diag-pass.active { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+
+/* breadcrumbs */
+#diagram-crumbs { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.dg-crumb {
+  background: none; border: none; color: var(--accent); cursor: pointer;
+  font-size: 12px; padding: 2px 4px; border-radius: 4px; white-space: nowrap;
+}
+.dg-crumb:hover:not(:disabled) { background: var(--bg-3); }
+.dg-crumb:disabled { color: var(--fg); cursor: default; }
+.dg-crumb-sep { color: var(--fg-dim); font-size: 12px; }
+
+/* status line: capping, warnings, empty views */
+#diagram-status {
+  position: absolute; left: 12px; bottom: 12px; z-index: 2; max-width: calc(100% - 24px);
+  padding: 5px 10px; border-radius: 6px; font-size: 12px;
+  color: var(--fg-dim); background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+  border: 1px solid var(--border); pointer-events: auto;
+}
+#diagram-status.is-warn { color: var(--yellow); cursor: pointer; }
+#diagram-status.is-error { color: var(--red); }
+#diagram-status.is-busy { color: var(--accent); }
+
+/* --- the diagram itself --- */
+#diagram-svg text { font-family: Consolas, monospace; fill: var(--fg); user-select: none; }
+.dg-node { cursor: pointer; }
+.dg-box {
+  fill: var(--bg-2); stroke: var(--border); stroke-width: 1;
+  transition: stroke .12s ease;
+}
+.dg-node:hover .dg-box { stroke: var(--accent); }
+.dg-title { font-size: 11px; font-weight: 600; text-anchor: middle; }
+.dg-sub { font-size: 9px; text-anchor: middle; fill: var(--fg-dim); }
+.dg-sep { stroke: var(--border); stroke-width: 1; }
+.dg-row { font-size: 10px; fill: var(--fg-dim); }
+.dg-row.is-field { fill: var(--fg-dim); }
+.dg-row.is-static { font-style: italic; }
+.dg-row.is-more { fill: var(--gray); }
+
+/* Node kinds are told apart by the colour of their title band accent, which
+ * survives zooming out further than any text does. */
+.kind-class .dg-box { stroke: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.kind-interface .dg-box { stroke: color-mix(in srgb, var(--purple) 55%, var(--border)); stroke-dasharray: 4 3; }
+.kind-enum .dg-box { stroke: color-mix(in srgb, var(--yellow) 55%, var(--border)); }
+.kind-struct .dg-box { stroke: color-mix(in srgb, var(--green) 55%, var(--border)); }
+.kind-module .dg-box { fill: var(--bg-3); }
+.kind-function .dg-box, .kind-method .dg-box { fill: var(--bg-3); }
+.kind-external .dg-box, .kind-package .dg-box { fill: none; stroke-dasharray: 3 3; stroke: var(--gray); }
+.kind-external .dg-title, .kind-package .dg-title { fill: var(--fg-dim); }
+
+/* An aggregate box stands for a whole folder, so it reads as a heavier object
+ * than a single file. */
+.kind-folder .dg-box { fill: var(--bg-2); stroke: color-mix(in srgb, var(--fg-dim) 45%, var(--border)); stroke-width: 1.6; }
+.kind-folder .dg-title { fill: var(--fg); }
+
+/* edges */
+.dg-edge path { fill: none; stroke-width: 1.4; }
+.dg-edge.kind-imports path { stroke: var(--gray); }
+.dg-edge.kind-extends path { stroke: var(--accent); }
+.dg-edge.kind-implements path { stroke: var(--purple); stroke-dasharray: 5 4; }
+.dg-edge.kind-calls path { stroke: color-mix(in srgb, var(--green) 70%, var(--gray)); }
+.dg-edge.kind-instantiates path { stroke: var(--yellow); stroke-dasharray: 2 3; }
+.dg-edge-count { font-size: 9px; fill: var(--fg-dim); }
+/* A dependency cycle is the one thing in this diagram that is always worth
+ * pointing at, so it overrides the per-kind colour rather than blending in. */
+.dg-edge.is-cyclic path { stroke: var(--red); stroke-width: 2; }
+.dg-node.kind-folder { cursor: pointer; }
+.dg-mk-imports { fill: none; stroke: var(--gray); stroke-width: 1.4; }
+.dg-mk-extends { fill: var(--bg); stroke: var(--accent); stroke-width: 1.4; }
+.dg-mk-implements { fill: var(--bg); stroke: var(--purple); stroke-width: 1.4; }
+.dg-mk-calls { fill: color-mix(in srgb, var(--green) 70%, var(--gray)); }
+.dg-mk-instantiates { fill: var(--yellow); }
+
+/* search: dim what did not match instead of hiding it, so hits keep their
+ * context. Only applied while a search is active. */
+#diagram-svg.is-searching .dg-node { opacity: .22; }
+#diagram-svg.is-searching .dg-edge { opacity: .1; }
+#diagram-svg.is-searching .dg-node.is-hit { opacity: 1; }
+#diagram-svg.is-searching .dg-edge.is-hit { opacity: 1; }
+#diagram-svg.is-searching .dg-node.is-hit .dg-box { stroke: var(--accent-hi); stroke-width: 2; }

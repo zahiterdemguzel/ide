@@ -23,6 +23,7 @@
   <link rel="stylesheet" href="src/styles/sheet.css" />
   <link rel="stylesheet" href="src/styles/db.css" />
   <link rel="stylesheet" href="src/styles/web.css" />
+  <link rel="stylesheet" href="src/styles/diagram.css" />
   <link rel="stylesheet" href="src/styles/git.css" />
   <link rel="stylesheet" href="src/styles/console.css" />
   <link rel="stylesheet" href="src/styles/themes.css" />
@@ -36,6 +37,7 @@
     <div id="toolbar-runs"></div>
     <span id="phone-indicator" hidden data-i18n-title="remote.deviceConnected" title="Mobile device connected"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg></span>
     <div id="usage-meter" hidden title=""></div>
+    <button id="diagram-btn" data-i18n-title="diagram.open" title="Diagram"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v4"/><path d="M5 17v-2a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v2"/></svg></button>
     <button id="browser-btn" data-i18n-title="browser.open" title="Browser"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></button>
     <button id="settings-btn" data-i18n-title="settings.open" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </div>
@@ -292,6 +294,44 @@
             <button id="web-close" data-i18n-title="browser.close" title="Close">×</button>
           </div>
           <webview id="web-frame" src="about:blank" partition="persist:browser"></webview>
+        </div>
+        <!-- Diagram: the project's structure (classes, dependencies, calls)
+             drawn from a tree-sitter index. Head row picks the diagram type;
+             the second row is the drill-in trail plus the pass switches. -->
+        <div id="diagram-view">
+          <div id="diagram-head">
+            <div id="diagram-views" class="seg-toggle" role="tablist" data-i18n-title="diagram.viewTitle" title="Diagram type">
+              <button type="button" class="seg-opt active" data-view="overview" data-i18n="diagram.view.overview">Overview</button>
+              <button type="button" class="seg-opt" data-view="classes" data-i18n="diagram.view.classes">Classes</button>
+              <button type="button" class="seg-opt" data-view="deps" data-i18n="diagram.view.deps">Dependencies</button>
+              <button type="button" class="seg-opt" data-view="calls" data-i18n="diagram.view.calls">Calls</button>
+              <button type="button" class="seg-opt" data-view="inheritance" data-i18n="diagram.view.inheritance">Inheritance</button>
+            </div>
+            <span class="diag-spacer"></span>
+            <input id="diagram-search" type="text" spellcheck="false" autocomplete="off"
+                   data-i18n-placeholder="diagram.search" placeholder="Find in diagram" />
+            <button id="diagram-zoom-out" class="diag-btn" data-i18n-title="diagram.zoomOut" title="Zoom out">−</button>
+            <button id="diagram-zoom-in" class="diag-btn" data-i18n-title="diagram.zoomIn" title="Zoom in">+</button>
+            <button id="diagram-fit" class="diag-btn" data-i18n-title="diagram.fit" title="Fit to window">⤢</button>
+            <button id="diagram-refresh" class="diag-btn" data-i18n-title="diagram.refresh" title="Re-scan the project">⟳</button>
+            <button id="diagram-close" data-i18n-title="diagram.close" title="Close">×</button>
+          </div>
+          <div id="diagram-bar">
+            <div id="diagram-crumbs"></div>
+            <span class="diag-spacer"></span>
+            <div id="diagram-tools">
+              <button class="diag-pass active" data-pass="inheritance" aria-pressed="true" data-i18n="diagram.pass.inheritance">Inheritance</button>
+              <button class="diag-pass active" data-pass="imports" aria-pressed="true" data-i18n="diagram.pass.imports">Imports</button>
+              <button class="diag-pass active" data-pass="calls" aria-pressed="true" data-i18n="diagram.pass.calls">Calls</button>
+              <button class="diag-pass active" data-pass="instantiation" aria-pressed="true" data-i18n="diagram.pass.instantiation">New</button>
+              <button class="diag-pass active" data-pass="members" aria-pressed="true" data-i18n="diagram.pass.members">Members</button>
+              <button class="diag-pass active" data-pass="simplify" aria-pressed="true" data-i18n-title="diagram.pass.simplifyTitle" title="Hide dependency edges a longer path already implies" data-i18n="diagram.pass.simplify">Simplify</button>
+              <button class="diag-pass" data-pass="externals" aria-pressed="false" data-i18n="diagram.pass.externals">Externals</button>
+              <button class="diag-pass" data-pass="orphans" aria-pressed="false" data-i18n="diagram.pass.orphans">Orphans</button>
+            </div>
+          </div>
+          <div id="diagram-body"></div>
+          <div id="diagram-status" hidden></div>
         </div>
         <!-- Per-session Diff dialog: floats over the terminal (which stays alive
              behind it), so the user keeps the session in view. Clicking the
@@ -592,6 +632,11 @@
           <label class="panel-toggle">
             <span class="panel-toggle-label" data-i18n="settings.panel.browser">Browser</span>
             <input type="checkbox" id="settings-panel-browser" class="switch-input" />
+            <span class="switch-ui"></span>
+          </label>
+          <label class="panel-toggle">
+            <span class="panel-toggle-label" data-i18n="settings.panel.diagram">Diagram</span>
+            <input type="checkbox" id="settings-panel-diagram" class="switch-input" />
             <span class="switch-ui"></span>
           </label>
           <label class="panel-toggle">
