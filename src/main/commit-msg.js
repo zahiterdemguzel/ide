@@ -65,4 +65,19 @@ function fallbackCommitMessage({ name, firstPrompt, id } = {}, maxLen = 500) {
   return title.slice(0, maxLen);
 }
 
-module.exports = { commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage };
+// Choose which downloaded local model authors the commit message, from the
+// llama-engine's installed list. Smallest file wins: a commit message is a short,
+// easy generation, and the small model both loads and generates fastest — the
+// only thing the user notices here is latency. Name breaks size ties so the pick
+// is stable. Returns '' when nothing is installed (caller falls back to Haiku).
+function pickCommitModel(models) {
+  const list = (models || []).filter((m) => m && m.name);
+  if (!list.length) return '';
+  const best = list.slice().sort((a, b) => (a.size || 0) - (b.size || 0)
+    || String(a.name).localeCompare(String(b.name)))[0];
+  return best.name;
+}
+
+module.exports = {
+  commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage, pickCommitModel,
+};

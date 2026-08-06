@@ -1,7 +1,7 @@
 const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
-const { runHaiku } = require('./claude');
+const { runCommitModel } = require('./commit-model');
 const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
@@ -221,12 +221,13 @@ bridge.handle('git-revert', (_e, { file, untracked }) => {
   return gitOverFiles(['restore', '--staged', '--worktree'], files);
 });
 
-// Ask Haiku for a commit message describing the staged diff. Returns '' on an
-// empty diff and falls back to the message text on failure (handled by caller).
+// Ask the commit model (a downloaded local model if there is one, else Haiku) for
+// a commit message describing the staged diff. Returns '' on an empty diff and
+// falls back to the message text on failure (handled by caller).
 async function generateCommitMessage() {
   const diff = (await git(['diff', '--cached'])).stdout;
   if (!diff.trim()) return '';
-  const out = await runHaiku(commitMessagePrompt(diff));
+  const out = await runCommitModel(commitMessagePrompt(diff));
   return cleanCommitMessage(out);
 }
 

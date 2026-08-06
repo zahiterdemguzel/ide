@@ -10,14 +10,15 @@ const { sessions, trackedFiles, pathsClaimedByOthers, setSessionState, persistSe
 const { commitContent, inverseEdits, contentWithoutSession } = require('./edit-ops');
 const { companionPaths } = require('./companion-files');
 const { sumNumstat } = require('./git-parse');
-const { runHaiku } = require('./claude');
+const { runCommitModel } = require('./commit-model');
 const { commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage } = require('./commit-msg');
 const { createLimiter } = require('./concurrency');
 
-// Haiku can be slow (or its CLI fallback can hang); cap the per-session message
+// The commit model can be slow (Haiku's CLI fallback can hang; a local model may
+// run on CPU and has to load the GGUF first); cap the per-session message
 // generation so the commit button never spins indefinitely. On timeout we commit
 // with the deterministic session-title fallback instead.
-const COMMIT_MSG_TIMEOUT_MS = 30000;
+const COMMIT_MSG_TIMEOUT_MS = 60000;
 
 // Build one commit whose tree is HEAD with only `entries` applied — via a
 // throwaway index + commit-tree, so the real index and the working tree are
@@ -242,13 +243,13 @@ bridge.handle('session-diff', guard('reading a session diff', async (_e, id) => 
 }, { ok: false, patch: '', additions: 0, deletions: 0, files: 0 }));
 
 // Author a commit message from this session's OWN diff (the same patch the Diff
-// dialog shows), via Haiku — so the message describes the actual code change, not
+// dialog shows), via the commit model — so the message describes the actual code change, not
 // the session's first conversational prompt. Bounded by COMMIT_MSG_TIMEOUT_MS;
 // on timeout/failure/empty-diff we fall back to the session title.
 async function sessionCommitMessage(s, id, patch) {
   if (patch && patch.trim()) {
     const out = await Promise.race([
-      runHaiku(commitMessagePrompt(patch)),
+      runCommitModel(commitMessagePrompt(patch)),
       new Promise((resolve) => setTimeout(() => resolve(null), COMMIT_MSG_TIMEOUT_MS)),
     ]);
     const cleaned = cleanCommitMessage(out);
@@ -263,7 +264,7 @@ async function sessionCommitMessage(s, id, patch) {
 // tree. If an edit can't be replayed cleanly (the other session moved that text,
 // or an opaque op), we fall back to the whole current file for that path.
 //
-// The message is generated from this session's diff via Haiku, which can take a
+// The message is generated from this session's diff by the commit model, which can take a
 // few seconds. We SNAPSHOT and clear the session's tracking up front, before that
 // await, so a session that keeps running during generation accumulates its new
 // edits as a SEPARATE batch — they are never folded into this commit. If the

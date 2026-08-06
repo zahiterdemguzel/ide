@@ -1,6 +1,21 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage } = require('../src/main/commit-msg');
+const {
+  commitMessagePrompt, cleanCommitMessage, fallbackCommitMessage, pickCommitModel,
+} = require('../src/main/commit-msg');
+
+test('pickCommitModel: picks the smallest installed model, none when empty', () => {
+  assert.equal(pickCommitModel([]), '');
+  assert.equal(pickCommitModel(undefined), '');
+  assert.equal(pickCommitModel([
+    { name: 'big', size: 9e9 },
+    { name: 'small', size: 1e9 },
+    { name: 'mid', size: 4e9 },
+  ]), 'small');
+  // Unknown sizes sort first but stay deterministic by name.
+  assert.equal(pickCommitModel([{ name: 'b' }, { name: 'a' }]), 'a');
+  assert.equal(pickCommitModel([{ size: 1 }, { name: 'only' }]), 'only');
+});
 
 test('commitMessagePrompt: embeds the diff and caps its length', () => {
   const p = commitMessagePrompt('diff --git a/x b/x\n+hello', 12000);
