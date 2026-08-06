@@ -15,4 +15,23 @@ function createLimiter(max) {
   return (fn) => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); pump(); });
 }
 
-module.exports = { createLimiter };
+// Coalesce bursts of "scan now" calls into shared runs: at most one `run` in
+// flight, and every caller arriving while one is queued or running shares the
+// NEXT run, which starts only after the current one settles. So every caller's
+// result reflects state at-or-after the moment it asked (a snapshot from before
+// its call would be stale), while an N-caller burst costs at most two runs.
+function createCoalescer(run) {
+  let inflight = null;
+  let next = null;
+  return () => {
+    if (next) return next;
+    next = Promise.resolve(inflight).catch(() => {}).then(() => {
+      next = null;
+      inflight = Promise.resolve().then(run).finally(() => { inflight = null; });
+      return inflight;
+    });
+    return next;
+  };
+}
+
+module.exports = { createLimiter, createCoalescer };

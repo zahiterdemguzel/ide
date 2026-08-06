@@ -5,9 +5,9 @@ const os = require('os');
 const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
-const { git } = require('./git');
-const { sessions, trackedFiles, pathClaimedByOther, setSessionState, persistSession, guard } = require('./sessions');
-const { commitContent, inverseEdits } = require('./edit-ops');
+const { git, repoWrite } = require('./git');
+const { sessions, trackedFiles, pathsClaimedByOthers, setSessionState, persistSession, guard } = require('./sessions');
+const { commitContent, inverseEdits, contentWithoutSession } = require('./edit-ops');
 const { companionPaths } = require('./companion-files');
 const { sumNumstat } = require('./git-parse');
 const { runHaiku } = require('./claude');
@@ -55,8 +55,14 @@ async function commitBlobs(entries, msg) {
     if (!tree.ok) return tree;
     const ct = await git(['commit-tree', tree.stdout.trim(), '-m', msg, ...(headSha ? ['-p', headSha] : [])]);
     if (!ct.ok) return ct;
-    const ref = await git(['update-ref', 'HEAD', ct.stdout.trim()]);
-    if (!ref.ok) return ref;
+    // Compare-and-swap: move HEAD only if it is still the commit we built on
+    // (`''` as the old value means "must not exist" — the empty-repo case). The
+    // commit path is serialized (repoWrite), so this only fires when something
+    // outside the app moved HEAD mid-commit — a terminal, a session running `git
+    // commit` itself. Without the old value, update-ref would happily overwrite
+    // that commit and drop it from history.
+    const ref = await git(['update-ref', 'HEAD', ct.stdout.trim(), headSha]);
+    if (!ref.ok) return { ...ref, stderr: 'HEAD moved while this commit was being prepared — nothing was committed. Try again.' };
     // Sync the REAL index for just these paths, so they read as clean against the
     // new HEAD and only the OTHER session's edits remain as unstaged changes.
     // Other paths in the index are left alone.
@@ -103,6 +109,8 @@ async function sessionEntries(s, repoPath) {
   // created (committed from its current bytes — read as a Buffer so it stays
   // intact), or a file it moved/removed (committed as a deletion).
   const seen = new Set(entries.map((e) => e.path));
+  // Snapshot other sessions' claims once (Set), not per path — see pathsClaimedByOthers.
+  const editClaimed = pathsClaimedByOthers(s, { edits: true, fileOps: false });
   for (const [abs, kind] of s.fileOps) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     if (!rel || rel.startsWith('..') || seen.has(rel)) continue; // outside the repo / already an edit
@@ -112,7 +120,7 @@ async function sessionEntries(s, repoPath) {
     // work; committing it as a whole-file blob would sweep in their edits. Drop it
     // and forget it from tracking — text-edit ownership wins. This also self-heals a
     // fileOp recorded before the fix (or before the other session's edit landed).
-    if (pathClaimedByOther(s, abs, { edits: true, fileOps: false })) { emptyFileOps.push(abs); continue; }
+    if (editClaimed.has(abs)) { emptyFileOps.push(abs); continue; }
     if (kind === 'delete') {
       // Nothing committed at HEAD means there is nothing to delete — a phantom op.
       if (!(await git(['cat-file', '-e', `HEAD:${rel}`])).ok) { emptyFileOps.push(abs); continue; }
@@ -137,12 +145,13 @@ async function sessionEntries(s, repoPath) {
   // tracked in s.edits/s.fileOps), so there's nothing to forget after a commit.
   // Iterate a snapshot of entries so the companions we append don't recurse.
   const present = new Set(entries.map((e) => e.path));
+  const anyClaimed = pathsClaimedByOthers(s, { edits: true, fileOps: true });
   for (const e of [...entries]) {
     for (const comp of companionPaths(e.path)) {
       if (present.has(comp)) continue;
       const compAbs = path.join(repoPath, comp.split('/').join(path.sep));
       // Never sweep in a sidecar another live session is editing/creating.
-      if (pathClaimedByOther(s, compAbs, { edits: true, fileOps: true })) continue;
+      if (anyClaimed.has(compAbs)) continue;
       let buf = null;
       try { buf = fs.readFileSync(compAbs); } catch { /* missing on disk */ }
       if (e.delete) {
@@ -259,7 +268,14 @@ async function sessionCommitMessage(s, id, patch) {
 // await, so a session that keeps running during generation accumulates its new
 // edits as a SEPARATE batch — they are never folded into this commit. If the
 // commit then fails we restore the snapshot so the work isn't silently dropped.
-bridge.handle('commit-session', guard('committing a session', async (_e, id) => {
+// Serialized against every other repo write (repoWrite): two sessions' commit
+// buttons clicked seconds apart would otherwise both build a commit on the SAME
+// HEAD and the second would overwrite the first. Everything — reading the
+// entries, freezing the tracking, authoring the message, committing — happens
+// inside the lock, so a queued commit sees the previous one's HEAD and replays
+// its own edits onto the file version that commit produced. Queuing (rather than
+// rejecting) keeps the button's behavior: click it and the commit happens.
+bridge.handle('commit-session', guard('committing a session', (_e, id) => repoWrite(async () => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
@@ -304,21 +320,47 @@ bridge.handle('commit-session', guard('committing a session', async (_e, id) => 
     sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   }
   return ct;
-}, (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
+}), (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
 
 // Revert ONLY this session's working-tree changes by de-applying its own edits,
-// so another session's edits to the same file survive. For each touched file we
-// back its ops out of the current working contents (inverseEdits). If an op
-// can't be inverted (a full Write, opaque, or moved text), a hard reset to HEAD
-// is only safe when NO other live session also edited that file — otherwise we
-// skip it (clobbering another agent's work is worse than leaving ours). Reverted
-// files are forgotten so a later commit/revert won't double-apply them.
-bridge.handle('revert-session', guard('reverting a session', async (_e, id) => {
+// so another session's edits to the same file survive. Per touched file, in order:
+//   1. back its ops out of the current working contents (inverseEdits);
+//   2. if that can't be inverted (a full Write, opaque, or moved text) but other
+//      sessions also edited the file, rebuild it as HEAD + their ops — the state
+//      it would be in had we never touched it (contentWithoutSession);
+//   3. if nothing else claims the path, hard reset to HEAD;
+//   4. otherwise skip it — clobbering another agent's work is worse than leaving ours.
+// Reverted files are forgotten so a later commit/revert won't double-apply them.
+// Same lock as the commit path: revert rewrites working files and runs `git
+// checkout`, so running it while another session's commit is reading those same
+// files (to build its blobs) would commit a half-reverted file.
+bridge.handle('revert-session', guard('reverting a session', (_e, id) => repoWrite(async () => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
   const repoPath = getRepoPath();
   if (!repoPath) return { ok: false, stderr: 'No folder open' };
   const sharedWithOther = (abs) => [...sessions].some(([sid, o]) => sid !== id && (o.edits.has(abs) || o.fileOps.has(abs)));
+  const claimedByOtherFileOp = (abs) => [...sessions].some(([sid, o]) => sid !== id && o.fileOps.has(abs));
+  // Other live sessions' ops for a path, oldest session first, so replaying them
+  // onto HEAD reproduces the order they were actually written in.
+  const otherEditsFor = (abs) => [...sessions]
+    .filter(([sid, o]) => sid !== id && (o.edits.get(abs) || []).length)
+    .sort((a, b) => (a[1]._seq || 0) - (b[1]._seq || 0))
+    .map(([, o]) => o.edits.get(abs));
+  // Rebuild `abs` without this session's contribution, keeping the other
+  // sessions' edits. Returns true when the file was rewritten (or removed
+  // because nothing is left of it), false when it can't be done cleanly.
+  const rebuildFromOthers = async (abs, rel) => {
+    if (claimedByOtherFileOp(abs)) return false; // a path-level claim we can't replay through
+    const others = otherEditsFor(abs);
+    if (!others.length) return false;
+    const head = await git(['show', `HEAD:${rel}`]);
+    const rebuilt = contentWithoutSession(head.ok ? head.stdout : '', others);
+    if (rebuilt == null) return false;
+    if (!head.ok && rebuilt === '') { try { fs.unlinkSync(abs); } catch {} } // nothing but our own work created it
+    else fs.writeFileSync(abs, rebuilt);
+    return true;
+  };
   const reverted = [], skipped = [];
   for (const [abs, ops] of s.edits) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
@@ -327,6 +369,7 @@ bridge.handle('revert-session', guard('reverting a session', async (_e, id) => {
     try { working = fs.readFileSync(abs, 'utf8'); } catch { /* deleted */ }
     const inv = working == null ? { clean: false } : inverseEdits(working, ops);
     if (inv.clean) { fs.writeFileSync(abs, inv.content); reverted.push(abs); continue; }
+    if (await rebuildFromOthers(abs, rel)) { reverted.push(abs); continue; }
     if (sharedWithOther(abs)) { skipped.push(rel); continue; }
     const head = await git(['show', `HEAD:${rel}`]);
     if (head.ok) fs.writeFileSync(abs, head.stdout); // restore committed version
@@ -342,7 +385,13 @@ bridge.handle('revert-session', guard('reverting a session', async (_e, id) => {
   for (const [abs, kind] of s.fileOps) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     if (!rel || rel.startsWith('..')) continue; // outside the repo
-    if (sharedWithOther(abs)) { skipped.push(rel); continue; }
+    // Another session edited the same path: `git checkout HEAD` would wipe its
+    // edits, so rebuild HEAD + its ops instead; only skip if that can't be done.
+    if (sharedWithOther(abs)) {
+      if (await rebuildFromOthers(abs, rel)) { revertedOps.push(abs); continue; }
+      skipped.push(rel);
+      continue;
+    }
     const inHead = (await git(['cat-file', '-e', `HEAD:${rel}`])).ok;
     if (inHead) {
       const r = await git(['checkout', 'HEAD', '--', rel]); // restore the committed file (add modified it, or delete removed it)
@@ -357,6 +406,6 @@ bridge.handle('revert-session', guard('reverting a session', async (_e, id) => {
   sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
   if (!reverted.length && !revertedOps.length && !skipped.length) return { ok: false, stderr: 'This session changed no files' };
   return { ok: true, reverted: reverted.length + revertedOps.length, skipped };
-}, (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
+}), (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
 
 module.exports = {};

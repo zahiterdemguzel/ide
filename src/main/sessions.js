@@ -23,6 +23,8 @@ const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes
 const { interruptState } = require('./hook-events');
 const push = require('./push');
 const { querySessions } = require('./session-query-lib');
+const { createCoalescer } = require('./concurrency');
+const { createPtyBatcher } = require('./pty-batch');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
@@ -337,20 +339,45 @@ function pathClaimedByOther(self, abs, { edits = true, fileOps = true } = {}) {
   return false;
 }
 
+// Same predicate as a Set snapshot, for callers that loop over many paths:
+// probing per path is O(paths × sessions), and applyFsDiff/commit run over every
+// changed path — with tens of sessions that multiplied out into real stalls.
+function pathsClaimedByOthers(self, { edits = true, fileOps = true } = {}) {
+  const out = new Set();
+  for (const [, o] of sessions) {
+    if (o === self) continue;
+    if (edits) for (const k of o.edits.keys()) out.add(k);
+    if (fileOps) for (const k of o.fileOps.keys()) out.add(k);
+  }
+  return out;
+}
+
 // True when `absPath` is excluded by .gitignore. `git check-ignore` reports
 // nothing (exit 1) for a tracked file even if it matches an ignore rule, so this
 // is exactly "untracked AND ignored" — the files we must never track or commit.
 // The filesystem-diff path already excludes these (they don't appear in `git
 // status`); this guards the text-edit path, which records by file path directly.
+// Cached per path: agents edit the same files over and over, and a git spawn per
+// text edit was a real per-keystroke tax with many sessions working. The cache is
+// cleared when a .gitignore is edited (see recordSessionActivity); a path's answer
+// otherwise only changes when ignore rules do.
+const ignoreCache = new Map(); // absPath -> boolean
 async function isIgnored(absPath) {
+  if (ignoreCache.has(absPath)) return ignoreCache.get(absPath);
   const r = await git(['check-ignore', '-q', '--', absPath]);
-  return r.ok; // exit 0 = ignored
+  ignoreCache.set(absPath, r.ok); // exit 0 = ignored
+  return r.ok;
 }
 
 // Snapshot the working tree as Map<relPath, "XY"> (porcelain status code).
 // --no-renames so a rename surfaces as a delete + an add (two paths we can each
 // attribute), and --untracked-files=all so a new binary file lists individually.
-async function statusMap() {
+// Coalesced (createCoalescer): with N sessions running tools in parallel, their
+// Pre/Post hooks each want a scan, and N concurrent O(worktree) `git status`
+// runs of the same repo was a major stall. Every caller still gets a scan that
+// STARTS after it asked — required for correctness, since a Post hook's "after"
+// snapshot must see the tool's writes — but a burst shares one or two scans.
+const statusMap = createCoalescer(async () => {
   const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames']);
   const m = new Map();
   if (!r.ok) return m;
@@ -358,7 +385,7 @@ async function statusMap() {
     if (line) m.set(line.slice(3), line.slice(0, 2));
   }
   return m;
-}
+});
 
 // Diff a before/after status snapshot taken across one tool call and attribute
 // each changed path to the session as an 'add' (file now present — a created
@@ -386,6 +413,7 @@ async function unstageToolStaged(before, after) {
 function applyFsDiff(s, before, after) {
   const repoPath = getRepoPath();
   let changed = false;
+  const claimed = pathsClaimedByOthers(s);
   for (const rel of new Set([...before.keys(), ...after.keys()])) {
     if (before.get(rel) === after.get(rel)) continue; // untouched by this tool
     const abs = path.resolve(repoPath, rel);
@@ -394,7 +422,7 @@ function applyFsDiff(s, before, after) {
     // (its exact text edits, or a filesystem change it recorded first), the change
     // is theirs — don't attribute it to this Bash/MCP tool. See per-session commit
     // "Known ceilings".
-    if (pathClaimedByOther(s, abs)) continue;
+    if (claimed.has(abs)) continue;
     if (fs.existsSync(abs)) {
       if (s.edits.has(abs)) continue; // a text-edit tool already covers this file
       s.fileOps.set(abs, 'add');
@@ -519,6 +547,8 @@ async function recordSessionActivity(payload) {
     // (payloads carrying agent_id) land here too, same session_id, and belong to
     // the session just like main-thread ones.
     const f = editedFilePath(ti);
+    // Editing an ignore file changes what isIgnored means for every path.
+    if (f && path.basename(f) === '.gitignore') ignoreCache.clear();
     // Skip .gitignore'd files: tracking them here would let commit-session add
     // them to the repo (and, once tracked, surface them in the changes panel).
     if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && !(await isIgnored(f))) {
@@ -622,6 +652,12 @@ async function generateSessionName(id, prompt) {
 // of each live session's output for a reattaching client to replay.
 const SCROLLBACK_CHARS = 200_000;
 
+const ptyBatch = createPtyBatcher((id, data) => {
+  const s = sessions.get(id);
+  if (s) appendScrollback(s, data);
+  sendToRenderer('pty-data', { id, data, seq: s ? s.scroll.seq : 0 });
+});
+
 function appendScrollback(s, data) {
   const sb = s.scroll;
   sb.seq += 1;
@@ -687,10 +723,15 @@ async function spawnPty(id, cols, rows, resume) {
   if (s) s.scroll = { chunks: [], chars: 0, seq: 0 };
   chat.ptyStarted(id); // start tailing the transcript this run appends to
   p.onData((data) => {
-    if (s) { appendScrollback(s, data); s.sawData = true; s.lastDataAt = Date.now(); }
-    sendToRenderer('pty-data', { id, data, seq: s ? s.scroll.seq : 0 });
+    if (s) { s.sawData = true; s.lastDataAt = Date.now(); }
+    // Coalesced (pty-batch.js): the TUI repaints continuously, and per-chunk IPC
+    // was a real typing-latency tax with many working sessions. Scrollback is
+    // appended at flush time so its seq counts the batches actually sent,
+    // keeping reattach replay consistent.
+    ptyBatch.push(id, data);
   });
   p.onExit(() => {
+    ptyBatch.flushId(id); // deliver the tail output before the teardown broadcasts land
     const s = sessions.get(id);
     // This is a respawn's *predecessor* dying: a Codex model/effort switch killed it on
     // purpose and a replacement is landing under the same id (`s.pty` is null mid-flight,
@@ -755,13 +796,21 @@ function baseRow(id, s) {
 // are in memory) but not free to call carelessly: this runs per row, and the phone
 // polls its page, so keep it O(ops) — see the accuracy caveats on diffStat.
 function sessionDiffStat(s) {
+  // Memoized on (files, total ops): every list broadcast and phone page poll runs
+  // this per row, and only an edit landing or a commit forgetting files moves it.
+  let ops = 0;
+  for (const a of s.edits.values()) ops += a.length;
+  const key = `${s.edits.size}:${ops}`;
+  if (s.diffStatKey === key) return s.diffStatMemo;
   let added = 0, removed = 0;
-  for (const ops of s.edits.values()) {
-    const d = diffStat(ops);
+  for (const opsList of s.edits.values()) {
+    const d = diffStat(opsList);
     added += d.added;
     removed += d.removed;
   }
-  return { added, removed };
+  s.diffStatKey = key;
+  s.diffStatMemo = { added, removed };
+  return s.diffStatMemo;
 }
 
 function sessionList() {
@@ -1136,4 +1185,4 @@ function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
 }
 
-module.exports = { sessions, recordSessionActivity, noteAgentSessionId, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, killAllSessions, persistSession, persistSessions, reportSessionError, guard };
+module.exports = { sessions, recordSessionActivity, noteAgentSessionId, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, pathsClaimedByOthers, killAllSessions, persistSession, persistSessions, reportSessionError, guard };

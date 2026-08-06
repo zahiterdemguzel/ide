@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { editOp, replayEdits, commitContent, inverseEdits, diffStat } = require('../src/main/edit-ops');
+const { editOp, replayEdits, commitContent, inverseEdits, contentWithoutSession, diffStat } = require('../src/main/edit-ops');
 
 test('editOp: maps each file tool to its op shape', () => {
   assert.deepEqual(editOp('Write', { content: 'x' }), { t: 'write', content: 'x' });
@@ -115,6 +115,31 @@ test('inverseEdits: pure deletion (empty new) cannot be relocated', () => {
 test('inverseEdits: new_string already overwritten -> unclean', () => {
   const r = inverseEdits('something else', [{ t: 'edit', old: 'a', new: 'b' }]);
   assert.equal(r.clean, false);
+});
+
+test('contentWithoutSession: keeps the other sessions edits, drops ours', () => {
+  // Our session Write-rewrote the file (uninvertible); another session renamed f.
+  const r = contentWithoutSession('let f = 1;\nlet g = 2;\n', [
+    [{ t: 'edit', old: 'let g', new: 'const g' }],
+  ]);
+  assert.equal(r, 'let f = 1;\nconst g = 2;\n');
+});
+
+test('contentWithoutSession: replays several sessions oldest-first', () => {
+  const r = contentWithoutSession('a', [
+    [{ t: 'edit', old: 'a', new: 'b' }],
+    [{ t: 'edit', old: 'b', new: 'c' }],
+  ]);
+  assert.equal(r, 'c');
+});
+
+test('contentWithoutSession: no lists leaves the base untouched', () => {
+  assert.equal(contentWithoutSession('base', []), 'base');
+});
+
+test('contentWithoutSession: an unreplayable list gives up (null)', () => {
+  assert.equal(contentWithoutSession('base', [[{ t: 'edit', old: 'absent', new: 'x' }]]), null);
+  assert.equal(contentWithoutSession('base', [[{ t: 'opaque' }]]), null);
 });
 
 test('replay then inverse round-trips back to the base', () => {

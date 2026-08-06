@@ -39,6 +39,22 @@ const streams = new Map(); // id -> { state, seq, pos, watcher, timer }
 const asks = new Map();    // id -> the question the session is blocked on
 const live = new Set();    // ids whose PTY is running — the only ones we watch
 
+// Only a paired phone renders the chat — the desktop never consumes
+// transcript-data. So the tailing (a watcher + JSONL parse + IPC push per live
+// session) runs only while at least one remote client is connected; with tens of
+// sessions and no phone it was pure per-session overhead. The snapshot handler
+// below still works ungated: with no stream it reads the file off disk.
+let remoteClients = 0;
+
+function onClientCount(count) {
+  const had = remoteClients > 0;
+  remoteClients = count;
+  if (count > 0 && !had) for (const id of live) startWatch(id);
+  // Keep the parsed messages: a phone reconnecting fetches the snapshot, and the
+  // stream resumes from its kept read position when tailing restarts.
+  if (count === 0 && had) for (const id of [...streams.keys()]) stopWatch(id);
+}
+
 // --- transcript ---
 
 // Every push carries a counter, and the snapshot reports the last counter it
@@ -81,7 +97,7 @@ function scheduleRead(id) {
 
 function startWatch(id) {
   const file = paths.get(id);
-  if (!file || !live.has(id)) return;
+  if (!file || !live.has(id) || remoteClients === 0) return;
   let st = streams.get(id);
   // A different file means a different conversation — nothing about the old one
   // (messages, read position) means anything against it.
@@ -247,4 +263,5 @@ bridgeHandle('save-attachment', async (_e, { name, data } = {}) => {
 
 module.exports = {
   noteTranscript, ptyStarted, ptyStopped, forget, onHook, currentAsk, clearAsk, transcriptPath,
+  onClientCount,
 };

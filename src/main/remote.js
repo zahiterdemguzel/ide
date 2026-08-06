@@ -27,6 +27,7 @@ const push = require('./push');
 const remoteBrowser = require('./remote-browser');
 const remoteControl = require('./remote-control');
 const remoteAudio = require('./remote-audio');
+const chat = require('./chat');
 
 // The Ports *tab* stays parked while the remote browser (remote-browser.js) covers
 // mobile testing, but the forwarding plumbing itself is back on: APK sideloading
@@ -198,6 +199,7 @@ async function enable() {
       remoteBrowser.onClientCount(count);
       remoteControl.onClientCount(count);
       remoteAudio.onClientCount(count);
+      chat.onClientCount(count); // transcript tailing runs only while a phone is connected
     },
   });
   remoteBrowser.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
@@ -244,6 +246,7 @@ async function disable() {
   remoteControl.setBroadcast(null);
   remoteAudio.setBroadcast(null);
   sendToRenderer('remote-clients-changed', 0);
+  chat.onClientCount(0);
   await closeAllForwards();
   return status();
 }

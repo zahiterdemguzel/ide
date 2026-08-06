@@ -166,6 +166,10 @@ export function selectSession(id) {
     if (s.suspended && !s.archived) resumeSessionUI(s).then(() => { if (activeId === id) selectSession(id); });
     return;
   }
+  // Catch the terminal up on the output buffered while it was hidden, and
+  // re-validate its diff badge (background rows only refresh on their own edits).
+  flushPendingOutput(s);
+  if (!s.archived && (s.files.length || (s.diffStat && s.diffStat.files))) refreshDiffStat(id);
   fit(s);
   if (!s.renderer) s.renderer = attachRenderer(s.term);
   // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
@@ -211,8 +215,13 @@ function applyTabFilter() {
   for (const s of rows) {
     s.li.style.display = sessionVisible(s) ? '' : 'none';
     s.li.classList.toggle('archived', s.archived);
-    listEl.appendChild(s.li); // re-order the row to match the active tab's sort
   }
+  // Re-order the rows to match the active tab's sort — but only when the order
+  // actually changed: this runs on every sessions-changed broadcast, and O(N)
+  // unconditional appendChild reflows were a per-event tax with many sessions.
+  const inOrder = rows.length === listEl.children.length
+    && rows.every((s, i) => listEl.children[i] === s.li);
+  if (!inOrder) for (const s of rows) listEl.appendChild(s.li);
 }
 
 // When the selected session leaves the current tab (archived/restored/closed),
@@ -584,15 +593,15 @@ function refreshDiffStat(id) {
 // diff to force it. Each per-session refresh is debounced, so duplicate triggers
 // (this plus a concurrent session-meta) coalesce.
 export function refreshAllDiffStats() {
-  for (const [, s] of sessions) {
-    // Archived sessions never compute a diff stat — their badge isn't shown while
-    // they sit in the Archived tab, and a stat spawns several git processes.
-    // Hundreds of them fanning out on launch is what made the app crawl on open.
-    // An archived row keeps its tracked-file-count fallback and gets its real
-    // stat only when it's unarchived (setArchived → refreshDiffStat).
-    if (s.archived) continue;
-    if (s.files.length || (s.diffStat && s.diffStat.files)) refreshDiffStat(s.id);
-  }
+  // Only the ACTIVE session re-validates here. A stat spawns several git
+  // processes, so fanning out to every row on the 3s poll is what buried main
+  // under a git-process queue with tens of sessions (archived rows already
+  // learned this lesson — hundreds fanning out on launch made the app crawl).
+  // A background row stays current through its own session-meta (its edits) and
+  // re-validates against a moved HEAD when it's selected (selectSession).
+  const s = sessions.get(activeId);
+  if (!s || s.archived) return;
+  if (s.files.length || (s.diffStat && s.diffStat.files)) refreshDiffStat(s.id);
 }
 
 export function fit(s) {
@@ -1144,9 +1153,64 @@ hostEl.addEventListener('drop', (e) => {
 });
 
 // --- IPC streams from the per-session PTYs / hook server ---
+// A hidden xterm pays the full VT-parse cost for every write even though nothing
+// renders (only the visible terminal holds a GPU renderer). With tens of working
+// sessions, that parsing — all on the renderer main thread — is what made typing
+// lag. So only the ACTIVE session's terminal is written live; a hidden session's
+// output queues in a capped buffer and is fed to its terminal during idle time,
+// or in one write when the session is selected. On overflow the oldest chunks
+// drop and the terminal is reset before the tail replays — a cut can land
+// mid-escape-sequence, but Claude's TUI fully redraws, clearing any smear (same
+// tolerance as main's scrollback trim).
+const HIDDEN_BUFFER_CHARS = 200_000;
+const idleFlushIds = new Set();
+let idleFlushScheduled = false;
+
+function queueHiddenOutput(s, data) {
+  if (!s.pendingOut) { s.pendingOut = []; s.pendingChars = 0; }
+  s.pendingOut.push(data);
+  s.pendingChars += data.length;
+  while (s.pendingChars > HIDDEN_BUFFER_CHARS && s.pendingOut.length > 1) {
+    s.pendingChars -= s.pendingOut.shift().length;
+    s.pendingOverflow = true;
+  }
+  idleFlushIds.add(s.id);
+  scheduleIdleFlush();
+}
+
+function flushPendingOutput(s) {
+  idleFlushIds.delete(s.id);
+  if (!s.pendingOut || !s.pendingOut.length) return;
+  const data = s.pendingOut.join('');
+  s.pendingOut = [];
+  s.pendingChars = 0;
+  const overflowed = s.pendingOverflow;
+  s.pendingOverflow = false;
+  if (!s.term) return;
+  if (overflowed) s.term.reset();
+  s.term.write(data);
+}
+
+function scheduleIdleFlush() {
+  if (idleFlushScheduled) return;
+  idleFlushScheduled = true;
+  requestIdleCallback((deadline) => {
+    idleFlushScheduled = false;
+    for (const id of [...idleFlushIds]) {
+      const s = sessions.get(id);
+      if (s) flushPendingOutput(s); else idleFlushIds.delete(id);
+      if (deadline.timeRemaining() < 4) break;
+    }
+    if (idleFlushIds.size) scheduleIdleFlush();
+  }, { timeout: 1000 });
+}
+
 window.api.onPtyData(({ id, data }) => {
   const s = sessions.get(id);
-  if (s && s.term) s.term.write(data);
+  if (s && s.term) {
+    if (id === activeId) s.term.write(data);
+    else queueHiddenOutput(s, data);
+  }
   // First output means Claude's TUI is painting — give it a beat to ready its
   // input box, then drop in any queued message (see newSessionWithPrompt). The
   // Enter is sent as a SEPARATE write after a further delay: bundling "\r" with the

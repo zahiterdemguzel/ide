@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { cleanEnv } = require('./proc-env');
+const { createPtyBatcher } = require('./pty-batch');
 
 // --- git-pane consoles: interactive shell PTYs in the repo dir, keyed by id.
 // The renderer shows one tab per terminal. A terminal may run a launch config /
@@ -38,6 +39,15 @@ function pushScroll(scroll, data) {
   scroll.len += data.length;
   while (scroll.len > SCROLL_MAX && scroll.chunks.length > 1) scroll.len -= scroll.chunks.shift().length;
 }
+
+// Coalesced like session PTY output (see pty-batch.js): a chatty build or dev
+// server would otherwise cost one IPC message + renderer parse per tiny chunk.
+const termBatch = createPtyBatcher((id, data) => {
+  const entry = consoles.get(id);
+  if (!entry) return; // killed while a flush was pending
+  pushScroll(entry.scroll, data);
+  sendToRenderer('term-data', { id, data, seq: entry.scroll.seq });
+});
 
 const terminalList = () =>
   [...consoles.entries()].map(([id, c]) => ({ id, name: c.name, kind: c.kind }));
@@ -159,11 +169,11 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env, name, ki
     try { p.write(command + '\r'); } catch (e) { console.error('[console] command write failed', e); }
   };
   p.onData((data) => {
-    pushScroll(entry.scroll, data);
-    sendToRenderer('term-data', { id, data, seq: entry.scroll.seq });
+    termBatch.push(id, data);
     sendCommand();
   });
   p.onExit(() => {
+    termBatch.flushId(id); // deliver the tail output before the tab closes
     if (consoles.get(id) !== entry) return; // replaced by a restart — stay quiet
     consoles.delete(id);
     sendToRenderer('term-exit', { id });

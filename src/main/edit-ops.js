@@ -76,6 +76,23 @@ function inverseEdits(working, ops) {
   return { content: s, clean };
 }
 
+// Rebuild a file as "HEAD + every OTHER session's edits" — the state it would be
+// in had the session we're reverting never touched it. This is the fallback when
+// a session's own ops can't be inverted out of the working file (a full Write has
+// no pre-image, text moved, an opaque op) but another live session also edited
+// the file, so resetting to HEAD would destroy that session's work.
+// `otherOpsLists` are replayed in order, oldest session first. Returns null when
+// any list can't replay cleanly — the caller must skip rather than guess.
+function contentWithoutSession(base, otherOpsLists) {
+  let s = base;
+  for (const ops of otherOpsLists) {
+    const r = replayEdits(s, ops);
+    if (!r.clean) return null;
+    s = r.content;
+  }
+  return s;
+}
+
 // Added/removed line counts for a session's ops, for the "+124 −38" pill on a
 // session row.
 //
@@ -126,4 +143,4 @@ function diffPair(oldStr, newStr) {
   return { removed: a.length - head - tail, added: b.length - head - tail };
 }
 
-module.exports = { editOp, replayEdits, commitContent, inverseEdits, diffStat };
+module.exports = { editOp, replayEdits, commitContent, inverseEdits, contentWithoutSession, diffStat };

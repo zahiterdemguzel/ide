@@ -5,6 +5,7 @@ const { runHaiku } = require('./claude');
 const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
+const { createLimiter } = require('./concurrency');
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
@@ -15,7 +16,31 @@ const { validateRepoName, ghCreateArgs } = require('./repo-create');
 // GIT_TERMINAL_PROMPT=0: a remote that wants credentials with no helper would
 // otherwise block forever on a prompt we can't answer (no tty) — fail fast instead.
 // timeout: backstop so a stuck network op (push/pull/fetch) can't wedge the UI.
+// One global cap on concurrent git subprocesses. Every subsystem's git calls
+// funnel through here: with tens of working sessions each spawning status /
+// check-ignore / diff bursts, an unbounded fan-out contends on the same repo
+// (and .git/index.lock) and starves the whole main process — session creation
+// and file search included. Each call is a leaf (no git() awaits another git()
+// while holding its slot), so the limiter cannot deadlock.
+const limitGit = createLimiter(4);
 function git(args, opts = {}) {
+  return limitGit(() => gitExec(args, opts));
+}
+
+// One global mutex over everything that REWRITES history or the index: the two
+// per-session buttons (commit / revert) and the git pane's commit / amend / undo.
+// They are not independent — each reads HEAD (or the index), works for seconds
+// (a Haiku message call, a pile of git spawns), then writes HEAD back. Run two at
+// once and the second one's `update-ref HEAD` overwrites the first one's commit
+// with a commit built on the OLD head: the first session's commit is dropped from
+// history and its files reappear as changed. Serializing makes a burst of clicks
+// across different sessions queue up, each one building on the previous result.
+// git() calls inside a holder queue on limitGit (a separate limiter) and never
+// take this lock, so the two cannot deadlock.
+const limitRepoWrite = createLimiter(1);
+function repoWrite(fn) { return limitRepoWrite(fn); }
+
+function gitExec(args, opts = {}) {
   return new Promise((resolve) => {
     // No folder open yet: never let execFile default to the app's own cwd.
     if (!getRepoPath()) return resolve({ ok: false, stdout: '', stderr: 'no folder open' });
@@ -208,7 +233,7 @@ async function generateCommitMessage() {
 // Commit staged changes. If nothing is staged, stage everything first so a bare
 // Commit click behaves like "commit all" rather than failing with "nothing to commit".
 // An empty message triggers a one-shot Haiku call to author one from the staged diff.
-bridge.handle('git-commit', async (_e, msg) => {
+bridge.handle('git-commit', (_e, msg) => repoWrite(async () => {
   const nothingStaged = (await git(['diff', '--cached', '--quiet'])).ok;
   if (nothingStaged) await git(['add', '-A']);
   if (!msg || !msg.trim()) {
@@ -217,7 +242,7 @@ bridge.handle('git-commit', async (_e, msg) => {
   }
   const r = await git(['commit', '-m', msg]);
   return { ...r, message: msg };
-});
+}));
 // Is HEAD already on the upstream? Rewriting such a commit (undo, amend) would
 // diverge from the remote. With no upstream the rev-list fails, and nothing is
 // pushed, so the rewrite is allowed.
@@ -228,19 +253,19 @@ async function headIsPushed() {
 
 // Undo last commit, keep its changes staged. Soft reset, no history rewrite beyond
 // one. Pushed commits must be reverted (a new commit) instead.
-bridge.handle('git-undo', async () => {
+bridge.handle('git-undo', () => repoWrite(async () => {
   if (await headIsPushed()) {
     return { ok: false, stderr: 'Last commit is already pushed — revert it instead of undoing.' };
   }
   return git(['reset', '--soft', 'HEAD~1']);
-});
+}));
 
 // Fold the current changes into the last commit. Mirrors git-commit: with nothing
 // staged, stage everything first, so "amend" means "and everything I've since
 // changed" rather than failing. An empty message keeps the original one
 // (--no-edit — there is no tty to open an editor on). Refuses on a pushed commit
 // for the same reason undo does: amending rewrites it.
-bridge.handle('git-amend', async (_e, msg) => {
+bridge.handle('git-amend', (_e, msg) => repoWrite(async () => {
   if (await headIsPushed()) {
     return { ok: false, stderr: 'Last commit is already pushed — amending it would rewrite remote history.' };
   }
@@ -248,7 +273,7 @@ bridge.handle('git-amend', async (_e, msg) => {
   if (nothingStaged) await git(['add', '-A']);
   const text = (msg || '').trim();
   return git(['commit', '--amend', ...(text ? ['-m', text] : ['--no-edit'])]);
-});
+}));
 
 // Push. A branch with no upstream fails with "has no upstream branch"; retry once
 // with -u to create the tracking ref (the common first-push case) so the user
@@ -478,4 +503,4 @@ bridge.handle('git-pull', async () => {
   return { ...r, needsMerge: !r.ok && pullNeedsMerge(r.stderr) };
 });
 
-module.exports = { git, gitStatus, isRepo };
+module.exports = { git, gitStatus, isRepo, repoWrite };
