@@ -297,9 +297,11 @@ syncing the checkboxes and applying the saved state on load.
   `#git.solo-console` expands the terminal. The whole right aside
   (`#git`) + its column gutter hide only when **both** Git and Terminal are off;
   the console gutter shows only when **both** are on.
-- **Browser** flips the top-toolbar browser button's `.is-hidden` class; a CSS
-  fallback (`#browser-btn.is-hidden + #settings-btn`) hands the right-edge
-  alignment to the gear so it stays pinned to the corner.
+- **Browser** / **Diagram** flip their top-toolbar button's `.is-hidden` class.
+  The three toolbar buttons (diagram, browser, gear) share one style block in
+  `settings.css`; a CSS chain (`#diagram-btn.is-hidden + #browser-btn`, and the
+  same plus `.is-hidden + #settings-btn`) hands the right-edge `margin-left:auto`
+  to the first button still visible so the group stays pinned to the corner.
 - **Usage metrics** gates the toolbar's usage meter (the 5-hour + weekly
   subscription sliders). `usage-meter.js` checks `isPanelEnabled('usage')` in its
   `render()` (staying hidden when off, regardless of available data) and

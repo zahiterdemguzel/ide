@@ -1,8 +1,8 @@
-/* Square browser + gear buttons at the right end of the top toolbar. The
- * margin-left:auto on the first of the pair pushes the group past the run
- * buttons so they always sit in the top-right corner, adjacent to each other.
- * Sized and colored to match the run toolbar's .tool-btn. */
-#browser-btn, #settings-btn {
+/* Square diagram + browser + gear buttons at the right end of the top toolbar.
+ * The margin-left:auto on the first visible one of the group pushes it past the
+ * run buttons so they always sit in the top-right corner, adjacent to each
+ * other. Sized and colored to match the run toolbar's .tool-btn. */
+#diagram-btn, #browser-btn, #settings-btn {
   flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; padding: 0;
@@ -10,11 +10,14 @@
   border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
-#browser-btn { margin-left: auto; margin-right: 6px; }
-/* When the browser button is toggled off, the gear inherits the right-alignment. */
-#browser-btn.is-hidden + #settings-btn { margin-left: auto; }
-#browser-btn:hover, #settings-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-#browser-btn svg, #settings-btn svg { display: block; }
+#diagram-btn, #browser-btn { margin-right: 6px; }
+/* The first button still on screen carries the right-alignment, so toggling any
+ * of the panel buttons off keeps the rest flush in the corner. */
+#diagram-btn { margin-left: auto; }
+#diagram-btn.is-hidden + #browser-btn { margin-left: auto; }
+#diagram-btn.is-hidden + #browser-btn.is-hidden + #settings-btn { margin-left: auto; }
+#diagram-btn:hover, #browser-btn:hover, #settings-btn:hover { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#diagram-btn svg, #browser-btn svg, #settings-btn svg { display: block; }
 /* Lit accent while a page is loaded in the background browser — the button
  * doubles as a browser-is-alive indicator. */
 #browser-btn.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
