@@ -9,6 +9,11 @@ export async function showDiff(file, status, staged) {
   setDiffTitle(file);
   renderDiff(r.stdout || r.stderr || '(no changes)', langFor(file));
   showDiffContainer();
+  // `clean` means main re-checked the path and it has no pending change at all:
+  // the row we were opened from is stale (another session committed it out from
+  // under the list). Rebuild the pane so the dead row disappears instead of
+  // sitting there opening to nothing on every click.
+  if (r.clean) import('../git-pane.js').then((m) => m.refreshGit());
 }
 
 // Show one historical commit's full patch (History tab → click a commit). The

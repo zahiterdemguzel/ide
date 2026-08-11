@@ -176,13 +176,15 @@ export async function refreshGit() {
   refreshAllDiffStats();
 }
 
-// A compact fingerprint of the working-tree state: branch + ahead/behind (so a
-// commit, which always bumps `ahead`, registers) plus every staged/unstaged/
-// conflicted path and its status (so an external edit or stage registers).
+// A compact fingerprint of the working-tree state: branch + HEAD + ahead/behind
+// plus every staged/unstaged/conflicted path and its status (so an external edit
+// or stage registers). HEAD is in there because a per-session commit doesn't
+// always move `ahead` (no upstream → always 0) and needn't change the porcelain
+// lists, yet it invalidates every row's staged/untracked flag.
 let lastGitSig = null;
 function gitStateSignature(r) {
   const files = (list) => (list || []).map((it) => it.status + it.file).join(',');
-  return [r.branch, r.ahead, r.behind, files(r.staged), files(r.unstaged), files(r.conflicts)].join('|');
+  return [r.branch, r.head, r.ahead, r.behind, files(r.staged), files(r.unstaged), files(r.conflicts)].join('|');
 }
 
 // Background `git fetch` to refresh the remote-tracking refs — and so the

@@ -73,6 +73,12 @@ async function commitBlobs(entries, msg) {
     // new-path and update-existing cases.
     for (const e of staged) await git(['update-index', '--add', '--cacheinfo', `100644,${e.sha},${e.path}`]);
     for (const p of removed) await git(['update-index', '--force-remove', p]);
+    // --cacheinfo writes the entry with ZEROED stat data, so every later `git
+    // status` has to re-hash those files to decide they're clean. Refresh once
+    // here, inside the repo-write lock, to restamp them: otherwise a concurrent
+    // reader that can't take index.lock leaves the stale stat in place and the
+    // path keeps reading as modified while its diff is empty.
+    await git(['update-index', '-q', '--refresh']);
     return ct;
   } finally {
     try { fs.unlinkSync(idxFile); } catch {}

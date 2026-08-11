@@ -61,8 +61,18 @@ async function gitStatus() {
   const r = await git(['status', '--porcelain=v1', '--untracked-files=all']);
   if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [], conflicts: [] };
   const { staged, unstaged, conflicts } = parsePorcelain(r.stdout);
-  const [ahead, behind, branch] = await Promise.all([aheadCount(), behindCount(), currentBranch()]);
-  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead, behind, branch };
+  // `head` feeds the pane's state signature: a per-session commit can land
+  // without changing the porcelain lists or `ahead` (a repo with no upstream
+  // always reports 0), and the gate would then skip the rebuild and keep rows
+  // whose staged/untracked flags no longer match the new HEAD.
+  const [ahead, behind, branch, head] = await Promise.all([aheadCount(), behindCount(), currentBranch(), headSha()]);
+  return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead, behind, branch, head };
+}
+
+// The commit HEAD points at, or '' in a repo with no commits yet.
+async function headSha() {
+  const r = await git(['rev-parse', '-q', '--verify', 'HEAD']);
+  return r.ok ? r.stdout.trim() : '';
 }
 
 // The checked-out branch's short name, or 'HEAD' when detached (no branch).
@@ -209,10 +219,40 @@ bridge.handle('git-unstage', async (_e, file) => {
 
 // Untracked files have nothing to diff against, so compare to /dev/null
 // (git-for-windows accepts it); exit code 1 just means "they differ".
-bridge.handle('git-diff', (_e, { file, staged, untracked }) => {
+function bucketDiff(file, staged, untracked) {
   if (untracked) return git(['diff', '--no-index', '--', '/dev/null', file]);
   return git(['diff', ...(staged ? ['--cached'] : []), '--', file]);
-});
+}
+
+// A row in the git pane is a SNAPSHOT: the staged/untracked flags baked into it
+// come from the porcelain read that drew it. Between that read and the click,
+// another session's per-session commit can move HEAD and rewrite the real index
+// for that path — so the row's bucket no longer holds any diff and the pane
+// showed an "empty change" that opened to nothing. With several agents
+// committing at once this is the common case, not a rare one. So re-verify the
+// path at click time: if its own bucket is empty, ask git what state the path is
+// in NOW and diff that instead. `clean: true` means the path really has no
+// pending change any more — the row is stale and the pane should drop it.
+async function fileDiff(file, staged, untracked) {
+  const primary = await bucketDiff(file, staged, untracked);
+  if (primary.stdout.trim()) return primary;
+  const st = await git(['status', '--porcelain=v1', '--untracked-files=all', '--', file]);
+  if (!st.ok) return primary;
+  const now = parsePorcelain(st.stdout);
+  const entry = (list) => list.find((it) => it.file === file);
+  for (const [hit, isStaged, isUntracked] of [
+    [entry(now.unstaged), false, (entry(now.unstaged) || {}).status === '?'],
+    [entry(now.staged), true, false],
+    [entry(now.conflicts), false, false],
+  ]) {
+    if (!hit) continue;
+    const r = await bucketDiff(file, isStaged, isUntracked);
+    if (r.stdout.trim()) return r;
+  }
+  return { ...primary, clean: true };
+}
+
+bridge.handle('git-diff', (_e, { file, staged, untracked }) => fileDiff(file, staged, untracked));
 
 // Discard a file's changes: delete it if untracked, else restore index+worktree to HEAD.
 bridge.handle('git-revert', (_e, { file, untracked }) => {
