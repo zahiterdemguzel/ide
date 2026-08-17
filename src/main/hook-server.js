@@ -12,6 +12,18 @@ const sessions = require('./sessions');
 let hookPort = 0;
 const getHookPort = () => hookPort;
 
+// TEMPORARY (status-dot debugging): append every hook event and the state it
+// derived to a log so the live sequence can be read back. Remove once the
+// background-agent dot is confirmed working.
+const debugLog = (line) => {
+  try {
+    require('fs').appendFileSync(
+      require('path').join(require('os').tmpdir(), 'ide-hook-debug.log'),
+      `${new Date().toISOString()} ${line}\n`,
+    );
+  } catch {}
+};
+
 // Per-session agent bookkeeping for deriveStatus:
 // { subagents, active: [{id, at}], stopped, stoppedIds }. In-memory only —
 // nothing is running across a restart, so there's nothing to persist. Keyed by
@@ -59,6 +71,7 @@ function startHookServer() {
           // An ESC/Ctrl+C keystroke on its own never moves the dot — this event is
           // the trusted word on whether it actually cut the turn short.
           state = sessions.resolveInterrupt(payload, derived);
+          debugLog(`ev=${payload.hook_event_name} tool=${payload.tool_name || '-'} agent=${payload.agent_id || '-'} origin=${normalized.agentSessionId || '-'} derived=${derived} final=${state} track=${JSON.stringify(tracking)}`);
         }
         if (state && payload.session_id) {
           // Don't let a resume's SessionStart → idle wipe the meaningful colour a

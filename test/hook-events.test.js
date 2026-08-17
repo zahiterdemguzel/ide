@@ -242,9 +242,11 @@ test('deriveStatus: a SubagentStop carrying agent_id still drains the count', ()
   assert.deepEqual(states, ['working', 'bg-agents', 'completed']);
 });
 
-test('deriveStatus: subagent-context events never touch the dot or the bookkeeping', () => {
+test('deriveStatus: subagent-context events never drive the dot while the chat is busy', () => {
   // A subagent's own UserPromptSubmit must not wipe the in-flight count, and its
-  // tool activity must not drive the session state.
+  // tool activity must not drive the session state. It is still *registered* as a
+  // live agent (see the /fork test below) — one already counted at its spawn, so
+  // the total stays 1 rather than double-counting.
   const { states, tracking } = runEvents([
     { hook_event_name: 'PreToolUse', tool_name: 'Task' },
     { hook_event_name: 'UserPromptSubmit', agent_id: 'sub-1' },
@@ -254,7 +256,57 @@ test('deriveStatus: subagent-context events never touch the dot or the bookkeepi
     { hook_event_name: 'Stop' }, // main done, but the subagent is still counted
   ]);
   assert.deepEqual(states, ['working', null, null, null, null, 'bg-agents']);
-  assert.deepEqual(tracking, { subagents: 1, active: [], stopped: true, stoppedIds: [] });
+  assert.deepEqual(tracking, {
+    subagents: 0, agents: [{ id: 'sub-1', at: 0 }], active: [], stopped: true, stoppedIds: [],
+  });
+});
+
+test('deriveStatus: a /fork the main thread never announced still spins the dot', () => {
+  // The bug this exists for: `/fork` is a slash command, so no `Task`/`Agent`
+  // PreToolUse ever fires and the spawn count stays 0. The fork then speaks only
+  // through agent_id events — which used to be dropped wholesale, leaving a
+  // session with a fork hard at work sitting flat green ("completed").
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'Stop' },                                    // chat settles
+    { hook_event_name: 'PreToolUse', tool_name: 'Read', agent_id: 'fork-a' },
+    { hook_event_name: 'PostToolUse', tool_name: 'Read', agent_id: 'fork-a' },
+    { hook_event_name: 'SubagentStop', agent_id: 'fork-a' },
+  ]);
+  assert.deepEqual(states, ['working', 'completed', 'bg-agents', 'bg-agents', 'completed']);
+});
+
+test('deriveStatus: an unannounced agent holds the dot until the LAST one is out', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'PreToolUse', agent_id: 'f1' },
+    { hook_event_name: 'PreToolUse', agent_id: 'f2' },
+    { hook_event_name: 'SubagentStop', agent_id: 'f1' },
+    { hook_event_name: 'SubagentStop', agent_id: 'f2' },
+  ]);
+  assert.deepEqual(states, ['completed', 'bg-agents', 'bg-agents', 'bg-agents', 'completed']);
+});
+
+test('deriveStatus: typing into the chat while a background agent runs is yellow', () => {
+  // Hue tracks the chat, not the work: once the user starts a turn the chat is busy.
+  const { states } = runEvents([
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'PreToolUse', agent_id: 'f1' },
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Edit' },
+  ]);
+  assert.deepEqual(states, ['completed', 'bg-agents', 'working', 'working']);
+});
+
+test('deriveStatus: a live agent aged out stops holding the dot', () => {
+  // An agent that dies without ever firing a stop (a `/fork` that replaced the
+  // conversation) must not spin the dot forever.
+  const { states } = runEvents([
+    { hook_event_name: 'Stop', at: 1 },
+    { hook_event_name: 'PreToolUse', agent_id: 'f1', at: 2 },
+    { hook_event_name: 'Stop', at: 2 + ORIGIN_STALE_MS + 1 },
+  ]);
+  assert.deepEqual(states, ['completed', 'bg-agents', 'completed']);
 });
 
 test('deriveStatus: duplicate stops for one subagent do not drain the count twice', () => {
@@ -291,7 +343,10 @@ test('deriveStatus: a nested spawn inside a subagent does not inflate the count'
     { hook_event_name: 'PreToolUse', tool_name: 'Task' },
     { hook_event_name: 'PreToolUse', tool_name: 'Task', agent_id: 'sub-1' },
   ]);
-  assert.equal(tracking.subagents, 1);
+  // One agent in flight, however it's bookkept: the nested spawn is the *same*
+  // agent reporting from its own context, so it claims the open spawn slot rather
+  // than adding a second.
+  assert.equal(tracking.subagents + tracking.agents.length, 1);
 });
 
 test('deriveStatus: main-thread activity after Stop reopens the turn', () => {
