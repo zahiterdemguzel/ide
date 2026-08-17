@@ -54,11 +54,17 @@ function gitExec(args, opts = {}) {
   });
 }
 
+// --untracked-files=all: list each untracked file individually instead of
+// collapsing a wholly-untracked folder into one "assets/" entry (which the pane
+// can't open or stage per-file).
+// --ignore-submodules=all: submodules are never the parent repo's work. A dirty
+// or moved submodule shows up as a plain " M sub" row the pane can neither diff
+// meaningfully nor clear, and it reappears after every refresh; the fix always
+// lives in the submodule's own repo, not here. So drop submodule rows entirely.
+const STATUS_ARGS = ['status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=all'];
+
 async function gitStatus() {
-  // --untracked-files=all: list each untracked file individually instead of
-  // collapsing a wholly-untracked folder into one "assets/" entry (which the
-  // pane can't open or stage per-file).
-  const r = await git(['status', '--porcelain=v1', '--untracked-files=all']);
+  const r = await git(STATUS_ARGS);
   if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [], conflicts: [] };
   const { staged, unstaged, conflicts } = parsePorcelain(r.stdout);
   // `head` feeds the pane's state signature: a per-session commit can land
@@ -236,7 +242,7 @@ function bucketDiff(file, staged, untracked) {
 async function fileDiff(file, staged, untracked) {
   const primary = await bucketDiff(file, staged, untracked);
   if (primary.stdout.trim()) return primary;
-  const st = await git(['status', '--porcelain=v1', '--untracked-files=all', '--', file]);
+  const st = await git([...STATUS_ARGS, '--', file]);
   if (!st.ok) return primary;
   const now = parsePorcelain(st.stdout);
   const entry = (list) => list.find((it) => it.file === file);

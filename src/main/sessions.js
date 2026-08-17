@@ -433,8 +433,11 @@ async function isIgnored(absPath) {
 // runs of the same repo was a major stall. Every caller still gets a scan that
 // STARTS after it asked — required for correctness, since a Post hook's "after"
 // snapshot must see the tool's writes — but a burst shares one or two scans.
+// --ignore-submodules=all matches the git pane: submodule rows can't be resolved
+// from the parent repo, so attributing one to a session would put a row in its
+// change list that never clears.
 const statusMap = createCoalescer(async () => {
-  const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames']);
+  const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames', '--ignore-submodules=all']);
   const m = new Map();
   if (!r.ok) return m;
   for (const line of r.stdout.split('\n')) {
