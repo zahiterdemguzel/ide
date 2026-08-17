@@ -101,7 +101,8 @@
    Deliberately NOT gated behind prefers-reduced-motion: this is a functional
    progress indicator, not decoration, and Windows reports "reduce" whenever the
    OS animation setting is off — which would silently kill the only liveness cue. */
-.dot.working {
+.dot.working,
+.dot.bg-agents {
   /* 20% larger than the static dots so the spinner reads clearly as a loader. */
   width: 11px;
   height: 11px;
@@ -109,6 +110,12 @@
   border: 2px solid color-mix(in srgb, var(--yellow) 28%, transparent);
   border-top-color: var(--yellow);
   animation: sess-dot-spin 0.7s linear infinite;
+}
+/* The main chat has settled (green — free to take a message) but background agents
+   are still running, so it spins: same loader as `working`, in the settled colour. */
+.dot.bg-agents {
+  border-color: color-mix(in srgb, var(--green) 28%, transparent);
+  border-top-color: var(--green);
 }
 @keyframes sess-dot-spin {
   to { transform: rotate(360deg); }

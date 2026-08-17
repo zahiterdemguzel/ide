@@ -7,6 +7,8 @@ test('fires only on working → completed', () => {
 });
 
 test('does not fire on other transitions into completed', () => {
+  // The last background agent finishing is the session truly landing, so it chimes.
+  assert.equal(isCompletionTransition('bg-agents', 'completed'), true);
   assert.equal(isCompletionTransition('idle', 'completed'), false);
   assert.equal(isCompletionTransition('needs-input', 'completed'), false);
   assert.equal(isCompletionTransition(undefined, 'completed'), false);

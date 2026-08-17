@@ -32,7 +32,8 @@ export default function StateDot(
   const ring = useRef(new Animated.Value(1)).current;
   const prev = useRef(state);
 
-  const working = state === 'working';
+  // Both spin; `bg-agents` (chat free, background agents still running) spins green.
+  const working = state === 'working' || state === 'bg-agents';
 
   useEffect(() => {
     if (!working) return;
@@ -52,7 +53,8 @@ export default function StateDot(
   // The celebration fires on the same transition the desktop celebrates
   // (`isCompletionTransition`): working -> completed, and nothing else.
   useEffect(() => {
-    const finished = celebrate || (prev.current === 'working' && state === 'completed');
+    const finished = celebrate
+      || ((prev.current === 'working' || prev.current === 'bg-agents') && state === 'completed');
     prev.current = state;
     if (!finished) return;
     pop.setValue(0);
@@ -86,6 +88,7 @@ export default function StateDot(
         <Animated.View
           style={[
             styles.ringSpinner,
+            state === 'bg-agents' && styles.ringSpinnerGreen,
             {
               width: WORKING * scale,
               height: WORKING * scale,
@@ -138,6 +141,10 @@ const styles = StyleSheet.create({
   ringSpinner: {
     borderColor: 'rgba(210, 153, 34, 0.28)',   // --yellow at 28%
     borderTopColor: color.yellow,
+  },
+  ringSpinnerGreen: {
+    borderColor: 'rgba(63, 185, 80, 0.28)',   // --green at 28%
+    borderTopColor: color.green,
   },
   glow: {
     shadowColor: color.green,

@@ -138,10 +138,10 @@ test('deriveStatus: a blocking subagent that finishes before main still complete
 test('deriveStatus: a background subagent outliving main Stop holds completed until it finishes', () => {
   const { states } = runEvents([
     { hook_event_name: 'PreToolUse', tool_name: 'Task' },
-    { hook_event_name: 'Stop' }, // main done, subagent still running
+    { hook_event_name: 'Stop' }, // main done (chat free) but subagent still running
     { hook_event_name: 'SubagentStop' }, // last agent finishes -> now complete
   ]);
-  assert.deepEqual(states, ['working', 'working', 'completed']);
+  assert.deepEqual(states, ['working', 'bg-agents', 'completed']);
 });
 
 test('deriveStatus: completed fires only once the LAST of several subagents finishes', () => {
@@ -152,7 +152,44 @@ test('deriveStatus: completed fires only once the LAST of several subagents fini
     { hook_event_name: 'SubagentStop' },
     { hook_event_name: 'SubagentStop' },
   ]);
-  assert.deepEqual(states, ['working', 'working', 'working', 'working', 'completed']);
+  assert.deepEqual(states, ['working', 'working', 'bg-agents', 'bg-agents', 'completed']);
+});
+
+test('deriveStatus: bg-agents is about the MAIN chat being free, not about what runs', () => {
+  // Both kinds of background work — a fork and a subagent — outlive the main Stop
+  // here, and the dot stays green-spinning until the last of them is out.
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Task' },
+    { hook_event_name: 'UserPromptSubmit', origin: 'fork-1' },
+    { hook_event_name: 'Stop' },                    // main out; fork + subagent run on
+    { hook_event_name: 'Stop', origin: 'fork-1' },  // fork out; subagent still in flight
+    { hook_event_name: 'SubagentStop' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'bg-agents', 'bg-agents', 'completed']);
+});
+
+test('deriveStatus: a fork working past the main Stop leaves the chat free (green spinner)', () => {
+  // `/fork` runs as its own conversation and does NOT block the chat, so the dot
+  // must not read yellow ("busy") — it reads green and spinning ("yours, but work
+  // is still running"). This also covers the fork whose events only start arriving
+  // after the main Stop: its activity must un-settle the dot, not leave it green.
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'Stop' },                                 // main out, nothing else yet
+    { hook_event_name: 'UserPromptSubmit', origin: 'fork-1' },   // the fork starts up
+    { hook_event_name: 'PreToolUse', tool_name: 'Edit', origin: 'fork-1' },
+    { hook_event_name: 'Stop', origin: 'fork-1' },
+  ]);
+  assert.deepEqual(states, ['working', 'completed', 'bg-agents', 'bg-agents', 'completed']);
+});
+
+test('deriveStatus: a forks blocking ask still outranks the green spinner', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', origin: 'fork-1' },
+  ]);
+  assert.deepEqual(states, ['working', 'completed', 'needs-input']);
 });
 
 test('deriveStatus: a new user turn resets stale subagent bookkeeping', () => {
@@ -162,7 +199,7 @@ test('deriveStatus: a new user turn resets stale subagent bookkeeping', () => {
     { hook_event_name: 'UserPromptSubmit' }, // fresh turn wipes the orphaned count
   ]);
   assert.deepEqual(tracking,
-    { subagents: 0, active: [{ id: 'main', at: 0 }], stopped: false, stoppedIds: [] });
+    { subagents: 0, agents: [], active: [{ id: 'main', at: 0 }], stopped: false, stoppedIds: [] });
 });
 
 test('deriveStatus: a stray SubagentStop never drives the count negative', () => {
@@ -180,7 +217,7 @@ test('deriveStatus: newer CLIs name the spawning tool Agent — counted like Tas
     { hook_event_name: 'Stop' }, // main done, subagent still running -> held
     { hook_event_name: 'SubagentStop' },
   ]);
-  assert.deepEqual(states, ['working', 'working', 'completed']);
+  assert.deepEqual(states, ['working', 'bg-agents', 'completed']);
 });
 
 test('deriveStatus: a subagent Stop (agent_id) is a subagent finishing, never the main agent', () => {
@@ -202,7 +239,7 @@ test('deriveStatus: a SubagentStop carrying agent_id still drains the count', ()
     { hook_event_name: 'Stop' },
     { hook_event_name: 'SubagentStop', agent_id: 'sub-1' },
   ]);
-  assert.deepEqual(states, ['working', 'working', 'completed']);
+  assert.deepEqual(states, ['working', 'bg-agents', 'completed']);
 });
 
 test('deriveStatus: subagent-context events never touch the dot or the bookkeeping', () => {
@@ -216,7 +253,7 @@ test('deriveStatus: subagent-context events never touch the dot or the bookkeepi
     { hook_event_name: 'Notification', agent_id: 'sub-1' },
     { hook_event_name: 'Stop' }, // main done, but the subagent is still counted
   ]);
-  assert.deepEqual(states, ['working', null, null, null, null, 'working']);
+  assert.deepEqual(states, ['working', null, null, null, null, 'bg-agents']);
   assert.deepEqual(tracking, { subagents: 1, active: [], stopped: true, stoppedIds: [] });
 });
 
@@ -232,7 +269,7 @@ test('deriveStatus: duplicate stops for one subagent do not drain the count twic
     { hook_event_name: 'Stop', agent_id: 'sub-1' }, // duplicate — must be ignored
     { hook_event_name: 'SubagentStop', agent_id: 'sub-2' }, // real last agent
   ]);
-  assert.deepEqual(states, ['working', 'working', 'working', 'working', null, 'completed']);
+  assert.deepEqual(states, ['working', 'working', 'bg-agents', 'bg-agents', null, 'completed']);
 });
 
 test('deriveStatus: a new turn forgets which agents already stopped', () => {
@@ -246,7 +283,7 @@ test('deriveStatus: a new turn forgets which agents already stopped', () => {
     { hook_event_name: 'SubagentStop', agent_id: 'sub-1' }, // same id, new turn — must count
   ]);
   assert.deepEqual(states,
-    ['working', 'working', 'completed', 'working', 'working', 'working', 'completed']);
+    ['working', 'working', 'completed', 'working', 'working', 'bg-agents', 'completed']);
 });
 
 test('deriveStatus: a nested spawn inside a subagent does not inflate the count', () => {
@@ -271,7 +308,7 @@ test('deriveStatus: main-thread activity after Stop reopens the turn', () => {
     { hook_event_name: 'Stop' },
   ]);
   assert.deepEqual(states,
-    ['working', 'working', 'working', 'working', 'working', 'working', 'completed']);
+    ['working', 'working', 'bg-agents', 'bg-agents', 'working', 'working', 'completed']);
 });
 
 test('deriveStatus: non-terminal events fall through to eventToState', () => {
@@ -320,7 +357,7 @@ test('interruptOutcome: any other event proves the agent kept working — dot un
 
 // --- forked conversations (`/fork`): separate session ids, no agent_id ---
 
-test('deriveStatus: a fork still working holds the session yellow past the main Stop', () => {
+test('deriveStatus: a fork still working holds the session unsettled past the main Stop', () => {
   const { states } = runEvents([
     { hook_event_name: 'UserPromptSubmit' },
     { hook_event_name: 'UserPromptSubmit', origin: 'fork-1' }, // the fork starts its own turn
@@ -328,7 +365,8 @@ test('deriveStatus: a fork still working holds the session yellow past the main 
     { hook_event_name: 'Stop' },                    // main agent done, fork still running
     { hook_event_name: 'Stop', origin: 'fork-1' },  // last conversation out settles it
   ]);
-  assert.deepEqual(states, ['working', 'working', 'working', 'working', 'completed']);
+  // The main Stop frees the chat while the fork runs on: green, but still spinning.
+  assert.deepEqual(states, ['working', 'working', 'working', 'bg-agents', 'completed']);
 });
 
 test('deriveStatus: a fork finishing first does not settle the session', () => {
@@ -350,7 +388,7 @@ test('deriveStatus: a forks own prompt does not wipe live bookkeeping', () => {
     { hook_event_name: 'Stop' },                                // subagent still in flight
     { hook_event_name: 'SubagentStop' },
   ]);
-  assert.deepEqual(states, ['working', 'working', 'working', 'working', 'working', 'completed']);
+  assert.deepEqual(states, ['working', 'working', 'working', 'working', 'bg-agents', 'completed']);
 });
 
 test('deriveStatus: a fork that replaced the conversation ages its old id out', () => {
@@ -441,7 +479,7 @@ test('codex SubagentStart counts a spawn; its SubagentStop drains it', () => {
     { hook_event_name: 'Stop' },              // main stops while the subagent runs
     { hook_event_name: 'SubagentStop' },      // last agent out settles the session
   ]);
-  assert.deepEqual(states, ['working', 'working', 'working', 'completed']);
+  assert.deepEqual(states, ['working', 'working', 'bg-agents', 'completed']);
 });
 
 test('codex SubagentStart with an agent_id still counts (fires in either context)', () => {
@@ -451,7 +489,7 @@ test('codex SubagentStart with an agent_id still counts (fires in either context
     { hook_event_name: 'Stop' },
     { hook_event_name: 'SubagentStop', agent_id: 'sub-1' },
   ]);
-  assert.deepEqual(states, ['working', 'working', 'working', 'completed']);
+  assert.deepEqual(states, ['working', 'working', 'bg-agents', 'completed']);
 });
 
 test('normalizeHookPayload rewrites a codex session_id to ours and returns theirs', () => {

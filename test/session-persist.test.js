@@ -64,6 +64,7 @@ test('persistedState: only an actively-running session reopens interrupted', () 
   assert.equal(persistedState('pushed'), 'pushed');       // committed work stays purple
   assert.equal(persistedState('idle'), 'idle');           // untouched session stays gray
   assert.equal(persistedState('working'), 'interrupted'); // only actively-running work reopens red
+  assert.equal(persistedState('bg-agents'), 'interrupted'); // its agents die with the app too
   assert.equal(persistedState('needs-input'), 'completed'); // paused-for-input reads green, not red
   assert.equal(persistedState(undefined), 'idle');        // a pre-state snapshot
 });

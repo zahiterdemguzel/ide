@@ -431,6 +431,7 @@ const STATE_LABEL: Record<string, string> = {
   working: 'Working',
   'needs-input': 'Waiting for you',
   completed: 'Done',
+  'bg-agents': 'Background agents running',
   interrupted: 'Interrupted',
   pushed: 'Committed',
 };

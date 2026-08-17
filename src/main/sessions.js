@@ -276,7 +276,7 @@ function setSessionState(id, state) {
   // background socket, so the ws 'status' event can't reach a sleeping phone).
   // working → completed only: 'pushed' after a commit, or a restored session
   // settling, is not a run finishing.
-  if (state === 'completed' && prev === 'working') {
+  if (state === 'completed' && (prev === 'working' || prev === 'bg-agents')) {
     push.notifySessionCompleted({ id, title: s.name || s.firstPrompt || '' });
   }
   s.lastActiveAt = Date.now();
@@ -324,7 +324,7 @@ function noteInterruptKey(id) {
     s.interruptTimer = null;
     // Only still-working means the CLI went silent on us; any hook that landed in
     // the window already resolved this through resolveInterrupt.
-    if (s.state === 'working') applySessionState(id, 'interrupted');
+    if (s.state === 'working' || s.state === 'bg-agents') applySessionState(id, 'interrupted');
   }, INTERRUPT_GRACE_MS);
 }
 

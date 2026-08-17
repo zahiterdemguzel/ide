@@ -12,7 +12,8 @@ const { modelFamily } = require('./agent-providers');
 const MAX_PERSIST_BYTES = 100 * 1024 * 1024; // 100 MB
 
 // The status-dot state we record on disk. Only a session whose agent was actively
-// running — `working` (the yellow spinner) — when the app closed reopens as
+// running — `working` (the yellow spinner) or `bg-agents` (the green one, chat
+// free but background agents still going) — when the app closed reopens as
 // `interrupted` (red): that work was cut off and its Claude process can't outlive
 // the app, so the in-flight state isn't real anymore. A `needs-input` session was
 // *paused waiting for the user*, not crunching — it reads as green ("wants your
@@ -22,7 +23,7 @@ const MAX_PERSIST_BYTES = 100 * 1024 * 1024; // 100 MB
 // verbatim: `completed` (green), `pushed` (purple), and `idle` (gray — a session
 // created but never used).
 function persistedState(state) {
-  if (state === 'working') return 'interrupted';
+  if (state === 'working' || state === 'bg-agents') return 'interrupted';
   if (state === 'needs-input') return 'completed';
   return state || 'idle';
 }

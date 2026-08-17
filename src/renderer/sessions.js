@@ -102,6 +102,7 @@ const STATE_LABEL = {
   working: 'Working',
   'needs-input': 'Needs input',
   completed: 'Completed',
+  'bg-agents': 'Ready — background agents running',
   pushed: 'Committed / pushed',
   interrupted: 'Interrupted',
 };
@@ -945,7 +946,7 @@ sessionCommitBtn.onclick = async () => {
   if (s.committing) return; // a commit is already in flight for this session
   // The session is still working (yellow); its file set may be mid-change, so
   // confirm before committing a moving target.
-  if (s.state === 'working' && !(await confirmDialog({
+  if ((s.state === 'working' || s.state === 'bg-agents') && !(await confirmDialog({
     title: 'Commit while running?',
     message: 'This session is still running. Its files may still be changing. Commit now anyway?',
     ok: 'Commit',

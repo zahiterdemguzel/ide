@@ -92,9 +92,11 @@ export function setVolume(v) {
 
 // Pure trigger test, unit-tested: the chime+animation fire only when a session that
 // was actively working settles into "completed" (a finished response / PTY exit) —
-// not on needs-input, and not on any state that was already settled.
+// not on needs-input, and not on any state that was already settled. `bg-agents`
+// (chat idle, background agents still running) counts as working: its last agent
+// finishing is the moment the session is truly done.
 export function isCompletionTransition(prev, next) {
-  return prev === 'working' && next === 'completed';
+  return (prev === 'working' || prev === 'bg-agents') && next === 'completed';
 }
 
 // One shared AudioContext, created lazily on the first play (a context built before

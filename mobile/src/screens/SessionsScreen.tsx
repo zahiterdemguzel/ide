@@ -66,10 +66,14 @@ const NO_COUNTS: Counts = { active: 0, archived: 0, all: 0 };
 // Every state main can report lands in exactly one — `settled` is the catch-all (its
 // predicate excludes only the states the other groups own) so an unknown state still
 // renders somewhere rather than vanishing from the list.
+// Both states mean work is in flight — `bg-agents` is a session whose chat has
+// settled while its background agents keep running.
+const RUNNING = new Set(['working', 'bg-agents']);
+
 const GROUPS: { key: string; label: string; hue: string; is: (s: Session) => boolean }[] = [
   { key: 'needs', label: 'Needs you', hue: color.green, is: (s) => s.state === 'needs-input' },
-  { key: 'settled', label: 'Settled', hue: color.muted, is: (s) => s.state !== 'working' },
-  { key: 'working', label: 'Working', hue: color.yellow, is: (s) => s.state === 'working' },
+  { key: 'settled', label: 'Settled', hue: color.muted, is: (s) => !RUNNING.has(s.state) },
+  { key: 'working', label: 'Working', hue: color.yellow, is: (s) => RUNNING.has(s.state) },
 ];
 
 // How collapsed the model menu starts, matching the desktop's `scaleY(0.85)`.
@@ -260,7 +264,7 @@ export default function SessionsScreen({ navigation }: any) {
   const [justFinished, setJustFinished] = useState<Set<string>>(new Set());
   useEffect(() => {
     const landed = items
-      .filter((s) => seenState.current.get(s.id) === 'working' && s.state === 'completed')
+      .filter((s) => RUNNING.has(seenState.current.get(s.id) || '') && s.state === 'completed')
       .map((s) => s.id);
     seenState.current = new Map(items.map((s) => [s.id, s.state]));
     if (!landed.length) return undefined;

@@ -46,6 +46,7 @@ export const stateColor: Record<string, string> = {
   working: color.yellow,
   'needs-input': color.green,
   completed: color.green,
+  'bg-agents': color.green,
   interrupted: color.red,
   pushed: color.purple,
 };
