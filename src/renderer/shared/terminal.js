@@ -2,6 +2,7 @@
 // globals are available. Re-export them here so feature modules import from one
 // place instead of reaching into `window`.
 import { decodeOsc52 } from './osc52.js';
+import { onMac } from '../link-mod.js';
 
 export const Terminal = window.Terminal;
 export const FitAddon = window.FitAddon.FitAddon;
@@ -104,9 +105,10 @@ function copyToClipboard(text) {
 const quoteIfSpaced = (p) => (/\s/.test(p) ? `"${p}"` : p);
 
 // Wire up clipboard shortcuts for an xterm Terminal instance.
-// Must be called after term.open(). Ctrl+C copies when text is selected
-// (and lets SIGINT through when nothing is selected). Ctrl+V / right-click
-// paste; right-click copies first if there is a selection.
+// Must be called after term.open(). The clipboard modifier is Cmd on macOS and
+// Ctrl elsewhere: Mod+C copies when text is selected (Ctrl+C with no selection —
+// and every Ctrl+C on macOS — passes SIGINT through to the PTY). Mod+V /
+// right-click paste; right-click copies first if there is a selection.
 //
 // Paste checks the clipboard for an image before falling back to text: a bitmap
 // is spilled to a temp PNG (main's `paste-image`) and its path is pasted,
@@ -136,7 +138,7 @@ export function attachClipboard(term, opts = {}) {
   // into xterm's hidden textarea, which xterm inserts on its own — on top of our
   // programmatic paste() below, producing a double paste. Swallow the native
   // paste in the capture phase (before xterm's own textarea/element listeners)
-  // so our image-aware paste() stays the single paste path. Ctrl+V is unaffected:
+  // so our image-aware paste() stays the single paste path. Mod+V is unaffected:
   // its keydown handler already preventDefaults, so no native paste is generated.
   term.element.addEventListener('paste', (e) => {
     e.preventDefault();
@@ -144,7 +146,9 @@ export function attachClipboard(term, opts = {}) {
   }, true);
 
   term.attachCustomKeyEventHandler((e) => {
-    if (e.type !== 'keydown' || !e.ctrlKey) return true;
+    // macOS copies/pastes with Cmd; Ctrl stays free so Ctrl+C always reaches the
+    // PTY as SIGINT there. Elsewhere Ctrl is the clipboard modifier.
+    if (e.type !== 'keydown' || !(onMac ? e.metaKey && !e.ctrlKey : e.ctrlKey)) return true;
     // Normalize case: with Shift held, e.key is uppercase ('C'/'V').
     const key = e.key.toLowerCase();
     if (key === 'c') {
