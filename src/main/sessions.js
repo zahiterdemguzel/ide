@@ -16,7 +16,7 @@ const { installGuide: codexInstallGuide } = require('./codex-install');
 const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
-const { tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS } = require('./fs-track');
+const { tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, TEXT_EDIT_TOOLS } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
@@ -418,9 +418,9 @@ function pathsClaimedByOthers(self, { edits = true, fileOps = true } = {}) {
 // cleared when a .gitignore is edited (see recordSessionActivity); a path's answer
 // otherwise only changes when ignore rules do.
 const ignoreCache = new Map(); // absPath -> boolean
-async function isIgnored(absPath) {
+async function isIgnored(absPath, repo) {
   if (ignoreCache.has(absPath)) return ignoreCache.get(absPath);
-  const r = await git(['check-ignore', '-q', '--', absPath]);
+  const r = await git(['check-ignore', '-q', '--', absPath], { cwd: repo });
   ignoreCache.set(absPath, r.ok); // exit 0 = ignored
   return r.ok;
 }
@@ -436,15 +436,56 @@ async function isIgnored(absPath) {
 // --ignore-submodules=all matches the git pane: submodule rows can't be resolved
 // from the parent repo, so attributing one to a session would put a row in its
 // change list that never clears.
-const statusMap = createCoalescer(async () => {
-  const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames', '--ignore-submodules=all']);
-  const m = new Map();
-  if (!r.ok) return m;
-  for (const line of r.stdout.split('\n')) {
-    if (line) m.set(line.slice(3), line.slice(0, 2));
-  }
-  return m;
-});
+// Each listed path's entry carries a content stamp (size + mtime) alongside the
+// code, because the code alone repeats for a file changed twice: a file that was
+// already dirty when a tool ran still reads " M" after the tool rewrites it, so
+// every such change was read as "untouched by this tool" and dropped from the
+// session's file list (see fs-track.statusCode). Only paths git already reports
+// as changed are stat'd, so the cost rides on the size of the diff, not the tree.
+// Coalesced per repo: a session tracks the repo it was created in, which is not
+// necessarily the folder currently open.
+//
+// Past STAMP_LIMIT dirty paths the stamps are dropped and the scan falls back to
+// codes alone: a tree that dirty (an un-ignored build output folder, say) would
+// otherwise be stat'd twice per tool call, and slower tracking beats a stalled
+// hook.
+const STAMP_LIMIT = 2000;
+const statusScans = new Map(); // repoPath -> coalescer
+function scanStatus(repo) {
+  return async () => {
+    const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames', '--ignore-submodules=all'], { cwd: repo });
+    const m = new Map();
+    if (!r.ok) return m;
+    const lines = r.stdout.split('\n').filter(Boolean);
+    for (const line of lines) {
+      const rel = line.slice(3);
+      const stamp = lines.length <= STAMP_LIMIT ? ':' + contentStamp(path.resolve(repo, rel)) : '';
+      m.set(rel, line.slice(0, 2) + stamp);
+    }
+    return m;
+  };
+}
+
+// size+mtime of a path, or `-` when it isn't there (a deletion, which the status
+// code already tells us about).
+function contentStamp(abs) {
+  try {
+    const st = fs.statSync(abs);
+    return st.size + ':' + st.mtimeMs;
+  } catch { return '-'; }
+}
+
+function statusMap(repo) {
+  const key = repo || '';
+  if (!statusScans.has(key)) statusScans.set(key, createCoalescer(scanStatus(repo)));
+  return statusScans.get(key)();
+}
+
+// The repo a session's filesystem tracking runs against: the folder it was
+// created in, falling back to the open one for a session that has none.
+function sessionRepo(s) {
+  return (s && s.repo) || getRepoPath();
+}
 
 // Diff a before/after status snapshot taken across one tool call and attribute
 // each changed path to the session as an 'add' (file now present — a created
@@ -460,17 +501,17 @@ const statusMap = createCoalescer(async () => {
 // `reset` fails, so drop the entry with `rm --cached` instead (same fallback as
 // the git pane's unstage button). Returns whether anything was unstaged, so the
 // caller knows a cached snapshot is now stale.
-async function unstageToolStaged(before, after) {
+async function unstageToolStaged(before, after, repo) {
   const paths = newlyStagedPaths(before, after);
   for (const rel of paths) {
-    const r = await git(['reset', '-q', 'HEAD', '--', rel]);
-    if (!r.ok) await git(['rm', '--cached', '-r', '-f', '-q', '--', rel]);
+    const r = await git(['reset', '-q', 'HEAD', '--', rel], { cwd: repo });
+    if (!r.ok) await git(['rm', '--cached', '-r', '-f', '-q', '--', rel], { cwd: repo });
   }
   return paths.length > 0;
 }
 
 function applyFsDiff(s, before, after) {
-  const repoPath = getRepoPath();
+  const repoPath = sessionRepo(s);
   let changed = false;
   const claimed = pathsClaimedByOthers(s);
   for (const rel of new Set([...before.keys(), ...after.keys()])) {
@@ -490,7 +531,7 @@ function applyFsDiff(s, before, after) {
       s.edits.delete(abs); // the tool moved/removed it, so any recorded text ops are void
       // A file that was only ever untracked and is now gone never reached HEAD —
       // there is nothing to commit as a deletion, so just forget it.
-      if ((before.get(rel) || '').startsWith('?')) { if (s.fileOps.delete(abs)) changed = true; }
+      if (statusCode(before.get(rel)).startsWith('?')) { if (s.fileOps.delete(abs)) changed = true; }
       else { s.fileOps.set(abs, 'delete'); changed = true; }
     }
   }
@@ -550,6 +591,11 @@ function noteAgentSessionId(id, agentSessionId) {
 async function recordSessionActivity(payload) {
   const s = sessions.get(payload.session_id);
   if (!s) return null;
+  // Every git call below scans the session's OWN repo, not the folder that
+  // happens to be open: sessions keep running after the user opens another
+  // project, and scanning the wrong tree both lost their changes and could
+  // attribute the open repo's changes to them.
+  const repo = sessionRepo(s);
   let changed = false;
   // Every hook payload names the session's transcript file — the only place that
   // path is published. It's what the chat view reads, and it's persisted so an
@@ -610,7 +656,7 @@ async function recordSessionActivity(payload) {
     if (f && path.basename(f) === '.gitignore') ignoreCache.clear();
     // Skip .gitignore'd files: tracking them here would let commit-session add
     // them to the repo (and, once tracked, surface them in the changes panel).
-    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && !(await isIgnored(f))) {
+    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && !(await isIgnored(f, repo))) {
       if (!s.edits.has(f)) s.edits.set(f, []);
       s.edits.get(f).push(editOp(payload.tool_name, ti));
       changed = true;
@@ -638,12 +684,12 @@ async function recordSessionActivity(payload) {
       // crashing in applyFsDiff.
       const base = s.preStatus;
       s.preStatus = null;
-      let now = await statusMap();
+      let now = await statusMap(repo);
       if (plan !== 'snapshot' && base) {
         if (applyFsDiff(s, base, now)) changed = true;
         // Re-snapshot after an unstage so a stored baseline reflects the real
         // index state, not the pre-unstage codes.
-        if (await unstageToolStaged(base, now) && plan !== 'diff') now = await statusMap();
+        if (await unstageToolStaged(base, now, repo) && plan !== 'diff') now = await statusMap(repo);
       }
       if (plan !== 'diff') s.preStatus = now;
     }
@@ -654,7 +700,7 @@ async function recordSessionActivity(payload) {
     // another tool is still writing.
     const first = (s.fsInFlight || 0) === 0;
     s.fsInFlight = (s.fsInFlight || 0) + 1;
-    if (first) s.preStatus = await statusMap();
+    if (first) s.preStatus = await statusMap(repo);
   } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload)) {
     s.fsInFlight = Math.max(0, (s.fsInFlight || 0) - 1);
     // Claim the baseline BEFORE the await, same as the codex plan above: a
@@ -663,9 +709,27 @@ async function recordSessionActivity(payload) {
     const base = s.fsInFlight === 0 ? s.preStatus : null;
     if (base) {
       s.preStatus = null;
-      const now = await statusMap();
+      const now = await statusMap(repo);
       if (applyFsDiff(s, base, now)) changed = true;
-      await unstageToolStaged(base, now);
+      await unstageToolStaged(base, now, repo);
+    }
+  } else if (payload.hook_event_name === 'Stop' && !payload.agent_id) {
+    // A PreToolUse whose PostToolUse never arrives — the user denying the
+    // permission prompt, or interrupting the tool — leaves the ref-count above
+    // zero, and from then on every Post in the turn diffs nothing: the rest of
+    // the turn's binary/rename/delete work went untracked (the count only
+    // self-healed at the NEXT prompt). The main agent's Stop ends the turn, so
+    // it flushes whatever baseline is left — attributing the orphaned tool's
+    // changes and unstaging what it staged — and clears the count. Background
+    // agents may still be running; their tool windows simply re-baseline from
+    // here, and the turn-wide tracker below still covers them.
+    s.fsInFlight = 0;
+    const base = s.preStatus;
+    s.preStatus = null;
+    if (base) {
+      const now = await statusMap(repo);
+      if (applyFsDiff(s, base, now)) changed = true;
+      await unstageToolStaged(base, now, repo);
     }
   }
   // Second, TURN-wide baseline, on top of the per-tool windows above: files the
@@ -684,7 +748,7 @@ async function recordSessionActivity(payload) {
     // would otherwise diff the same baseline twice (or find it nulled).
     const base = s.turnStatus;
     s.turnStatus = null;
-    const now = await statusMap();
+    const now = await statusMap(repo);
     if (turnPlan === 'diff-and-snapshot' && base && applyFsDiff(s, base, now)) changed = true;
     s.turnStatus = now;
   }

@@ -9,7 +9,8 @@ const { createLimiter } = require('./concurrency');
 
 // --- git (plain porcelain, no dep) ---
 // opts.env overrides env (e.g. GIT_INDEX_FILE for a throwaway index); opts.input
-// is written to stdin (e.g. blob content for hash-object). 64M buffer for files.
+// is written to stdin (e.g. blob content for hash-object); opts.cwd runs in a
+// repo other than the open one. 64M buffer for files.
 //
 // core.quotePath=false: emit non-ASCII paths verbatim instead of C-quoting them
 // (e.g. "\303\251.txt"), so the porcelain paths we parse round-trip back to add/diff.
@@ -42,11 +43,16 @@ function repoWrite(fn) { return limitRepoWrite(fn); }
 
 function gitExec(args, opts = {}) {
   return new Promise((resolve) => {
+    // Defaults to the open folder; `opts.cwd` targets another repo — a session
+    // tracks changes in the repo it was created in, which is not necessarily the
+    // one currently open (sessions keep running after the user opens another
+    // folder), so its snapshots must not silently scan the wrong tree.
+    const cwd = opts.cwd || getRepoPath();
     // No folder open yet: never let execFile default to the app's own cwd.
-    if (!getRepoPath()) return resolve({ ok: false, stdout: '', stderr: 'no folder open' });
+    if (!cwd) return resolve({ ok: false, stdout: '', stderr: 'no folder open' });
     const env = { ...(opts.env || process.env), GIT_TERMINAL_PROMPT: '0' };
     const child = execFile('git', ['-c', 'core.quotePath=false', ...args],
-      { cwd: getRepoPath(), env, maxBuffer: 64 * 1024 * 1024, timeout: opts.timeout || 120000 },
+      { cwd, env, maxBuffer: 64 * 1024 * 1024, timeout: opts.timeout || 120000 },
       // git often reports failures on stdout (e.g. "nothing to commit"), so fall
       // back to stdout before err.message — otherwise the UI shows a bare "Command failed".
       (err, stdout, stderr) => resolve({ ok: !err, stdout: stdout || '', stderr: stderr || (err && (stdout.trim() || err.message)) || '' }));

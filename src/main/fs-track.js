@@ -132,6 +132,17 @@ function turnFsPlan(payload, hasBaseline) {
   return null;
 }
 
+// A snapshot entry is the porcelain code plus a content stamp (`XY:<size>:<mtimeMs>`).
+// The code alone can't see a file being changed AGAIN: one that was already dirty
+// when the tool started still reads " M" afterwards, and an untracked file stays
+// "??" however often a Bash command rewrites it — so every such change was
+// silently dropped from the session's file list. The stamp makes the second write
+// a real difference. Readers that want the code alone go through statusCode(),
+// which also accepts a bare "XY" (persisted or hand-built snapshots).
+function statusCode(entry) {
+  return String(entry || '').slice(0, 2);
+}
+
 // Merge-conflict codes — never touch these; unstaging mid-conflict corrupts the
 // resolution state git tracks in the index.
 const CONFLICT_CODES = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
@@ -143,7 +154,8 @@ const CONFLICT_CODES = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
 // control. A path already staged before the tool ran (e.g. by the user in the
 // git pane) is not included.
 function newlyStagedPaths(before, after) {
-  const staged = (code) => {
+  const staged = (entry) => {
+    const code = statusCode(entry);
     if (!code || CONFLICT_CODES.has(code)) return false;
     const x = code[0];
     return x !== ' ' && x !== '?' && x !== '!';
@@ -155,4 +167,4 @@ function newlyStagedPaths(before, after) {
   return out;
 }
 
-module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, TEXT_EDIT_TOOLS, READONLY_TOOLS };
+module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, TEXT_EDIT_TOOLS, READONLY_TOOLS };

@@ -15,12 +15,15 @@ const getHookPort = () => hookPort;
 // TEMPORARY (status-dot debugging): append every hook event and the state it
 // derived to a log so the live sequence can be read back. Remove once the
 // background-agent dot is confirmed working.
+// Truncated once it passes DEBUG_LOG_MAX: every hook event appends a line, and
+// unbounded it had already grown to tens of MB in the user's temp folder.
+const DEBUG_LOG_MAX = 4 * 1024 * 1024;
 const debugLog = (line) => {
   try {
-    require('fs').appendFileSync(
-      require('path').join(require('os').tmpdir(), 'ide-hook-debug.log'),
-      `${new Date().toISOString()} ${line}\n`,
-    );
+    const fs = require('fs');
+    const file = require('path').join(require('os').tmpdir(), 'ide-hook-debug.log');
+    if ((fs.statSync(file, { throwIfNoEntry: false })?.size || 0) > DEBUG_LOG_MAX) fs.truncateSync(file, 0);
+    fs.appendFileSync(file, `${new Date().toISOString()} ${line}\n`);
   } catch {}
 };
 

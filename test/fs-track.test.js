@@ -146,3 +146,23 @@ test('newlyStagedPaths finds only paths a tool call newly staged', () => {
   // merge conflicts are never unstaged
   assert.deepEqual(newlyStagedPaths(m({}), m({ 'c.txt': 'UU', 'd.txt': 'AA' })), []);
 });
+
+test('statusCode reads the porcelain code out of a stamped snapshot entry', () => {
+  const { statusCode } = require('../src/main/fs-track');
+  assert.equal(statusCode(' M:120:1699999999999'), ' M');
+  assert.equal(statusCode('??:0:1'), '??');
+  assert.equal(statusCode('D :-'), 'D ');
+  assert.equal(statusCode(' M'), ' M'); // a bare code still reads back
+  assert.equal(statusCode(undefined), '');
+});
+
+test('newlyStagedPaths works on stamped snapshot entries', () => {
+  const { newlyStagedPaths } = require('../src/main/fs-track');
+  const m = (o) => new Map(Object.entries(o));
+  assert.deepEqual(newlyStagedPaths(m({ 'a.txt': ' M:10:1' }), m({ 'a.txt': 'D :-' })), ['a.txt']);
+  assert.deepEqual(newlyStagedPaths(m({ 'u.txt': 'M :10:1' }), m({ 'u.txt': 'MM:11:2' })), []);
+  // the stamp alone (same code, new content) is not a staging change
+  assert.deepEqual(newlyStagedPaths(m({ 'w.txt': ' M:10:1' }), m({ 'w.txt': ' M:99:2' })), []);
+  // a conflict entry stays untouched even when its content moves
+  assert.deepEqual(newlyStagedPaths(m({ 'c.txt': 'UU:1:1' }), m({ 'c.txt': 'UU:2:2' })), []);
+});
