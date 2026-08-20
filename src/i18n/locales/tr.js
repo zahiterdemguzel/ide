@@ -334,6 +334,11 @@ export default {
     'browser.open': 'Tarayıcı',
     'browser.inspect': 'Öğeyi incele — ayrıntılarını kopyalamak için tıklayın',
     'browser.terminate': 'Tarayıcıyı sonlandır',
+    'browser.console': 'Konsol — istemci tarafı günlükleri ve hataları',
+    'browser.console.title': 'Konsol',
+    'browser.console.filter': 'Filtrele',
+    'browser.console.copy': 'Kopyala',
+    'browser.console.clear': 'Temizle',
     'browser.close': 'Kapat',
 
     'diagram.open': 'Diyagram',

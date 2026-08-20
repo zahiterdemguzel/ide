@@ -334,6 +334,11 @@ export default {
     'browser.open': 'Browser',
     'browser.inspect': 'Element inspizieren – zum Kopieren der Details anklicken',
     'browser.terminate': 'Browser beenden',
+    'browser.console': 'Konsole — clientseitige Logs und Fehler',
+    'browser.console.title': 'Konsole',
+    'browser.console.filter': 'Filtern',
+    'browser.console.copy': 'Kopieren',
+    'browser.console.clear': 'Leeren',
     'browser.close': 'Schließen',
 
     'diagram.open': 'Diagramm',
