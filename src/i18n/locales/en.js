@@ -224,6 +224,8 @@ export default {
 
     'settings.open': 'Settings',
     'settings.title': 'Settings',
+    'settings.appearance': 'Appearance',
+    'settings.notifications': 'Notifications',
     'settings.language': 'Language',
     'settings.theme': 'Theme',
     'settings.sound': 'Notification sound',

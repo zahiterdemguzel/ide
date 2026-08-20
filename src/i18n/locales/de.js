@@ -223,6 +223,8 @@ export default {
 
     'settings.open': 'Einstellungen',
     'settings.title': 'Einstellungen',
+    'settings.appearance': 'Darstellung',
+    'settings.notifications': 'Benachrichtigungen',
     'settings.language': 'Sprache',
     'settings.theme': 'Design',
     'settings.sound': 'Benachrichtigungston',

@@ -223,6 +223,8 @@ export default {
 
     'settings.open': 'Ayarlar',
     'settings.title': 'Ayarlar',
+    'settings.appearance': 'Görünüm',
+    'settings.notifications': 'Bildirimler',
     'settings.language': 'Dil',
     'settings.theme': 'Tema',
     'settings.sound': 'Bildirim sesi',

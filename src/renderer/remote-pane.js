@@ -45,7 +45,7 @@ export function initRemotePane() {
     }
     for (const d of devices) {
       const row = document.createElement('div');
-      row.className = 'settings-row';
+      row.className = 'remote-device';
       const label = document.createElement('span');
       label.textContent = `${d.name} — ${t('remote.lastSeen')} ${new Date(d.lastSeen).toLocaleString()}`;
       const revoke = document.createElement('button');

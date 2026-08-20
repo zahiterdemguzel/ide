@@ -6,12 +6,39 @@ settings dialog (`#settings-dialog`), where the user picks a **theme**, a
 which **panels** are visible. Every choice applies instantly and persists across
 restarts.
 
-The dialog body is a **two-column grid** (`.settings-body` → two `.settings-col`,
-`settings.css`), split by a vertical rule so the form reads wide rather than tall:
-the left column holds language/theme/sound/volume + Agent models + General; the
-right holds Panels + Remote access (the pairing QR and paired-device list). It
-collapses to a single stacked column under ~560px, and the body scrolls while the
+The dialog body is a **three-column grid** (`.settings-body` → three
+`.settings-col`, `settings.css`), split by vertical rules so the form reads wide
+rather than tall: the left column holds Appearance + Notifications + Agent models
++ Voice input + General; the middle holds Panels + Remote access (the pairing QR
+and paired-device list); the right holds Local models. The body scrolls while the
 header/footer stay pinned.
+
+**Every block is a titled `.settings-group`** — there are no bare rows floating
+above the first title, so the columns share one rhythm.
+
+**The dividers are declared per breakpoint, not with a generic
+`:not(:last-child)` rule.** Which column ends a row changes with the column count,
+so one generic rule leaves a rule dangling at the grid's right edge and strands
+the wrapped column with a phantom 20px indent. The steps are:
+
+- **3 columns** (default) — each column after the first carries a `border-left`,
+  with equal 20px gutters either side of every rule.
+- **2 columns** (≤900px) — the third column spans the full row
+  (`grid-column: 1 / -1`) and is separated by a *horizontal* rule instead.
+- **1 column** (≤620px) — all rules go horizontal, all side padding drops.
+
+Inside a column, `.panel-grid` is `repeat(auto-fit, minmax(160px, 1fr))` rather
+than a hard `1fr 1fr`, so switch labels stop ellipsising when the column is
+narrow and a group with a single toggle (Voice input) fills the width instead of
+sitting in a half-width stub.
+
+## Paired-device rows
+
+The rows `remote-pane.js` renders into `#remote-device-list` use their own
+`.remote-device` class, **not** `.settings-row`: `.settings-row` is a *column*
+flex built for a label above its control, so borrowing it stacked the device name
+over a centred Revoke button. `.remote-device` is a horizontal row — name left
+(ellipsised), Revoke pinned right.
 
 ## Notification sound
 
@@ -247,7 +274,9 @@ on/off toggles wired in `src/renderer/settings.js`:
   off so the next-spawned session gets no statusLine. A **live session keeps the
   meter it spawned with** — the toggle affects the next session, like the agent
   model defaults.
-- **Desktop notifications** (`#settings-notifications`, default **off**) sends an
+- **Desktop notifications** (`#settings-notifications`, default **off**, and
+  grouped under *Notifications* rather than *General* since it shares that
+  group's working → completed trigger) sends an
   OS-level notification on the same working → completed transition that triggers
   the chime (see [Finish notification](status-detection.md#finish-notification)).
   Off by default since, unlike the chime, it can pull focus away from whatever the
