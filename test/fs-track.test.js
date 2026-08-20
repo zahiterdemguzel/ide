@@ -166,3 +166,16 @@ test('newlyStagedPaths works on stamped snapshot entries', () => {
   // a conflict entry stays untouched even when its content moves
   assert.deepEqual(newlyStagedPaths(m({ 'c.txt': 'UU:1:1' }), m({ 'c.txt': 'UU:2:2' })), []);
 });
+
+test('isInsideRepo keeps repo paths and rejects the scratchpad', () => {
+  const { isInsideRepo } = require('../src/main/fs-track');
+  assert.equal(isInsideRepo('/projects/app', '/projects/app/src/a.js'), true);
+  assert.equal(isInsideRepo('/projects/app', '/projects/app/a.js'), true);
+  // the agent's own scratchpad, and a sibling project, are not this repo's work
+  assert.equal(isInsideRepo('/projects/app', '/tmp/claude/sess/scratchpad/notes.md'), false);
+  assert.equal(isInsideRepo('/projects/app', '/projects/other/a.js'), false);
+  // a path that IS the repo root is not a file in it
+  assert.equal(isInsideRepo('/projects/app', '/projects/app'), false);
+  assert.equal(isInsideRepo('', '/projects/app/a.js'), false);
+  assert.equal(isInsideRepo('/projects/app', ''), false);
+});

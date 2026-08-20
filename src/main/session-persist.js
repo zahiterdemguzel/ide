@@ -5,6 +5,7 @@
 
 const { defaultEffortFor } = require('./agent-effort');
 const { modelFamily } = require('./agent-providers');
+const { isInsideRepo } = require('./fs-track');
 
 // The most we keep on disk for previous sessions and their tracking data. Once the
 // snapshot would exceed this, the oldest evictable sessions are dropped (see
@@ -63,16 +64,26 @@ function serializeSession(id, s) {
   };
 }
 
+// Tracked entries, minus any path outside the session's repo. Older snapshots
+// recorded the agent's scratchpad (and anything else out of the work tree) as
+// edits; those files can never be part of a commit, so they only ever inflated
+// the session's file count. Dropping them on load retires them for good.
+function inRepoEntries(pairs, repo) {
+  const list = Array.isArray(pairs) ? pairs : [];
+  return new Map(list.filter(([abs]) => isInsideRepo(repo, abs)));
+}
+
 // Rebuild an in-memory session entry from a snapshot. A restored session has no
 // live Claude process yet (pty: null, suspended: true) — it resumes under the same
 // id when the user selects/restores it — but its tracked-file state is intact, so
 // it stays committable immediately.
 function deserializeSession(obj) {
+  const repo = obj.repo || '';
   return {
     pty: null,
-    repo: obj.repo || '',
-    edits: new Map(Array.isArray(obj.edits) ? obj.edits : []),
-    fileOps: new Map(Array.isArray(obj.fileOps) ? obj.fileOps : []),
+    repo,
+    edits: inRepoEntries(obj.edits, repo),
+    fileOps: inRepoEntries(obj.fileOps, repo),
     preStatus: null,
     turnStatus: null,
     firstPrompt: obj.firstPrompt || '',

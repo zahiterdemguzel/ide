@@ -16,7 +16,7 @@ const { installGuide: codexInstallGuide } = require('./codex-install');
 const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
-const { tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, TEXT_EDIT_TOOLS } = require('./fs-track');
+const { tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS } = require('./fs-track');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
@@ -654,9 +654,12 @@ async function recordSessionActivity(payload) {
     const f = editedFilePath(ti);
     // Editing an ignore file changes what isIgnored means for every path.
     if (f && path.basename(f) === '.gitignore') ignoreCache.clear();
-    // Skip .gitignore'd files: tracking them here would let commit-session add
-    // them to the repo (and, once tracked, surface them in the changes panel).
-    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && !(await isIgnored(f, repo))) {
+    // Skip files outside the session's repo — above all the agent's own
+    // scratchpad, which no commit can ever contain (isInsideRepo) — and
+    // .gitignore'd ones, since tracking those would let commit-session add them to
+    // the repo (and, once tracked, surface them in the changes panel).
+    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && isInsideRepo(repo, f)
+      && !(await isIgnored(f, repo))) {
       if (!s.edits.has(f)) s.edits.set(f, []);
       s.edits.get(f).push(editOp(payload.tool_name, ti));
       changed = true;

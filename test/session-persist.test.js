@@ -78,8 +78,8 @@ test('serializeSession: an in-flight session is persisted as interrupted', () =>
 test('serialize -> deserialize round-trips the tracked-file state, minus the PTY', () => {
   const s = liveSession({
     repo: '/projects/app', firstPrompt: 'p', name: 'n', archived: false, state: 'pushed',
-    edits: [['/r/a.js', [{ t: 'edit', old: 'a', new: 'b' }]]],
-    fileOps: [['/r/x', 'delete']],
+    edits: [['/projects/app/a.js', [{ t: 'edit', old: 'a', new: 'b' }]]],
+    fileOps: [['/projects/app/x', 'delete']],
   });
   const restored = deserializeSession(serializeSession('id', s));
   assert.equal(restored.pty, null);
@@ -89,8 +89,21 @@ test('serialize -> deserialize round-trips the tracked-file state, minus the PTY
   assert.equal(restored.repo, '/projects/app');      // session stays bound to its project
   assert.equal(restored.firstPrompt, 'p');
   assert.equal(restored.name, 'n');
-  assert.deepEqual([...restored.edits.entries()], [['/r/a.js', [{ t: 'edit', old: 'a', new: 'b' }]]]);
-  assert.deepEqual([...restored.fileOps.entries()], [['/r/x', 'delete']]);
+  assert.deepEqual([...restored.edits.entries()], [['/projects/app/a.js', [{ t: 'edit', old: 'a', new: 'b' }]]]);
+  assert.deepEqual([...restored.fileOps.entries()], [['/projects/app/x', 'delete']]);
+});
+
+test('deserialize drops tracked paths outside the session repo (scratchpad leftovers)', () => {
+  // Older snapshots recorded the agent's own scratchpad; no commit can contain
+  // those files, so they only inflated the session's file count.
+  const s = liveSession({
+    repo: '/projects/app',
+    edits: [['/projects/app/a.js', []], ['/tmp/claude/sess/scratchpad/notes.md', []]],
+    fileOps: [['/projects/app/x', 'add'], ['/tmp/claude/sess/scratchpad/out.bin', 'add']],
+  });
+  const restored = deserializeSession(serializeSession('id', s));
+  assert.deepEqual([...restored.edits.keys()], ['/projects/app/a.js']);
+  assert.deepEqual([...restored.fileOps.keys()], ['/projects/app/x']);
 });
 
 test('serialize -> deserialize round-trips the per-session model and effort choice', () => {

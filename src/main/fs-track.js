@@ -2,6 +2,24 @@
 // sessions.js — kept here so the fiddly classification stays unit-tested
 // (test/fs-track.test.js).
 
+const path = require('path');
+
+// Whether an absolute path is inside the session's repo. Everything the tracker
+// records has to be: a per-session commit is a git commit, and a path outside the
+// work tree can never be part of one. The one that actually shows up is the
+// agent's own SCRATCHPAD (Claude Code hands each session a temp directory of its
+// own): `git check-ignore` errors on a path outside the repo rather than calling
+// it ignored, so scratchpad writes used to be recorded as edits — inflating the
+// session's file count with files no commit could ever contain, which then
+// vanished from the list the next time the session committed (sessionEntries
+// drops out-of-repo paths and prunes them). Filtering them at the source keeps
+// the count honest, and saves a `git check-ignore` spawn per scratchpad write.
+function isInsideRepo(repo, abs) {
+  if (!repo || !abs) return false;
+  const rel = path.relative(repo, abs);
+  return Boolean(rel) && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
 // git subcommands that REPLACE working-tree contents out of git history rather
 // than the agent authoring files: pull/merge/rebase/reset/stash/cherry-pick/
 // revert/clone/switch, and a branch checkout. The files such a command changes
@@ -167,4 +185,4 @@ function newlyStagedPaths(before, after) {
   return out;
 }
 
-module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, TEXT_EDIT_TOOLS, READONLY_TOOLS };
+module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, READONLY_TOOLS };
