@@ -54,7 +54,18 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 // Chromium (renderer) networking; the Node ws server in main (remote access)
 // and outbound https calls are unaffected, so there is no security trade-off.
 app.commandLine.appendSwitch('enable-features', 'NetworkServiceInProcess');
-app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
+
+// macOS: the CoreAnimation overlay path logs a stream of
+// "ProduceOverlay: ... non-existent mailbox" / "Invalid mailbox" errors every
+// time a surface is recreated (window resize, display change, hide/show),
+// because the buffer queue outlives the shared image it points at. The frames
+// fall back to normal compositing, so the only cost is log noise — but it
+// buries real errors, so turn the overlay path off there.
+// One appendSwitch per feature name is not possible: a second
+// `disable-features` call replaces the first, so the values share one string.
+const disabledFeatures = ['NetworkServiceSandbox'];
+if (process.platform === 'darwin') disabledFeatures.push('MacUseOverlayCompositing');
+app.commandLine.appendSwitch('disable-features', disabledFeatures.join(','));
 
 // Hardware acceleration stays ON. The remote browser's offscreen window
 // (src/main/remote-browser.js) runs in Electron's GPU-accelerated OSR mode,

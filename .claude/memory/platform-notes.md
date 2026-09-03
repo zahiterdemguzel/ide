@@ -82,6 +82,12 @@ On Windows, Chromium runs its network service in a separate child process, and *
 
 Merely unsandboxing the service (`disable-features=NetworkServiceSandbox`) is **not** enough — the separate process is still present and still a target for DLL injection, so it keeps dying. The fix in `src/main/index.js` is `enable-features=NetworkServiceInProcess`, which runs the network service inside the main process: there is no separate child to crash, so the loop disappears. We keep `disable-features=NetworkServiceSandbox` alongside it as a harmless fallback. No security trade-off here since the app makes no network requests. Keep both.
 
+## macOS: overlay-compositing mailbox errors
+
+On macOS the GPU process logs bursts of `SharedImageManager::ProduceOverlay: Trying to Produce a Overlay representation from a non-existent mailbox.` and `skia_output_device_buffer_queue.cc ... Invalid mailbox.` whenever a surface is recreated (window resize, display/scale change, hide/show). The frames silently fall back to normal compositing, so nothing breaks — but the noise buries real errors. `src/main/index.js` disables the CoreAnimation overlay path on darwin only via `disable-features=MacUseOverlayCompositing`.
+
+Note the switch is composed, not appended twice: a second `appendSwitch('disable-features', …)` **replaces** the first, so `MacUseOverlayCompositing` and `NetworkServiceSandbox` are joined into one comma-separated value. Add any future disabled feature to that same array.
+
 ## Windows target is `dir` (win-unpacked), not portable — startup time
 
 The Windows build target is **`dir`**: `npm run build` produces
