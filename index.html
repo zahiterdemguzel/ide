@@ -294,6 +294,42 @@
             <button id="web-close" data-i18n-title="browser.close" title="Close">×</button>
           </div>
           <webview id="web-frame" src="about:blank" partition="persist:browser"></webview>
+          <!-- Chrome-style console drawer: collapsed by default, expands from the
+               bottom edge of the page. Head row = toggle + error/warning badges +
+               level and text filters + Clear; body = the log and the eval prompt. -->
+          <div id="web-console" class="collapsed">
+            <div id="web-console-resize" title="Drag to resize"></div>
+            <div id="web-console-head">
+              <button id="web-console-toggle" data-i18n-title="browser.console" title="Console">
+                <span id="web-console-caret">›</span>
+                <span data-i18n="browser.console">Console</span>
+              </button>
+              <span id="web-console-badges">
+                <span id="web-console-errors" class="wc-badge wc-error" hidden></span>
+                <span id="web-console-warnings" class="wc-badge wc-warning" hidden></span>
+              </span>
+              <div class="wc-head-tools">
+                <select id="web-console-level" data-i18n-title="browser.consoleLevel" title="Log level">
+                  <option value="all" data-i18n="browser.levelAll">All levels</option>
+                  <option value="error" data-i18n="browser.levelError">Errors</option>
+                  <option value="warning" data-i18n="browser.levelWarning">Warnings</option>
+                  <option value="info" data-i18n="browser.levelInfo">Info</option>
+                  <option value="verbose" data-i18n="browser.levelVerbose">Verbose</option>
+                </select>
+                <input id="web-console-filter" type="text" spellcheck="false" autocomplete="off"
+                       data-i18n-placeholder="browser.consoleFilter" placeholder="Filter" />
+                <button id="web-console-clear" data-i18n="browser.consoleClear">Clear</button>
+              </div>
+            </div>
+            <div id="web-console-body">
+              <div id="web-console-log"></div>
+              <div id="web-console-prompt">
+                <span class="wc-arrow">›</span>
+                <input id="web-console-input" type="text" spellcheck="false" autocomplete="off"
+                       data-i18n-placeholder="browser.consoleEval" placeholder="Evaluate an expression in the page" />
+              </div>
+            </div>
+          </div>
         </div>
         <!-- Diagram: the project's structure (classes, dependencies, calls)
              drawn from a tree-sitter index. Head row picks the diagram type;
