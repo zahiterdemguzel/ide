@@ -16,6 +16,7 @@
 // terminate buttons are wired there too.
 import { confirmDialog } from '../shared/confirm.js';
 import { hideArmHint } from '../shared/arm-hint.js';
+import { attachConsole, clearConsole, setConsoleOpen } from './web-console.js';
 
 const webView = document.getElementById('web-view');
 // Reassigned by terminateWeb(), which destroys the live webview and swaps in a
@@ -133,6 +134,8 @@ export function terminateWeb() {
   const fresh = createFrame();
   webFrame.replaceWith(fresh);
   webFrame = fresh;
+  clearConsole();
+  setConsoleOpen(false);
   webUrlEl.value = '';
   webUrlEl.title = '';
   setActive(false);
@@ -147,6 +150,7 @@ function createFrame() {
   frame.setAttribute('partition', 'persist:browser');
   frame.addEventListener('did-navigate', onNav);
   frame.addEventListener('did-navigate-in-page', onNav);
+  attachConsole(frame);
   return frame;
 }
 
@@ -204,6 +208,7 @@ function onNav(e) {
 }
 webFrame.addEventListener('did-navigate', onNav);
 webFrame.addEventListener('did-navigate-in-page', onNav);
+attachConsole(webFrame);
 
 document.getElementById('web-back').onclick = () => { try { if (webFrame.canGoBack()) webFrame.goBack(); } catch {} };
 document.getElementById('web-fwd').onclick = () => { try { if (webFrame.canGoForward()) webFrame.goForward(); } catch {} };
