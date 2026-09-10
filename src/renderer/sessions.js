@@ -3,7 +3,8 @@ import { hideAllOverlays } from './viewer/center.js';
 import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
-import { confirmDialog } from './shared/confirm.js';
+import { confirmDialog, noticeDialog } from './shared/confirm.js';
+import { openDialog } from './shared/dialog.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude, ensureCodex } from './claude-setup.js';
@@ -16,12 +17,55 @@ import {
   effortsFor, effortName, DEFAULT_EFFORT,
 } from './settings.js';
 import { t } from '../i18n/index.js';
+import { isWorktreeMode, prepareWorktree } from './worktrees.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
 // switching sessions toggles which container is visible, preserving scrollback.
 const sessions = new Map(); // id -> { id, term, fit, container, li, dot, label, state, firstPrompt, name, files, archived }
 let activeId = null;
 export const getActiveId = () => activeId;
+
+// Name of the session that owns a tree path, for the explorer's active-tree chip
+// and for terminal tabs -- 'sess-9f1c2b3a' means nothing to the user, the
+// session's title does. A path INSIDE the worktree counts too: a task's
+// `options.cwd` can point at a subdirectory of it.
+export function sessionNameForWorktree(dir) {
+  const root = worktreeRootForPath(dir);
+  if (!root) return '';
+  for (const s of sessions.values()) {
+    if (s.worktree === root) return s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || '';
+  }
+  return '';
+}
+
+// The worktree a path belongs to, or '' for the project root. Identity for
+// anything that must survive the session being renamed -- a terminal keeps
+// running while Haiku titles its session, so tabs are grouped by this, not by
+// the name shown on them.
+export function worktreeRootForPath(dir) {
+  if (!dir) return '';
+  for (const s of sessions.values()) {
+    if (!s.worktree) continue;
+    if (s.worktree === dir || dir.startsWith(s.worktree + '/') || dir.startsWith(s.worktree + '\\')) return s.worktree;
+  }
+  return '';
+}
+
+// Which worktree the git pane, the file explorer and the run toolbar are pointed
+// at right now, and the standing highlight on the row that owns it. This is a
+// different fact from "selected": the explorer's tree chip can send the panels
+// back to the project while that session stays selected, so one mark can't carry
+// both. Rows are built once and only reordered, so the class survives a re-sort.
+let scopedWorktree = null;
+
+export function setSessionScope(dir) {
+  scopedWorktree = dir || null;
+  for (const s of sessions.values()) applyScope(s);
+}
+
+function applyScope(s) {
+  if (s && s.li) s.li.classList.toggle('scoped', !!scopedWorktree && s.worktree === scopedWorktree);
+}
 
 // Which sessions the list shows: 'active' (default) hides archived, 'archived'
 // shows only archived, 'all' shows everything.
@@ -70,6 +114,8 @@ const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
 const sessionTitle = document.getElementById('session-title');
 const sessionCommitBtn = document.getElementById('session-commit');
+const sessionMergeBtn = document.getElementById('session-merge');
+const sessionMergeLabel = document.getElementById('session-merge-label');
 const sessionRevertBtn = document.getElementById('session-revert');
 const sessionArchiveBtn = document.getElementById('session-archive');
 const sessionCommitMsg = document.getElementById('session-commit-msg');
@@ -91,6 +137,8 @@ const diffModeSplitBtn = document.getElementById('sdiff-mode-split');
 
 // Lucide "archive" icon — used both on the session-bar archive button and on
 // each sidebar row's archive/close button.
+// Lucide git-branch, matching the git pane header's branch button.
+const BRANCH_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>';
 const ARCHIVE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>';
 sessionArchiveBtn.innerHTML = ARCHIVE_ICON;
 
@@ -117,6 +165,11 @@ function setState(id, state) {
   // A session that was working has just finished — pull the user's eye back with a
   // one-shot row/dot animation and a chime, since the result is likely off-screen.
   if (isCompletionTransition(prev, state)) celebrateFinish(s);
+  // A worktree session's badge can't ride on session-meta: it has no tracked-file
+  // list, because its filesystem tracking is off (the tree IS the attribution).
+  // Its status dot moving is the reliable "it did something" signal, and the stat
+  // call behind this is debounced and limited.
+  if (s.worktree && prev !== state) refreshDiffStat(id);
 }
 
 // Replays the "just finished" flash on the row + dot. A re-add of the class can't
@@ -144,9 +197,22 @@ function celebrateFinish(s) {
   }
 }
 
+// Selecting a session re-points the git pane, the run toolbar's launch configs and
+// tasks, and the file explorer at the tree that session runs in. Trailing debounce:
+// arrow-keying down a list of twenty sessions should cost one switch, not twenty
+// (main also ignores a switch to the tree it is already on).
+let focusTimer = null;
+function requestRepoFocus(id) {
+  clearTimeout(focusTimer);
+  focusTimer = setTimeout(() => {
+    window.api.focusSessionRepo(id).catch((err) => console.error('[focus session repo]', err));
+  }, 150);
+}
+
 export function selectSession(id) {
   const s = sessions.get(id);
   if (!s) return;
+  requestRepoFocus(id);
   closeDiffDialog(); // the dialog belongs to whichever session was showing
   activeId = id;
   hideAllOverlays();
@@ -170,7 +236,7 @@ export function selectSession(id) {
   // Catch the terminal up on the output buffered while it was hidden, and
   // re-validate its diff badge (background rows only refresh on their own edits).
   flushPendingOutput(s);
-  if (!s.archived && (s.files.length || (s.diffStat && s.diffStat.files))) refreshDiffStat(id);
+  if (!s.archived && (s.worktree || s.files.length || (s.diffStat && s.diffStat.files))) refreshDiffStat(id);
   fit(s);
   if (!s.renderer) s.renderer = attachRenderer(s.term);
   // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
@@ -270,7 +336,7 @@ async function setArchived(id, archived) {
   else if (!archived && activeId === id) selectSession(id); // re-fit the rebuilt terminal
   // Unarchiving reveals the badge — its stat was skipped while archived, so pull
   // it now (no-op when it has no tracked work).
-  if (!archived && s.files.length) refreshDiffStat(id);
+  if (!archived && (s.worktree || s.files.length)) refreshDiffStat(id);
 }
 
 // Closing an overlay returns here: show the active session if there is one.
@@ -285,17 +351,25 @@ function updateSessionBar() {
   const s = sessions.get(activeId);
   if (!s) { sessionBar.style.display = 'none'; return; }
   sessionBar.style.display = 'flex';
-  if (sessionRevertBtn.classList.contains('armed')) hideArmHint();
+  if (sessionRevertBtn.classList.contains('armed') || sessionMergeBtn.classList.contains('armed')) hideArmHint();
   sessionRevertBtn.classList.remove('armed');
   sessionRevertBtn.textContent = 'Revert';
+  sessionMergeBtn.classList.remove('armed');
   sessionArchiveBtn.style.display = s.archived ? 'none' : '';
   const name = s.name || (s.firstPrompt && s.firstPrompt.split('\n')[0]) || t('session.unnamed');
   sessionTitle.textContent = name;
   sessionTitle.title = name;
   renderModelBadge(s);
   renderEffortBadge(s);
-  renderCommitButton(s);
-  renderRevertButton(s);
+  // A worktree session owns its whole checkout, so there are no other sessions'
+  // hunks to leave behind: Commit (this session's hunks only) and Revert (undo
+  // this session's edits) are both meaningless there, and Merge replaces them.
+  const wt = !!s.worktree;
+  sessionCommitBtn.hidden = wt;
+  sessionRevertBtn.hidden = wt;
+  sessionMergeBtn.hidden = !wt;
+  if (wt) renderMergeButton(s);
+  else { renderCommitButton(s); renderRevertButton(s); }
   renderDiffButton(s);
   // The notice is now only for failures / revert results, kept per-session so
   // switching sessions never carries a stale message over from another.
@@ -524,6 +598,30 @@ function renderCommitButton(s) {
   sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing to commit';
 }
 
+// A worktree session's button. The count is the session's whole diff against its
+// base branch (main computes it with plain git — there is no attribution to do),
+// and merging is worth offering even at zero commits ahead only when there is
+// something uncommitted, so both cases fold into the same "nothing to merge".
+function renderMergeButton(s) {
+  if (s.merging) {
+    sessionMergeBtn.disabled = true;
+    sessionMergeLabel.textContent = t('worktree.merging');
+    return;
+  }
+  if (s.worktreeState === 'missing') {
+    sessionMergeBtn.disabled = true;
+    sessionMergeLabel.textContent = t('worktree.merge');
+    sessionMergeBtn.title = t('worktree.missing');
+    return;
+  }
+  const n = s.diffStat ? s.diffStat.files : s.files.length;
+  sessionMergeBtn.disabled = n === 0;
+  sessionMergeLabel.textContent = n
+    ? t('worktree.mergeN').replace('{n}', String(n))
+    : t('worktree.nothingToMerge');
+  sessionMergeBtn.title = s.branch ? t('worktree.mergeBranch').replace('{branch}', s.branch) : '';
+}
+
 // Revert de-applies this session's edits, so it enables on the same condition as
 // commit: the real committable count (`s.diffStat.files`, falling back to the raw
 // tracked count until the first stat arrives). It also stays disabled while a
@@ -555,6 +653,11 @@ function renderDiffButton(s) {
 // Mirror a session's diff stat onto its sidebar row as a small green/red badge,
 // when the setting is on and the session has net changes — otherwise hide it.
 function renderRowDiff(s) {
+  applyScope(s); // rows built after a scope was set still need the highlight
+  if (s.wtMark) {
+    s.wtMark.style.display = s.worktree ? '' : 'none';
+    s.wtMark.title = s.branch || '';
+  }
   const el = s.diffBadge;
   if (!el) return;
   const ds = s.diffStat;
@@ -580,7 +683,11 @@ function refreshDiffStat(id) {
     if (!s) return;
     try { s.diffStat = await window.api.sessionDiffStat(id); } catch { return; }
     renderRowDiff(s); // every session: keep out-of-view rows' badges current
-    if (id === activeId) { renderCommitButton(s); renderRevertButton(s); renderDiffButton(s); }
+    if (id === activeId) {
+      if (s.worktree) renderMergeButton(s);
+      else { renderCommitButton(s); renderRevertButton(s); }
+      renderDiffButton(s);
+    }
   }, 350));
 }
 
@@ -602,7 +709,7 @@ export function refreshAllDiffStats() {
   // re-validates against a moved HEAD when it's selected (selectSession).
   const s = sessions.get(activeId);
   if (!s || s.archived) return;
-  if (s.files.length || (s.diffStat && s.diffStat.files)) refreshDiffStat(s.id);
+  if (s.worktree || s.files.length || (s.diffStat && s.diffStat.files)) refreshDiffStat(s.id);
 }
 
 export function fit(s) {
@@ -719,6 +826,12 @@ function makeRow(id) {
   const diffBadge = document.createElement('span');
   diffBadge.className = 'sess-diff';
   diffBadge.style.display = 'none';
+  // Marks a session that runs in its own worktree. Shown before the diff badge so
+  // the "is this isolated" answer sits next to the "how much did it change" one.
+  const wtMark = document.createElement('span');
+  wtMark.className = 'sess-wt';
+  wtMark.innerHTML = BRANCH_ICON;
+  wtMark.style.display = 'none';
   const restore = document.createElement('button');
   restore.className = 'sess-restore';
   restore.title = 'Restore session';
@@ -755,11 +868,11 @@ function makeRow(id) {
     hideArmHint();
     closeSession(id);
   };
-  li.append(dot, label, diffBadge, restore, del, close);
+  li.append(dot, label, wtMark, diffBadge, restore, del, close);
   li.onclick = () => selectSession(id);
   li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrDelete(); } };
   listEl.appendChild(li);
-  return { li, dot, label, diffBadge, closeBtn: close };
+  return { li, dot, label, diffBadge, wtMark, closeBtn: close };
 }
 
 // Replace a container's contents with the "archived, restore to continue" hint
@@ -786,8 +899,29 @@ export async function newSession(opts = {}) {
   // another model instead).
   if (modelFamily(model) === 'codex' && !(await ensureCodex())) return;
   const subagentModel = opts.subagentModel || getSubagentModel();
+  // Worktree mode: ask what to skip, then keep a progress dialog up for the whole
+  // copy. `forceMainTree` is how the merge-conflict hand-off (and anything else
+  // that must run against the project itself) opts out.
+  const wt = isWorktreeMode() && !opts.forceMainTree ? await prepareWorktree() : null;
+  if (isWorktreeMode() && !opts.forceMainTree && !wt) return; // backed out of the pre-scan
   // probe a size from a temporary fit after open
-  const res = await window.api.newSession({ cols: 80, rows: 24, model, subagentModel, effort: opts.effort || getSessionEffort() });
+  let res;
+  try {
+    res = await window.api.newSession({
+      cols: 80, rows: 24, model, subagentModel, effort: opts.effort || getSessionEffort(),
+      skip: wt ? wt.skip : undefined, forceMainTree: !!opts.forceMainTree,
+    });
+  } finally {
+    wt?.done();
+  }
+  // Cancelling the copy is a deliberate act, not a failure: main has already rolled
+  // the half-built tree back, so there is nothing to report. (`canceled` is the
+  // session being closed mid-copy; `code === 'canceled'` is the dialog's Cancel.)
+  if (res && (res.canceled || res.code === 'canceled')) return;
+  if (res && res.error && !res.id) {
+    await noticeDialog({ title: t('worktree.createFailedTitle'), message: res.error });
+    return;
+  }
   // A failed spawn already raised a session-error dialog from main; bail rather
   // than build a broken row around a missing id.
   if (!res || !res.id) return;
@@ -799,8 +933,8 @@ export async function newSession(opts = {}) {
   // (both paths build the same live row) — reuse it rather than duplicating it.
   if (!sessions.has(id)) {
     const { container, term, fit: fitAddon } = buildTerminal(id, repo);
-    const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
-    sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model, effort: res.effort || '' });
+    const { li, dot, label, diffBadge, wtMark, closeBtn } = makeRow(id);
+    sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, wtMark, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model, effort: res.effort || '', worktree: res.worktree || '', branch: res.branch || '', worktreeState: res.worktreeState || '' });
   }
   setTab('active');
   selectSession(id);
@@ -823,12 +957,12 @@ export async function newSessionWithPrompt(text) {
 // the user to resume it, which selectSession does on demand. Its tracked-file list
 // is intact, so the commit button works against it before it's even resumed.
 function restoreSessionRow(meta) {
-  const { id, repo, firstPrompt, name, archived, files, state, model, effort } = meta;
+  const { id, repo, firstPrompt, name, archived, files, state, model, effort, worktree, branch, worktreeState } = meta;
   const container = createTermContainer(id);
   showSuspendedHint(container, archived
     ? 'Session archived — restore it to continue.'
     : 'Session restored — select to resume.');
-  const { li, dot, label, diffBadge, closeBtn } = makeRow(id);
+  const { li, dot, label, diffBadge, wtMark, closeBtn } = makeRow(id);
   const shown = name || (firstPrompt && firstPrompt.split('\n')[0]);
   if (shown) label.textContent = shown;
   // Carry the persisted status dot across the restart: finished stays green,
@@ -838,15 +972,17 @@ function restoreSessionRow(meta) {
   const st = state || 'idle';
   dot.className = 'dot ' + st;
   dot.title = STATE_LABEL[st] || st;
-  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, model: model || '', effort: effort || '' });
+  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, wtMark, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, model: model || '', effort: effort || '', worktree: worktree || '', branch: branch || '', worktreeState: worktreeState || '' });
+  renderRowDiff(sessions.get(id));
 }
 
 // On startup, pull the persisted sessions from main and rebuild the list, then
 // surface the first active one (selecting it resumes its Claude process).
 export async function restoreSessions() {
-  // Resolve the open folder first so the restored list is filtered to it from the
-  // start (a session belongs to the project it was created in).
-  try { currentRepo = await window.api.getRepoPath(); } catch {}
+  // Resolve the open PROJECT first so the restored list is filtered to it from the
+  // start (a session belongs to the project it was created in — a worktree session
+  // included, whose own tree is not what the list filters on).
+  try { currentRepo = await window.api.getMainRepoPath(); } catch {}
   let list = [];
   try { list = await window.api.getSessions(); } catch { return; }
   if (!Array.isArray(list) || !list.length) return;
@@ -870,17 +1006,19 @@ export async function restoreSessions() {
 function adoptSession(meta) {
   const repo = meta.repo || currentRepo || '';
   const { container, term, fit } = buildTerminal(meta.id, repo);
-  const { li, dot, label, diffBadge, closeBtn } = makeRow(meta.id);
+  const { li, dot, label, diffBadge, wtMark, closeBtn } = makeRow(meta.id);
   const state = meta.state || 'idle';
   const shown = meta.name || (meta.firstPrompt && meta.firstPrompt.split('\n')[0]);
   if (shown) label.textContent = shown;
   dot.className = 'dot ' + state;
   dot.title = STATE_LABEL[state] || state;
   sessions.set(meta.id, {
-    id: meta.id, repo, term, fit, container, li, dot, label, diffBadge, closeBtn, state,
+    id: meta.id, repo, term, fit, container, li, dot, label, diffBadge, wtMark, closeBtn, state,
     firstPrompt: meta.firstPrompt || '', name: meta.name || '', files: meta.files || [],
     archived: false, suspended: false, model: meta.model || '', effort: meta.effort || '',
+    worktree: meta.worktree || '', branch: meta.branch || '', worktreeState: meta.worktreeState || '',
   });
+  renderRowDiff(sessions.get(meta.id));
 }
 
 // Main owns the session set and pushes the whole list whenever it changes, so a
@@ -899,6 +1037,16 @@ function syncSessions(list) {
       if (meta.live) adoptSession(meta);
       else restoreSessionRow(meta);
     } else {
+      // Worktree facts can move under an existing row: a worktree finishes seeding,
+      // or its directory goes missing between runs. The Merge button and the row's
+      // branch mark both read these, so keep them fresh on every list push.
+      if (meta.worktree !== s.worktree || meta.worktreeState !== s.worktreeState) {
+        s.worktree = meta.worktree || '';
+        s.branch = meta.branch || '';
+        s.worktreeState = meta.worktreeState || '';
+        renderRowDiff(s);
+        if (activeId === s.id) updateSessionBar();
+      }
       if (meta.archived !== s.archived) {
         s.archived = meta.archived;
         // Main has already killed the PTY, so mirror it in the UI only.
@@ -933,9 +1081,33 @@ function removeSessionUI(id) {
   }
 }
 
-function closeSession(id) {
-  if (!sessions.has(id)) return;
-  window.api.killSession(id);
+// Closing a worktree session decides the fate of its checkout. Main answers
+// 'unmerged' when the branch still holds work the project doesn't have (or the
+// tree is dirty) and touches NOTHING until the user says what to do — so the
+// default outcome of a stray click can never be "your work is gone".
+async function closeSession(id) {
+  const s = sessions.get(id);
+  if (!s) return;
+  if (!s.worktree) { window.api.killSession(id); removeSessionUI(id); return; }
+  const r = await window.api.closeSession(id);
+  if (r && r.ok) { removeSessionUI(id); return; }
+  if (!r || r.code !== 'unmerged') { removeSessionUI(id); return; }
+  const lost = [
+    r.unmerged ? t('worktree.lostCommits').replace('{n}', String(r.unmerged)) : '',
+    r.dirtyFiles ? t('worktree.lostFiles').replace('{n}', String(r.dirtyFiles)) : '',
+  ].filter(Boolean).join(', ');
+  const choice = await openDialog({
+    title: t('worktree.closeUnmergedTitle'),
+    body: t('worktree.closeUnmergedBody').replace('{branch}', r.branch || '').replace('{lost}', lost),
+    cancelValue: null,
+    buttons: [
+      { label: t('worktree.cancel'), value: null, variant: 'secondary' },
+      { label: t('worktree.keepWorktree'), value: 'keep', variant: 'primary' },
+      { label: t('worktree.deleteAnyway'), value: 'delete', variant: 'danger' },
+    ],
+  });
+  if (!choice) return; // session stays exactly as it was
+  await window.api.closeSession(id, choice);
   removeSessionUI(id);
 }
 
@@ -985,6 +1157,72 @@ sessionRevertBtn.onclick = async () => {
   s.commitMsgClass = r.ok && !skipped ? 'ok' : 'err';
   if (activeId === s.id) updateSessionBar();
   refreshGit();};
+
+// Type a prompt into a live session and submit it. The Enter is a SEPARATE write
+// after a settle that scales with the text: bundling a carriage return with a multi-line paste
+// submits before Claude's TUI has finished ingesting it, so the prompt fires
+// half-typed.
+function typePrompt(id, text) {
+  window.api.sendInput(id, text);
+  setTimeout(() => window.api.sendInput(id, '\r'), Math.min(3000, 400 + text.length / 4));
+}
+
+// Two-click merge: it lands commits on the project's branch, so it arms like
+// Revert rather than firing on a single click.
+sessionMergeBtn.onclick = async () => {
+  if (!activeId) return;
+  const s = sessions.get(activeId);
+  if (!s || s.merging) return;
+  if (!sessionMergeBtn.classList.contains('armed')) {
+    sessionMergeBtn.classList.add('armed');
+    sessionMergeLabel.textContent = t('worktree.mergeSure');
+    showArmHint(sessionMergeBtn);
+    return;
+  }
+  hideArmHint();
+  sessionMergeBtn.classList.remove('armed');
+  if ((s.state === 'working' || s.state === 'bg-agents') && !(await confirmDialog({
+    title: t('worktree.mergeRunningTitle'),
+    message: t('worktree.mergeRunningBody'),
+    ok: t('worktree.merge'),
+  }))) { updateSessionBar(); return; }
+  s.merging = true;
+  s.commitMsg = '';
+  updateSessionBar();
+  let r;
+  try { r = await window.api.mergeSession(s.id); }
+  finally { s.merging = false; }
+  if (r.ok) {
+    s.commitMsg = r.noop ? t('worktree.mergeNoop') : t('worktree.merged').replace('{base}', r.base || '');
+    s.commitMsgClass = 'ok';
+    setState(s.id, 'pushed');
+  } else if (r.needsMerge) {
+    // The base branch moved somewhere that conflicts. The worktree was left clean
+    // (main aborted the merge), and the session that wrote the code is the one
+    // best placed to resolve it — so the offer goes to THIS session's terminal.
+    s.commitMsg = t('worktree.mergeConflict');
+    s.commitMsgClass = 'err';
+    updateSessionBar();
+    if (await confirmDialog({ title: t('worktree.conflictTitle'), message: t('worktree.conflictBody'), ok: t('git.letClaude') })) {
+      const where = t('worktree.conflictPrompt').replace('{base}', r.base || '').replace('{branch}', r.branch || '');
+      typePrompt(s.id, [t('git.mergePrompt'), where, r.stderr || ''].filter(Boolean).join('\n\n'));
+    }
+  } else {
+    s.commitMsg = MERGE_ERRORS[r.code] ? t(MERGE_ERRORS[r.code]) : (r.stderr || t('worktree.mergeFailed'));
+    s.commitMsgClass = 'err';
+  }
+  if (activeId === s.id) updateSessionBar();
+  refreshGit();
+};
+
+// Refusals the merge reports as a code rather than raw git output, because each
+// has a specific thing the user has to do first.
+const MERGE_ERRORS = {
+  'detached-main': 'worktree.errDetachedMain',
+  'dirty-main': 'worktree.errDirtyMain',
+  'not-ready': 'worktree.errNotReady',
+  'not-a-worktree': 'worktree.errNotWorktree',
+};
 
 sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); };
 

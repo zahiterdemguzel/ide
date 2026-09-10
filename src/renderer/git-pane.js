@@ -117,14 +117,14 @@ export async function refreshGit() {
   // A non-git folder swaps the whole pane for the create-repository panel; bail
   // before any porcelain call (they'd all fail with "not a git repository").
   if (!(await window.api.gitIsRepo())) {
-    window.api.setWindowTitle(repoPath);
+    window.api.setWindowTitle();
     showCreatePanel(repoPath);
     return;
   }
   hideCreatePanel();
   refreshStashes(); // independent of working-tree status; runs even when not in a repo
   const r = await window.api.gitStatus();
-  if (r.repo) window.api.setWindowTitle(r.repo);
+  window.api.setWindowTitle();
   const cleanEl = document.getElementById('git-clean');
   if (!r.ok) {
     stagedEl.innerHTML = '';

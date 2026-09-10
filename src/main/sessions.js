@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 const { sendToRenderer } = require('./window');
-const { getRepoPath } = require('./repo');
+const { getRepoPath, getMainRepoPath, setActiveWorktree } = require('./repo');
 const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
@@ -16,13 +16,18 @@ const { installGuide: codexInstallGuide } = require('./codex-install');
 const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
-const { tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS } = require('./fs-track');
+const { LIMITS, hashContent, looksBinary, deriveOp } = require('./fs-content');
+const { tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, TURN_END_EVENTS } = require('./fs-track');
+const { watchRepo, stopAll } = require('./fs-watch');
+const { settleTarget, sameTree } = require('./fs-watch-lib');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
 const { isInterruptKey, interruptOutcome } = require('./hook-events');
 const push = require('./push');
 const { querySessions } = require('./session-query-lib');
+const { getProjectSettings } = require('./project-settings');
+const { createWorktree, cancelCreate, emitProgress, worktreeStatus, removeWorktree, renameSessionBranch } = require('./worktrees');
 const { createCoalescer } = require('./concurrency');
 const { createPtyBatcher } = require('./pty-batch');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
@@ -176,6 +181,10 @@ function loadPersistedSessions() {
       // to resume — it only ever produces the "No conversation found" error. Drop it
       // and delete its stale file so it can't resurrect on every launch.
       if (!isSessionPersistable(entry)) { removeSessionFile(obj.id); continue; }
+      // A worktree the user (or a cleanup script) deleted between runs: the record
+      // still names it, but there is nothing there. Mark it rather than resuming
+      // into a directory that no longer exists — the row disables Merge and says so.
+      if (entry.worktree && !fs.existsSync(path.join(entry.worktree, '.git'))) entry.worktreeState = 'missing';
       entry._seq = obj._seq || 0;
       sessions.set(obj.id, entry);
       // No hook has fired for a restored session, so this is the only way its chat
@@ -203,6 +212,7 @@ function evictOverBudget() {
   for (const id of evictedIds) {
     const s = sessions.get(id);
     if (s && s.pty) try { s.pty.kill(); } catch { /* already gone */ }
+    releaseRepoWatch(s);
     sessions.delete(id);
     // An evicted suspended session has no PTY, so no onExit fires to release its chat
     // state — forget it explicitly or its watcher/messages/path leak permanently.
@@ -451,23 +461,58 @@ async function isIgnored(absPath, repo) {
 // hook.
 const STAMP_LIMIT = 2000;
 const statusScans = new Map(); // repoPath -> coalescer
+
+// A snapshot is `{ codes, contents }`: the porcelain map every caller has always
+// used, plus the TEXT of each dirty file at that instant. The text is what lets a
+// Bash/MCP change be recovered as a real hunk instead of "this path changed" —
+// see fs-content.deriveOp and applyFsDiff. Capturing it is bounded by
+// fs-content.LIMITS; past those a path keeps its code and stamp alone and the
+// tracker degrades to its old whole-file behaviour for that file.
 function scanStatus(repo) {
   return async () => {
     const r = await git(['status', '--porcelain=v1', '--untracked-files=all', '--no-renames', '--ignore-submodules=all'], { cwd: repo });
-    const m = new Map();
-    if (!r.ok) return m;
+    const codes = new Map(), contents = new Map();
+    if (!r.ok) return { codes, contents };
     const lines = r.stdout.split('\n').filter(Boolean);
+    const capture = lines.length <= LIMITS.maxFiles;
+    let budget = LIMITS.maxTotalBytes;
     for (const line of lines) {
       const rel = line.slice(3);
-      const stamp = lines.length <= STAMP_LIMIT ? ':' + contentStamp(path.resolve(repo, rel)) : '';
-      m.set(rel, line.slice(0, 2) + stamp);
+      const abs = path.resolve(repo, rel);
+      let stamp = null;
+      if (capture) {
+        const buf = readCapped(abs, Math.min(LIMITS.maxFileBytes, budget));
+        if (buf) {
+          budget -= buf.length;
+          // The hash replaces the old size+mtime stamp for captured files: a
+          // rewrite that preserves both (`sed -i` swapping equal-length text
+          // within one mtime tick) was invisible to a stamp and so was dropped
+          // from the session's file list entirely.
+          stamp = ':' + hashContent(buf);
+          if (!looksBinary(buf)) contents.set(rel, buf.toString('utf8'));
+        }
+      }
+      // Not captured: too many dirty paths, too big, binary past the budget, or
+      // gone from disk (a deletion, which the status code already reports).
+      if (stamp == null) stamp = lines.length <= STAMP_LIMIT ? ':' + contentStamp(abs) : '';
+      codes.set(rel, line.slice(0, 2) + stamp);
     }
-    return m;
+    return { codes, contents };
   };
 }
 
+// The file's bytes, or null when it's missing or larger than `max` — stat'd
+// first so a huge file is never read just to be thrown away.
+function readCapped(abs, max) {
+  try {
+    if (max <= 0 || fs.statSync(abs).size > max) return null;
+    return fs.readFileSync(abs);
+  } catch { return null; }
+}
+
 // size+mtime of a path, or `-` when it isn't there (a deletion, which the status
-// code already tells us about).
+// code already tells us about). The fallback identity for files whose content the
+// snapshot didn't capture.
 function contentStamp(abs) {
   try {
     const st = fs.statSync(abs);
@@ -475,15 +520,34 @@ function contentStamp(abs) {
   } catch { return '-'; }
 }
 
-function statusMap(repo) {
+function statusSnapshot(repo) {
   const key = repo || '';
   if (!statusScans.has(key)) statusScans.set(key, createCoalescer(scanStatus(repo)));
   return statusScans.get(key)();
 }
 
-// The repo a session's filesystem tracking runs against: the folder it was
-// created in, falling back to the open one for a session that has none.
-function sessionRepo(s) {
+// Store a snapshot as a session's baseline. The snapshot itself is SHARED (the
+// scan is coalesced across sessions), so the per-session part rides alongside it
+// rather than being written into it: `editCounts` is how many text-edit ops the
+// session had recorded per file when the window opened, which is what lets
+// applyFsDiff tell "a text-edit tool already recorded this change" from "this
+// file was edited by a tool in some earlier turn".
+function fsBaseline(s, snap) {
+  const editCounts = new Map();
+  for (const [abs, ops] of s.edits) editCounts.set(abs, ops.length);
+  return { snap, editCounts };
+}
+
+// The tree a session actually works in: its own worktree when it has one, else
+// the project it was created in, falling back to the open folder for a session
+// that has neither. Never assume this is getRepoPath() — sessions keep running
+// after the user opens another project, and a worktree session's tree is not the
+// open folder even when it is the current one.
+function sessionCwd(s) {
+  // A worktree whose directory is gone (deleted outside the app) is not somewhere
+  // we can spawn or run git — fall back to the project so the session degrades to
+  // "works, but no longer isolated" instead of failing to start at all.
+  if (s && s.worktree && s.worktreeState !== 'missing') return s.worktree;
   return (s && s.repo) || getRepoPath();
 }
 
@@ -510,12 +574,16 @@ async function unstageToolStaged(before, after, repo) {
   return paths.length > 0;
 }
 
-function applyFsDiff(s, before, after) {
-  const repoPath = sessionRepo(s);
+// `base` is a baseline from fsBaseline(); `after` is a raw snapshot. Async
+// because recovering the pre-image of a file that was CLEAN when the window
+// opened means asking git for the committed blob.
+async function applyFsDiff(s, base, after) {
+  const repoPath = sessionCwd(s);
+  const before = base.snap;
   let changed = false;
   const claimed = pathsClaimedByOthers(s);
-  for (const rel of new Set([...before.keys(), ...after.keys()])) {
-    if (before.get(rel) === after.get(rel)) continue; // untouched by this tool
+  for (const rel of new Set([...before.codes.keys(), ...after.codes.keys()])) {
+    if (before.codes.get(rel) === after.codes.get(rel)) continue; // untouched by this tool
     const abs = path.resolve(repoPath, rel);
     // The status snapshot is global, so a file ANOTHER session changed during
     // this tool's window shows up here too. If that session already owns the path
@@ -524,18 +592,57 @@ function applyFsDiff(s, before, after) {
     // "Known ceilings".
     if (claimed.has(abs)) continue;
     if (fs.existsSync(abs)) {
-      if (s.edits.has(abs)) continue; // a text-edit tool already covers this file
-      s.fileOps.set(abs, 'add');
-      changed = true;
+      // A text-edit tool that ran INSIDE this window already recorded the change
+      // exactly, so deriving a second op from the same bytes would double it.
+      // Ops from an EARLIER window must not count: the guard here used to be a
+      // plain `s.edits.has(abs)`, which made every file the session had ever
+      // touched with a tool permanently invisible to the filesystem diff — so a
+      // later `sed -i` on that same file went untracked.
+      if ((s.edits.get(abs) || []).length > (base.editCounts.get(abs) || 0)) continue;
+      // Recover the actual hunk when both sides of the window captured the file's
+      // text. That turns a shell edit into the same replayable op an Edit tool
+      // would have produced (see fs-content.js) — so the per-session commit takes
+      // only this session's change instead of the whole file.
+      const op = await windowOp(repoPath, rel, before, after);
+      if (op) {
+        if (!s.edits.has(abs)) s.edits.set(abs, []);
+        s.edits.get(abs).push(op);
+        s.fileOps.delete(abs); // an exact op supersedes a whole-file record
+        changed = true;
+      } else if (!s.edits.has(abs)) {
+        // Binary, oversized, or past the capture budget: all we honestly know is
+        // that the path changed.
+        s.fileOps.set(abs, 'add');
+        changed = true;
+      }
     } else {
       s.edits.delete(abs); // the tool moved/removed it, so any recorded text ops are void
       // A file that was only ever untracked and is now gone never reached HEAD —
       // there is nothing to commit as a deletion, so just forget it.
-      if (statusCode(before.get(rel)).startsWith('?')) { if (s.fileOps.delete(abs)) changed = true; }
+      if (statusCode(before.codes.get(rel)).startsWith('?')) { if (s.fileOps.delete(abs)) changed = true; }
       else { s.fileOps.set(abs, 'delete'); changed = true; }
     }
   }
   return changed;
+}
+
+// The op for one file across a tool window, or null when the window can't
+// describe the change as text — the caller then falls back to recording the path
+// alone. Three pre-images, in order of how much we know:
+//   - captured in the baseline: the exact bytes when the window opened.
+//   - listed in the baseline but NOT captured (binary, oversized, past the
+//     capture budget): no honest pre-image, so no op.
+//   - absent from the baseline: the file was clean, so its pre-image is exactly
+//     what's committed at HEAD — the single most common case, since agents mostly
+//     shell-edit files nobody has touched yet. An untracked file has no blob
+//     there, which correctly yields an empty pre-image.
+async function windowOp(repoPath, rel, before, after) {
+  const afterText = after.contents.get(rel);
+  if (typeof afterText !== 'string') return null;
+  if (before.contents.has(rel)) return deriveOp(before.contents.get(rel), afterText);
+  if (before.codes.has(rel)) return null;
+  const head = await git(['show', `HEAD:${rel}`], { cwd: repoPath });
+  return deriveOp(head.ok ? head.stdout : '', afterText);
 }
 
 // When the app is launched from VS Code's debugger (.vscode/launch.json), VS Code
@@ -586,6 +693,182 @@ function noteAgentSessionId(id, agentSessionId) {
   persistSession(id);
 }
 
+// Attribute filesystem changes to the session: the text-edit op log plus the two
+// git-status baselines (per-tool and per-turn) that catch what a text-edit tool
+// can't express. Split out so a worktree session can skip ALL of it in one place.
+//
+// Worktree sessions don't need it: their checkout is theirs alone, so "what did
+// this session change" is just "what changed in this tree" — plain git, no
+// attribution. Skipping it also drops the repeated O(worktree) status scans that
+// attribution costs, which is the expensive half of hook handling.
+async function trackFsChanges(s, payload, repo) {
+  let changed = false;
+  if (payload.hook_event_name === 'PostToolUse') {
+    const ti = payload.tool_input || {};
+    // editedFilePath also reads NotebookEdit's `notebook_path` — subagent edits
+    // (payloads carrying agent_id) land here too, same session_id, and belong to
+    // the session just like main-thread ones.
+    const f = editedFilePath(ti);
+    // Editing an ignore file changes what isIgnored means for every path.
+    if (f && path.basename(f) === '.gitignore') ignoreCache.clear();
+    // Skip files outside the session's repo — above all the agent's own
+    // scratchpad, which no commit can ever contain (isInsideRepo) — and
+    // .gitignore'd ones, since tracking those would let commit-session add them to
+    // the repo (and, once tracked, surface them in the changes panel).
+    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && isInsideRepo(repo, f)
+      && !(await isIgnored(f, repo))) {
+      if (!s.edits.has(f)) s.edits.set(f, []);
+      s.edits.get(f).push(editOp(payload.tool_name, ti));
+      changed = true;
+    }
+  }
+  // Filesystem changes a text-edit tool can't express — a binary file a Bash/MCP
+  // tool created, or a file it renamed/moved/deleted — are caught by diffing the
+  // git working tree across the tool call: snapshot before the first fs tool of a
+  // burst, compare once the last one finishes. Claude runs tool calls in PARALLEL
+  // within a turn, so the Pre/Post hooks interleave; a single snapshot slot would
+  // let a second Pre clobber it and a Post-without-Pre drop its changes entirely.
+  // Instead we ref-count the fs tools in flight (`fsInFlight`): snapshot when the
+  // count goes 0â†’1, diff once it returns to 0, against that one consistent
+  // baseline — so every concurrent tool's changes are captured exactly once.
+  if (modelFamily(s.model) === 'codex') {
+    // Codex runs tools serially but skips PostToolUse when a tool errors, so the
+    // balanced ref-count below would jam and drop the turn's changes — use the
+    // orphan-tolerant serial plan instead (see fs-track.serialFsPlan).
+    const plan = serialFsPlan(payload, !!s.preStatus);
+    if (plan) {
+      // Claim the baseline BEFORE the await: hook payloads are handled
+      // concurrently, and a PostToolUse + Stop pair (or a UserPromptSubmit
+      // reset) interleaving across statusSnapshot() could otherwise both plan a
+      // 'diff' against the same baseline — the second finding it nulled and
+      // crashing in applyFsDiff.
+      const base = s.preStatus;
+      s.preStatus = null;
+      let now = await statusSnapshot(repo);
+      if (plan !== 'snapshot' && base) {
+        if (await applyFsDiff(s, base, now)) changed = true;
+        // Re-snapshot after an unstage so a stored baseline reflects the real
+        // index state, not the pre-unstage codes.
+        if (await unstageToolStaged(base.snap.codes, now.codes, repo) && plan !== 'diff') now = await statusSnapshot(repo);
+      }
+      if (plan !== 'diff') s.preStatus = fsBaseline(s, now);
+    }
+  } else if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
+    // Decide "am I the first fs tool of this burst" and bump the count SYNCHRONOUSLY,
+    // before the await — otherwise two parallel Pre hooks both read 0, both snapshot,
+    // and the count settles at 1, so a Post drops to 0 one tool early and diffs while
+    // another tool is still writing.
+    const first = (s.fsInFlight || 0) === 0;
+    s.fsInFlight = (s.fsInFlight || 0) + 1;
+    if (first) s.preStatus = fsBaseline(s, await statusSnapshot(repo));
+  } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload)) {
+    s.fsInFlight = Math.max(0, (s.fsInFlight || 0) - 1);
+    // Claim the baseline BEFORE the await, same as the codex plan above: a
+    // UserPromptSubmit reset (or another Post) landing while statusSnapshot() is in
+    // flight would otherwise null s.preStatus out from under applyFsDiff.
+    const base = s.fsInFlight === 0 ? s.preStatus : null;
+    if (base) {
+      s.preStatus = null;
+      const now = await statusSnapshot(repo);
+      if (await applyFsDiff(s, base, now)) changed = true;
+      await unstageToolStaged(base.snap.codes, now.codes, repo);
+    }
+  } else if (payload.hook_event_name === 'Stop' && !payload.agent_id) {
+    // A PreToolUse whose PostToolUse never arrives — the user denying the
+    // permission prompt, or interrupting the tool — leaves the ref-count above
+    // zero, and from then on every Post in the turn diffs nothing: the rest of
+    // the turn's binary/rename/delete work went untracked (the count only
+    // self-healed at the NEXT prompt). The main agent's Stop ends the turn, so
+    // it flushes whatever baseline is left — attributing the orphaned tool's
+    // changes and unstaging what it staged — and clears the count. Background
+    // agents may still be running; their tool windows simply re-baseline from
+    // here, and the turn-wide tracker below still covers them.
+    s.fsInFlight = 0;
+    const base = s.preStatus;
+    s.preStatus = null;
+    if (base) {
+      const now = await statusSnapshot(repo);
+      if (await applyFsDiff(s, base, now)) changed = true;
+      await unstageToolStaged(base.snap.codes, now.codes, repo);
+    }
+  }
+  // Second, TURN-wide baseline, on top of the per-tool windows above: files the
+  // CLI itself writes outside any tool call — auto-memory files, which land in
+  // the repo whenever `autoMemoryDirectory` points inside it — are invisible to
+  // both channels, so the session's own docs never reached its diff or its
+  // commit. `turnFsPlan` (pure, fs-track.js) baselines at the user's prompt and
+  // diffs at each turn end. Two deliberate differences from the tool windows:
+  // nothing is unstaged (a turn-long window would fight the user staging in the
+  // git pane), and a between-turn change is absorbed by the next prompt's
+  // snapshot rather than attributed to an idle session.
+  const turnPlan = turnFsPlan(payload, !!s.turnStatus);
+  if (turnPlan) {
+    // Claim the baseline before the await, same as the plans above: hook
+    // payloads are handled concurrently and a second planner landing mid-await
+    // would otherwise diff the same baseline twice (or find it nulled).
+    const base = s.turnStatus;
+    s.turnStatus = null;
+    const now = await statusSnapshot(repo);
+    if (turnPlan === 'diff-and-snapshot' && base && await applyFsDiff(s, base, now)) changed = true;
+    s.turnStatus = fsBaseline(s, now);
+    // When the turn ENDED, the fresh baseline is what a backgrounded process
+    // will be diffed against if it keeps writing (see settleTurn). Stamp the
+    // moment so the watcher knows which session that is.
+    if (TURN_END_EVENTS.has(payload.hook_event_name)) s.turnEndedAt = Date.now();
+    ensureRepoWatch(s, repo);
+  }
+  return changed;
+}
+
+// --- the post-turn settle diff ---
+//
+// A tool window closes at PostToolUse and the turn window at Stop, so a command
+// the agent BACKGROUNDED (a build, a dev server, `foo &`) keeps writing into a
+// window nobody is holding: those files used to be absorbed by the next prompt's
+// baseline and attributed to no session at all. The repo watcher (fs-watch.js)
+// notices the tree moving after the turn ended and calls this, which runs exactly
+// the same diff the turn end would have — same snapshot, same claim rules. The
+// watcher never says WHAT changed; it only says WHEN to look.
+function ensureRepoWatch(s, repo) {
+  if (s.unwatch || !repo) return;
+  s.unwatch = watchRepo(repo, settleTurn);
+}
+
+function releaseRepoWatch(s) {
+  if (!s || !s.unwatch) return;
+  s.unwatch();
+  s.unwatch = null;
+}
+
+async function settleTurn(repo) {
+  const entries = [];
+  for (const [id, s] of sessions) {
+    entries.push({
+      id,
+      repo: sameTree(sessionCwd(s), repo) ? repo : null,
+      // Mid-turn work belongs to the tool/turn windows, which are already
+      // holding a baseline for it — settling underneath them would diff the same
+      // changes twice.
+      working: s.state === 'working' || s.state === 'bg-agents' || (s.fsInFlight || 0) > 0,
+      hasBaseline: !!s.turnStatus,
+      turnEndedAt: s.turnEndedAt || 0,
+    });
+  }
+  const target = settleTarget(entries);
+  if (!target) return;
+  const s = sessions.get(target.id);
+  if (!s) return;
+  const base = s.turnStatus;
+  s.turnStatus = null; // claim it before the await, as every other planner does
+  if (!base) return;
+  const now = await statusSnapshot(sessionCwd(s));
+  const changed = await applyFsDiff(s, base, now);
+  s.turnStatus = fsBaseline(s, now);
+  if (!changed) return;
+  sendToRenderer('session-meta', { id: target.id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+  persistSession(target.id);
+}
+
 // Attribute the user's first prompt and any edited files to their session, so
 // we can later commit just that session's work. Returns updated meta, or null.
 async function recordSessionActivity(payload) {
@@ -595,7 +878,7 @@ async function recordSessionActivity(payload) {
   // happens to be open: sessions keep running after the user opens another
   // project, and scanning the wrong tree both lost their changes and could
   // attribute the open repo's changes to them.
-  const repo = sessionRepo(s);
+  const repo = sessionCwd(s);
   let changed = false;
   // Every hook payload names the session's transcript file — the only place that
   // path is published. It's what the chat view reads, and it's persisted so an
@@ -646,115 +929,7 @@ async function recordSessionActivity(payload) {
     s.tool = { name: payload.tool_name, file: toolTarget(s, payload.tool_input) };
     s.lastActiveAt = Date.now();
   }
-  if (payload.hook_event_name === 'PostToolUse') {
-    const ti = payload.tool_input || {};
-    // editedFilePath also reads NotebookEdit's `notebook_path` — subagent edits
-    // (payloads carrying agent_id) land here too, same session_id, and belong to
-    // the session just like main-thread ones.
-    const f = editedFilePath(ti);
-    // Editing an ignore file changes what isIgnored means for every path.
-    if (f && path.basename(f) === '.gitignore') ignoreCache.clear();
-    // Skip files outside the session's repo — above all the agent's own
-    // scratchpad, which no commit can ever contain (isInsideRepo) — and
-    // .gitignore'd ones, since tracking those would let commit-session add them to
-    // the repo (and, once tracked, surface them in the changes panel).
-    if (f && TEXT_EDIT_TOOLS.has(payload.tool_name) && isInsideRepo(repo, f)
-      && !(await isIgnored(f, repo))) {
-      if (!s.edits.has(f)) s.edits.set(f, []);
-      s.edits.get(f).push(editOp(payload.tool_name, ti));
-      changed = true;
-    }
-  }
-  // Filesystem changes a text-edit tool can't express — a binary file a Bash/MCP
-  // tool created, or a file it renamed/moved/deleted — are caught by diffing the
-  // git working tree across the tool call: snapshot before the first fs tool of a
-  // burst, compare once the last one finishes. Claude runs tool calls in PARALLEL
-  // within a turn, so the Pre/Post hooks interleave; a single snapshot slot would
-  // let a second Pre clobber it and a Post-without-Pre drop its changes entirely.
-  // Instead we ref-count the fs tools in flight (`fsInFlight`): snapshot when the
-  // count goes 0â†’1, diff once it returns to 0, against that one consistent
-  // baseline — so every concurrent tool's changes are captured exactly once.
-  if (modelFamily(s.model) === 'codex') {
-    // Codex runs tools serially but skips PostToolUse when a tool errors, so the
-    // balanced ref-count below would jam and drop the turn's changes — use the
-    // orphan-tolerant serial plan instead (see fs-track.serialFsPlan).
-    const plan = serialFsPlan(payload, !!s.preStatus);
-    if (plan) {
-      // Claim the baseline BEFORE the await: hook payloads are handled
-      // concurrently, and a PostToolUse + Stop pair (or a UserPromptSubmit
-      // reset) interleaving across statusMap() could otherwise both plan a
-      // 'diff' against the same baseline — the second finding it nulled and
-      // crashing in applyFsDiff.
-      const base = s.preStatus;
-      s.preStatus = null;
-      let now = await statusMap(repo);
-      if (plan !== 'snapshot' && base) {
-        if (applyFsDiff(s, base, now)) changed = true;
-        // Re-snapshot after an unstage so a stored baseline reflects the real
-        // index state, not the pre-unstage codes.
-        if (await unstageToolStaged(base, now, repo) && plan !== 'diff') now = await statusMap(repo);
-      }
-      if (plan !== 'diff') s.preStatus = now;
-    }
-  } else if (payload.hook_event_name === 'PreToolUse' && tracksFs(payload)) {
-    // Decide "am I the first fs tool of this burst" and bump the count SYNCHRONOUSLY,
-    // before the await — otherwise two parallel Pre hooks both read 0, both snapshot,
-    // and the count settles at 1, so a Post drops to 0 one tool early and diffs while
-    // another tool is still writing.
-    const first = (s.fsInFlight || 0) === 0;
-    s.fsInFlight = (s.fsInFlight || 0) + 1;
-    if (first) s.preStatus = await statusMap(repo);
-  } else if (payload.hook_event_name === 'PostToolUse' && tracksFs(payload)) {
-    s.fsInFlight = Math.max(0, (s.fsInFlight || 0) - 1);
-    // Claim the baseline BEFORE the await, same as the codex plan above: a
-    // UserPromptSubmit reset (or another Post) landing while statusMap() is in
-    // flight would otherwise null s.preStatus out from under applyFsDiff.
-    const base = s.fsInFlight === 0 ? s.preStatus : null;
-    if (base) {
-      s.preStatus = null;
-      const now = await statusMap(repo);
-      if (applyFsDiff(s, base, now)) changed = true;
-      await unstageToolStaged(base, now, repo);
-    }
-  } else if (payload.hook_event_name === 'Stop' && !payload.agent_id) {
-    // A PreToolUse whose PostToolUse never arrives — the user denying the
-    // permission prompt, or interrupting the tool — leaves the ref-count above
-    // zero, and from then on every Post in the turn diffs nothing: the rest of
-    // the turn's binary/rename/delete work went untracked (the count only
-    // self-healed at the NEXT prompt). The main agent's Stop ends the turn, so
-    // it flushes whatever baseline is left — attributing the orphaned tool's
-    // changes and unstaging what it staged — and clears the count. Background
-    // agents may still be running; their tool windows simply re-baseline from
-    // here, and the turn-wide tracker below still covers them.
-    s.fsInFlight = 0;
-    const base = s.preStatus;
-    s.preStatus = null;
-    if (base) {
-      const now = await statusMap(repo);
-      if (applyFsDiff(s, base, now)) changed = true;
-      await unstageToolStaged(base, now, repo);
-    }
-  }
-  // Second, TURN-wide baseline, on top of the per-tool windows above: files the
-  // CLI itself writes outside any tool call — auto-memory files, which land in
-  // the repo whenever `autoMemoryDirectory` points inside it — are invisible to
-  // both channels, so the session's own docs never reached its diff or its
-  // commit. `turnFsPlan` (pure, fs-track.js) baselines at the user's prompt and
-  // diffs at each turn end. Two deliberate differences from the tool windows:
-  // nothing is unstaged (a turn-long window would fight the user staging in the
-  // git pane), and a between-turn change is absorbed by the next prompt's
-  // snapshot rather than attributed to an idle session.
-  const turnPlan = turnFsPlan(payload, !!s.turnStatus);
-  if (turnPlan) {
-    // Claim the baseline before the await, same as the plans above: hook
-    // payloads are handled concurrently and a second planner landing mid-await
-    // would otherwise diff the same baseline twice (or find it nulled).
-    const base = s.turnStatus;
-    s.turnStatus = null;
-    const now = await statusMap(repo);
-    if (turnPlan === 'diff-and-snapshot' && base && applyFsDiff(s, base, now)) changed = true;
-    s.turnStatus = now;
-  }
+  if (!s.worktree && await trackFsChanges(s, payload, repo)) changed = true;
   if (changed) schedulePersist(payload.session_id);
   return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) } : null;
 }
@@ -769,7 +944,20 @@ async function generateSessionName(id, prompt) {
   if (!out) return;
   const name = out.split('\n').pop().trim().slice(0, 60);
   const s = sessions.get(id);
-  if (name && s) { s.name = name; sendToRenderer('session-name', { id, name }); persistSession(id); }
+  if (!name || !s) return;
+  s.name = name;
+  sendToRenderer('session-name', { id, name });
+  persistSession(id);
+  // The session now has a title, so its worktree branch can stop being an opaque
+  // id. Nothing depends on the old name (the directory is what processes hold).
+  if (s.worktree && s.worktreeState === 'ready' && s.branch) {
+    const renamed = await renameSessionBranch({ id, branch: s.branch, title: name });
+    if (renamed && sessions.has(id)) {
+      sessions.get(id).branch = renamed;
+      persistSession(id);
+      broadcastSessions();
+    }
+  }
 }
 
 // The desktop renderer's xterm instance lives as long as the session, so main never
@@ -836,7 +1024,7 @@ async function spawnPty(id, cols, rows, resume) {
     cols: cols || 80,
     rows: rows || 24,
     // Home as the last resort: with no project open yet, a null cwd would crash the spawn.
-    cwd: (s && s.repo) || getRepoPath() || require('os').homedir(),
+    cwd: sessionCwd(s) || require('os').homedir(),
     // Re-apply the session's model choice on resume too, so a restored session
     // keeps running the model it was created with. `route` overrides ANTHROPIC_MODEL
     // (bare name) and adds the base-url/auth for an Ollama session. A Codex spawn
@@ -884,6 +1072,7 @@ async function spawnPty(id, cols, rows, resume) {
     // A suspend (archive) kills the PTY on purpose but keeps the entry and its
     // tracked-file state alive for a later resume — don't tear it down here.
     if (s && s.suspended) return;
+    releaseRepoWatch(s);
     sessions.delete(id);
     // The session is gone from the map — release its chat state (watcher, retained
     // messages, transcript path) too, or it leaks for the process lifetime.
@@ -918,6 +1107,12 @@ function baseRow(id, s) {
     // Only meaningful while `state === 'working'`; cleared the moment it isn't.
     tool: s.tool || null,
     added, removed,
+    // Worktree sessions: the tree they run in, the branch they'll merge back, and
+    // where that tree is in its lifecycle ('' for an ordinary session). The
+    // renderer needs all four to swap Commit for Merge and to follow the session's
+    // tree when it is selected.
+    worktree: s.worktree || '', branch: s.branch || '', baseBranch: s.baseBranch || '',
+    worktreeState: s.worktreeState || '',
   };
 }
 
@@ -925,6 +1120,10 @@ function baseRow(id, s) {
 // are in memory) but not free to call carelessly: this runs per row, and the phone
 // polls its page, so keep it O(ops) — see the accuracy caveats on diffStat.
 function sessionDiffStat(s) {
+  // A worktree session tracks no edits at all — its badge comes from the git diff
+  // of its tree against the base branch, computed by session-diff-stat and cached
+  // here so a row rebuilt from the list still shows the last known numbers.
+  if (s.worktree) return s.wtStat || { added: 0, removed: 0 };
   // Memoized on (files, total ops): every list broadcast and phone page poll runs
   // this per row, and only an edit landing or a commit forgetting files moves it.
   let ops = 0;
@@ -977,7 +1176,7 @@ const NO_SESSIONS = { items: [], total: 0, counts: { active: 0, archived: 0, all
 
 bridge.handle('query-sessions', guard('reading saved sessions', (_e, opts) => {
   flushSessionErrors();
-  const repo = getRepoPath();
+  const repo = getMainRepoPath();
   if (!repo) return NO_SESSIONS; // no project open: nothing to list
   const rows = [...sessions].map(sessionRow).filter((s) => s.repo === repo);
   return querySessions(rows, opts || {});
@@ -1021,9 +1220,13 @@ bridge.handle('get-usage', async () => {
 // spawned session gets a statusLine (live sessions keep what they spawned with).
 bridge.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
 
-bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows, model, subagentModel, effort }) => {
+bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows, model, subagentModel, effort, skip, forceMainTree }) => {
   const id = crypto.randomUUID();
-  const repo = getRepoPath();
+  // The PROJECT, never the active tree: a session created while a worktree
+  // session is selected still belongs to the project, and `repo` is what the
+  // session list filters on and what per-project settings key on. Where the
+  // session actually runs is `worktree` (see sessionCwd).
+  const repo = getMainRepoPath();
   // Create the entry before spawning so spawnPty resolves the session's cwd to its
   // own repo. `model`/`subagentModel` are the per-session agent choice (see
   // sessionEnv); stored on the record so they survive archive/resume and a restart.
@@ -1031,7 +1234,31 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // where the user left off. defaultEffortFor clamps it to the family's ladder (a
   // remembered `max` isn't reachable on Codex) and supplies a real level when nothing
   // is remembered — a session never starts at a level its badge can't name.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, turnStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model), effort), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, _seq: seqCounter++ });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, turnStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model), effort), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, worktree: '', branch: '', baseBranch: '', worktreeState: '', turnEndedAt: 0, unwatch: null, _seq: seqCounter++ });
+  // Worktree mode is read from main's own store, not from a client-supplied flag:
+  // a stale renderer (or a phone that hasn't seen the toggle) must not decide
+  // which kind of session this is. `forceMainTree` is the one deliberate override
+  // — the merge-conflict hand-off needs a session in the main tree.
+  const useWorktree = !forceMainTree && !!(repo && getProjectSettings(repo).useWorktrees);
+  if (useWorktree) {
+    const r = await createWorktree({ id, skip, onProgress: emitProgress });
+    const s = sessions.get(id);
+    if (!s) return { id, canceled: true }; // closed while the copy ran
+    if (!r.ok) {
+      // Never silently fall back to a main-tree session: the whole point of the
+      // mode is isolation, and a session that quietly isn't isolated is worse
+      // than none. The client reports the reason and offers to retry plainly.
+      releaseRepoWatch(s);
+      sessions.delete(id);
+      removeSessionFile(id);
+      broadcastSessions();
+      return { error: r.stderr || r.code, code: r.code };
+    }
+    s.worktree = r.worktree;
+    s.branch = r.branch;
+    s.baseBranch = r.baseBranch;
+    s.worktreeState = 'ready';
+  }
   sessions.get(id).pty = await spawnPty(id, cols, rows, false);
   persistSession(id);
   broadcastSessions();
@@ -1039,7 +1266,13 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // actually spawned at: the clamp is decided here, and the sessions-changed
   // broadcast only builds rows the client doesn't have yet — it never re-reads them
   // onto a row this call is about to create.
-  return { id, repo, effort: sessions.get(id).effort };
+  const created = sessions.get(id);
+  return {
+    id, repo, effort: created.effort,
+    // The tree this session ended up in, so the client can draw it as a worktree
+    // session (Merge instead of Commit) without waiting for the next list push.
+    worktree: created.worktree || '', branch: created.branch || '', worktreeState: created.worktreeState || '',
+  };
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
 
 // Archive: kill the Claude process to free resources but keep the session entry
@@ -1297,19 +1530,72 @@ bridge.on('pty-resize', guardOn('resizing a session', (_e, { id, cols, rows }) =
   if (!s || !s.pty) return;
   try { s.pty.resize(cols, rows); } catch { /* race on close */ }
 }));
-bridge.on('kill-session', guardOn('closing a session', (_e, { id }) => {
+// Tear the session down. Shared by the plain `kill-session` path and by
+// `close-session`, which wraps it in the worktree lifecycle.
+function destroySession(id) {
   const s = sessions.get(id);
-  if (!s) return;
+  if (!s) return false;
+  // A session still copying its worktree has no PTY yet — stop the walker, or it
+  // keeps writing into a tree nothing owns any more.
+  cancelCreate(id);
   if (s.pty) try { s.pty.kill(); } catch { /* already gone */ }
+  releaseRepoWatch(s);
   sessions.delete(id);
   chat.forget(id);
   if (persistTimers.has(id)) { clearTimeout(persistTimers.get(id)); persistTimers.delete(id); }
   removeSessionFile(id);
   broadcastSessions();
-}));
+  return true;
+}
+
+bridge.on('kill-session', guardOn('closing a session', (_e, { id }) => { destroySession(id); }));
+
+// Closing a worktree session decides what happens to its tree. Merged and clean
+// means the worktree has nothing the project doesn't already have, so it goes
+// away silently — that's the "auto-clean on close" contract. Anything else is
+// reported back UNTOUCHED so the user chooses: `force: 'delete'` throws the tree
+// away, `force: 'keep'` closes the session and leaves it on disk to merge later.
+// The check runs BEFORE the teardown: once the record is gone there is nothing
+// left to describe what would be lost.
+bridge.handle('close-session', guard('closing a session', async (_e, { id, force } = {}) => {
+  const s = sessions.get(id);
+  if (!s) return { ok: true };
+  const { worktree, branch, baseBranch } = s;
+  if (!worktree) { destroySession(id); return { ok: true }; }
+  if (!force) {
+    const st = await worktreeStatus({ dir: worktree, branch, baseBranch });
+    if (st.exists && (!st.merged || st.dirty)) {
+      return { ok: false, code: 'unmerged', worktree, branch, ...st };
+    }
+  }
+  destroySession(id);
+  if (force === 'keep') return { ok: true, kept: true, worktree, branch };
+  await removeWorktree({ dir: worktree, branch, deleteBranch: true });
+  return { ok: true, cleaned: true };
+}, { ok: false }));
+
+// Selecting a session points the tree-derived panels at the tree it runs in: the
+// git pane, the run toolbar's launch configs and tasks, and the file explorer. An
+// ordinary session points them back at the project. setActiveWorktree is
+// idempotent, so clicking through a list of main-tree sessions costs nothing, and
+// a worktree that isn't ready yet is not switched to — there's nothing there.
+bridge.handle('focus-session-repo', guard('switching to a session tree', (_e, id) => {
+  const s = sessions.get(id);
+  const target = s && s.worktree && s.worktreeState === 'ready' ? s.worktree : null;
+  return { switched: setActiveWorktree(target), repo: getRepoPath() };
+}, { switched: false }));
+
+// Back to the project tree without selecting a different session. The session
+// list keeps its selection (its terminal stays open and running) -- only the
+// tree-derived panels move. Re-selecting the session points them back.
+bridge.handle('focus-main-repo', guard('switching to the project tree', () => (
+  { switched: setActiveWorktree(null), repo: getRepoPath() }
+), { switched: false }));
 
 function killAllSessions() {
   for (const s of sessions.values()) try { if (s.pty) s.pty.kill(); } catch {}
+  // The repo watchers hold OS handles; on quit nothing is left to settle.
+  stopAll();
 }
 
-module.exports = { sessions, recordSessionActivity, noteAgentSessionId, setSessionState, getSessionState, resolveInterrupt, trackedFiles, pathClaimedByOther, pathsClaimedByOthers, killAllSessions, persistSession, persistSessions, reportSessionError, guard };
+module.exports = { sessions, sessionCwd, recordSessionActivity, noteAgentSessionId, setSessionState, getSessionState, resolveInterrupt, trackedFiles, pathClaimedByOther, pathsClaimedByOthers, killAllSessions, persistSession, persistSessions, reportSessionError, guard };

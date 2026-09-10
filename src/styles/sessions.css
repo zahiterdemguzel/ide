@@ -49,6 +49,17 @@
 }
 #session-list li:hover { background: var(--bg-3); }
 #session-list li.active { background: var(--bg-3); border-left-color: var(--accent-hi); }
+
+/* The panels -- git pane, file explorer, run toolbar -- are pointed at THIS
+   session's worktree. Deliberately a second mark rather than reusing .active:
+   the explorer's tree chip can send the panels back to the project while the
+   session stays selected, so "selected" and "what you are looking at" are two
+   different facts. --list-sel is the themed selection tint every palette already
+   defines, so this reads as a highlight in light, midnight and solarized alike. */
+#session-list li.scoped { background: var(--list-sel); border-left-color: var(--accent); }
+#session-list li.scoped:hover { background: color-mix(in srgb, var(--list-sel) 88%, var(--fg)); }
+#session-list li.scoped.active { border-left-color: var(--accent-hi); }
+#session-list li.scoped .sess-wt { opacity: 1; }
 .sess-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Optional per-row diff badge (sessions list) — toggled in settings. */
 .sess-diff {
@@ -226,6 +237,26 @@
 }
 #session-commit:hover:not(:disabled) { background: var(--accent-hi); }
 #session-commit:disabled { background: var(--bg-3); color: var(--fg-dim); cursor: default; }
+/* Merge stands in for Commit on a worktree session, so it wears the same accent
+   chrome: the toolbar reads identically in both modes and the primary action stays
+   in the same place. The branch glyph is the only tell. Armed it turns red like
+   Revert, because the second click writes commits onto the project's branch. */
+#session-merge {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--accent); color: var(--on-accent); border: 1px solid transparent;
+  border-radius: 5px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+  white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+/* The id beats the UA rule for [hidden], so restore it. */
+#session-merge[hidden] { display: none; }
+#session-merge .merge-glyph { flex: none; opacity: .8; }
+#session-merge:hover:not(:disabled) { background: var(--accent-hi); }
+#session-merge:disabled { background: var(--bg-3); color: var(--fg-dim); cursor: default; }
+#session-merge:disabled .merge-glyph { opacity: .55; }
+#session-merge.armed,
+#session-merge.armed:hover:not(:disabled) { background: var(--red); border-color: var(--red); color: #fff; }
+#session-merge.armed .merge-glyph { opacity: 1; }
 #session-revert {
   background: transparent; color: var(--fg); border: 1px solid var(--border);
   border-radius: 5px; padding: 6px 12px; cursor: pointer; font-size: 12px;
@@ -320,3 +351,119 @@
 .sbs-row.file .diff-code { flex: 1; padding: 4px 12px; color: var(--fg); }
 .sbs-row.hunk { color: var(--accent-hi); background: var(--bg-3); }
 .sbs-row.hunk .diff-code { flex: 1; padding: 0 12px; }
+
+/* Sessions pane header: the label sits left and the worktree switch is centred,
+   so the mode every new session inherits is visible without hunting for it. The
+   trailing empty span is the third grid column that makes "centred" true. */
+.pane-head.sessions-head {
+  display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px;
+  /* trimmed so the taller segmented control does not deepen the strip */
+  padding-top: 6px; padding-bottom: 6px;
+}
+/* Same segmented control as the git pane's Changes/History tabs, one size down:
+   it picks which tree the NEXT session runs in, so naming both states beats a
+   switch whose off-position has to be guessed. */
+/* `display:flex` would beat the UA rule for [hidden], so restore it. */
+.wt-toggle[hidden] { display: none; }
+.wt-toggle {
+  display: flex; gap: 2px; padding: 2px;
+  background: var(--bg-3); border-radius: 6px;
+  text-transform: none; letter-spacing: 0;
+}
+.wt-seg {
+  padding: 2px 7px; background: none; border: none; border-radius: 4px;
+  cursor: pointer; color: var(--fg-dim);
+  font-family: inherit; font-size: 10px; font-weight: 500; line-height: 1.5;
+  white-space: nowrap;
+  transition: color .12s ease, background .12s ease;
+}
+.wt-seg:hover { color: var(--fg); }
+.wt-seg.active { color: var(--on-accent); background: var(--accent); }
+/* Unsupported project (no repo, or no commit yet to branch from): shown, but
+   inert and explained by the title, rather than silently missing. */
+.wt-toggle.disabled { opacity: .45; }
+.wt-toggle.disabled .wt-seg { cursor: not-allowed; }
+.wt-toggle.disabled .wt-seg:hover { color: var(--fg-dim); }
+.wt-toggle.disabled .wt-seg.active:hover { color: var(--on-accent); }
+
+/* --- worktree session dialogs --- */
+/* Both live inside the shared .dlg chrome (src/styles/base.css); these style only
+   the custom middle the dialog spec passes as `content`. */
+
+/* Pre-scan: the heavy untracked/ignored directories, with a checkbox each. The
+   list scrolls rather than growing the dialog past the viewport. */
+.wt-scan-list {
+  max-height: 220px; overflow-y: auto; margin-bottom: 16px;
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.wt-scan-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; font-size: 12px; cursor: pointer;
+}
+.wt-scan-row + .wt-scan-row { border-top: 1px solid var(--border); }
+.wt-scan-row:hover { background: var(--bg-3); }
+.wt-scan-path {
+  flex: 1; min-width: 0; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wt-scan-size {
+  flex: none; color: var(--fg-dim);
+  font-family: Consolas, monospace; font-variant-numeric: tabular-nums;
+}
+
+/* Copy progress. The file line is a fixed height so the dialog doesn't jitter as
+   paths of different lengths stream through it. */
+.wt-progress { margin-bottom: 16px; }
+.wt-progress-bar {
+  height: 6px; border-radius: 999px; background: var(--bg-3);
+  overflow: hidden; margin-bottom: 10px;
+}
+.wt-progress-fill {
+  height: 100%; width: 0; background: var(--accent);
+  transition: width 120ms linear;
+}
+.wt-progress-line {
+  font-size: 12px; color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.wt-progress-file {
+  height: 16px; margin-top: 4px;
+  font-family: Consolas, monospace; font-size: 11px; color: var(--fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
+}
+
+/* A worktree session's row: a branch glyph before the name, so it's clear at a
+   glance which sessions are isolated and which write to the project directly. */
+.sess-wt {
+  flex: none; color: var(--accent); opacity: .8;
+  display: inline-flex; align-items: center;
+}
+
+/* Worktree mode is on and a worktree session is selected: the git pane, the file
+   explorer and the run toolbar are all showing that worktree rather than the
+   project. Tint their headers so a launch config firing against the isolated tree
+   is never a surprise. Deliberately a tint, not a banner — this state is normal
+   while working, and a banner would be shouting for most of the session. */
+body.on-worktree .pane-head { color: var(--accent); }
+body.on-worktree #toolbar { box-shadow: inset 0 -2px 0 var(--accent); }
+
+/* Active-tree chip in the explorer header. Present only while the panels show a
+   worktree, so its absence means "you are on the project" without a second
+   control that does nothing most of the time. Clicking it goes back. */
+#tree-scope {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 150px;
+  padding: 1px 6px; border-radius: 10px; cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent); font-size: 10px; line-height: 1.6;
+  transition: background .12s ease, border-color .12s ease;
+}
+#tree-scope[hidden] { display: none; }
+#tree-scope:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); border-color: var(--accent); }
+#tree-scope svg { flex: none; }
+#tree-scope-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: Consolas, monospace; text-transform: none;
+}
+#tree-scope .tree-scope-x { opacity: .6; }
+#tree-scope:hover .tree-scope-x { opacity: 1; }

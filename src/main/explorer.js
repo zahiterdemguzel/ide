@@ -28,12 +28,19 @@ const ASSET_MIME = {
 };
 
 // List one directory level for the file explorer (lazy: children fetched on
-// expand). Folders first, then alphabetical — VS Code order. `.git` is hidden.
+// expand). Folders first, then alphabetical — VS Code order. `.git` is hidden,
+// and so is `.claude/worktrees`: each entry there is a whole second checkout of
+// this same project, so browsing into it from the parent tree shows a confusing
+// duplicate of everything (and lets a click edit a file in the wrong tree).
+// Search and the fs watcher already skip it — they skip every dot-dir — but the
+// tree deliberately shows dot-dirs, so it needs this one by name.
+const HIDDEN_DIRS = new Set(['.git']);
 bridge.handle('list-dir', async (_e, rel) => {
   try {
     const dir = path.join(getRepoPath(), rel || '');
+    const inClaude = (rel || '').split(path.sep).join('/') === '.claude';
     const entries = (await fs.promises.readdir(dir, { withFileTypes: true }))
-      .filter((d) => d.name !== '.git')
+      .filter((d) => !HIDDEN_DIRS.has(d.name) && !(inClaude && d.name === 'worktrees'))
       .map((d) => ({ name: d.name, dir: d.isDirectory() }))
       .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
     return { ok: true, entries };

@@ -15,6 +15,12 @@ module.exports = {
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),
   resumeSession: (id, { cols, rows }) => ipcRenderer.invoke('resume-session', { id, cols, rows }),
   killSession: (id) => ipcRenderer.send('kill-session', { id }),
+  // Worktree sessions: closing one decides the fate of its checkout, so unlike
+  // killSession this awaits an outcome ('unmerged' asks the user what to do).
+  closeSession: (id, force) => ipcRenderer.invoke('close-session', { id, force }),
+  mergeSession: (id) => ipcRenderer.invoke('merge-session', id),
+  focusSessionRepo: (id) => ipcRenderer.invoke('focus-session-repo', id),
+  focusMainRepo: () => ipcRenderer.invoke('focus-main-repo'),
   sendInput: (id, data) => ipcRenderer.send('pty-input', { id, data }),
   resize: (id, cols, rows) => ipcRenderer.send('pty-resize', { id, cols, rows }),
   onPtyData: (cb) => ipcRenderer.on('pty-data', (_e, msg) => cb(msg)),

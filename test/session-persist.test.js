@@ -37,6 +37,11 @@ test('serializeSession: drops runtime-only fields and flattens the Maps', () => 
     lastActiveAt: 2000,
     edits: [['/r/a.js', [{ t: 'write', content: 'x' }]]],
     fileOps: [['/r/bin.png', 'add']],
+    // An ordinary session runs in the project itself, so it carries no worktree.
+    worktree: '',
+    branch: '',
+    baseBranch: '',
+    worktreeState: '',
   });
   assert.equal('pty' in out, false);
   assert.equal('preStatus' in out, false);
@@ -205,4 +210,50 @@ test('enforceLimit: nothing to do when already under budget', () => {
 
 test('the budget is 100 MB', () => {
   assert.equal(MAX_PERSIST_BYTES, 100 * 1024 * 1024);
+});
+
+// --- worktree sessions ---
+
+test('serializeSession: carries the worktree, its branch and its base', () => {
+  const s = liveSession({ repo: '/projects/app', firstPrompt: 'go' });
+  Object.assign(s, {
+    worktree: '/projects/app/.claude/worktrees/sess-9f1c2b3a',
+    branch: 'ide/sess-9f1c2b3a',
+    baseBranch: 'main',
+    worktreeState: 'ready',
+  });
+  const out = serializeSession('id-1', s);
+  assert.equal(out.worktree, '/projects/app/.claude/worktrees/sess-9f1c2b3a');
+  assert.equal(out.branch, 'ide/sess-9f1c2b3a');
+  assert.equal(out.baseBranch, 'main');
+  assert.equal(out.worktreeState, 'ready');
+});
+
+test('deserializeSession: restores the worktree fields', () => {
+  const out = deserializeSession({
+    repo: '/projects/app', worktree: '/projects/app/.claude/worktrees/sess-1',
+    branch: 'ide/sess-1', baseBranch: 'main', worktreeState: 'ready',
+  });
+  assert.equal(out.worktree, '/projects/app/.claude/worktrees/sess-1');
+  assert.equal(out.branch, 'ide/sess-1');
+  assert.equal(out.baseBranch, 'main');
+  assert.equal(out.worktreeState, 'ready');
+});
+
+// A snapshot taken mid-copy describes a tree missing most of its dependencies.
+// Resuming into it would run the session against a half-seeded checkout.
+test('deserializeSession: a half-copied worktree reopens as missing, not ready', () => {
+  assert.equal(deserializeSession({ worktree: '/w', worktreeState: 'preparing' }).worktreeState, 'missing');
+});
+
+test('deserializeSession: an ordinary session has no worktree fields set', () => {
+  const out = deserializeSession({ repo: '/projects/app' });
+  assert.equal(out.worktree, '');
+  assert.equal(out.worktreeState, '');
+});
+
+// The record is the only thing pointing at the directory and branch on disk.
+test('isSessionPersistable: a worktree session survives with no prompt or edits', () => {
+  assert.equal(isSessionPersistable({ firstPrompt: '', worktree: '/w' }), true);
+  assert.equal(isSessionPersistable({ firstPrompt: '', worktree: '' }), false);
 });

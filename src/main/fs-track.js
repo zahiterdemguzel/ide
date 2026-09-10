@@ -32,6 +32,18 @@ function isInsideRepo(repo, abs) {
 // Deliberately NOT here — these are real path-level edits the tracker SHOULD
 // catch: `git mv`, `git rm`, `git add`, and a pathspec checkout
 // (`git checkout -- file`, which has a `--` separator, handled below).
+//
+// This list is the ONLY thing the tracker reads out of a shell command, and it
+// must stay that way. It is tempting — now that agents do most of their editing
+// through the shell — to also parse commands for the files they touch (`sed -i`,
+// `>`, `tee`, `cp`, `mv`). Don't: the target set of a shell command is unbounded
+// (`python build.py` names no file at all and rewrites a hundred), so such a
+// parser is wrong in both directions, and being wrong there silently mis-attributes
+// or drops a session's work. What a command touched is read from the working tree
+// instead (see sessions.js `applyFsDiff`, which now recovers the actual hunk), and
+// what a command *did* is read from the CLI's own transcript (transcript-lib.js).
+// This set is safe only because it is small, closed, and about git's own verbs
+// rather than about file arguments.
 const BULK_VCS = new Set(['pull', 'merge', 'rebase', 'reset', 'stash',
   'cherry-pick', 'revert', 'clone', 'switch', 'checkout']);
 
@@ -185,4 +197,4 @@ function newlyStagedPaths(before, after) {
   return out;
 }
 
-module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, READONLY_TOOLS };
+module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, READONLY_TOOLS, TURN_END_EVENTS };

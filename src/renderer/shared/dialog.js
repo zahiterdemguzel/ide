@@ -18,7 +18,14 @@ const openByKey = new Map();
 // A spec is:
 //   title, tone ('error' reddens the title), body, mono (monospace body, for
 //   command output), label, input ({ placeholder, value, error }), options
-//   ([{ label, value }], the pickString list), buttons, cancelValue, singleton.
+//   ([{ label, value }], the pickString list), buttons, cancelValue, singleton,
+//   content (an element, or array of them, for a dialog whose middle is richer
+//   than text — a checkbox list, a progress bar), dismissible (false pins the
+//   dialog open: Esc and the backdrop do nothing, for a step that must be
+//   answered rather than escaped), and onOpen(api) which hands back
+//   `{ dlg, close }` so a long-running dialog can update itself and close on
+//   its own. `content` is how a caller adds markup WITHOUT hand-rolling dialog
+//   chrome — the layout, buttons and metrics still come from here.
 // A button is:
 //   { label, value, variant: 'primary'|'secondary'|'danger', keepOpen, onClick }
 //   `value` may be a function, called with the input's trimmed text.
@@ -27,6 +34,7 @@ export function openDialog(spec = {}) {
   const {
     title = '', tone, body = '', mono = false, label = '',
     input, options, buttons = [], cancelValue = null, singleton,
+    content, dismissible = true, onOpen,
   } = spec;
 
   if (singleton) openByKey.get(singleton)?.close();
@@ -51,6 +59,8 @@ export function openDialog(spec = {}) {
     labelEl.textContent = label;
     dlg.append(labelEl);
   }
+
+  for (const el of [].concat(content || [])) if (el) dlg.append(el);
 
   let inputEl = null;
   if (input) {
@@ -112,12 +122,19 @@ export function openDialog(spec = {}) {
       };
     }
 
-    dlg.onclose = () => finish(cancelValue); // Esc, and the backdrop below
-    dlg.onclick = (e) => { if (e.target === dlg) finish(cancelValue); };
+    if (dismissible) {
+      dlg.onclose = () => finish(cancelValue); // Esc, and the backdrop below
+      dlg.onclick = (e) => { if (e.target === dlg) finish(cancelValue); };
+    } else {
+      // A pinned dialog still fires `close` on Esc (the browser closes it before
+      // we see the key), so re-show it: the only way out is one of its buttons.
+      dlg.onclose = () => { if (!settled) dlg.showModal(); };
+    }
 
     document.body.append(dlg);
     if (singleton) openByKey.set(singleton, dlg);
     dlg.showModal();
+    onOpen?.({ dlg, close: finish });
     inputEl?.focus();
     inputEl?.select();
   });

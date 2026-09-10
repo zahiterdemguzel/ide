@@ -61,6 +61,15 @@ function serializeSession(id, s) {
     lastActiveAt: s.lastActiveAt || 0,
     edits: [...s.edits.entries()],     // [ [absPath, op[]], ... ]
     fileOps: [...s.fileOps.entries()], // [ [absPath, 'add'|'delete'], ... ]
+    // A worktree session's isolated checkout, the branch its work lives on, and
+    // the branch it merges back into. Without these a restart would leave the
+    // worktree on disk with nothing owning it — and the session would silently
+    // resume in the project instead, writing into the tree it was created to
+    // stay out of.
+    worktree: s.worktree || '',
+    branch: s.branch || '',
+    baseBranch: s.baseBranch || '',
+    worktreeState: s.worktreeState || '',
   };
 }
 
@@ -108,6 +117,14 @@ function deserializeSession(obj) {
     // `interrupted`; a snapshot predating this field has no state and reopens idle.
     state: persistedState(obj.state),
     suspended: true,
+    worktree: obj.worktree || '',
+    branch: obj.branch || '',
+    baseBranch: obj.baseBranch || '',
+    // A snapshot caught mid-copy ('preparing') describes a half-seeded tree that
+    // nothing is still writing to. It is not ready, and pretending otherwise would
+    // run the session against a tree missing most of its dependencies — so it
+    // reopens as 'missing' and the UI offers to rebuild or drop it.
+    worktreeState: obj.worktreeState === 'preparing' ? 'missing' : (obj.worktreeState || ''),
   };
 }
 
@@ -122,8 +139,11 @@ function deserializeSession(obj) {
 function sizeOf(x) {
   return x instanceof Map ? x.size : (Array.isArray(x) ? x.length : 0);
 }
+// A worktree session counts as persistable even with no prompt and no tracked
+// edits: it owns a real directory and a real branch on disk. Dropping the record
+// would orphan both, with nothing left to point at them.
 function isSessionPersistable(s) {
-  return !!(s && (s.firstPrompt || sizeOf(s.edits) || sizeOf(s.fileOps)));
+  return !!(s && (s.firstPrompt || s.worktree || sizeOf(s.edits) || sizeOf(s.fileOps)));
 }
 
 // Approximate on-disk footprint of one serialized session, in bytes.

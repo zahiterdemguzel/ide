@@ -41,7 +41,15 @@ function cliFolder() {
 // the recent-projects menu (auto-opened on launch) or browses. A `--folder` CLI
 // flag is the only way to start with a folder already open.
 let repoPath = cliFolder();
-const getRepoPath = () => repoPath;
+
+// The tree everything OPERATES on: the project itself, or one of its worktrees
+// while a worktree session is selected. `repoPath` stays the project the user
+// opened — it's what the recent list, the window title and the session-list
+// filter mean by "this project", and a worktree must never take its place.
+let activeWorktree = null;
+const getMainRepoPath = () => repoPath;
+const getRepoPath = () => activeWorktree || repoPath;
+const getActiveWorktree = () => activeWorktree;
 
 // Seed the OS-native recent menus (Windows Jump List / macOS Dock menu). The
 // refresh is ready-gated, so this pre-`ready` call is safely deferred.
@@ -52,16 +60,44 @@ refreshNativeRecent(recentFolders, openRecentInPlace);
 const repoChangeListeners = [];
 const onRepoChange = (fn) => repoChangeListeners.push(fn);
 
-function setRepoPath(p) {
-  repoPath = p;
-  recentFolders = addRecent(recentFolders, repoPath);
-  try { fs.writeFileSync(recentFoldersFile, JSON.stringify(recentFolders)); } catch {}
-  refreshNativeRecent(recentFolders, openRecentInPlace);
-  for (const fn of repoChangeListeners) { try { fn(repoPath); } catch (err) { console.error('[repo-change listener]', err); } }
+// Bumped on every switch. The renderer drops a `folder-changed` payload older
+// than the newest it has seen, so a slow refresh from an earlier switch can't
+// paint over a newer tree — worktree focus-follow can fire these back to back.
+let repoEpoch = 0;
+
+function notifyRepoChange() {
+  repoEpoch++;
+  const active = getRepoPath();
+  for (const fn of repoChangeListeners) { try { fn(active); } catch (err) { console.error('[repo-change listener]', err); } }
   // Every open path lands here — dialog, recent menu, dock, remote — so this is the
   // one place that tells paired phones (and the renderer, for switches it didn't
   // initiate). The renderer's own opens just re-apply the same repo; harmless.
-  sendToRenderer('folder-changed', { repo: repoPath });
+  sendToRenderer('folder-changed', { repo: active, main: repoPath, worktree: activeWorktree, epoch: repoEpoch });
+}
+
+function setRepoPath(p) {
+  repoPath = p;
+  // Opening a project always leaves worktree mode: the old project's worktrees
+  // mean nothing here, and leaving one active would point every panel at a tree
+  // outside the folder the user just opened.
+  activeWorktree = null;
+  recentFolders = addRecent(recentFolders, repoPath);
+  try { fs.writeFileSync(recentFoldersFile, JSON.stringify(recentFolders)); } catch {}
+  refreshNativeRecent(recentFolders, openRecentInPlace);
+  notifyRepoChange();
+}
+
+// Point the active tree at one of the open project's worktrees, or back at the
+// project itself with `null`. Deliberately never touches the recent list: a
+// worktree is not a project the user opened, and it must never become the folder
+// the app reopens next launch. Idempotent, so clicking through sessions that
+// share a tree costs nothing.
+function setActiveWorktree(p) {
+  const next = p || null;
+  if (next === activeWorktree) return false;
+  activeWorktree = next;
+  notifyRepoChange();
+  return true;
 }
 
 // Resolve the git repo root for a chosen dir so porcelain paths and add/reset
@@ -73,7 +109,10 @@ function repoRoot(dir) {
   });
 }
 
-handle('get-repo-path', () => repoPath);
+handle('get-repo-path', () => getRepoPath());
+// The project itself, whatever worktree is active. Session identity, per-project
+// settings and the session-list filter all key on this, never on the active tree.
+handle('get-main-repo-path', () => repoPath);
 handle('get-recent-folders', () => recentFolders);
 
 ipcMain.handle('open-folder', async () => {
@@ -128,8 +167,11 @@ async function openRecentInPlace(dir) {
   await switchToFolder(dir);
 }
 
-// The renderer drives the title (on startup via refreshGit, and on Open folder)
-// since it already has the repo path in hand.
-ipcMain.handle('set-window-title', (_e, folderPath) => setWindowTitle(folderPath || repoPath));
+// The renderer drives the title (on startup via refreshGit, and on Open folder),
+// but it does not get to choose what the title says: it always names the opened
+// PROJECT. The renderer's callers pass whatever tree they happen to be showing,
+// which for a worktree session is an opaque `sess-xxxx` directory -- the window
+// title is not where the active tree belongs (the pane-header tint is).
+ipcMain.handle('set-window-title', () => setWindowTitle(repoPath));
 
-module.exports = { getRepoPath, getRecentFolders, setRepoPath, repoRoot, onRepoChange };
+module.exports = { getRepoPath, getMainRepoPath, getActiveWorktree, setActiveWorktree, getRecentFolders, setRepoPath, repoRoot, onRepoChange };

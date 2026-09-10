@@ -3,12 +3,28 @@ const { ipcRenderer } = require('electron');
 // The shared repo: folder picker + git porcelain for the git pane.
 module.exports = {
   getRepoPath: () => ipcRenderer.invoke('get-repo-path'),
+  getMainRepoPath: () => ipcRenderer.invoke('get-main-repo-path'),
+  getProjectSettings: (repo) => ipcRenderer.invoke('get-project-settings', repo),
+  setProjectSetting: (opts) => ipcRenderer.invoke('set-project-setting', opts),
+  worktreeSupport: () => ipcRenderer.invoke('worktree-support'),
+  worktreePrescan: () => ipcRenderer.invoke('worktree-prescan'),
+  worktreeList: () => ipcRenderer.invoke('worktree-list'),
+  worktreeStatus: (opts) => ipcRenderer.invoke('worktree-status', opts),
+  worktreeCancel: (id) => ipcRenderer.invoke('worktree-cancel', id),
+  worktreeRemove: (opts) => ipcRenderer.invoke('worktree-remove', opts),
+  // Returns an unsubscribe: the copy dialog is opened per session creation, so
+  // its listener must go away with it rather than stacking one per session.
+  onWorktreeProgress: (cb) => {
+    const fn = (_e, msg) => cb(msg);
+    ipcRenderer.on('worktree-progress', fn);
+    return () => ipcRenderer.removeListener('worktree-progress', fn);
+  },
   openFolder: () => ipcRenderer.invoke('open-folder'),
   openFolderPath: (dir) => ipcRenderer.invoke('open-folder-path', dir),
   getRecentFolders: () => ipcRenderer.invoke('get-recent-folders'),
   removeRecentFolder: (dir) => ipcRenderer.invoke('remove-recent-folder', dir),
   onFolderChanged: (cb) => ipcRenderer.on('folder-changed', (_e, msg) => cb(msg)),
-  setWindowTitle: (repoPath) => ipcRenderer.invoke('set-window-title', repoPath),
+  setWindowTitle: () => ipcRenderer.invoke('set-window-title'),
   gitIsRepo: () => ipcRenderer.invoke('git-is-repo'),
   createRepo: (opts) => ipcRenderer.invoke('create-repo', opts),
   gitStatus: () => ipcRenderer.invoke('git-status'),

@@ -356,7 +356,11 @@ bridge.handle('git-force-push', async () => {
 // Delete untracked files and folders. Ignored files (build output, node_modules)
 // are deliberately left alone — no -x — so this cleans up stray new files without
 // wiping the working setup. Destructive and unrecoverable; the renderer confirms.
-bridge.handle('git-clean-untracked', () => git(['clean', '-fdq']));
+// Deliberately no -x, so ignored files (node_modules) survive. `.claude/worktrees`
+// is excluded by name as well: git will not clean a registered worktree, but a
+// worktree whose registration was pruned is just an untracked directory to it —
+// and that directory holds a session's uncommitted work.
+bridge.handle('git-clean-untracked', () => git(['clean', '-fdq', '-e', '.claude/worktrees']));
 
 // Open a pull request for the current branch. gh can only do that once the branch
 // exists on the remote, so push it (with -u, creating the tracking ref) first.

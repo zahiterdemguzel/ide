@@ -15,6 +15,17 @@
 .term-tab:hover { color: var(--fg); }
 .term-tab.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
 .term-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Which tree a terminal runs in. Only worktree tabs carry it, so a project with
+   the feature off looks exactly as it always did. The wider max-width buys room
+   for the tag rather than eating the config name. */
+.term-tab.on-worktree { max-width: 240px; border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.term-tab-tree {
+  flex: none; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10.5px; padding: 1px 5px; border-radius: 999px;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.term-tab.active .term-tab-tree { color: var(--on-accent); background: rgba(255,255,255,.2); }
 .term-tab-close {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; flex: none;

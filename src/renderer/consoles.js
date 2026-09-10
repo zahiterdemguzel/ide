@@ -1,11 +1,12 @@
 import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
 import { registerTerminalLinks } from './terminal-links.js';
+import { sessionNameForWorktree, worktreeRootForPath } from './sessions.js';
 
 // --- git-pane consoles: multiple interactive shell terminals as tabs ---
 // Each tab owns one xterm + PTY. Manual tabs are named after their shell (cmd/ps);
 // tabs opened by a launch config / task take the config name. Relaunching a config
-// reuses its existing tab (matched by name) with a fresh shell.
-const consoles = new Map(); // id -> { term, fit, host, tab, label, name, kind }
+// reuses its existing tab (matched by name AND tree) with a fresh shell.
+const consoles = new Map(); // id -> { term, fit, host, tab, label, name, kind, cwd }
 let activeConsole = null;
 let shellList = [];
 
@@ -20,8 +21,21 @@ function notifyConsolesChanged() { for (const cb of consolesChangedCbs) cb(); }
 // definition). The toolbar reads this to decide play vs restart per button.
 export function runningConfigNames() {
   const names = new Set();
-  for (const c of consoles.values()) if (c.kind === 'config') names.add(c.name);
+  for (const c of consoles.values()) if (c.kind === 'config' && c.treeRoot === scopeTree) names.add(c.name);
   return names;
+}
+
+// The tree the toolbar is showing ('' for the project root). "Is this config
+// running?" and "stop it" are questions about the tree in front of the user: the
+// same config can legitimately be running in the project and in two worktrees,
+// and the play/stop button must speak for the one selected -- otherwise stopping
+// the worktree's dev server would also kill the project's.
+let scopeTree = '';
+export function setConsoleScope(dir) {
+  const next = dir || '';
+  if (next === scopeTree) return;
+  scopeTree = next;
+  notifyConsolesChanged();
 }
 
 // Stop the launch config's terminal(s): close every still-open config terminal
@@ -29,7 +43,7 @@ export function runningConfigNames() {
 // Stop button reflects. (A compound stops each of its member config names.)
 export function stopConfig(name) {
   for (const [id, c] of [...consoles]) {
-    if (c.kind === 'config' && c.name === name) closeConsole(id);
+    if (c.kind === 'config' && c.name === name && c.treeRoot === scopeTree) closeConsole(id);
   }
 }
 
@@ -47,6 +61,7 @@ termTabs.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 function truncName(s, n = 16) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+function baseName(p) { const parts = p.split('\\').join('/').split('/').filter(Boolean); return parts[parts.length - 1] || p; }
 
 export function fitConsole() {
   const c = activeConsole && consoles.get(activeConsole);
@@ -134,6 +149,11 @@ async function createConsole(opts = {}) {
   // place a terminal is named.
   const name = opts.name || (opts.shell && opts.shell.name) || 'shell';
   const kind = opts.kind || 'shell';
+  // Which tree this terminal runs in. The root path is the identity (it outlives
+  // renaming); the session's title is what the tab shows. Both empty for the
+  // project root, so ordinary terminals look exactly as they always did.
+  const treeRoot = worktreeRootForPath(opts.cwd || '');
+  const tree = treeRoot ? (sessionNameForWorktree(treeRoot) || baseName(treeRoot)) : '';
   const { id } = await window.api.termCreate({
     cols: term.cols, rows: term.rows,
     shell: opts.shell && opts.shell.path,
@@ -144,21 +164,33 @@ async function createConsole(opts = {}) {
 
   const tab = document.createElement('div');
   tab.className = 'term-tab';
-  tab.title = name;
+  tab.title = tree ? `${name} - ${tree}` : name;
   const label = document.createElement('span');
   label.className = 'term-tab-label';
   label.textContent = truncName(name);
+  // Same config, two trees, two tabs: without this they read identically and the
+  // only way to tell which one is the worktree's dev server is to squint at its
+  // output.
+  let treeTag = null;
+  if (tree) {
+    treeTag = document.createElement('span');
+    treeTag.className = 'term-tab-tree';
+    treeTag.textContent = truncName(tree, 12);
+    tab.classList.add('on-worktree');
+  }
   const close = document.createElement('button');
   close.className = 'term-tab-close';
   close.textContent = '×';
   close.title = 'Close terminal';
   close.onclick = (e) => { e.stopPropagation(); closeConsole(id); };
-  tab.append(label, close);
+  tab.append(label);
+  if (treeTag) tab.append(treeTag);
+  tab.append(close);
   tab.onclick = () => selectConsole(id);
   tab.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); closeConsole(id); } };
   termTabs.appendChild(tab);
 
-  consoles.set(id, { term, fit, host, tab, label, name, kind, renderer: null });
+  consoles.set(id, { term, fit, host, tab, label, name, kind, cwd: opts.cwd || '', treeRoot, renderer: null });
   notifyConsolesChanged();
   selectConsole(id); // attaches the GPU renderer to this now-visible console
   return id;
@@ -182,7 +214,10 @@ export async function runSpecInConsole(spec) {
   const reveal = (id) => { if (wantsFocus(p)) selectConsole(id); };
   if (!wantsOwnTab(p)) {
     for (const [id, c] of consoles) {
-      if (c.kind === kind && c.name === spec.name) {
+      // The cwd is part of the identity. Running "dev" in a worktree must not
+      // restart the project's "dev" in place -- running both at once is the whole
+      // point of a worktree session.
+      if (c.kind === kind && c.name === spec.name && c.treeRoot === worktreeRootForPath(spec.cwd || '')) {
         c.term.reset();
         c.serverReady = serverReadyWatcher(spec);
         c.readyTail = '';

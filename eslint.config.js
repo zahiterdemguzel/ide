@@ -13,7 +13,10 @@ const globals = require('globals');
 module.exports = [
   // .test-workspace is a throwaway sandbox the "Start IDE" launch config opens;
   // it's not part of this codebase, so don't lint scratch files in it.
-  { ignores: ['node_modules/**', 'dist/**', '.test-workspace/**'] },
+  // .claude/worktrees holds per-session worktrees — each a full second checkout of
+  // this same repo. Linting them re-reports every finding once per worktree, and
+  // reports them against paths the user can't meaningfully fix from here.
+  { ignores: ['node_modules/**', 'dist/**', '.test-workspace/**', '.claude/worktrees/**'] },
 
   js.configs.recommended,
   {

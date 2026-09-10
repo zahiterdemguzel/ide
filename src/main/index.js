@@ -16,10 +16,13 @@ const { installCrashLogging } = require('./crashlog');
 
 // Requiring each subsystem registers its ipcMain handlers as a load side-effect.
 require('./repo');
+require('./project-settings'); // per-project flags (worktree mode) main reads at session creation
 require('./git');
 require('./sessions');
 require('./chat'); // the chat view of a session (transcript, prompts, attachments)
 require('./session-commit');
+require('./worktrees'); // per-session git worktrees (create/seed/list/remove)
+require('./session-merge'); // a worktree session's Merge button
 require('./explorer');
 require('./db');
 require('./diagram'); // project structure diagrams (lazy — the worker spawns on first open)

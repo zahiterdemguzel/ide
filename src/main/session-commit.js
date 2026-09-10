@@ -4,9 +4,8 @@ const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
-const { getRepoPath } = require('./repo');
 const { git, repoWrite } = require('./git');
-const { sessions, trackedFiles, pathsClaimedByOthers, setSessionState, persistSession, guard } = require('./sessions');
+const { sessions, sessionCwd, trackedFiles, pathsClaimedByOthers, setSessionState, persistSession, guard } = require('./sessions');
 const { commitContent, inverseEdits, contentWithoutSession } = require('./edit-ops');
 const { companionPaths } = require('./companion-files');
 const { sumNumstat } = require('./git-parse');
@@ -20,6 +19,13 @@ const { createLimiter } = require('./concurrency');
 // with the deterministic session-title fallback instead.
 const COMMIT_MSG_TIMEOUT_MS = 60000;
 
+// Every git call in this file must run in the SESSION's own tree, never the
+// folder that happens to be open: a session keeps running after the user opens
+// another project, and a worktree session's tree is never the open folder. Bind
+// the cwd once per entry point instead of threading an opts object through every
+// call (and forgetting one, which silently writes to the wrong repo).
+const boundGit = (cwd) => (args, opts = {}) => git(args, { ...opts, cwd });
+
 // Build one commit whose tree is HEAD with only `entries` applied — via a
 // throwaway index + commit-tree, so the real index and the working tree are
 // never touched. That's what lets two sessions that edited the SAME file each
@@ -28,33 +34,34 @@ const COMMIT_MSG_TIMEOUT_MS = 60000;
 //   { path, content }   — write/replace this blob (content is a string or Buffer,
 //                          so a binary file a Bash tool produced commits intact)
 //   { path, delete: true } — remove this path (a file the session moved out or rm'd)
-async function commitBlobs(entries, msg) {
-  const head = await git(['rev-parse', '-q', '--verify', 'HEAD']);
+async function commitBlobs(entries, msg, cwd) {
+  const g = boundGit(cwd);
+  const head = await g(['rev-parse', '-q', '--verify', 'HEAD']);
   const headSha = head.stdout.trim();
   const idxFile = path.join(os.tmpdir(), `ide-sess-idx-${crypto.randomUUID()}`);
   const env = { ...process.env, GIT_INDEX_FILE: idxFile };
   const staged = [];  // {path, sha} to sync into the real index after the commit
   const removed = []; // paths to drop from the real index after the commit
   try {
-    const seed = headSha ? await git(['read-tree', headSha], { env }) : await git(['read-tree', '--empty'], { env });
+    const seed = headSha ? await g(['read-tree', headSha], { env }) : await g(['read-tree', '--empty'], { env });
     if (!seed.ok) return seed;
     for (const e of entries) {
       if (e.delete) {
-        const upd = await git(['update-index', '--force-remove', e.path], { env });
+        const upd = await g(['update-index', '--force-remove', e.path], { env });
         if (!upd.ok) return upd;
         removed.push(e.path);
         continue;
       }
-      const hash = await git(['hash-object', '-w', '--stdin', '--path', e.path], { input: e.content });
+      const hash = await g(['hash-object', '-w', '--stdin', '--path', e.path], { input: e.content });
       if (!hash.ok) return hash;
       const sha = hash.stdout.trim();
-      const upd = await git(['update-index', '--add', '--cacheinfo', `100644,${sha},${e.path}`], { env });
+      const upd = await g(['update-index', '--add', '--cacheinfo', `100644,${sha},${e.path}`], { env });
       if (!upd.ok) return upd;
       staged.push({ path: e.path, sha });
     }
-    const tree = await git(['write-tree'], { env });
+    const tree = await g(['write-tree'], { env });
     if (!tree.ok) return tree;
-    const ct = await git(['commit-tree', tree.stdout.trim(), '-m', msg, ...(headSha ? ['-p', headSha] : [])]);
+    const ct = await g(['commit-tree', tree.stdout.trim(), '-m', msg, ...(headSha ? ['-p', headSha] : [])]);
     if (!ct.ok) return ct;
     // Compare-and-swap: move HEAD only if it is still the commit we built on
     // (`''` as the old value means "must not exist" — the empty-repo case). The
@@ -62,7 +69,7 @@ async function commitBlobs(entries, msg) {
     // outside the app moved HEAD mid-commit — a terminal, a session running `git
     // commit` itself. Without the old value, update-ref would happily overwrite
     // that commit and drop it from history.
-    const ref = await git(['update-ref', 'HEAD', ct.stdout.trim(), headSha]);
+    const ref = await g(['update-ref', 'HEAD', ct.stdout.trim(), headSha]);
     if (!ref.ok) return { ...ref, stderr: 'HEAD moved while this commit was being prepared — nothing was committed. Try again.' };
     // Sync the REAL index for just these paths, so they read as clean against the
     // new HEAD and only the OTHER session's edits remain as unstaged changes.
@@ -71,14 +78,14 @@ async function commitBlobs(entries, msg) {
     // session newly created), which would leave HEAD ahead of the index and
     // surface as a phantom staged-delete + untracked pair. --add covers both the
     // new-path and update-existing cases.
-    for (const e of staged) await git(['update-index', '--add', '--cacheinfo', `100644,${e.sha},${e.path}`]);
-    for (const p of removed) await git(['update-index', '--force-remove', p]);
+    for (const e of staged) await g(['update-index', '--add', '--cacheinfo', `100644,${e.sha},${e.path}`]);
+    for (const p of removed) await g(['update-index', '--force-remove', p]);
     // --cacheinfo writes the entry with ZEROED stat data, so every later `git
     // status` has to re-hash those files to decide they're clean. Refresh once
     // here, inside the repo-write lock, to restamp them: otherwise a concurrent
     // reader that can't take index.lock leaves the stale stat in place and the
     // path keeps reading as modified while its diff is empty.
-    await git(['update-index', '-q', '--refresh']);
+    await g(['update-index', '-q', '--refresh']);
     return ct;
   } finally {
     try { fs.unlinkSync(idxFile); } catch {}
@@ -94,6 +101,7 @@ async function commitBlobs(entries, msg) {
 // to commit, so they're pruned from tracking). `entries` items are either
 // { path, content } (string|Buffer blob) or { path, delete: true }.
 async function sessionEntries(s, repoPath) {
+  const g = boundGit(repoPath);
   const entries = [];
   const committedAbs = [];     // edited (text-op) paths folded in, to forget after a commit
   const committedFileOps = []; // path-level (binary/rename/delete) paths folded in, to forget after
@@ -102,7 +110,7 @@ async function sessionEntries(s, repoPath) {
   for (const [abs, ops] of s.edits) {
     const rel = path.relative(repoPath, abs).split(path.sep).join('/');
     if (!rel || rel.startsWith('..')) continue; // outside the repo
-    const headFile = await git(['show', `HEAD:${rel}`]);
+    const headFile = await g(['show', `HEAD:${rel}`]);
     let working = null;
     try { working = fs.readFileSync(abs, 'utf8'); } catch { /* gone */ }
     const content = commitContent(headFile.ok ? headFile.stdout : '', ops, working);
@@ -130,7 +138,7 @@ async function sessionEntries(s, repoPath) {
     if (editClaimed.has(abs)) { emptyFileOps.push(abs); continue; }
     if (kind === 'delete') {
       // Nothing committed at HEAD means there is nothing to delete — a phantom op.
-      if (!(await git(['cat-file', '-e', `HEAD:${rel}`])).ok) { emptyFileOps.push(abs); continue; }
+      if (!(await g(['cat-file', '-e', `HEAD:${rel}`])).ok) { emptyFileOps.push(abs); continue; }
       entries.push({ path: rel, delete: true }); committedFileOps.push(abs); continue;
     }
     let buf = null;
@@ -138,9 +146,9 @@ async function sessionEntries(s, repoPath) {
     if (buf == null) { emptyFileOps.push(abs); continue; }
     // Empty add: the current bytes already match what's committed at HEAD. Compare
     // by blob hash (binary-safe, same filters commitBlobs applies via --path).
-    const headSha = await git(['rev-parse', '-q', '--verify', `HEAD:${rel}`]);
+    const headSha = await g(['rev-parse', '-q', '--verify', `HEAD:${rel}`]);
     if (headSha.ok) {
-      const curSha = await git(['hash-object', '--path', rel, '--stdin'], { input: buf });
+      const curSha = await g(['hash-object', '--path', rel, '--stdin'], { input: buf });
       if (curSha.ok && curSha.stdout.trim() === headSha.stdout.trim()) { emptyFileOps.push(abs); continue; }
     }
     entries.push({ path: rel, content: buf }); committedFileOps.push(abs);
@@ -164,7 +172,7 @@ async function sessionEntries(s, repoPath) {
       if (e.delete) {
         // The resource is being deleted; drop its committed sidecar if the editor
         // removed it from disk too (a sidecar that survives at HEAD is orphaned).
-        if (buf == null && (await git(['cat-file', '-e', `HEAD:${comp}`])).ok) {
+        if (buf == null && (await g(['cat-file', '-e', `HEAD:${comp}`])).ok) {
           entries.push({ path: comp, delete: true }); present.add(comp);
         }
         continue;
@@ -172,15 +180,39 @@ async function sessionEntries(s, repoPath) {
       if (buf == null) continue; // no sidecar on disk to add
       // Skip an unchanged sidecar (current bytes already match HEAD) so it doesn't
       // inflate the commit with a diff-less blob — same blob-hash check as binary adds.
-      const headSha = await git(['rev-parse', '-q', '--verify', `HEAD:${comp}`]);
+      const headSha = await g(['rev-parse', '-q', '--verify', `HEAD:${comp}`]);
       if (headSha.ok) {
-        const curSha = await git(['hash-object', '--path', comp, '--stdin'], { input: buf });
+        const curSha = await g(['hash-object', '--path', comp, '--stdin'], { input: buf });
         if (curSha.ok && curSha.stdout.trim() === headSha.stdout.trim()) continue;
       }
       entries.push({ path: comp, content: buf }); present.add(comp);
     }
   }
   return { entries, committedAbs, committedFileOps, emptyAbs, emptyFileOps };
+}
+
+// A worktree session's changes need no attribution at all: nothing else writes to
+// its checkout, so "what did this session do" is exactly "what is in this tree
+// that isn't in the base branch" — committed work plus whatever is still
+// uncommitted. That's cheaper than the hook-derived entry replay AND strictly more
+// accurate (it can't miss a tool we don't track), which is why worktree sessions
+// switch their filesystem tracking off entirely.
+async function worktreeDiff(s, withPatch) {
+  const empty = { patch: '', additions: 0, deletions: 0, files: 0 };
+  const g = boundGit(s.worktree);
+  const mb = await g(['merge-base', s.baseBranch || 'HEAD', 'HEAD']);
+  const base = mb.ok ? mb.stdout.trim() : '';
+  if (!base) return empty;
+  // Intent-to-add, so files the session created but never committed show up in the
+  // diff instead of being invisible untracked entries. It records paths only, no
+  // content, and this index belongs to the session's own worktree — a merge in the
+  // same tree stages everything fully anyway, so the two can't disagree.
+  await g(['add', '-A', '-N']);
+  const stat = await g(['diff', '--numstat', base]);
+  const totals = sumNumstat(stat.ok ? stat.stdout : '');
+  if (!withPatch) return { patch: '', ...totals };
+  const patch = await g(['diff', base]);
+  return { patch: patch.ok ? patch.stdout : '', ...totals };
 }
 
 // Render this session's combined changes (its entries vs HEAD) without touching
@@ -193,36 +225,38 @@ async function sessionDiff(s, repoPath, withPatch) {
   // No folder open (fresh launch before a project is picked): there is no repo to
   // diff against, so report "no change" instead of letting path.relative(null) throw.
   if (!repoPath) return { patch: '', additions: 0, deletions: 0, files: 0 };
+  if (s && s.worktree && s.worktreeState === 'ready') return worktreeDiff(s, withPatch);
   const { entries } = await sessionEntries(s, repoPath);
-  return entriesToDiff(entries, withPatch);
+  return entriesToDiff(entries, withPatch, repoPath);
 }
 
 // Diff a precomputed entry set against HEAD via a throwaway index — the body of
 // sessionDiff, split out so commit-session can render the patch for the SAME
 // frozen entries it is about to commit (for the message prompt) without rebuilding
 // them off the live, still-changing working tree.
-async function entriesToDiff(entries, withPatch) {
+async function entriesToDiff(entries, withPatch, cwd) {
+  const g = boundGit(cwd);
   const empty = { patch: '', additions: 0, deletions: 0, files: 0 };
   if (!entries.length) return empty;
   const idxFile = path.join(os.tmpdir(), `ide-sess-diff-${crypto.randomUUID()}`);
   const env = { ...process.env, GIT_INDEX_FILE: idxFile };
   try {
-    const head = await git(['rev-parse', '-q', '--verify', 'HEAD']);
+    const head = await g(['rev-parse', '-q', '--verify', 'HEAD']);
     const headSha = head.stdout.trim();
-    const seed = headSha ? await git(['read-tree', headSha], { env }) : await git(['read-tree', '--empty'], { env });
+    const seed = headSha ? await g(['read-tree', headSha], { env }) : await g(['read-tree', '--empty'], { env });
     if (!seed.ok) return empty;
     for (const e of entries) {
-      if (e.delete) { await git(['update-index', '--force-remove', e.path], { env }); continue; }
-      const hash = await git(['hash-object', '-w', '--stdin', '--path', e.path], { input: e.content });
+      if (e.delete) { await g(['update-index', '--force-remove', e.path], { env }); continue; }
+      const hash = await g(['hash-object', '-w', '--stdin', '--path', e.path], { input: e.content });
       if (!hash.ok) continue;
-      await git(['update-index', '--add', '--cacheinfo', `100644,${hash.stdout.trim()},${e.path}`], { env });
+      await g(['update-index', '--add', '--cacheinfo', `100644,${hash.stdout.trim()},${e.path}`], { env });
     }
     // --cached diffs the (throwaway) index against HEAD; with no HEAD it diffs the
     // empty tree, so a brand-new repo's first changes still show.
-    const stat = await git(['diff', '--cached', '--numstat'], { env });
+    const stat = await g(['diff', '--cached', '--numstat'], { env });
     const totals = sumNumstat(stat.ok ? stat.stdout : '');
     if (!withPatch) return { patch: '', ...totals };
-    const patch = await git(['diff', '--cached'], { env });
+    const patch = await g(['diff', '--cached'], { env });
     return { patch: patch.ok ? patch.stdout : '', ...totals };
   } finally {
     try { fs.unlinkSync(idxFile); } catch {}
@@ -238,14 +272,20 @@ const limitDiffStat = createLimiter(3);
 bridge.handle('session-diff-stat', guard('reading a session diff', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { additions: 0, deletions: 0, files: 0 };
-  return limitDiffStat(() => sessionDiff(s, getRepoPath(), false));
+  return limitDiffStat(async () => {
+    const r = await sessionDiff(s, sessionCwd(s), false);
+    // baseRow() reads this: a worktree session has no edits map to derive a badge
+    // from, so the last computed stat is what a freshly built row shows.
+    if (s.worktree) s.wtStat = { added: r.additions, removed: r.deletions, files: r.files };
+    return r;
+  });
 }, { additions: 0, deletions: 0, files: 0 }));
 
 // Full patch for the Diff dialog (rendered over the terminal, terminal kept alive).
 bridge.handle('session-diff', guard('reading a session diff', async (_e, id) => {
   const s = sessions.get(id);
   if (!s) return { ok: false, patch: '', additions: 0, deletions: 0, files: 0 };
-  return { ok: true, ...(await sessionDiff(s, getRepoPath(), true)) };
+  return { ok: true, ...(await sessionDiff(s, sessionCwd(s), true)) };
 }, { ok: false, patch: '', additions: 0, deletions: 0, files: 0 }));
 
 // Author a commit message from this session's OWN diff (the same patch the Diff
@@ -285,7 +325,7 @@ async function sessionCommitMessage(s, id, patch) {
 bridge.handle('commit-session', guard('committing a session', (_e, id) => repoWrite(async () => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
-  const repoPath = getRepoPath();
+  const repoPath = sessionCwd(s);
   if (!repoPath) return { ok: false, stderr: 'No folder open' };
   const { entries, committedAbs, committedFileOps, emptyAbs, emptyFileOps } = await sessionEntries(s, repoPath);
   // Empty patches are phantom changes — forget them unconditionally (regardless of
@@ -310,9 +350,9 @@ bridge.handle('commit-session', guard('committing a session', (_e, id) => repoWr
   persistSession(id);
   sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
 
-  const { patch } = await entriesToDiff(entries, true);
+  const { patch } = await entriesToDiff(entries, true, repoPath);
   const msg = await sessionCommitMessage(s, id, patch);
-  const ct = await commitBlobs(entries, msg);
+  const ct = await commitBlobs(entries, msg, repoPath);
   if (ct.ok) {
     setSessionState(id, 'pushed'); // mirror the renderer's purple dot, and persist it
     persistSession(id);
@@ -344,7 +384,8 @@ bridge.handle('commit-session', guard('committing a session', (_e, id) => repoWr
 bridge.handle('revert-session', guard('reverting a session', (_e, id) => repoWrite(async () => {
   const s = sessions.get(id);
   if (!s) return { ok: false, stderr: 'Session is gone' };
-  const repoPath = getRepoPath();
+  const repoPath = sessionCwd(s);
+  const g = boundGit(repoPath);
   if (!repoPath) return { ok: false, stderr: 'No folder open' };
   const sharedWithOther = (abs) => [...sessions].some(([sid, o]) => sid !== id && (o.edits.has(abs) || o.fileOps.has(abs)));
   const claimedByOtherFileOp = (abs) => [...sessions].some(([sid, o]) => sid !== id && o.fileOps.has(abs));
@@ -361,7 +402,7 @@ bridge.handle('revert-session', guard('reverting a session', (_e, id) => repoWri
     if (claimedByOtherFileOp(abs)) return false; // a path-level claim we can't replay through
     const others = otherEditsFor(abs);
     if (!others.length) return false;
-    const head = await git(['show', `HEAD:${rel}`]);
+    const head = await g(['show', `HEAD:${rel}`]);
     const rebuilt = contentWithoutSession(head.ok ? head.stdout : '', others);
     if (rebuilt == null) return false;
     if (!head.ok && rebuilt === '') { try { fs.unlinkSync(abs); } catch {} } // nothing but our own work created it
@@ -378,7 +419,7 @@ bridge.handle('revert-session', guard('reverting a session', (_e, id) => repoWri
     if (inv.clean) { fs.writeFileSync(abs, inv.content); reverted.push(abs); continue; }
     if (await rebuildFromOthers(abs, rel)) { reverted.push(abs); continue; }
     if (sharedWithOther(abs)) { skipped.push(rel); continue; }
-    const head = await git(['show', `HEAD:${rel}`]);
+    const head = await g(['show', `HEAD:${rel}`]);
     if (head.ok) fs.writeFileSync(abs, head.stdout); // restore committed version
     else { try { fs.unlinkSync(abs); } catch {} } // file was new this session
     reverted.push(abs);
@@ -399,9 +440,9 @@ bridge.handle('revert-session', guard('reverting a session', (_e, id) => repoWri
       skipped.push(rel);
       continue;
     }
-    const inHead = (await git(['cat-file', '-e', `HEAD:${rel}`])).ok;
+    const inHead = (await g(['cat-file', '-e', `HEAD:${rel}`])).ok;
     if (inHead) {
-      const r = await git(['checkout', 'HEAD', '--', rel]); // restore the committed file (add modified it, or delete removed it)
+      const r = await g(['checkout', 'HEAD', '--', rel]); // restore the committed file (add modified it, or delete removed it)
       if (!r.ok) { skipped.push(rel); continue; }
     } else if (kind === 'add') {
       try { fs.unlinkSync(abs); } catch {} // file was new this session
@@ -415,4 +456,6 @@ bridge.handle('revert-session', guard('reverting a session', (_e, id) => repoWri
   return { ok: true, reverted: reverted.length + revertedOps.length, skipped };
 }), (err) => ({ ok: false, stderr: err && err.message ? err.message : String(err) })));
 
-module.exports = {};
+// Exported for session-merge.js, so a worktree merge authors its commit message
+// through the same model + timeout + fallback policy as an ordinary commit.
+module.exports = { sessionCommitMessage };

@@ -44,7 +44,14 @@
   <div id="app">
     <aside id="sidebar">
       <div id="sessions-pane">
-        <div class="pane-head" data-i18n="nav.sessions">SESSIONS</div>
+        <div class="pane-head sessions-head">
+          <span data-i18n="nav.sessions">SESSIONS</span>
+          <div class="wt-toggle" id="worktree-toggle" role="group" hidden>
+            <button type="button" class="wt-seg active" data-worktree="0" data-i18n="worktree.modeMain">Main</button>
+            <button type="button" class="wt-seg" data-worktree="1" data-i18n="worktree.modeWorktree">Worktree</button>
+          </div>
+          <span></span>
+        </div>
         <div id="session-tabs" class="sess-tabs">
           <button class="sess-tab active" data-tab="active" data-i18n="sessions.tab.active">Active</button>
           <button class="sess-tab" data-tab="archived" data-i18n="sessions.tab.archived">Archived</button>
@@ -65,7 +72,7 @@
       <div id="gutter-sess" class="gutter gutter-row" title="Drag to resize"></div>
       <div id="files-pane">
         <div class="pane-head">
-          <span class="pane-head-left" data-i18n="nav.explorer">EXPLORER</span>
+          <span class="pane-head-left"><span data-i18n="nav.explorer">EXPLORER</span><button id="tree-scope" hidden data-i18n-title="worktree.backToMainTitle" title="Showing a session worktree - click to go back to the project"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><span id="tree-scope-name"></span><svg class="tree-scope-x" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></span>
           <span class="pane-head-actions">
             <button id="files-new" data-i18n-title="explorer.newFile" title="New file"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
             <button id="files-new-folder" data-i18n-title="explorer.newFolder" title="New folder"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg></button>
@@ -112,6 +119,7 @@
           <button id="session-diff" data-i18n-title="session.diffTitle" title="View this session's diff" disabled><span class="sdiff-label" data-i18n="session.diff">Diff</span><span id="session-diff-add" class="sdiff-add"></span><span id="session-diff-del" class="sdiff-del"></span></button>
           <button id="session-revert" data-i18n-title="session.revertTitle" data-i18n="session.revert" title="Revert only this session's changes" disabled>Revert</button>
           <button id="session-archive" data-i18n-title="session.archiveTitle" title="Archive this session"></button>
+          <button id="session-merge" data-i18n-title="worktree.mergeHint" title="Commit this session's worktree and merge its branch back into the project." hidden disabled><svg class="merge-glyph" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg><span id="session-merge-label">Merge</span></button>
           <button id="session-commit" data-i18n-title="session.commitHint" title="Commit only the files this session changed, with a message Claude writes for you." disabled>Nothing to commit</button>
         </div>
       </div>

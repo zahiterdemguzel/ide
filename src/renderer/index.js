@@ -3,7 +3,7 @@
 // cross-module hand-offs and kicks off the initial loads.
 import './shared/bootstrap.js';
 import { onClose, refreshDiagram } from './viewer/center.js';
-import { showActiveSession, restoreSessions, setSessionsRepo, newSession } from './sessions.js';
+import { showActiveSession, restoreSessions, setSessionsRepo, newSession, sessionNameForWorktree, setSessionScope } from './sessions.js';
 import { refreshGit, autoFetch } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
@@ -11,12 +11,13 @@ import './terminal-links.js';
 import { open as openQuickOpen } from './quick-open.js';
 import { registerCommands } from './command-palette.js';
 import { loadToolbar } from './toolbar.js';
-import { initConsoles, resetConsoles } from './consoles.js';
+import { initConsoles, resetConsoles, setConsoleScope } from './consoles.js';
 import { initClaudeSetup } from './claude-setup.js';
 import { initSettings, cycleTheme } from './settings.js';
 import { initRemotePane } from './remote-pane.js';
 import { initUsageMeter } from './usage-meter.js';
 import { initPanels } from './panels.js';
+import { refreshWorktreeToggle, setTreeScope } from './worktrees.js';
 import { initOnboarding, activateOnboarding, startTour, openCheatSheet } from './onboarding/index.js';
 import { onClaudeReady } from './claude-setup.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
@@ -34,9 +35,50 @@ onClose(showActiveSession);
 const openFolderBtn = document.getElementById('open-folder');
 const recentMenu = document.getElementById('recent-folders-menu');
 
+// Highest `epoch` seen from main. Worktree focus-follow can fire switches back to
+// back, so a payload older than one already applied is dropped rather than left to
+// paint the previous tree over the current one.
+let repoEpoch = 0;
+
+// Two kinds of switch arrive here. Opening a PROJECT reloads everything. Moving
+// between the project and one of its WORKTREES re-points only the tree-derived
+// panels: the git pane, the file tree and the run toolbar. In particular:
+//   - the session list filters on the PROJECT, never the active tree, so every
+//     session of the open project stays listed whichever tree is selected;
+//   - consoles are only reset when the project itself changed. Selecting a
+//     session must not kill the dev server a launch config is running -- in
+//     either direction, worktree->project included. Existing terminals keep the
+//     cwd they were spawned with; only new ones follow the active tree.
+let currentProject = null;
+
 function applyRepoChange(r) {
   if (r.error) { console.error('open-folder:', r.error); return; }
-  if (!r.canceled) { window.api.setWindowTitle(r.repo); setSessionsRepo(r.repo); resetConsoles(); refreshGit(); refreshTree(); loadToolbar(); autoFetch(); }
+  if (r.canceled) return;
+  if (r.epoch != null) {
+    if (r.epoch < repoEpoch) return;
+    repoEpoch = r.epoch;
+  }
+  const project = r.main || r.repo;
+  // The title names the project and never changes on a worktree switch (main
+  // enforces that). The body class is what marks worktree mode in the UI: it
+  // tints the pane headers, so it stays visible which tree the git pane, the run
+  // toolbar and the file explorer are showing.
+  window.api.setWindowTitle();
+  document.body.classList.toggle('on-worktree', !!r.worktree);
+  setTreeScope(r.worktree, r.worktree ? sessionNameForWorktree(r.worktree) : '');
+  // ...and the owning session's row carries the same mark, so the list answers
+  // "which of these is the git pane showing" without tracing paths.
+  setSessionScope(r.worktree);
+  // The run toolbar answers for the tree it is showing: a config running in
+  // another worktree must not make its button read "running" here, and Stop must
+  // not reach across trees.
+  setConsoleScope(r.worktree || '');
+  setSessionsRepo(project);
+  const projectChanged = project !== currentProject;
+  currentProject = project;
+  if (projectChanged) resetConsoles();
+  refreshWorktreeToggle();
+  refreshGit(); refreshTree(); loadToolbar(); autoFetch();
 }
 
 async function browseForFolder() {
@@ -49,8 +91,12 @@ async function openRecentFolder(dir) {
   catch (err) { console.error('open-folder-path failed:', err); }
 }
 
-// The macOS Dock menu switches the folder in main directly; reload the UI to match.
-window.api.onFolderChanged((msg) => applyRepoChange({ canceled: false, repo: msg.repo }));
+// Every tree switch main makes arrives here: the Dock menu, a remote open, and
+// above all worktree focus-follow. Forward the payload WHOLE. `main`, `worktree`
+// and `epoch` are what tell applyRepoChange this is a worktree switch rather than
+// a project one; dropping them made it filter the session list by the worktree
+// path (emptying it) and reset the consoles on every session click.
+window.api.onFolderChanged((msg) => applyRepoChange({ canceled: false, ...msg }));
 
 function baseName(p) {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -184,7 +230,7 @@ restoreSessions();
 // everything as usual — including a one-time autoFetch so the ahead/behind
 // badges reflect the remote without the user reaching for Sync.
 window.api.getRepoPath().then((repo) => {
-  if (repo) { refreshGit(); refreshTree(); loadToolbar(); autoFetch(); }
+  if (repo) { refreshWorktreeToggle(); refreshGit(); refreshTree(); loadToolbar(); autoFetch(); }
   else openRecentMenu();
 }).catch((err) => console.error('startup repo check failed:', err));
 // First-time onboarding. The help/cheat sheet wires up immediately; the
