@@ -6,6 +6,61 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+
+// Decoders for compressed glTF (KHR_draco_mesh_compression, EXT_meshopt_compression,
+// KHR_texture_basisu). Paths are relative to index.html. Created once and shared:
+// each spins up worker pools + wasm, which are too costly to rebuild per file.
+const THREE_LIBS_PATH = './node_modules/three/examples/jsm/libs/';
+let dracoLoader = null;
+let ktx2Loader = null;
+
+function getDracoLoader() {
+  if (!dracoLoader) dracoLoader = new DRACOLoader().setDecoderPath(THREE_LIBS_PATH + 'draco/gltf/');
+  return dracoLoader;
+}
+
+const BASIS_WORKER_HOST_URL = new URL('./basis-worker-host.js', import.meta.url).href;
+
+// KTX2Loader whose transcoder workers load from a file URL instead of a blob:
+// URL, because the basis transcoder needs eval and a blob: worker inherits the
+// page CSP that forbids it (see basis-worker-host.js). It reuses the worker
+// source KTX2Loader assembles and only swaps how each worker is spawned, so it
+// leans on KTX2Loader internals (workerSourceURL, workerPool, workerConfig,
+// transcoderBinary) — recheck them when upgrading three.
+class Ktx2FileWorkerLoader extends KTX2Loader {
+  init() {
+    if (this.fileWorkerPending) return this.fileWorkerPending;
+    this.fileWorkerPending = super.init()
+      .then(() => fetch(this.workerSourceURL))
+      .then((response) => response.text())
+      .then((workerSource) => {
+        this.workerPool.setWorkerCreator(() => {
+          const worker = new Worker(BASIS_WORKER_HOST_URL);
+          const transcoderBinary = this.transcoderBinary.slice(0);
+          worker.postMessage({ type: 'boot', source: workerSource });
+          worker.postMessage({ type: 'init', config: this.workerConfig, transcoderBinary }, [transcoderBinary]);
+          return worker;
+        });
+      });
+    return this.fileWorkerPending;
+  }
+}
+
+// KTX2 needs a renderer to pick a GPU texture format; the first viewer's renderer
+// is enough since every viewer runs on the same GPU.
+function initKtx2Loader(renderer) {
+  if (ktx2Loader) return;
+  ktx2Loader = new Ktx2FileWorkerLoader().setTranscoderPath(THREE_LIBS_PATH + 'basis/').detectSupport(renderer);
+}
+
+function createGltfLoader() {
+  const loader = new GLTFLoader().setDRACOLoader(getDracoLoader()).setMeshoptDecoder(MeshoptDecoder);
+  if (ktx2Loader) loader.setKTX2Loader(ktx2Loader);
+  return loader;
+}
 
 // Shared three.js core for the 3D model views. The read-only viewer (model.js)
 // and the editor (model-editor.js) both build on the same scene setup, loaders,
@@ -33,6 +88,7 @@ export function createViewer(body) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  initKtx2Loader(renderer);
   wrap.appendChild(renderer.domElement);
 
   // Even lighting so an unlit/material-less mesh (a bare STL/OBJ) is still
@@ -97,7 +153,7 @@ export function loadModel(ext, buffer) {
     // self-contained file — a .gltf referencing external .bin/textures won't
     // resolve them (we have only the one file's bytes), which is an accepted limit.
     const data = ext === 'gltf' ? new TextDecoder().decode(buffer) : buffer;
-    return parseAsync((onLoad, onError) => new GLTFLoader().parse(data, '', onLoad, onError))
+    return parseAsync((onLoad, onError) => createGltfLoader().parse(data, '', onLoad, onError))
       .then((gltf) => {
         tagPrimitiveGroups(gltf);
         gltf.scene.animations = gltf.animations || [];
