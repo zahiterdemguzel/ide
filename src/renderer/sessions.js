@@ -244,8 +244,15 @@ export function selectSession(id) {
   // output is visible immediately rather than only after the first keystroke.
   // The reveal + fit only take effect on the next frame, so snap there too —
   // a synchronous scrollToBottom here runs against the still-stale viewport.
+  // Re-fit there as well: the synchronous fit can run before the freshly revealed
+  // container and the just-attached renderer have measured cells, which leaves a
+  // new session stuck at xterm's default 80x24 until something resizes it.
   s.term.scrollToBottom();
-  requestAnimationFrame(() => s.term && s.term.scrollToBottom());
+  requestAnimationFrame(() => {
+    if (!s.term || activeId !== id) return;
+    fit(s);
+    s.term.scrollToBottom();
+  });
   s.term.focus();
 }
 

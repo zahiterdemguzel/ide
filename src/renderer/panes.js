@@ -72,3 +72,12 @@ const fitCommitMsg = () => {
 commitMsg.addEventListener('input', fitCommitMsg);
 
 window.addEventListener('resize', () => { fitActive(); fitConsole(); });
+
+// The terminal host also changes size without a window resize (panes and bars
+// appearing or settling after launch); a stale fit leaves the session terminal
+// using only part of the pane, so reflow whenever the host itself resizes.
+let hostFitFrame = 0;
+new ResizeObserver(() => {
+  cancelAnimationFrame(hostFitFrame);
+  hostFitFrame = requestAnimationFrame(fitActive);
+}).observe(document.getElementById('terminal-host'));
