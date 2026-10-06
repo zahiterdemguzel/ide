@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="-3" dy="0" stdDeviation="2.5" flood-opacity=".28"/></filter>
+  </defs>
+  <rect x="14" y="16" width="62" height="52" rx="6" fill="#24a873"/>
+  <rect x="29" y="36" width="62" height="52" rx="6" fill="#eba41f" filter="url(#s)"/>
+  <rect x="44" y="56" width="62" height="52" rx="6" fill="#e84235" filter="url(#s)"/>
+</svg>

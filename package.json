@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "description": "Manage multiple interactive Claude CLI sessions with auto status + git staging",
   "author": "zahiterdemguzel",
+  "license": "AGPL-3.0-only",
   "main": "src/main/index.js",
   "scripts": {
     "postinstall": "node scripts/fix-electron-signature.js && node scripts/fetch-stt-model.mjs",

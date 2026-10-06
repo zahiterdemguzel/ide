@@ -12,3 +12,7 @@ An Electron desktop app for running and monitoring multiple interactive `claude`
 - `npm run lint` — ESLint over the whole tree.
 
 No bundler and no build step for the app itself — vanilla JS loaded directly. The tests and lint cover the pure, Electron-free logic (config/JSONC translation, git porcelain parsing, per-session edit replay, i18n); run `npm run lint` + `npm test` locally before finishing a change. The only GitHub Actions workflow packages the Windows + macOS + Linux apps on every push to `master`. See [testing.md](testing.md).
+
+## Public-facing docs
+
+`README.md` is the GitHub landing page; its images live in `docs/images/` (light/dark `banner-*.svg`, `logo.svg`, and framed app screenshots captured from a demo project). Licensed AGPL-3.0 (`LICENSE`, `package.json` `license`). When a headline feature changes, update the README's feature list too.
