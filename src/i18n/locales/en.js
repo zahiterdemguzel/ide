@@ -169,6 +169,13 @@ export default {
     'commitCtx.resetHard': 'Reset branch here (hard)',
     'commitCtx.resetHardTitle': 'Hard-reset the branch to this commit?',
     'commitCtx.resetHardMsg': "Every commit after this one — and every change in your working tree — is deleted. This can't be undone.",
+    'fileCtx.ignore': 'Add to .gitignore',
+    'fileCtx.ignoreExt': 'Add all *{ext} files to .gitignore',
+    'fileCtx.copyPath': 'Copy path',
+    'fileCtx.reveal': 'Show in file explorer',
+    'fileCtx.delete': 'Delete file',
+    'fileCtx.deleteTitle': 'Delete this file?',
+    'fileCtx.deleteMsg': 'The file is moved to the Recycle Bin.',
 
     'git.stashes': 'Stashes',
     'git.stashChangesTitle': 'Stash all changes',

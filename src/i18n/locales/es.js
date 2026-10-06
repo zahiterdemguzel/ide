@@ -168,6 +168,13 @@ export default {
     'commitCtx.resetHard': 'Restablecer la rama aquí (hard)',
     'commitCtx.resetHardTitle': '¿Restablecer la rama en modo hard a esta confirmación?',
     'commitCtx.resetHardMsg': 'Se eliminarán todas las confirmaciones posteriores y todos los cambios de tu copia de trabajo. Esto no se puede deshacer.',
+    'fileCtx.ignore': 'Añadir a .gitignore',
+    'fileCtx.ignoreExt': 'Añadir todos los archivos *{ext} a .gitignore',
+    'fileCtx.copyPath': 'Copiar ruta',
+    'fileCtx.reveal': 'Mostrar en el explorador de archivos',
+    'fileCtx.delete': 'Eliminar archivo',
+    'fileCtx.deleteTitle': '¿Eliminar este archivo?',
+    'fileCtx.deleteMsg': 'El archivo se mueve a la papelera de reciclaje.',
 
     'git.stashes': 'Guardados',
     'git.stashChangesTitle': 'Guardar todos los cambios en un stash',

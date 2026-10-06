@@ -168,6 +168,13 @@ export default {
     'commitCtx.resetHard': 'Dalı buraya sıfırla (hard)',
     'commitCtx.resetHardTitle': 'Dal bu işlemeye hard olarak sıfırlansın mı?',
     'commitCtx.resetHardMsg': 'Bundan sonraki tüm işlemeler ve çalışma ağacınızdaki tüm değişiklikler silinir. Bu işlem geri alınamaz.',
+    'fileCtx.ignore': ".gitignore'a ekle",
+    'fileCtx.ignoreExt': "Tüm *{ext} dosyalarını .gitignore'a ekle",
+    'fileCtx.copyPath': 'Yolu kopyala',
+    'fileCtx.reveal': 'Dosya gezgininde göster',
+    'fileCtx.delete': 'Dosyayı sil',
+    'fileCtx.deleteTitle': 'Bu dosya silinsin mi?',
+    'fileCtx.deleteMsg': "Dosya Geri Dönüşüm Kutusu'na taşınır.",
 
     'git.stashes': 'Zulalar',
     'git.stashChangesTitle': 'Tüm değişiklikleri zulala',

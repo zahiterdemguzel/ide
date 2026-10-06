@@ -168,6 +168,13 @@ export default {
     'commitCtx.resetHard': 'Branch hierher zurücksetzen (hard)',
     'commitCtx.resetHardTitle': 'Branch hart auf diesen Commit zurücksetzen?',
     'commitCtx.resetHardMsg': 'Alle späteren Commits – und alle Änderungen im Arbeitsverzeichnis – werden gelöscht. Das lässt sich nicht rückgängig machen.',
+    'fileCtx.ignore': 'Zu .gitignore hinzufügen',
+    'fileCtx.ignoreExt': 'Alle *{ext}-Dateien zu .gitignore hinzufügen',
+    'fileCtx.copyPath': 'Pfad kopieren',
+    'fileCtx.reveal': 'Im Datei-Explorer anzeigen',
+    'fileCtx.delete': 'Datei löschen',
+    'fileCtx.deleteTitle': 'Diese Datei löschen?',
+    'fileCtx.deleteMsg': 'Die Datei wird in den Papierkorb verschoben.',
 
     'git.stashes': 'Stashes',
     'git.stashChangesTitle': 'Alle Änderungen stashen',

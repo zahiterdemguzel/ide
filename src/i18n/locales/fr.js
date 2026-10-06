@@ -168,6 +168,13 @@ export default {
     'commitCtx.resetHard': 'Réinitialiser la branche ici (hard)',
     'commitCtx.resetHardTitle': 'Réinitialiser la branche en mode hard sur ce commit ?',
     'commitCtx.resetHardMsg': 'Tous les commits suivants — et toutes les modifications de votre copie de travail — seront supprimés. Cette action est irréversible.',
+    'fileCtx.ignore': 'Ajouter au .gitignore',
+    'fileCtx.ignoreExt': 'Ajouter tous les fichiers *{ext} au .gitignore',
+    'fileCtx.copyPath': 'Copier le chemin',
+    'fileCtx.reveal': "Afficher dans l'explorateur de fichiers",
+    'fileCtx.delete': 'Supprimer le fichier',
+    'fileCtx.deleteTitle': 'Supprimer ce fichier ?',
+    'fileCtx.deleteMsg': 'Le fichier est déplacé dans la corbeille.',
 
     'git.stashes': 'Remises',
     'git.stashChangesTitle': 'Remiser toutes les modifications',

@@ -1,8 +1,10 @@
+const fs = require('fs');
+const path = require('path');
 const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runCommitModel } = require('./commit-model');
-const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
+const { ignorePattern, appendIgnoreLine, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
 const { createLimiter } = require('./concurrency');
@@ -271,6 +273,21 @@ bridge.handle('git-revert', (_e, { file, untracked }) => {
   const files = [].concat(file);
   if (untracked) return gitOverFiles(['clean', '-fq'], files);
   return gitOverFiles(['restore', '--staged', '--worktree'], files);
+});
+
+// Add a changed file (or its whole extension) to the open folder's .gitignore.
+// Only the ignore file changes: a file that's already tracked stays tracked until
+// it's removed from the index, which is left to the user.
+bridge.handle('git-ignore', async (_e, { file, byExtension }) => {
+  const pattern = ignorePattern(file, byExtension);
+  if (!pattern) return { ok: false, stderr: 'No extension to ignore' };
+  const ignoreFile = path.join(getRepoPath(), '.gitignore');
+  try {
+    const text = await fs.promises.readFile(ignoreFile, 'utf8').catch((e) => (e.code === 'ENOENT' ? '' : Promise.reject(e)));
+    const next = appendIgnoreLine(text, pattern);
+    if (next !== null) await fs.promises.writeFile(ignoreFile, next);
+    return { ok: true, pattern, added: next !== null };
+  } catch (e) { return { ok: false, stderr: e.message }; }
 });
 
 // Ask the commit model (a downloaded local model if there is one, else Haiku) for

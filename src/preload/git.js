@@ -36,6 +36,7 @@ module.exports = {
   gitUnstage: (file) => ipcRenderer.invoke('git-unstage', file),
   gitDiff: (args) => ipcRenderer.invoke('git-diff', args),
   gitRevert: (args) => ipcRenderer.invoke('git-revert', args),
+  gitIgnore: (args) => ipcRenderer.invoke('git-ignore', args),
   gitCommit: (msg) => ipcRenderer.invoke('git-commit', msg),
   gitUndo: () => ipcRenderer.invoke('git-undo'),
   gitAmend: (msg) => ipcRenderer.invoke('git-amend', msg),
