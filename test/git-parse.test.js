@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl, CONFLICT } = require('../src/main/git-parse');
+const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl, ignorePattern, appendIgnoreLine, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -292,4 +292,24 @@ test('firstUrl: empty string when there is no URL', () => {
   assert.equal(firstUrl('nothing here'), '');
   assert.equal(firstUrl(''), '');
   assert.equal(firstUrl(undefined), '');
+});
+
+test('ignorePattern: anchors a single file and escapes glob characters', () => {
+  assert.equal(ignorePattern('src/app.log', false), '/src/app.log');
+  assert.equal(ignorePattern('data/a[1]*.txt', false), String.raw`/data/a\[1]\*.txt`);
+  assert.equal(ignorePattern('trailing ', false), '/trailing\\ ');
+});
+
+test('ignorePattern: by extension uses the last extension, none for dotfiles', () => {
+  assert.equal(ignorePattern('build/out.min.js', true), '*.js');
+  assert.equal(ignorePattern('.env', true), null);
+  assert.equal(ignorePattern('Makefile', true), null);
+  assert.equal(ignorePattern('weird.', true), null);
+});
+
+test('appendIgnoreLine: appends once, keeps line endings, terminates the last line', () => {
+  assert.equal(appendIgnoreLine('', '*.log'), '*.log\n');
+  assert.equal(appendIgnoreLine('node_modules', '*.log'), 'node_modules\n*.log\n');
+  assert.equal(appendIgnoreLine('a\r\nb\r\n', '*.log'), 'a\r\nb\r\n*.log\r\n');
+  assert.equal(appendIgnoreLine('*.log\n', '*.log'), null);
 });

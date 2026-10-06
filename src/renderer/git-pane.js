@@ -66,6 +66,7 @@ function gitItem(file, status, staged, action, label) {
   // status letter (see .git-status in git.css). Everything else stays neutral.
   li.className = 'g-' + (status === '?' ? 'u' : status);
   li.onclick = () => openGitFile(file, status, staged);
+  li.oncontextmenu = (e) => showFileCtx(e, file, status);
   const st = document.createElement('span');
   st.className = 'git-status';
   st.textContent = status;
@@ -319,6 +320,7 @@ function ctxRow(action, icon, label, danger) {
 function showCommitCtx(ev, c) {
   ev.preventDefault();
   ev.stopPropagation();
+  hideFileCtx();
   ctxCommit = c;
   const sep = '<div class="git-menu-sep"></div>';
   const rows = [
@@ -349,15 +351,89 @@ function showCommitCtx(ev, c) {
     );
   }
   commitCtx.innerHTML = rows.join('');
-  commitCtx.style.cssText = `display:block; position:fixed; left:${ev.clientX}px; top:${ev.clientY}px;`;
+  placeMenuAt(commitCtx, ev);
+}
+
+function placeMenuAt(menu, ev) {
+  menu.style.cssText = `display:block; position:fixed; left:${ev.clientX}px; top:${ev.clientY}px;`;
   // Flip back inside the viewport once it has a measurable size — the git pane sits
   // at the window's right edge, so a menu opened there would otherwise overflow.
   requestAnimationFrame(() => {
-    const r = commitCtx.getBoundingClientRect();
-    if (r.right > window.innerWidth) commitCtx.style.left = `${window.innerWidth - r.width - 4}px`;
-    if (r.bottom > window.innerHeight) commitCtx.style.top = `${window.innerHeight - r.height - 4}px`;
+    const r = menu.getBoundingClientRect();
+    if (r.right > window.innerWidth) menu.style.left = `${window.innerWidth - r.width - 4}px`;
+    if (r.bottom > window.innerHeight) menu.style.top = `${window.innerHeight - r.height - 4}px`;
   });
 }
+
+// Right-clicking a changed file. A deleted file has nothing on disk to reveal or
+// delete, so those entries only appear while the file still exists.
+const fileCtx = document.createElement('div');
+fileCtx.id = 'git-file-ctx-menu';
+fileCtx.className = 'git-menu';
+fileCtx.style.display = 'none';
+document.body.appendChild(fileCtx);
+
+let ctxFile = null;
+
+function hideFileCtx() { fileCtx.style.display = 'none'; ctxFile = null; }
+document.addEventListener('click', hideFileCtx);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideFileCtx(); });
+
+// Mirrors ignorePattern in main/git-parse.js: '' for no extension or a dotfile.
+function extensionOf(file) {
+  const base = file.split('/').pop();
+  const dot = base.lastIndexOf('.');
+  return dot > 0 && dot < base.length - 1 ? base.slice(dot) : '';
+}
+
+function escapeHtml(text) {
+  return text.replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+}
+
+function showFileCtx(ev, file, status) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  hideCommitCtx();
+  ctxFile = { file, status };
+  const sep = '<div class="git-menu-sep"></div>';
+  const ext = extensionOf(file);
+  const onDisk = status !== 'D';
+  const rows = [ctxRow('ignore', '⊘', t('fileCtx.ignore'))];
+  if (ext) rows.push(ctxRow('ignore-ext', '✱', escapeHtml(t('fileCtx.ignoreExt').replace('{ext}', ext))));
+  rows.push(sep, ctxRow('copy-path', '⧉', t('fileCtx.copyPath')));
+  if (onDisk) rows.push(ctxRow('reveal', '🗁', t('fileCtx.reveal')), sep, ctxRow('delete', '🗑', t('fileCtx.delete'), true));
+  fileCtx.innerHTML = rows.join('');
+  placeMenuAt(fileCtx, ev);
+}
+
+fileCtx.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn || !ctxFile) return;
+  e.stopPropagation();
+  const { file } = ctxFile;
+  const action = btn.dataset.action;
+  hideFileCtx();
+
+  if (action === 'ignore' || action === 'ignore-ext') {
+    const r = await window.api.gitIgnore({ file, byExtension: action === 'ignore-ext' });
+    if (!r.ok) { showGitErrorDialog(r.stderr || 'Could not update .gitignore', 'Ignore failed'); return; }
+    showGitMsg(r.added ? `Added ${r.pattern} to .gitignore` : `${r.pattern} is already in .gitignore`, true);
+    refreshGit();
+
+  } else if (action === 'copy-path') {
+    await navigator.clipboard.writeText(file);
+
+  } else if (action === 'reveal') {
+    await window.api.revealInFolder(file);
+
+  } else if (action === 'delete') {
+    const ok = await confirmDialog({ title: t('fileCtx.deleteTitle'), message: `${t('fileCtx.deleteMsg')}\n\n${file}`, ok: t('fileCtx.delete'), danger: true });
+    if (!ok) return;
+    const r = await window.api.deleteFile(file);
+    if (!r.ok) { showGitErrorDialog(r.error || 'Could not delete the file', 'Delete failed'); return; }
+    refreshGit();
+  }
+});
 
 // Destructive entries confirm through a dialog rather than the rows' two-click
 // arming: the menu closes on click, so there is nothing left to arm.

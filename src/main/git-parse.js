@@ -190,4 +190,33 @@ function firstUrl(text) {
   return m ? m[0].replace(/[).,]+$/, '') : '';
 }
 
-module.exports = { CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl };
+// The .gitignore line for one changed file, or for every file sharing its
+// extension. A single file is anchored with a leading `/` so it can't also match
+// a same-named file in another folder; glob metacharacters in the name are
+// escaped so `a[1].txt` means itself. Null when an extension rule makes no sense
+// (no extension, or a dotfile like `.env` whose "extension" is its whole name).
+function ignorePattern(file, byExtension) {
+  const base = file.split('/').pop();
+  if (byExtension) {
+    const dot = base.lastIndexOf('.');
+    if (dot <= 0 || dot === base.length - 1) return null;
+    return '*' + escapeIgnoreGlob(base.slice(dot));
+  }
+  return '/' + escapeIgnoreGlob(file).replace(/ $/, '\\ ');
+}
+
+function escapeIgnoreGlob(text) {
+  return text.replace(/[*?[\\]/g, '\\$&');
+}
+
+// The .gitignore text with `pattern` appended on its own line, or null when an
+// identical line is already there. Keeps the file's own line endings and makes
+// sure the new rule doesn't get glued onto an unterminated last line.
+function appendIgnoreLine(text, pattern) {
+  const eol = /\r\n/.test(text) ? '\r\n' : '\n';
+  if (text.split(/\r?\n/).some((line) => line.trim() === pattern)) return null;
+  const sep = text && !text.endsWith('\n') ? eol : '';
+  return text + sep + pattern + eol;
+}
+
+module.exports = { ignorePattern, appendIgnoreLine, CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl };
