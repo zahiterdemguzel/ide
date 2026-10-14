@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="src/styles/diagram.css" />
   <link rel="stylesheet" href="src/styles/git.css" />
   <link rel="stylesheet" href="src/styles/console.css" />
+  <link rel="stylesheet" href="src/styles/debug.css" />
   <link rel="stylesheet" href="src/styles/themes.css" />
   <link rel="stylesheet" href="src/styles/settings.css" />
   <link rel="stylesheet" href="src/styles/arm-hint.css" />
@@ -393,6 +394,74 @@
               <button id="session-diff-close" data-i18n-title="session.diffClose" title="Close">×</button>
             </div>
             <div id="session-diff-body"></div>
+          </div>
+        </div>
+      </div>
+      <!-- Debugger drawer (renderer/debug/panel.js): shown while a debug session
+           runs or the user opens it. Head = session picker, status, step controls;
+           body = variables / watch / call stack / breakpoints beside the debug console. -->
+      <div id="debug-panel" hidden>
+        <div id="debug-resize" title="Drag to resize"></div>
+        <div id="debug-head">
+          <span class="debug-title">Debug</span>
+          <select id="debug-session" title="Debug session"></select>
+          <span id="debug-status"></span>
+          <div id="debug-controls">
+            <button id="debug-continue" title="Continue (F5)" aria-label="Continue">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M5 4h3v16H5zM10 4l11 8-11 8z"/></svg>
+            </button>
+            <button id="debug-pause" title="Pause (F6)" aria-label="Pause">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+            </button>
+            <button id="debug-step-over" title="Step over (F10)" aria-label="Step over">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13a8 8 0 0 1 15-3.5"/><path d="M20 4v6h-6"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg>
+            </button>
+            <button id="debug-step-in" title="Step into (F11)" aria-label="Step into">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11"/><path d="M7 9l5 5 5-5"/><circle cx="12" cy="20" r="2" fill="currentColor"/></svg>
+            </button>
+            <button id="debug-step-out" title="Step out (Shift+F11)" aria-label="Step out">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4"/><path d="M7 9l5-5 5 5"/><circle cx="12" cy="20" r="2" fill="currentColor"/></svg>
+            </button>
+            <button id="debug-restart" title="Restart (Ctrl+Shift+F5)" aria-label="Restart">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5a8 8 0 1 1-2.3-5.4"/><path d="M20 3.5v5h-5"/></svg>
+            </button>
+            <button id="debug-stop" title="Stop (Shift+F5)" aria-label="Stop">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
+            </button>
+          </div>
+          <button id="debug-close" title="Hide the debug panel">×</button>
+        </div>
+        <div id="debug-body">
+          <div id="debug-side">
+            <details class="debug-section" open>
+              <summary>Variables</summary>
+              <div id="debug-variables" class="debug-tree"></div>
+            </details>
+            <details class="debug-section" open>
+              <summary>Watch</summary>
+              <div id="debug-watch" class="debug-tree"></div>
+              <input id="debug-watch-input" type="text" spellcheck="false" autocomplete="off" placeholder="Add expression to watch" />
+            </details>
+            <details class="debug-section" open>
+              <summary>Call stack</summary>
+              <div id="debug-stack"></div>
+            </details>
+            <details class="debug-section" open>
+              <summary>Breakpoints</summary>
+              <div id="debug-exceptions"></div>
+              <div id="debug-breakpoints"></div>
+            </details>
+          </div>
+          <div id="debug-console">
+            <div id="debug-console-head">
+              <span>Debug console</span>
+              <button id="debug-console-clear" title="Clear the debug console">Clear</button>
+            </div>
+            <div id="debug-log"></div>
+            <div id="debug-prompt">
+              <span class="debug-arrow">›</span>
+              <input id="debug-input" type="text" spellcheck="false" autocomplete="off" placeholder="Evaluate an expression in the paused frame" />
+            </div>
           </div>
         </div>
       </div>

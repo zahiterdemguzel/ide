@@ -255,6 +255,7 @@ export default {
 
     'run.runFile': 'Bu {lang} dosyasını çalıştır',
     'run.runBtn': 'Çalıştır',
+    'run.debugFile': 'Bu dosyada hata ayıkla (kesme noktaları)',
     'run.withArgs': 'Argümanlarla çalıştır…',
     'run.withArgsTitle': '{name} çalıştır',
     'run.withArgsLabel': '{lang} öğesine geçilen argümanlar',

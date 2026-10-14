@@ -1,0 +1,45 @@
+# Debugger (DAP)
+
+A real debugger for launch.json configs: gutter breakpoints (conditional, hit-count, logpoints), pause/step/continue, call stack, variables (editable), watch expressions, exception filters, and a debug console with a REPL. It speaks the **Debug Adapter Protocol** — the protocol VS Code uses for every debugger — so it drives the same adapters VS Code does. **Only debugpy (`"type": "debugpy"` / `"python"`) is wired up so far**; every other type still runs as a plain terminal command through the [run toolbar](architecture.md#run-toolbar).
+
+Files: `src/main/debug-lib.js` (pure: framing, launch.json → adapter args, interpreter choice, runInTerminal quoting), `src/main/dap-client.js` (request/response/event bookkeeping over any stream pair, Electron-free), `src/main/debug.js` (adapter processes/sockets, the handshake, IPC), `resolveDebugTargets` in `src/main/run-configs.js`, `src/preload/debug.js`, `src/renderer/debug/state.js` (breakpoints + paused location, DOM-free), `src/renderer/debug/panel.js` (the drawer), `src/renderer/shared/breakpoints-model.js` (pure), the gutter code in `src/renderer/viewer/file.js`, `src/styles/debug.css`.
+
+## Starting a session
+
+The toolbar shows a **bug button** beside every launch config whose type has an adapter (`get-run-configs` flags it `debuggable`; a compound qualifies when any member does). The ▶ button is unchanged — it still runs the config *without* debugging. The editor's Run menu adds **Debug this file** for Python (`debug-start-file`, an ad-hoc launch via `fileDebugTarget`, on the interpreter registered for Python if any). `serverReadyAction` with `"action": "startDebugging", "name": …` starts that config under the debugger when the pattern prints.
+
+`debug-start({name, inputs, editor})` → `resolveDebugTargets` re-reads launch.json and returns, per debuggable config, the adapter arguments (`adapterArguments`: per-OS block merged, every string `${…}`-substituted **deeply** — `connect.host`, `pathMappings[].localRoot` — envFile folded under `env`, VS Code-only keys like `preLaunchTask`/`presentation` dropped, a launch defaulting to `console: "integratedTerminal"` and the repo as `cwd`) plus its pre/post task specs. Unresolved `${input:…}`/`${command:…}` anywhere in that tree come back as `needsInputs`, same as a run. Compound members without an adapter come back as plain `runs` for terminals; `stopAll` ends the group together.
+
+Then `startSession`:
+
+1. **preLaunchTask.** A *background* task (a watcher, or the Blender launcher) opens in its own terminal tab and the session proceeds — as VS Code does. A *foreground* task (a build) must finish first, so main runs it in a hidden shell (`runTaskToExit`) and streams its output to the debug console; a non-zero exit aborts the session. (The run path can't do this — its terminals are typed-into interactive shells with no exit code.)
+2. **Transport.** An attach with `connect`/`host`+`port` (`attachSocketTarget`) is a **TCP connection straight to the debuggee's debugpy server** — `debugpy.listen()` *is* an adapter, so nothing is spawned. It retries every 500 ms for up to 120 s, because the preLaunchTask is usually still starting the process (Blender takes seconds to open its port). Everything else (launch, attach by `processId`) spawns `python -m debugpy.adapter`, which speaks DAP on stdio.
+3. **Handshake**, in VS Code's order: `initialize` → `launch`/`attach` (sent without awaiting — debugpy answers it only after `configurationDone`) → on the `initialized` event, `setBreakpoints` for every file + `setExceptionBreakpoints` (the adapter's `default` filters, i.e. debugpy's "Uncaught Exceptions") → `configurationDone` → await the launch/attach response.
+
+**Which Python.** `pythonCommand`: the config's `python` (path or argv array) / legacy `pythonPath`, else the project's `.venv`, else `python3` (`python` on Windows). For a launch with no explicit interpreter, the one found is also set as the debuggee's `python`. If `import debugpy` fails there, the newest `~/.vscode/extensions/ms-python.debugpy-*/bundled/libs` goes on `PYTHONPATH` (`newestBundledDebugpy`); otherwise the error says to `pip install debugpy`.
+
+**runInTerminal.** debugpy asks the client to start the debuggee in a terminal with an argv array. We answer by pushing a `run-specs` spec named after the config, so it opens in an ordinary console tab (and the ▶ button's running indicator lights up). The argv is quoted for the shell we type it into (`shellCommandLine`: POSIX single quotes; PowerShell single quotes plus `&` before a quoted program); `null` env entries ("unset") are dropped.
+
+**Stopping.** `disconnect` with `terminateDebuggee` for a launch only — stopping an attach leaves Blender running, as in VS Code. Then the adapter process is killed / socket destroyed, `postDebugTask` opens in a terminal, and the renderer gets `ended`. The adapter's `terminated` event or transport close end the session the same way. Opening another **project** stops every session; selecting a worktree session (which moves the active tree) does not — each session remembers the tree it started in (`session.repo`) and resolves breakpoint and frame paths against it.
+
+## Main ↔ renderer
+
+Everything main knows arrives as `debug-event {sessionId, name, kind, …}`: `state` (starting/running + the adapter's exception filters), `output`, `stopped`, `continued`, `breakpoints` (the adapter's verified/unverified verdict per file), `error`, `ended`. The renderer asks for everything else through `debug-request`, a **passthrough restricted to `PASSTHROUGH_REQUESTS`** (threads, stackTrace, scopes, variables, evaluate, setVariable, the step/continue/pause set, …) — lifecycle and breakpoints have their own channels so main keeps them consistent. `stackTrace` responses get a `source.rel` (repo-relative, `null` outside the repo) so the panel knows what the editor can open. For continue/step, main pushes `continued` *before* sending the request: the adapter may report the next `stopped` before it answers, and that must win.
+
+## Breakpoints
+
+Owned by the renderer (`debug/state.js`), persisted in `localStorage` per open folder (`debug.breakpoints:<repo>`), and mirrored to main with `debug-set-breakpoints` (`{all}` on folder change — `syncBreakpointsForRepo` runs from `loadToolbar` and no-ops unless the folder changed — or `{file, breakpoints}` per edit). Main re-sends a changed file to every live session. Disabled breakpoints are filtered out before they leave the renderer.
+
+**Gutter.** `paintGutter` renders one `.ln` div per line (it used to be a single text node) so a click knows its line: click or **F9** toggles, right-click edits — a condition, `hits: N`, or `log: text {expr}` for a logpoint. Dots: red = set, hollow = unverified by the adapter, diamond = logpoint, ring = conditional, grey = disabled. **Breakpoints follow their code while you type**: the input handler hands the before/after text to `applyEditToBreakpoints`, and the pure `describeEdit` + `shiftBreakpoints` move breakpoints below an inserted/removed block and drop those whose lines were deleted (Enter at the very start of a breakpoint's line pushes it down, as in VS Code).
+
+**Paused line.** `setExecLocation({file, line})` marks the gutter row (▶) and positions `.editor-exec`, a band behind the code computed from the textarea's line-height and padding — the same no-measuring trick as the find overlay.
+
+## The panel
+
+`#debug-panel` is a drawer at the bottom of `#center` (resizable from its top edge; height remembered in `localStorage`). Head: session picker (shown with 2+ sessions), status, continue/pause/step over/into/out/restart/stop. Body: **Variables** (scopes → lazily-fetched children; expansion remembered by path so stepping keeps the tree open; double-click a value to `setVariable`), **Watch** (expressions in `localStorage`, re-evaluated on every stop), **Call stack** (threads; click another thread to load its stack, click a frame to open its file and re-scope variables), **Breakpoints** (exception filter checkboxes from the adapter's capabilities, every breakpoint with enable/remove, click to jump), and the **debug console** (adapter output by category, plus a REPL evaluated in the selected frame with ↑/↓ history).
+
+Keys, captured window-wide so a focused terminal doesn't swallow them: **F5** continue (or start the last-debugged / first debuggable config), **Shift+F5** stop, **Ctrl/Cmd+Shift+F5** restart, **F6** pause, **F10** step over, **F11** step into, **Shift+F11** step out; **F9** (editor) toggle breakpoint. The panel strings are English-only like the rest of the run toolbar.
+
+## Adding another adapter
+
+Add the type to `ADAPTER_FOR_TYPE` in `debug-lib.js`, and in `debug.js` give it a spawn recipe next to `spawnDebugpyAdapter` (js-debug's DAP server for node/chrome, `dlv dap` for Go, CodeLLDB, …). The handshake, events, panel and breakpoints are adapter-agnostic. Not yet supported: `startDebugging` reverse requests (debugpy's `subProcess` child sessions), hover-to-inspect in the editor, data breakpoints, and `serverReadyAction`'s inline `config` form.

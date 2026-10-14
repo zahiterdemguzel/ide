@@ -690,6 +690,21 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
     return [...background, merged];
   }
 
+  // An attach config (`"request": "attach"`, e.g. debugpy connecting to Blender on
+  // a port) has no program of its own: its preLaunchTask is what starts the
+  // process the debugger connects to. With no debugger here, running that task IS
+  // the launch. The task chain's last step hosts the process, so it takes the
+  // config's name (the toolbar's running/restart state is keyed by it) and loses
+  // its `background` flag — nothing waits on it anymore. Earlier steps still gate
+  // it exactly as they would gate a launch command. Returns [] when there's no
+  // pre-launch task to run.
+  function attachSpecs(cfg, preSpecs) {
+    const m = mergePlatform(cfg);
+    if (m.request !== 'attach' || !preSpecs || !preSpecs.length) return [];
+    const { background: _wasBackground, ...host } = preSpecs[preSpecs.length - 1];
+    return prependTasks(preSpecs.slice(0, -1), { ...host, name: m.name });
+  }
+
   // A run spec the renderer turns into an in-app terminal tab: the command line plus
   // the cwd/env to spawn its shell in, and the name used as the tab label.
   function launchSpec(cfg) {
@@ -708,17 +723,22 @@ function makeRunConfigLib(repoPath, platform = process.platform, ctx = {}) {
   // the pattern to look for in the terminal output and the URI to open when it
   // hits. VS Code's default pattern matches the "listening on http://…" line most
   // dev servers print; `uriFormat` places the pattern's first capture group.
-  // Only the URI-opening actions are meaningful here — `startDebugging` would
-  // start a second debug session, which we have no debugger for.
+  // `startDebugging` starts the launch config it names under the debugger once
+  // the server is up (its inline `config` form isn't supported — there'd be no
+  // launch.json entry to resolve).
   function serverReadyMatcher(action) {
-    if (!action || (action.action && action.action !== 'openExternally' && action.action !== 'debugWithChrome' && action.action !== 'debugWithEdge')) return null;
+    if (!action) return null;
+    if (action.action === 'startDebugging') {
+      return action.name ? { pattern: action.pattern || 'listening on.* (https?://\\S+)', debugName: action.name } : null;
+    }
+    if (action.action && action.action !== 'openExternally' && action.action !== 'debugWithChrome' && action.action !== 'debugWithEdge') return null;
     return {
       pattern: action.pattern || 'listening on.* (https?://\\S+)',
       uriFormat: action.uriFormat || '%s',
     };
   }
 
-  return { substVars, envMap, winExe, mergePlatform, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec, serverReadyMatcher, normalizeTasks, prependTasks };
+  return { substVars, envMap, winExe, mergePlatform, buildLaunchCommand, buildTaskCommand, stepCommand, chainCommands, resolveTask, launchSpec, serverReadyMatcher, normalizeTasks, prependTasks, attachSpecs };
 }
 
 module.exports = {

@@ -242,7 +242,12 @@ test('launchSpec: serverReadyAction becomes a pattern for the renderer to watch'
   assert.equal(dflt.serverReady.uriFormat, '%s');
   // No action, or one that needs a real debugger: nothing to watch for.
   assert.equal(lin.launchSpec({ name: 'W', type: 'node', program: 's.js' }).serverReady, undefined);
+  // startDebugging needs the name of the config to debug; the inline `config` form isn't supported.
   assert.equal(lin.launchSpec({ name: 'W', type: 'node', program: 's.js', serverReadyAction: { action: 'startDebugging' } }).serverReady, undefined);
+  assert.deepEqual(
+    lin.launchSpec({ name: 'W', type: 'node', program: 's.js', serverReadyAction: { action: 'startDebugging', name: 'Worker', pattern: 'up' } }).serverReady,
+    { pattern: 'up', debugName: 'Worker' },
+  );
 });
 
 test('buildLaunchCommand: python and debugpy map to python', () => {
@@ -713,6 +718,26 @@ test('prependTasks: chains preLaunchTask steps before the launch command', () =>
   ]);
   // No tasks: the launch spec passes through untouched.
   assert.deepEqual(lin.prependTasks([], launch), [launch]);
+});
+
+// The Blender-addon shape: a debugpy attach config whose background preLaunchTask
+// starts Blender with debugpy listening. With no debugger, that task is the launch.
+test('attachSpecs: an attach config runs its preLaunchTask under the config name', () => {
+  const cfg = { name: 'Blender 4.5: fireplace', type: 'debugpy', request: 'attach', connect: { port: 5679 } };
+  assert.equal(lin.buildLaunchCommand(cfg), null);
+  const host = { command: 'python dev_launch.py fireplace', cwd: REPO, env: {}, name: 'blender-dev: fireplace', background: true };
+  assert.deepEqual(lin.attachSpecs(cfg, [host]), [
+    { command: 'python dev_launch.py fireplace', cwd: REPO, env: {}, name: 'Blender 4.5: fireplace' },
+  ]);
+  // Earlier steps still gate the process host.
+  const build = { command: 'make', cwd: REPO, env: {}, name: 'build' };
+  assert.equal(lin.attachSpecs(cfg, [build, host])[0].command, 'make && python dev_launch.py fireplace');
+});
+
+test('attachSpecs: nothing to run without a preLaunchTask or for a launch request', () => {
+  const host = { command: 'x', cwd: REPO, env: {}, name: 't' };
+  assert.deepEqual(lin.attachSpecs({ name: 'A', type: 'debugpy', request: 'attach' }, []), []);
+  assert.deepEqual(lin.attachSpecs({ name: 'L', type: 'debugpy', request: 'launch' }, [host]), []);
 });
 
 test('prependTasks: a step (or the launch) in another cwd gets a cd prefix', () => {

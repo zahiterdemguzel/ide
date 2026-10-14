@@ -3,6 +3,7 @@ import { confirmDialog } from '../shared/confirm.js';
 import { promptText } from '../shared/prompt.js';
 import { extOf } from '../shared/ext.js';
 import { t } from '../../i18n/index.js';
+import { noteDebugStarted } from '../debug/panel.js';
 
 // The i18n engine has no interpolation, so fill {placeholder}s from a locale
 // string here (keeps the translatable text whole in the locale files).
@@ -105,6 +106,14 @@ function openMenu() {
   info.title = cur.interpreter || '';
   menu.appendChild(info);
 
+  // Python files can also run under the debugger (debugpy), like VS Code's
+  // "Debug Python File".
+  if (currentLang.id === 'python') {
+    menu.appendChild(menuItem(t('run.debugFile'), async () => {
+      const r = await window.api.debugStartFile({ file: currentFile, python: cur.interpreter || undefined });
+      if (r && r.ok) noteDebugStarted(null);
+    }));
+  }
   menu.appendChild(menuItem(t('run.withArgs'), async () => {
     const a = await promptText({
       title: fmt('run.withArgsTitle', { name: currentFile.split(/[\\/]/).pop() }),

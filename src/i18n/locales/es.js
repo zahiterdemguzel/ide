@@ -255,6 +255,7 @@ export default {
 
     'run.runFile': 'Ejecutar este archivo {lang}',
     'run.runBtn': 'Ejecutar',
+    'run.debugFile': 'Depurar este archivo (puntos de interrupción)',
     'run.withArgs': 'Ejecutar con argumentos…',
     'run.withArgsTitle': 'Ejecutar {name}',
     'run.withArgsLabel': 'Argumentos pasados a {lang}',

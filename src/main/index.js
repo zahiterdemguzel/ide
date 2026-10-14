@@ -27,6 +27,7 @@ require('./explorer');
 require('./db');
 require('./diagram'); // project structure diagrams (lazy — the worker spawns on first open)
 require('./run-configs');
+require('./debug'); // the DAP debugger (adapters spawn only when a debug session starts)
 require('./runners');
 require('./consoles');
 require('./onboarding-store');
@@ -124,4 +125,6 @@ function releaseNativeRuntimes() {
   try { require('./ollama-proxy').stopProxyServer(); } catch { /* never started */ }
   // The voice recognizer holds its weights in RAM once armed — drop them too.
   try { require('./stt').stopStt(); } catch { /* never armed */ }
+  // Debug adapters are child processes; don't leave them orphaned.
+  try { require('./debug').stopAllDebugSessions(); } catch { /* none running */ }
 }

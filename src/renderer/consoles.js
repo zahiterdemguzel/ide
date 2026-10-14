@@ -246,7 +246,8 @@ export async function runSpecInConsole(spec) {
 function serverReadyWatcher(spec) {
   if (!spec.serverReady) return null;
   try {
-    return { re: new RegExp(spec.serverReady.pattern), uriFormat: spec.serverReady.uriFormat, fired: false };
+    const { pattern, uriFormat, debugName } = spec.serverReady;
+    return { re: new RegExp(pattern), uriFormat, debugName, fired: false };
   } catch { return null; } // a pattern we can't compile: skip rather than break the run
 }
 
@@ -282,6 +283,11 @@ window.api.onTermData(({ id, data }) => {
   checkServerReady(c, data);
 });
 
+// serverReadyAction `startDebugging`: the toolbar registers how to start a
+// config under the debugger (it owns the ${input:…} prompts).
+let serverReadyDebugHandler = null;
+export function setServerReadyDebugHandler(fn) { serverReadyDebugHandler = fn; }
+
 // Match a `serverReadyAction` pattern against the terminal output and open the
 // resulting URI. The output arrives in arbitrary chunks, so we keep a small tail
 // of it — otherwise a URL split across two writes would never match.
@@ -293,6 +299,7 @@ function checkServerReady(c, data) {
   if (!m) return;
   w.fired = true;
   c.readyTail = '';
+  if (w.debugName) { if (serverReadyDebugHandler) serverReadyDebugHandler(w.debugName); return; }
   window.api.openExternal(w.uriFormat.replace('%s', m[1] != null ? m[1] : m[0]));
 }
 window.api.onTermExit(({ id }) => closeConsole(id)); // shell exited (e.g. user typed `exit`)

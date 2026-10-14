@@ -256,6 +256,7 @@ export default {
 
     'run.runFile': 'Run this {lang} file',
     'run.runBtn': 'Run',
+    'run.debugFile': 'Debug this file (breakpoints)',
     'run.withArgs': 'Run with arguments…',
     'run.withArgsTitle': 'Run {name}',
     'run.withArgsLabel': 'Arguments passed to {lang}',

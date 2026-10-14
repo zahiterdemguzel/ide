@@ -1,9 +1,11 @@
-import { runSpecInConsole, runningConfigNames, stopConfig, onConsolesChanged } from './consoles.js';
+import { runSpecInConsole, runningConfigNames, stopConfig, onConsolesChanged, setServerReadyDebugHandler } from './consoles.js';
 import { isPanelEnabled, onPanelsChanged } from './panels.js';
 import { promptText, pickOption } from './shared/prompt.js';
 import { showError } from './shared/warn.js';
 import { getEditorContext } from './viewer/file.js';
 import { newSessionWithPrompt } from './sessions.js';
+import { setDebugStartHandler, noteDebugStarted, onDebugSessionsChanged, debuggingNames } from './debug/panel.js';
+import { syncBreakpointsForRepo } from './debug/state.js';
 
 // Sent to a fresh session when the folder has no run configs yet. Deliberately
 // stack-agnostic — it tells the session to derive everything from the project's
@@ -16,8 +18,9 @@ const CREATE_RUN_CONFIGS_PROMPT = [
   '',
   'HOW THIS IDE RUNS THEM (important — it is not VS Code):',
   'Every launch config and task is translated into a single shell command line and run in an in-app',
-  'terminal tab. There is no debugger and no extension host, so write configs that are correct as',
-  '*commands*, not just as debug sessions.',
+  'terminal tab. There is no extension host, so write configs that are correct as *commands*, not just',
+  'as debug sessions. Python (type "debugpy") configs can additionally be started under a real',
+  'debugger (breakpoints, stepping, variables), for both "launch" and "attach" with "connect".',
   '- Supported launch types (a runnable command is derived from the config): node / node-terminal,',
   '  python / debugpy (program, module or code), java, go, coreclr / clr / dotnet, dart / flutter, bun,',
   '  powershell, mix_task, r-debugger, rdbg, lua-local, extensionHost, godot, gdb / lldb-mi (via "target"),',
@@ -25,7 +28,9 @@ const CREATE_RUN_CONFIGS_PROMPT = [
   '  php/ruby/perl/lua/julia/mojo/bashdb/shell, and browser types (chrome/msedge/firefox/pwa-*), which',
   '  just open their "url" or "file" in the default browser.',
   '- Any other type still works if it has a "program" and/or "runtimeExecutable" — that is the fallback.',
-  '- NOT supported: "request": "attach" (nothing to run — always use "request": "launch"), breakpoints,',
+  '- "request": "attach" (e.g. debugpy attaching to Blender) only runs its preLaunchTask — that task must',
+  '  start the target process; without one there is nothing to run. Prefer "request": "launch".',
+  '- NOT supported: debugging any type other than debugpy (it still runs, just without breakpoints),',
   '  and ${command:...} variables (the user gets prompted to type the value instead — avoid them).',
   '- Supported task types: shell and process, plus npm, typescript, gulp, grunt and jake. Anything else',
   '  needs an explicit "command". Problem matchers are ignored, so do not rely on them.',
@@ -91,6 +96,15 @@ toolbarRuns.addEventListener('wheel', (e) => {
 // Launch buttons whose icon flips play -> restart while their terminal is alive.
 // Each entry: { btn, ico, stop, name, compound, members }.
 let launchButtons = [];
+// Debug buttons (bug icon) beside debuggable launch configs, tinted while a
+// debug session of that config (or a compound member) is live.
+let debugButtons = []; // { btn, names }
+// The first debuggable entry, so F5 has something to start before any debug run.
+let firstDebuggable = null;
+
+const BUG_SVG = '<svg class="ico-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+  + 'stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="6" width="8" height="14" rx="4"/>'
+  + '<path d="M19 7l-3 2M5 7l3 2M19 19l-3-2M5 19l3-2M20 13h-4M4 13h4M10 4l1 2M14 4l-1 2"/></svg>';
 
 // A bold circular-arrow restart glyph as inline SVG — the Unicode ↻ renders too
 // thin and varies by font, so we draw it with a heavy stroke instead. Uses
@@ -123,7 +137,43 @@ function refreshRunStates() {
   }
 }
 
-function runButton(kind, name, compound, members) {
+// Start a launch config under the debugger: same ${input:…} prompting as a run;
+// non-debuggable compound members come back as plain terminal runs.
+async function debugConfig(name) {
+  name = name || firstDebuggable;
+  if (!name) return;
+  const editor = getEditorContext();
+  let r = await window.api.debugStart({ name, editor });
+  if (r && r.needsInputs) {
+    const inputs = await collectInputs(name, r.needsInputs);
+    if (!inputs) return;
+    r = await window.api.debugStart({ name, inputs, editor });
+  }
+  if (!r || !r.ok) { showRunError((r && r.error) || 'Unknown error while starting the debugger.'); return; }
+  noteDebugStarted(name);
+  for (const spec of (r.runs || [])) await runSpecInConsole(spec);
+}
+setDebugStartHandler(debugConfig);
+setServerReadyDebugHandler(debugConfig);
+
+function debugButton(name, members) {
+  const b = document.createElement('button');
+  b.className = 'tool-btn debug-btn';
+  b.innerHTML = BUG_SVG;
+  b.title = 'Debug: ' + name + ' (breakpoints, stepping, variables)';
+  b.setAttribute('aria-label', 'Debug ' + name);
+  b.onclick = () => debugConfig(name);
+  debugButtons.push({ btn: b, names: members && members.length ? members : [name] });
+  return b;
+}
+
+function refreshDebugStates() {
+  const live = debuggingNames();
+  for (const d of debugButtons) d.btn.classList.toggle('debugging', d.names.some((n) => live.has(n)));
+}
+onDebugSessionsChanged(refreshDebugStates);
+
+function runButton(kind, name, compound, members, debuggable) {
   const b = document.createElement('button');
   b.className = 'tool-btn ' + kind;
   const ico = document.createElement('span');
@@ -162,6 +212,7 @@ function runButton(kind, name, compound, members) {
   const stopNames = compound ? (members || []) : [name];
   stop.onclick = (e) => { e.stopPropagation(); for (const n of stopNames) stopConfig(n); };
   group.append(stop, b);
+  if (debuggable) group.append(debugButton(name, compound ? members : null));
   launchButtons.push({ btn: b, ico, stop, name, compound: !!compound, members: members || [] });
   return group;
 }
@@ -233,8 +284,11 @@ export async function loadToolbar() {
   const r = await window.api.getRunConfigs();
   if (render !== toolbarRender) return;
   offerAutoTasks();
+  syncBreakpointsForRepo();
   toolbarRuns.innerHTML = '';
   launchButtons = [];
+  debugButtons = [];
+  firstDebuggable = ((r.launch || []).find((c) => c.debuggable) || {}).name || null;
   const rawLaunch = r.launch || [], rawTasks = r.tasks || [];
   if (!rawLaunch.length && !rawTasks.length) {
     const hint = document.createElement('span');
@@ -263,7 +317,7 @@ export async function loadToolbar() {
   if (launch.length) {
     const strip = document.createElement('div');
     strip.className = 'run-strip';
-    for (const c of launch) strip.appendChild(runButton('launch', c.name, c.compound, c.members));
+    for (const c of launch) strip.appendChild(runButton('launch', c.name, c.compound, c.members, c.debuggable));
     toolbarRuns.appendChild(strip);
   }
   if (launch.length && tasks.length) {
@@ -278,4 +332,5 @@ export async function loadToolbar() {
     toolbarRuns.appendChild(strip);
   }
   refreshRunStates();
+  refreshDebugStates();
 }

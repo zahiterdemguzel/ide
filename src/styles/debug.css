@@ -1,0 +1,110 @@
+/* Debugger drawer at the bottom of the center column (renderer/debug/panel.js). */
+#debug-panel {
+  --debug-height: 260px;
+  display: flex; flex-direction: column; flex: none;
+  height: var(--debug-height); min-height: 120px; max-height: 80vh;
+  background: var(--bg-2); border-top: 1px solid var(--border);
+}
+#debug-panel[hidden] { display: none; }
+
+#debug-resize { height: 4px; margin-top: -4px; cursor: ns-resize; flex: none; }
+#debug-resize:hover { background: var(--accent); }
+
+#debug-head { display: flex; align-items: center; gap: 8px; padding: 3px 8px; flex: none; font-size: 12px; }
+.debug-title { color: var(--fg-dim); text-transform: uppercase; letter-spacing: .05em; font-size: 11px; }
+#debug-session {
+  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 4px; font-size: 12px; padding: 1px 4px; max-width: 260px;
+}
+#debug-status { color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#debug-status.paused { color: var(--yellow); }
+#debug-controls { display: flex; gap: 2px; margin-left: auto; }
+#debug-controls button, #debug-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 22px; padding: 0; border: none; border-radius: 4px;
+  background: none; color: var(--fg-dim); cursor: pointer;
+}
+#debug-controls button:hover:not(:disabled), #debug-close:hover { background: var(--bg-3); color: var(--fg); }
+#debug-controls button:disabled { opacity: .35; cursor: default; }
+#debug-continue:not(:disabled) { color: var(--green); }
+#debug-stop:not(:disabled) { color: var(--red); }
+#debug-close { font-size: 16px; }
+
+#debug-body { display: flex; flex: 1; min-height: 0; border-top: 1px solid var(--border); }
+#debug-side {
+  flex: 0 0 38%; min-width: 220px; overflow: auto; border-right: 1px solid var(--border);
+  font-family: Consolas, monospace; font-size: 12px;
+}
+.debug-section summary {
+  position: sticky; top: 0; z-index: 1; padding: 3px 8px; cursor: pointer;
+  background: var(--bg-2); color: var(--fg-dim); font-family: system-ui, sans-serif;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em; user-select: none;
+}
+.debug-empty { padding: 2px 12px 6px; color: var(--fg-dim); font-style: italic; }
+
+/* Variables / watch trees: one row per variable, expandable when it has children. */
+.debug-tree { padding-bottom: 4px; }
+.dbg-row {
+  display: flex; gap: 6px; align-items: baseline; padding: 1px 8px 1px 0;
+  white-space: nowrap; cursor: default;
+}
+.dbg-row:hover { background: var(--bg-3); }
+.dbg-twisty { flex: none; width: 12px; text-align: center; color: var(--fg-dim); cursor: pointer; }
+.dbg-name { color: var(--purple); }
+.dbg-value { color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
+.dbg-value.error { color: var(--red); }
+.dbg-type { color: var(--fg-dim); font-size: 11px; }
+.dbg-remove { margin-left: auto; visibility: hidden; background: none; border: none; color: var(--fg-dim); cursor: pointer; }
+.dbg-row:hover .dbg-remove { visibility: visible; }
+#debug-watch-input {
+  display: block; width: calc(100% - 16px); margin: 2px 8px 6px; box-sizing: border-box;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 3px;
+  font: inherit; padding: 2px 6px;
+}
+
+/* Call stack: threads, then their frames. */
+.dbg-thread { padding: 2px 8px; color: var(--fg-dim); }
+.dbg-frame { display: flex; gap: 8px; padding: 1px 8px 1px 18px; cursor: pointer; white-space: nowrap; }
+.dbg-frame:hover { background: var(--bg-3); }
+.dbg-frame.selected { background: var(--list-sel); }
+.dbg-frame.external .dbg-frame-name { color: var(--fg-dim); }
+.dbg-frame-loc { margin-left: auto; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; }
+
+/* Breakpoints list and exception filters. */
+.dbg-check { display: flex; align-items: center; gap: 6px; padding: 1px 8px; white-space: nowrap; cursor: pointer; }
+.dbg-check:hover { background: var(--bg-3); }
+.dbg-check .dbg-loc { color: var(--fg-dim); margin-left: auto; overflow: hidden; text-overflow: ellipsis; }
+.dbg-check .dbg-detail { color: var(--fg-dim); font-style: italic; overflow: hidden; text-overflow: ellipsis; }
+
+/* Debug console: adapter output + the REPL. */
+#debug-console { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+#debug-console-head {
+  display: flex; align-items: center; padding: 3px 8px; flex: none;
+  color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+}
+#debug-console-clear {
+  margin-left: auto; background: none; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--fg-dim); font-size: 11px; padding: 1px 8px; cursor: pointer; text-transform: none; letter-spacing: 0;
+}
+#debug-console-clear:hover { color: var(--fg); background: var(--bg-3); }
+#debug-log {
+  flex: 1; overflow: auto; padding: 2px 8px;
+  font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.dbg-out-stderr, .dbg-out-error { color: var(--red); }
+.dbg-out-console, .dbg-out-important { color: var(--accent-hi); }
+.dbg-out-input { color: var(--fg-dim); }
+.dbg-out-result { color: var(--fg); }
+#debug-prompt {
+  display: flex; align-items: center; gap: 6px; flex: none;
+  padding: 3px 8px; border-top: 1px solid var(--border);
+}
+.debug-arrow { color: var(--accent); }
+#debug-input {
+  flex: 1; background: none; border: none; outline: none; color: var(--fg);
+  font-family: Consolas, monospace; font-size: 12px;
+}
+
+/* The toolbar's per-config Debug button (beside ▶). */
+.tool-btn.debug-btn { padding: 0 6px; }
+.tool-btn.debug-btn.debugging { color: var(--yellow); }

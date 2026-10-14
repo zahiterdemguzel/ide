@@ -151,8 +151,26 @@
 .editor { display: inline-flex; min-width: 100%; min-height: 100%; }
 .editor-gutter {
   position: sticky; left: 0; z-index: 1; flex: none;
-  padding: 8px 8px 8px 12px; text-align: right; white-space: pre;
-  color: var(--fg-dim); background: var(--bg-2); user-select: none;
+  padding: 8px 8px 8px 20px; text-align: right; white-space: pre;
+  color: var(--fg-dim); background: var(--bg-2); user-select: none; cursor: pointer;
+}
+/* One row per line so a click knows its line; the breakpoint dot / paused arrow
+   sits in the gutter's left padding. */
+.editor-gutter .ln { position: relative; }
+.editor-gutter .ln:hover::before { content: ''; position: absolute; left: -15px; top: 50%; width: 9px; height: 9px;
+  margin-top: -4.5px; border-radius: 50%; background: var(--red); opacity: .35; }
+.editor-gutter .ln.bp::before { content: ''; position: absolute; left: -15px; top: 50%; width: 9px; height: 9px;
+  margin-top: -4.5px; border-radius: 50%; background: var(--red); opacity: 1; }
+.editor-gutter .ln.bp.cond::before { box-shadow: inset 0 0 0 2px var(--bg-2); outline: 1px solid var(--red); }
+.editor-gutter .ln.bp.log::before { border-radius: 1px; transform: rotate(45deg) scale(.85); }
+.editor-gutter .ln.bp.unverified::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--red); }
+.editor-gutter .ln.bp.off::before { background: var(--gray); }
+.editor-gutter .ln.exec { color: var(--fg); }
+.editor-gutter .ln.exec::after { content: '▶'; position: absolute; left: -16px; top: 0; font-size: 10px; color: var(--yellow); }
+/* The line execution is paused on, as a band behind the code. */
+.editor-exec {
+  position: absolute; left: 0; right: 0; z-index: 0; pointer-events: none;
+  background: color-mix(in srgb, var(--yellow) 22%, transparent);
 }
 .editor-main { position: relative; flex: 1 0 auto; }
 .editor-pre, .editor-ta, .editor-hl, .editor-links {

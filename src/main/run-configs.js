@@ -6,11 +6,13 @@ const fs = require('fs');
 const { getRepoPath, onRepoChange } = require('./repo');
 const { sendToRenderer } = require('./window');
 const { stopConfigNamed } = require('./consoles');
+const { adapterFor, adapterArguments, findPlaceholders } = require('./debug-lib');
 const { parseJsonc, parseEnvFile, compoundMembers, listRunConfigs, autoDetectedNpmTask, findInputIds, findCommandIds, defaultBuildTaskName, makeRunConfigLib } = require('./run-configs-lib');
 
 // --- VS Code run configs (.vscode/launch.json + tasks.json) ---
-// We don't run a real debugger; each launch config / task is translated into a
-// shell command and opened in an in-app terminal tab (see the renderer). The
+// The ▶ path: each launch config / task is translated into a shell command and
+// opened in an in-app terminal tab (see the renderer); debugging a config goes
+// through debug.js instead, via resolveDebugTargets below. The
 // pure translation lives in run-configs-lib.js (Electron-free, unit-tested);
 // this module owns the file IO, IPC, and the .vscode watcher.
 
@@ -31,8 +33,18 @@ function npmScripts() {
   } catch { return []; }
 }
 
-bridge.handle('get-run-configs', () =>
-  listRunConfigs(readVscodeJson('launch.json'), readVscodeJson('tasks.json'), npmScripts()));
+bridge.handle('get-run-configs', () => {
+  const launchJson = readVscodeJson('launch.json');
+  const list = listRunConfigs(launchJson, readVscodeJson('tasks.json'), npmScripts());
+  // Flag the entries the debugger can start (the toolbar adds a Debug button):
+  // a config whose type has an adapter, or a compound with at least one such member.
+  const configs = (launchJson && launchJson.configurations) || [];
+  const debuggable = (n) => !!adapterFor(configs.find((c) => c && c.name === n));
+  for (const entry of list.launch) {
+    entry.debuggable = entry.compound ? entry.members.some(debuggable) : debuggable(entry.name);
+  }
+  return list;
+});
 
 // The pure lib bound to the open folder plus everything it can't know itself:
 // ${userHome}, ${config:...} (settings.json), ${defaultBuildTask}, collected
@@ -59,8 +71,10 @@ function makeLib(tasksJson, inputs, editor) {
 // inputs run an extension command, which we can't do). Returns null when the
 // specs are ready to run.
 function pendingInputs(runs, ...inputSources) {
-  const ids = findInputIds(runs);
-  const commands = findCommandIds(runs);
+  return describeNeededInputs(findInputIds(runs), findCommandIds(runs), inputSources);
+}
+
+function describeNeededInputs(ids, commands, inputSources) {
   if (!ids.length && !commands.length) return null;
   const defs = inputSources.flatMap((src) => (src && src.inputs) || []);
   const needs = [];
@@ -96,11 +110,14 @@ function pendingInputs(runs, ...inputSources) {
 // missing/unreadable file is ignored (VS Code warns but still launches).
 function withEnvFile(spec, cfg, lib) {
   if (!spec || !cfg.envFile) return spec;
-  try {
-    const text = fs.readFileSync(lib.substVars(cfg.envFile), 'utf8');
-    spec.env = { ...parseEnvFile(text), ...spec.env };
-  } catch { /* envFile absent or unreadable: launch without it */ }
+  spec.env = { ...envFileVars(cfg, lib), ...spec.env };
   return spec;
+}
+
+function envFileVars(cfg, lib) {
+  if (!cfg.envFile) return {};
+  try { return parseEnvFile(fs.readFileSync(lib.substVars(cfg.envFile), 'utf8')); }
+  catch { return {}; } // envFile absent or unreadable: launch without it
 }
 
 // Resolve a task referenced by label from a launch config (`preLaunchTask` /
@@ -119,9 +136,10 @@ function taskSpecsNamed(label, tasksJson, lib) {
 // prependTasks). Returns [] when the config isn't runnable.
 function resolveLaunchConfig(cfg, tasksJson, lib) {
   const spec = withEnvFile(lib.launchSpec(cfg), cfg, lib);
-  if (!spec) return [];
+  const preSpecs = taskSpecsNamed(cfg.preLaunchTask, tasksJson, lib);
+  if (!spec) return lib.attachSpecs(cfg, preSpecs);
   return lib.prependTasks(
-    taskSpecsNamed(cfg.preLaunchTask, tasksJson, lib),
+    preSpecs,
     spec,
     taskSpecsNamed(cfg.postDebugTask, tasksJson, lib),
   );
@@ -166,10 +184,55 @@ function resolveRunConfig({ kind, name, inputs, editor }) {
   const specs = resolveLaunchConfig(cfg, tasksJson, lib);
   if (specs.length) return done(specs);
   const ofType = cfg.type ? ` of type "${cfg.type}"` : '';
+  if (cfg.request === 'attach') {
+    return { ok: false, error: `"${name}"${ofType} is an attach config with no "preLaunchTask", so there is nothing here to start. Start the target process yourself (for debugpy: python -m debugpy --listen <port> <script>), or give the config a preLaunchTask that starts it.` };
+  }
   return { ok: false, error: `Couldn't derive a run command for "${name}"${ofType}. This config has no runnable "program" or "runtimeExecutable" (and no browser "url"/"file") — it's likely an attach config, which this app can't launch as a terminal command.` };
 }
 
 ipcMain.handle('run-config', (_e, args) => resolveRunConfig(args || {}));
+
+// Resolve a launch config (or a compound's members) for the debugger rather than
+// a terminal: each debuggable config becomes the adapter's launch/attach
+// arguments plus its pre-launch / post-debug task specs. Members the debugger
+// can't handle still run, as plain terminal commands (`runs`), like VS Code
+// running a compound whose members span adapters.
+function resolveDebugTargets({ name, inputs, editor }) {
+  const launch = readVscodeJson('launch.json');
+  if (!launch) return { ok: false, error: 'No launch.json' };
+  const tasksJson = readVscodeJson('tasks.json');
+  const lib = makeLib(tasksJson, inputs, editor);
+  const configs = launch.configurations || [];
+  const compound = (launch.compounds || []).find((c) => c.name === name);
+  const members = compound ? compoundMembers(compound) : [name];
+  const targets = [];
+  const runs = compound ? taskSpecsNamed(compound.preLaunchTask, tasksJson, lib) : [];
+  for (const memberName of members) {
+    const cfg = configs.find((c) => c.name === memberName);
+    if (!cfg) continue;
+    const adapter = adapterFor(cfg);
+    if (!adapter) { runs.push(...resolveLaunchConfig(cfg, tasksJson, lib)); continue; }
+    targets.push({
+      name: cfg.name,
+      adapter,
+      args: adapterArguments(cfg, lib, envFileVars(cfg, lib)),
+      preRuns: taskSpecsNamed(cfg.preLaunchTask, tasksJson, lib),
+      postRuns: taskSpecsNamed(cfg.postDebugTask, tasksJson, lib),
+    });
+  }
+  if (!targets.length && !runs.length) {
+    return { ok: false, error: compound ? 'Compound references no runnable configs' : 'Config not found' };
+  }
+  const everything = [runs, targets.map((t) => [t.args, t.preRuns, t.postRuns])];
+  const allSpecs = [...runs, ...targets.flatMap((t) => [...t.preRuns, ...t.postRuns])];
+  const needs = describeNeededInputs(
+    [...new Set([...findPlaceholders(everything, 'input'), ...findInputIds(allSpecs)])],
+    [...new Set([...findPlaceholders(everything, 'command'), ...findCommandIds(allSpecs)])],
+    [launch, tasksJson],
+  );
+  if (needs) return { ok: false, ...needs };
+  return { ok: true, targets, runs, stopAll: !!(compound && compound.stopAll) };
+}
 
 // VS Code's `runOptions.runOn: "folderOpen"` — tasks the project wants started as
 // soon as it's opened. Opening a folder would then run commands the repo chose,
@@ -245,4 +308,4 @@ function watchVscode() {
 watchVscode();
 onRepoChange(watchVscode);
 
-module.exports = {};
+module.exports = { resolveDebugTargets };
