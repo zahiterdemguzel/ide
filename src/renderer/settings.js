@@ -18,6 +18,7 @@ import {
 } from './sessions.js';
 import { initCustomModels, refreshCustomModels } from './custom-models.js';
 import { initVoice, refreshVoiceSection } from './voice.js';
+import { initEditorSettingsSection, refreshEditorSettingsSection } from './editor/settings-section.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -287,6 +288,7 @@ export function initSettings() {
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();
+    refreshEditorSettingsSection();
     dialog.showModal();
     // Refresh installed Ollama models and the Custom Models section after the
     // dialog is up — these touch the (possibly not-yet-running) engine, so keep
@@ -307,6 +309,7 @@ export function initSettings() {
   // Voice input (dictate-on-hover) owns its own settings row, IPC and mic capture;
   // it only needs to be started once, from here, like the Custom Models section.
   initVoice();
+  initEditorSettingsSection();
 
   initCustomModels(async () => {
     await refreshOllamaModels();

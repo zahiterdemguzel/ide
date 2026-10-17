@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl, ignorePattern, appendIgnoreLine, CONFLICT } = require('../src/main/git-parse');
+const { parseBlamePorcelain, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl, ignorePattern, appendIgnoreLine, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -312,4 +312,30 @@ test('appendIgnoreLine: appends once, keeps line endings, terminates the last li
   assert.equal(appendIgnoreLine('node_modules', '*.log'), 'node_modules\n*.log\n');
   assert.equal(appendIgnoreLine('a\r\nb\r\n', '*.log'), 'a\r\nb\r\n*.log\r\n');
   assert.equal(appendIgnoreLine('*.log\n', '*.log'), null);
+});
+
+test('parseBlamePorcelain: reads the commit header fields of one blamed line', () => {
+  const out = [
+    'abcdef0123456789abcdef0123456789abcdef01 3 3 1',
+    'author Ada Lovelace',
+    'author-mail <ada@example.com>',
+    'author-time 1700000000',
+    'summary Fix the parser',
+    'filename src/a.js',
+    '\tconst x = 1;',
+  ].join('\n');
+  assert.deepEqual(parseBlamePorcelain(out), {
+    hash: 'abcdef0123456789abcdef0123456789abcdef01',
+    author: 'Ada Lovelace',
+    time: 1700000000000,
+    summary: 'Fix the parser',
+    uncommitted: false,
+  });
+});
+
+test('parseBlamePorcelain: an unsaved/uncommitted line is flagged; junk is null', () => {
+  const zero = '0'.repeat(40);
+  assert.equal(parseBlamePorcelain(`${zero} 1 1 1\nauthor External file (--contents)\nauthor-time 0\n`).uncommitted, true);
+  assert.equal(parseBlamePorcelain('fatal: no such path'), null);
+  assert.equal(parseBlamePorcelain(''), null);
 });

@@ -1,0 +1,146 @@
+/* Editor AI assist (src/renderer/editor/ai.js): the Cmd/Ctrl+K prompt widget and
+ * the inline diff it leaves for review. Colours come from the theme variables so
+ * every theme in themes.css applies. */
+
+/* --- Cmd/Ctrl+K prompt widget (an overlay widget sitting in a view zone) --- */
+.ai-edit-widget {
+  box-sizing: border-box;
+  padding: 5px 6px;
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.36);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 12px;
+  z-index: 10;
+  user-select: none;
+}
+
+.ai-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-edit-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--accent-hi, var(--accent));
+}
+
+.ai-edit-widget[data-state="streaming"] .ai-edit-icon,
+.ai-edit-widget[data-state="refining"] .ai-edit-icon {
+  animation: ai-edit-pulse 1s ease-in-out infinite;
+}
+
+@keyframes ai-edit-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.ai-edit-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: inherit;
+  outline: none;
+  user-select: text;
+}
+
+.ai-edit-input:focus { border-color: var(--accent); }
+.ai-edit-input::placeholder { color: var(--fg-dim); }
+.ai-edit-input:read-only { color: var(--fg-dim); }
+
+.ai-edit-status {
+  flex: none;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.ai-edit-status:empty { display: none; }
+
+.ai-edit-btn {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-3);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ai-edit-btn:hover { filter: brightness(1.15); }
+
+.ai-edit-accept {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Accept / Reject only make sense once a proposal is in the file. */
+.ai-edit-widget:not([data-state="review"]):not([data-state="refining"]) .ai-edit-btn { display: none; }
+
+.ai-edit-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ai-edit-close:hover { background: var(--bg-3); color: var(--fg); }
+
+.ai-edit-error {
+  display: none;
+  margin-top: 4px;
+  padding-left: 20px;
+  color: var(--red);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.ai-edit-widget.has-error .ai-edit-error { display: block; }
+
+/* --- Inline diff: proposed lines in green, replaced text in a red zone above --- */
+.monaco-editor .ai-diff-inserted-line {
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+}
+
+.monaco-editor .ai-diff-inserted-gutter {
+  border-left: 3px solid var(--green);
+  margin-left: 3px;
+}
+
+.monaco-editor .ai-diff-removed {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  color: var(--fg-dim);
+  white-space: pre;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.monaco-editor .ai-diff-removed-line {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--red) 60%, transparent);
+}
+
+/* The gutter beside the removed text carries the same red tint. */
+.monaco-editor .ai-diff-removed-margin {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+}

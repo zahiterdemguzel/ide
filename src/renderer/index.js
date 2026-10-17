@@ -3,6 +3,7 @@
 // cross-module hand-offs and kicks off the initial loads.
 import './shared/bootstrap.js';
 import { onClose, refreshDiagram } from './viewer/center.js';
+import { onEditorRepoChanged } from './viewer/file.js';
 import { showActiveSession, restoreSessions, setSessionsRepo, newSession, sessionNameForWorktree, setSessionScope } from './sessions.js';
 import { refreshGit, autoFetch } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
@@ -74,6 +75,7 @@ function applyRepoChange(r) {
   // not reach across trees.
   setConsoleScope(r.worktree || '');
   setSessionsRepo(project);
+  onEditorRepoChanged(r.repo);
   const projectChanged = project !== currentProject;
   currentProject = project;
   if (projectChanged) resetConsoles();
@@ -184,11 +186,13 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeRecentMenu(); });
 
-// Ctrl/⌘+Shift+O opens the folder picker from anywhere.
+// Ctrl/⌘+Shift+O opens the folder picker from anywhere except the code editor,
+// where it is VS Code's Go to Symbol in File (Monaco handles it).
 // Capture phase so a focused xterm terminal can't swallow it first, mirroring
 // quick-open's Ctrl+P.
 window.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key === 'o' || e.key === 'O')) {
+  const inCodeEditor = document.activeElement && document.activeElement.closest('.monaco-editor');
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && (e.key === 'o' || e.key === 'O') && !inCodeEditor) {
     e.preventDefault();
     e.stopPropagation();
     browseForFolder();

@@ -1,4 +1,4 @@
-const { shell, clipboard, session } = require('electron');
+const { shell, clipboard, session, ipcMain } = require('electron');
 const bridge = require('./remote-bridge');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -170,6 +170,31 @@ bridge.handle('search-refs', async (_e, q) => {
 bridge.handle('read-text', async (_e, file) => {
   try { return { ok: true, text: await fs.promises.readFile(path.join(getRepoPath(), file), 'utf8') }; }
   catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Read a text file by ABSOLUTE path, read-only. The editor needs this when a
+// language server points outside the repo (go-to-definition into a stdlib stub
+// or a global package). Registered on ipcMain directly, not the remote bridge,
+// so a paired phone can't use it to read arbitrary files off this machine.
+ipcMain.handle('read-text-abs', async (_e, abs) => {
+  try {
+    if (!path.isAbsolute(abs)) return { ok: false, error: 'Not an absolute path' };
+    return { ok: true, text: await fs.promises.readFile(abs, 'utf8') };
+  } catch (e) { return { ok: false, error: e.message }; }
+});
+
+// Save an editor buffer by ABSOLUTE path. Only used when the open folder
+// switched while a file from the previous folder still had unsaved edits: the
+// repo-relative write-text would land in the new folder. Limited to files that
+// already exist (it can't be used to create arbitrary files) and kept off the
+// remote bridge like read-text-abs.
+ipcMain.handle('write-text-abs', async (_e, { abs, text }) => {
+  try {
+    if (!path.isAbsolute(abs)) return { ok: false, error: 'Not an absolute path' };
+    await fs.promises.access(abs, fs.constants.W_OK);
+    await fs.promises.writeFile(abs, text);
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
 });
 
 // Write a repo-relative text file back to disk (the editor's Save). Guards
@@ -442,9 +467,22 @@ function firstSegment(rel) {
   return slash === -1 ? norm : norm.slice(0, slash);
 }
 
-function scheduleTreeChanged() {
+// Repo-relative paths ('/'-separated) changed since the last tree-changed, sent
+// along so the editor can reload just the open files that changed on disk.
+// `null` means "unknown" (the watcher gave no filename) — listeners then treat
+// every open file as possibly changed.
+let changedPaths = new Set();
+
+function scheduleTreeChanged(filename) {
+  if (changedPaths && filename) changedPaths.add(filename.split(path.sep).join('/'));
+  else changedPaths = null;
   if (debounce) clearTimeout(debounce);
-  debounce = setTimeout(() => { debounce = null; sendToRenderer('tree-changed'); }, TREE_DEBOUNCE_MS);
+  debounce = setTimeout(() => {
+    debounce = null;
+    const paths = changedPaths ? [...changedPaths] : null;
+    changedPaths = new Set();
+    sendToRenderer('tree-changed', paths);
+  }, TREE_DEBOUNCE_MS);
 }
 
 function watchRepo() {
@@ -454,7 +492,7 @@ function watchRepo() {
   try {
     watcher = fs.watch(getRepoPath(), { recursive: true }, (_event, filename) => {
       if (filename && shouldSkipDir(firstSegment(filename))) return;
-      scheduleTreeChanged();
+      scheduleTreeChanged(filename);
     });
     // A watcher error (e.g. the folder was deleted) shouldn't crash the app.
     watcher.on('error', () => { if (watcher) { watcher.close(); watcher = null; } });

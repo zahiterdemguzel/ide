@@ -4,7 +4,7 @@ const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runCommitModel } = require('./commit-model');
-const { ignorePattern, appendIgnoreLine, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
+const { parseBlamePorcelain, ignorePattern, appendIgnoreLine, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
 const { createLimiter } = require('./concurrency');
@@ -267,6 +267,25 @@ async function fileDiff(file, staged, untracked) {
 }
 
 bridge.handle('git-diff', (_e, { file, staged, untracked }) => fileDiff(file, staged, untracked));
+
+// The committed (HEAD) text of a repo-relative file — the baseline the editor's
+// gutter change markers diff the live buffer against. `HEAD:./path` resolves the
+// path against git's cwd (the repo root) rather than needing it pre-normalized.
+// A new/untracked file has no HEAD blob, so it comes back { ok: false }.
+bridge.handle('git-head-text', async (_e, file) => {
+  const r = await git(['show', `HEAD:./${file}`]);
+  return r.ok ? { ok: true, text: r.stdout } : { ok: false };
+});
+
+// Who last touched one line, for the editor's inline blame. The live buffer is
+// piped in with --contents so the line number matches what the user sees even
+// while the file has unsaved edits (lines they typed blame as uncommitted).
+bridge.handle('git-blame-line', async (_e, { file, line, text }) => {
+  const args = ['blame', '--porcelain', '-L', `${line},${line}`];
+  if (typeof text === 'string') args.push('--contents', '-');
+  const r = await git([...args, '--', file], typeof text === 'string' ? { input: text } : {});
+  return r.ok ? parseBlamePorcelain(r.stdout) : null;
+});
 
 // Discard a file's changes: delete it if untracked, else restore index+worktree to HEAD.
 bridge.handle('git-revert', (_e, { file, untracked }) => {

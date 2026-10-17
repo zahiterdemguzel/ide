@@ -18,6 +18,8 @@
   <link rel="stylesheet" href="src/styles/sessions.css" />
   <link rel="stylesheet" href="src/styles/explorer.css" />
   <link rel="stylesheet" href="src/styles/diff.css" />
+  <link rel="stylesheet" href="src/styles/editor.css" />
+  <link rel="stylesheet" href="src/styles/ai.css" />
   <link rel="stylesheet" href="src/styles/asset.css" />
   <link rel="stylesheet" href="src/styles/godot-ui.css" />
   <link rel="stylesheet" href="src/styles/sheet.css" />
@@ -173,6 +175,7 @@
           </div>
         </div>
         <div id="diff-view">
+          <div id="editor-tabs" role="tablist" hidden></div>
           <div id="diff-head">
             <span id="diff-file"></span>
             <div id="diff-preview" class="seg-toggle" role="switch" aria-checked="false" tabindex="0"
@@ -194,14 +197,11 @@
               <button id="diff-close" title="Close">×</button>
             </div>
           </div>
-          <div id="editor-find" hidden>
-            <input id="editor-find-input" type="text" placeholder="Find" spellcheck="false"
-                   autocomplete="off" data-i18n-placeholder="editor.find" />
-            <span id="editor-find-count"></span>
-            <button id="editor-find-case" data-i18n-title="editor.findCase" title="Match case (Alt+C)">Aa</button>
-            <button id="editor-find-prev" data-i18n-title="editor.findPrev" title="Previous (Shift+Enter)">↑</button>
-            <button id="editor-find-next" data-i18n-title="editor.findNext" title="Next (Enter)">↓</button>
-            <button id="editor-find-close" data-i18n-title="editor.findClose" title="Close (Esc)">×</button>
+          <div id="editor-conflict" hidden>
+            <span data-i18n="editor.conflictMessage">This file changed on disk while you have unsaved edits.</span>
+            <button id="editor-conflict-compare" data-i18n="editor.conflictCompare">Compare</button>
+            <button id="editor-conflict-keep" data-i18n="editor.conflictKeep">Keep mine</button>
+            <button id="editor-conflict-reload" class="primary" data-i18n="editor.conflictReload">Reload from disk</button>
           </div>
           <div id="editor-json-actions" hidden>
             <button id="json-add-item" data-i18n-title="editor.jsonAddItemTitle" title="Add an element to this list" hidden>
@@ -212,6 +212,7 @@
             </button>
           </div>
           <div id="diff-body"></div>
+          <div id="editor-status" hidden></div>
         </div>
         <div id="asset-view">
           <div id="asset-head">
@@ -766,6 +767,11 @@
             <span class="switch-ui"></span>
           </label>
         </div>
+      </div>
+      <!-- Code editor preferences; rows are built by src/renderer/editor/settings-section.js
+           from editor-settings.js so the defaults and the dialog can't drift apart. -->
+      <div class="settings-group" id="editor-settings">
+        <div class="settings-group-title" data-i18n="settings.editor">Editor</div>
       </div>
       <!-- Remote (mobile) access: LAN server toggle, pairing QR, paired-device
            list. Driven by src/renderer/remote-pane.js. -->

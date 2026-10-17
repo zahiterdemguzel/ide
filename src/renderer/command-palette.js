@@ -3,8 +3,9 @@
 // Where Quick Open fuzzy-matches file paths, this fuzzy-matches a small registry
 // of commands (renderer/shared/command-match.js) and runs the chosen one.
 //
-// Commands are registered once from index.js (where every action function is in
-// scope) via registerCommands(). Each carries i18n keys, not resolved strings,
+// Commands are registered via registerCommands() — the app-wide set from
+// index.js (where every action function is in scope), plus feature modules'
+// own sets (the code editor registers its commands from viewer/file.js). Each carries i18n keys, not resolved strings,
 // so the palette re-localizes its titles every open — switching language in
 // Settings is reflected the next time it opens, with no re-registration.
 import { matchCommands } from './shared/command-match.js';
@@ -18,11 +19,14 @@ let results = [];      // current filtered rows ({ command, positions })
 let active = 0;        // index of the highlighted row
 let input, list;
 
-// Register the command set. Each command is
+// Add commands to the registry. Each command is
 //   { id, titleKey, keywordsKey?, run }
 // titleKey/keywordsKey are i18n keys resolved at open time; run() performs the
-// action and may be async.
-export function registerCommands(list) { commands = list; }
+// action and may be async. Registering an id again replaces the earlier entry.
+export function registerCommands(list) {
+  const ids = new Set(list.map((c) => c.id));
+  commands = [...commands.filter((c) => !ids.has(c.id)), ...list];
+}
 
 // Resolve the registry into the { id, title, keywords, run } shape the matcher
 // and renderer want, localizing against the active locale.

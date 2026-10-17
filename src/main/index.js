@@ -28,12 +28,14 @@ require('./db');
 require('./diagram'); // project structure diagrams (lazy — the worker spawns on first open)
 require('./run-configs');
 require('./debug'); // the DAP debugger (adapters spawn only when a debug session starts)
+require('./lsp'); // language servers for the editor (each spawns when a file of its language opens)
 require('./runners');
 require('./consoles');
 require('./onboarding-store');
 require('./remote');
 require('./ollama'); // embedded Ollama engine + custom-models IPC (lazy — nothing starts here)
 require('./stt'); // voice input: Whisper recognizer + VAD (lazy — loads on first hover)
+require('./ai-assist'); // editor AI: ghost-text completions + Cmd/Ctrl+K inline edits
 
 // Log every crash (uncaught exception, unhandled rejection, renderer/child-process
 // death) to a file under crashlogs/ — without exiting, so the app stays usable.
@@ -127,4 +129,5 @@ function releaseNativeRuntimes() {
   try { require('./stt').stopStt(); } catch { /* never armed */ }
   // Debug adapters are child processes; don't leave them orphaned.
   try { require('./debug').stopAllDebugSessions(); } catch { /* none running */ }
+  try { require('./lsp').stopAllLanguageServers(); } catch { /* none running */ }
 }

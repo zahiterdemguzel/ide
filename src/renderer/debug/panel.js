@@ -117,6 +117,17 @@ async function request(s, command, args) {
   return r.body;
 }
 
+// Evaluate an expression in the selected frame of the paused session, for the
+// editor's hover-to-inspect. Null when nothing is paused or it can't evaluate.
+export async function evaluateForHover(expression) {
+  const s = current();
+  if (!s || s.state !== 'paused' || s.frameId == null) return null;
+  try {
+    const body = await request(s, 'evaluate', { expression, frameId: s.frameId, context: 'hover' });
+    return { result: body.result, type: body.type };
+  } catch { return null; }
+}
+
 async function loadStack(s) {
   try {
     s.threads = (await request(s, 'threads')).threads || [];

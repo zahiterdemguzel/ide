@@ -6,14 +6,16 @@ export const diffBody = document.getElementById('diff-body');
 const diffFile = document.getElementById('diff-file');
 const saveBtn = document.getElementById('diff-save');
 const previewBtn = document.getElementById('diff-preview');
-const findBar = document.getElementById('editor-find');
+const editorTabs = document.getElementById('editor-tabs');
+const editorStatus = document.getElementById('editor-status');
+const conflictBar = document.getElementById('editor-conflict');
 const runSplit = document.getElementById('run-split');
 const jsonBar = document.getElementById('editor-json-actions');
 
 export function setDiffTitle(file) { diffFile.textContent = file; }
-// Hiding the container also retires the editor's Save/Run buttons and find bar —
-// all belong to the file editor (file.js), which only shows them while a file is
-// mounted; the diff view never does. clearCenter() routes through here before
+// Hiding the container also retires the editor's chrome — Save/Run buttons, tab
+// strip, status bar, conflict bar. All belong to the file editor (file.js), which
+// only shows them while a file is mounted; the diff view never does. clearCenter() routes through here before
 // showing any other view, so this is the single place that resets editor chrome.
 // Run is also cleared on every show, so switching from a file to a git diff drops
 // it; file.js re-shows it after a *runnable* file mounts.
@@ -21,8 +23,11 @@ export function hideDiff() {
   diffView.style.display = 'none';
   saveBtn.hidden = true;
   previewBtn.hidden = true;
-  findBar.hidden = true;
   runSplit.hidden = true;
   jsonBar.hidden = true;
+  editorTabs.hidden = true;
+  editorStatus.hidden = true;
+  conflictBar.hidden = true;
+  diffBody.classList.remove('has-editor');
 }
 export function showDiffContainer() { diffView.style.display = 'flex'; runSplit.hidden = true; }

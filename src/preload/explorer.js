@@ -18,7 +18,9 @@ module.exports = {
   listFiles: () => ipcRenderer.invoke('list-files'),
   searchRefs: (q) => ipcRenderer.invoke('search-refs', q),
   readText: (file) => ipcRenderer.invoke('read-text', file),
+  readTextAbs: (abs) => ipcRenderer.invoke('read-text-abs', abs),
   writeText: (file, text) => ipcRenderer.invoke('write-text', { file, text }),
+  writeTextAbs: (abs, text) => ipcRenderer.invoke('write-text-abs', { abs, text }),
   // Resolve a repo-relative path to a file:// URL (the editor's HTML preview).
   fileUrl: (file) => ipcRenderer.invoke('file-url', file),
   resolveLinkPath: (raw, baseDir) => ipcRenderer.invoke('resolve-link-path', raw, baseDir),
@@ -33,6 +35,7 @@ module.exports = {
   readAsset: (file) => ipcRenderer.invoke('read-asset', file),
   writeAsset: (file, base64) => ipcRenderer.invoke('write-asset', { file, base64 }),
   // Fired (debounced in main) whenever the open repo changes on disk, so the tree
-  // can auto-refresh without a manual refresh button.
-  onTreeChanged: (cb) => ipcRenderer.on('tree-changed', () => cb()),
+  // can auto-refresh without a manual refresh button. `paths` lists the
+  // repo-relative files that changed (null when the watcher couldn't tell).
+  onTreeChanged: (cb) => ipcRenderer.on('tree-changed', (_e, paths) => cb(paths)),
 };

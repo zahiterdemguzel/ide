@@ -9,7 +9,7 @@ restarts.
 The dialog body is a **three-column grid** (`.settings-body` → three
 `.settings-col`, `settings.css`), split by vertical rules so the form reads wide
 rather than tall: the left column holds Appearance + Notifications + Agent models
-+ Voice input + General; the middle holds Panels + Remote access (the pairing QR
++ Voice input + General; the middle holds Panels + Editor + Remote access (the pairing QR
 and paired-device list); the right holds Local models. The body scrolls while the
 header/footer stay pinned.
 
@@ -31,6 +31,19 @@ Inside a column, `.panel-grid` is `repeat(auto-fit, minmax(160px, 1fr))` rather
 than a hard `1fr 1fr`, so switch labels stop ellipsising when the column is
 narrow and a group with a single toggle (Voice input) fills the width instead of
 sitting in a half-width stub.
+
+## Editor group
+
+The **Editor** group (`#editor-settings`) is generated at startup by
+`src/renderer/editor/settings-section.js` from a field table (value rows first —
+font size/family, tab size, line numbers, whitespace, auto save — then a
+`.panel-grid` of switches), so every preference in `editor/editor-settings.js`
+has exactly one control. Labels carry `data-i18n` (`settings.editor*`,
+`settings.editorOpt.*`), so a language switch relabels them live. A change calls
+`setEditorSettings()` in `viewer/file.js`, which persists the blob
+(`ide.editorSettings`) and applies it to the live editor at once; opening the
+dialog re-syncs the controls, since the editor itself changes settings too
+(Cmd/Ctrl+= zoom, Alt+Z wrap). Details: [editor.md](editor.md#settings).
 
 ## Paired-device rows
 

@@ -1,6 +1,7 @@
 import { fileColor } from '../shared/ext.js';
 import { fileIcon, folderIcon, setFolderIcon } from '../shared/file-icon-img.js';
 import { openFromTree } from '../viewer/center.js';
+import { renameOpenFile } from '../viewer/file.js';
 import { promptText } from '../shared/prompt.js';
 import { confirmDialog, noticeDialog } from '../shared/confirm.js';
 import { sendToActiveSession } from '../sessions.js';
@@ -111,6 +112,7 @@ ctxMenu.addEventListener('click', async (e) => {
       return;
     }
     if (selected && selected.rel === rel) selected = { rel: newRel, dir };
+    renameOpenFile(rel, newRel);
     await refreshTree();
 
   } else if (btn.dataset.action === 'delete') {

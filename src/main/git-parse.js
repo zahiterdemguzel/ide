@@ -219,4 +219,27 @@ function appendIgnoreLine(text, pattern) {
   return text + sep + pattern + eol;
 }
 
-module.exports = { ignorePattern, appendIgnoreLine, CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl };
+// One line of `git blame --porcelain` output -> { hash, author, time, summary,
+// uncommitted }, or null when the output holds no commit header. `time` is epoch
+// milliseconds. A line that only exists in the working tree (or in the buffer
+// passed with --contents) blames the all-zero hash; it's flagged `uncommitted` so
+// the editor can say "not committed yet" instead of showing a fake author.
+function parseBlamePorcelain(out) {
+  const lines = String(out || '').split('\n');
+  const header = /^([0-9a-f]{40}) \d+ \d+/.exec(lines[0] || '');
+  if (!header) return null;
+  const field = (name) => {
+    const line = lines.find((l) => l.startsWith(name + ' '));
+    return line ? line.slice(name.length + 1) : '';
+  };
+  const hash = header[1];
+  return {
+    hash,
+    author: field('author'),
+    time: (parseInt(field('author-time'), 10) || 0) * 1000,
+    summary: field('summary'),
+    uncommitted: /^0+$/.test(hash),
+  };
+}
+
+module.exports = { parseBlamePorcelain, ignorePattern, appendIgnoreLine, CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl };

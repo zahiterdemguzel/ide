@@ -40,7 +40,11 @@
       "node_modules/node-llama-cpp/**",
       "node_modules/@node-llama-cpp/**",
       "node_modules/@nut-tree-fork/**",
-      "node_modules/sherpa-onnx-*/**"
+      "node_modules/sherpa-onnx-*/**",
+      "node_modules/pyright/**",
+      "node_modules/typescript/**",
+      "node_modules/@typescript/**",
+      "node_modules/typescript-language-server/**"
     ],
     "extraResources": [
       {
@@ -81,14 +85,19 @@
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
     "elkjs": "^0.12.0",
+    "marked": "^18.1.1",
+    "monaco-editor": "^0.57.0",
     "node-llama-cpp": "^3.19.0",
     "paper": "^0.12.18",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.624",
+    "pyright": "^1.1.414",
     "qrcode-generator": "^2.0.4",
     "sherpa-onnx-node": "^1.13.4",
     "sql.js": "^1.14.1",
     "three": "^0.185.0",
+    "typescript": "^7.0.2",
+    "typescript-language-server": "^6.0.2",
     "web-tree-sitter": "^0.26.11",
     "ws": "^8.21.0",
     "xlsx": "^0.18.5"

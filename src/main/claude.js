@@ -72,37 +72,143 @@ function readOauthToken() {
   } catch { return null; }
 }
 
-function runApi(token, prompt) {
+const MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
+
+// Headers every OAuth Messages API call needs (the oauth beta flag is what makes
+// a subscription token acceptable in place of an API key).
+function oauthHeaders(token, payload) {
+  return {
+    authorization: `Bearer ${token}`,
+    'anthropic-version': '2023-06-01',
+    'anthropic-beta': 'oauth-2025-04-20',
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(payload),
+  };
+}
+
+// Normalise the API's `{ type: 'error', error: { type, message } }` body (or a
+// non-JSON body) into the failure shape callMessages resolves with.
+function apiFailure(status, body) {
+  let errorType = null;
+  let message = '';
+  try {
+    const parsed = JSON.parse(body);
+    errorType = parsed?.error?.type || null;
+    message = parsed?.error?.message || '';
+  } catch { message = String(body || '').slice(0, 300); }
+  return { ok: false, status, errorType, message };
+}
+
+// Feed raw SSE bytes in; get each complete event's parsed `data:` JSON out.
+// Events are separated by a blank line; only the data lines matter here — every
+// Messages API event also carries its type inside the JSON.
+function createSseParser(onEvent) {
+  let buffer = '';
+  return (chunk) => {
+    buffer += chunk;
+    let boundary;
+    while ((boundary = buffer.search(/\r?\n\r?\n/)) !== -1) {
+      const rawEvent = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary).replace(/^\r?\n\r?\n/, '');
+      const data = rawEvent.split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n');
+      if (!data) continue;
+      try { onEvent(JSON.parse(data)); } catch {}
+    }
+  };
+}
+
+// General Messages API call with the Claude Code OAuth token. The CC identity is
+// always sent as the first system block (OAuth tokens are refused without it);
+// `system` (a string or an array of strings) follows it. `extra` merges further
+// request fields (e.g. a per-model `thinking` setting). With `stream`, text
+// deltas are passed to `onText` as they arrive. `signal` (an AbortSignal)
+// cancels the request. Never rejects; resolves to
+//   { ok: true, text, stopReason }  or
+//   { ok: false, status, errorType, message, aborted? }
+// where `text` is the untrimmed concatenation of all text blocks.
+function callMessages({
+  token = readOauthToken(), model = HAIKU_MODEL, system = [], messages,
+  maxTokens = 1024, stopSequences, stream = false, onText, signal, extra = {},
+}) {
+  if (!token) return Promise.resolve({ ok: false, status: 0, errorType: 'no_token', message: 'No Claude Code OAuth token' });
+  if (signal?.aborted) return Promise.resolve({ ok: false, status: 0, errorType: 'aborted', message: 'Aborted', aborted: true });
+  const extraSystem = (Array.isArray(system) ? system : [system]).filter(Boolean);
+  const payload = JSON.stringify({
+    model,
+    max_tokens: maxTokens,
+    system: [CC_IDENTITY, ...extraSystem].map((text) => ({ type: 'text', text })),
+    messages,
+    ...(stopSequences?.length ? { stop_sequences: stopSequences } : {}),
+    ...(stream ? { stream: true } : {}),
+    ...extra,
+  });
   return new Promise((resolve) => {
-    const payload = JSON.stringify({
-      model: HAIKU_MODEL,
-      max_tokens: 1024,
-      system: [{ type: 'text', text: CC_IDENTITY }, { type: 'text', text: OUTPUT_RULE }],
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const req = https.request('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'oauth-2025-04-20',
-        'content-type': 'application/json',
-        'content-length': Buffer.byteLength(payload),
-      },
-    }, (res) => {
-      let body = '';
-      res.on('data', (c) => { body += c; });
-      res.on('end', () => {
-        if (res.statusCode !== 200) return resolve(null);
-        try {
-          const text = JSON.parse(body).content?.[0]?.text;
-          resolve(typeof text === 'string' ? text.trim() : null);
-        } catch { resolve(null); }
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
+      resolve(result);
+    };
+    const req = https.request(MESSAGES_URL, { method: 'POST', headers: oauthHeaders(token, payload) }, (res) => {
+      res.setEncoding('utf8');
+      if (res.statusCode !== 200) {
+        let body = '';
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => finish(apiFailure(res.statusCode, body)));
+        return;
+      }
+      if (!stream) {
+        let body = '';
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(body);
+            const text = (parsed.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+            finish({ ok: true, text, stopReason: parsed.stop_reason || null });
+          } catch { finish(apiFailure(res.statusCode, body)); }
+        });
+        return;
+      }
+      let text = '';
+      let stopReason = null;
+      let streamError = null;
+      const feed = createSseParser((event) => {
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          text += event.delta.text;
+          if (onText) { try { onText(event.delta.text); } catch {} }
+        } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
+          stopReason = event.delta.stop_reason;
+        } else if (event.type === 'error') {
+          streamError = event.error || { type: 'stream_error', message: 'Stream error' };
+        }
       });
+      res.on('data', feed);
+      res.on('end', () => finish(streamError
+        ? { ok: false, status: 200, errorType: streamError.type, message: streamError.message || '' }
+        : { ok: true, text, stopReason }));
+      res.on('error', (err) => finish({ ok: false, status: 0, errorType: 'network', message: err.message }));
     });
-    req.on('error', () => resolve(null));
+    function onAbort() {
+      req.destroy();
+      finish({ ok: false, status: 0, errorType: 'aborted', message: 'Aborted', aborted: true });
+    }
+    signal?.addEventListener('abort', onAbort);
+    req.on('error', (err) => finish({ ok: false, status: 0, errorType: 'network', message: err.message }));
     req.end(payload);
   });
+}
+
+// Haiku one-shot over the fast path: trimmed text, or null on any failure.
+async function runApi(token, prompt) {
+  const result = await callMessages({
+    token, model: HAIKU_MODEL, system: OUTPUT_RULE, maxTokens: 1024,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  return result.ok ? result.text.trim() : null;
 }
 
 // --- Fallback: one-shot CLI call ---------------------------------------------
@@ -116,26 +222,40 @@ function runApi(token, prompt) {
 // replace the system prompt, drop the tools, and run from a neutral cwd so no
 // project context is discovered. (`--bare` would do this in one flag, but it
 // refuses the OAuth token that this fallback exists to refresh.)
-const LEAN_ARGS = [
-  '-p', '--model', 'haiku',
-  '--system-prompt', `${CC_IDENTITY} ${OUTPUT_RULE}`,
-  '--tools', '',
-  '--strict-mcp-config',
-  '--disable-slash-commands',
-];
+function leanArgs(model, systemPrompt) {
+  return [
+    '-p', '--model', model,
+    '--system-prompt', systemPrompt,
+    '--tools', '',
+    '--strict-mcp-config',
+    '--disable-slash-commands',
+  ];
+}
+const DEFAULT_CLI_SYSTEM = `${CC_IDENTITY} ${OUTPUT_RULE}`;
 
-async function runCli(prompt) {
+// `model` and `systemPrompt` default to the Haiku one-shot setup; the inline
+// edit fallback passes `sonnet` and its own system prompt. The system prompt
+// must not contain a double quote (see the Windows quoting note below).
+// `signal` (an AbortSignal) kills the child; it then resolves null.
+async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYSTEM, signal } = {}) {
   const exe = await resolveClaude();
+  if (signal?.aborted) return null;
   return new Promise((resolve) => {
     const win32 = process.platform === 'win32';
+    const args = leanArgs(model, systemPrompt);
     // Windows needs `shell` to launch the `claude.cmd` shim, and the shell
     // re-splits argv — so quote each argument there, including the empty
     // `--tools` value, which would otherwise be dropped instead of disabling
-    // the tools. None of LEAN_ARGS contains a double quote, so wrapping is enough.
-    const args = win32 ? LEAN_ARGS.map((a) => `"${a}"`) : LEAN_ARGS;
-    const child = execFile(win32 ? `"${exe}"` : exe, args,
-      { cwd: os.tmpdir(), maxBuffer: 1024 * 1024, shell: win32 },
-      (err, stdout) => resolve(err ? null : stdout.trim()));
+    // the tools. None of the args contains a double quote, so wrapping is enough.
+    const quotedArgs = win32 ? args.map((a) => `"${a}"`) : args;
+    const child = execFile(win32 ? `"${exe}"` : exe, quotedArgs,
+      { cwd: os.tmpdir(), maxBuffer: 4 * 1024 * 1024, shell: win32 },
+      (err, stdout) => {
+        signal?.removeEventListener('abort', kill);
+        resolve(err ? null : stdout.trim());
+      });
+    function kill() { child.kill(); }
+    signal?.addEventListener('abort', kill);
     child.stdin.end(prompt);
   });
 }
@@ -196,16 +316,7 @@ function fetchUsage(token) {
       system: [{ type: 'text', text: CC_IDENTITY }],
       messages: [{ role: 'user', content: '.' }],
     });
-    const req = https.request('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'oauth-2025-04-20',
-        'content-type': 'application/json',
-        'content-length': Buffer.byteLength(payload),
-      },
-    }, (res) => {
+    const req = https.request(MESSAGES_URL, { method: 'POST', headers: oauthHeaders(token, payload) }, (res) => {
       res.on('data', () => {}); // drain so the socket can be reused/closed
       res.on('end', () => resolve(usageView(res.headers, Date.now())));
     });
@@ -221,4 +332,8 @@ async function readUsage() {
   return token ? fetchUsage(token) : null;
 }
 
-module.exports = { resolveClaude, runHaiku, claudeAvailable, readUsage };
+module.exports = {
+  resolveClaude, runHaiku, claudeAvailable, readUsage,
+  // General-purpose access for other features (inline AI assist in the editor).
+  callMessages, runCli, readOauthToken, HAIKU_MODEL, CC_IDENTITY,
+};

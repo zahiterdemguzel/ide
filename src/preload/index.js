@@ -10,10 +10,12 @@ contextBridge.exposeInMainWorld('api', {
   ...require('./diagram'),
   ...require('./run-configs'),
   ...require('./debug'),
+  ...require('./lsp'),
   ...require('./runners'),
   ...require('./consoles'),
   ...require('./onboarding'),
   ...require('./remote'),
   ...require('./ollama'),
   ...require('./stt'),
+  ...require('./ai'),
 });
