@@ -1,7 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  staleInstanceDirs, liveInstances, upsertInstance, STALE_AFTER_MS,
+  staleInstanceDirs, liveInstances, upsertInstance, browserProfileStrategy, persistentBrowserEntries,
+  STALE_AFTER_MS,
 } = require('../src/main/instance-lib');
 
 test('staleInstanceDirs: returns dirs whose pid has no living owner', () => {
@@ -99,4 +100,21 @@ test('upsertInstance: replaces only its own entry and leaves siblings alone', ()
 test('upsertInstance: adds an entry that is not there yet', () => {
   assert.deepEqual(upsertInstance([], inst('a', 1, 1000, '/ide')), [inst('a', 1, 1000, '/ide')]);
   assert.deepEqual(upsertInstance(undefined, inst('a', 1, 1000, '/ide')), [inst('a', 1, 1000, '/ide')]);
+});
+
+test('browserProfileStrategy: junctions on Windows, copies elsewhere', () => {
+  // macOS's sandboxed network service can't write through a link to the shared profile.
+  assert.equal(browserProfileStrategy('win32'), 'link');
+  assert.equal(browserProfileStrategy('darwin'), 'copy');
+  assert.equal(browserProfileStrategy('linux'), 'copy');
+});
+
+test('persistentBrowserEntries: keeps cookies and storage, drops caches', () => {
+  assert.deepEqual(
+    persistentBrowserEntries([
+      'Cookies', 'Cookies-journal', 'Local Storage', 'IndexedDB', 'Session Storage',
+      'Network Persistent State', 'Cache', 'Code Cache', 'GPUCache', 'Shared Dictionary', 'blob_storage',
+    ]),
+    ['Cookies', 'Cookies-journal', 'Local Storage', 'IndexedDB', 'Session Storage', 'Network Persistent State'],
+  );
 });

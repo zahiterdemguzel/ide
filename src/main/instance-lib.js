@@ -51,4 +51,31 @@ function upsertInstance(entries, entry) {
   return [...(Array.isArray(entries) ? entries : []).filter((e) => e && e.id !== entry.id), entry];
 }
 
-module.exports = { staleInstanceDirs, liveInstances, upsertInstance, HEARTBEAT_MS, STALE_AFTER_MS };
+// How the inline browser's `persist:browser` partition is kept across restarts.
+// Windows junctions the partition dir to the shared profile. macOS can't: its
+// sandboxed network service may only write under the per-instance profile, so
+// through a link it fails to create the HTTP cache ("Unable to create cache")
+// and never writes the Cookies database — logins silently didn't persist. There
+// (and on Linux, which is untested) the partition is a real dir, copied in from
+// the shared profile at launch and back out on quit, like `Local Storage`.
+function browserProfileStrategy(platform) {
+  return platform === 'win32' ? 'link' : 'copy';
+}
+
+// Partition entries that are pure caches — rebuilt on demand, large, and
+// pointless to carry across restarts — so the copy strategy skips them.
+const BROWSER_CACHE_ENTRIES = new Set([
+  'Cache', 'Code Cache', 'GPUCache', 'DawnCache', 'DawnGraphiteCache', 'DawnWebGPUCache',
+  'GrShaderCache', 'GraphiteDawnCache', 'Shared Dictionary', 'blob_storage', 'Service Worker',
+]);
+
+// The entries of a browser partition dir worth persisting (cookies, local and
+// session storage, IndexedDB, network state), given its directory listing.
+function persistentBrowserEntries(names) {
+  return names.filter((name) => !BROWSER_CACHE_ENTRIES.has(name));
+}
+
+module.exports = {
+  staleInstanceDirs, liveInstances, upsertInstance, browserProfileStrategy, persistentBrowserEntries,
+  HEARTBEAT_MS, STALE_AFTER_MS,
+};

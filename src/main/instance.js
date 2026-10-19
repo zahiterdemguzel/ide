@@ -1,8 +1,8 @@
-const { app } = require('electron');
+const { app, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { staleInstanceDirs } = require('./instance-lib');
+const { staleInstanceDirs, browserProfileStrategy, persistentBrowserEntries } = require('./instance-lib');
 
 // Multiple instances must be able to run side by side. Two instances sharing one
 // userData dir fight over the Chromium disk cache / singleton lock ("Unable to
@@ -72,21 +72,65 @@ app.setPath('userData', instanceDir);
 
 // The inline browser must stay logged in across restarts, but its cookies /
 // localStorage live in the `persist:browser` partition under the per-instance
-// (disposable) userData dir — so they'd be wiped on every quit. Redirect just
-// that one partition's on-disk folder to a shared, persistent location via a
-// directory junction (symlink on macOS/Linux). Chromium then reads and writes
-// the browser profile in the shared dir, so logins survive restarts and are
-// common to all instances, while the rest of the profile (cache, default
-// session) stays per-instance and disposable. Concurrent instances share this
-// one partition's storage; that's an accepted trade-off (the inline browser is
-// rarely driven from two windows at once).
-const browserPartitionLink = path.join(instanceDir, 'Partitions', 'browser');
+// (disposable) userData dir — so they'd be wiped on every quit. They are kept in
+// a shared, persistent `browser-profile` dir instead, by one of two strategies
+// (see browserProfileStrategy for why they differ):
+// - link (Windows): the partition dir is a directory junction to the shared dir,
+//   so Chromium reads and writes the shared profile directly. Concurrent
+//   instances share this one partition's storage; an accepted trade-off (the
+//   inline browser is rarely driven from two windows at once).
+// - copy (macOS/Linux): the shared profile minus its caches is copied into a
+//   real partition dir before Chromium opens it, and copied back out on quit.
+//   Last instance to quit wins, as with Local Storage below.
+const browserPartitionDir = path.join(instanceDir, 'Partitions', 'browser');
 const browserProfileDir = path.join(sharedDataDir, 'browser-profile');
+const browserStrategy = browserProfileStrategy(process.platform);
 try {
   fs.mkdirSync(browserProfileDir, { recursive: true });
-  fs.mkdirSync(path.dirname(browserPartitionLink), { recursive: true });
-  fs.symlinkSync(browserProfileDir, browserPartitionLink, 'junction');
+  fs.mkdirSync(path.dirname(browserPartitionDir), { recursive: true });
+  if (browserStrategy === 'link') {
+    fs.symlinkSync(browserProfileDir, browserPartitionDir, 'junction');
+  } else {
+    copyBrowserEntries(browserProfileDir, browserPartitionDir);
+  }
 } catch {}
+
+function copyBrowserEntries(fromDir, toDir) {
+  fs.mkdirSync(toDir, { recursive: true });
+  for (const name of persistentBrowserEntries(fs.readdirSync(fromDir))) {
+    fs.cpSync(path.join(fromDir, name), path.join(toDir, name), { recursive: true, force: true });
+  }
+}
+
+// Chromium commits cookie changes to the Cookies database lazily (~30s batches),
+// so a login made just before quitting would be missing from the copy taken on
+// quit. Flush shortly after any change instead.
+const COOKIE_FLUSH_DELAY_MS = 500;
+if (browserStrategy === 'copy') {
+  app.whenReady().then(() => {
+    const browserSession = session.fromPartition('persist:browser');
+    let flushTimer = null;
+    browserSession.cookies.on('changed', () => {
+      clearTimeout(flushTimer);
+      flushTimer = setTimeout(() => browserSession.cookies.flushStore().catch(() => {}), COOKIE_FLUSH_DELAY_MS);
+    });
+  });
+}
+
+// Copy strategy only: write the live partition back to the shared profile,
+// staged like persistLocalStorage so a failed copy never half-writes it.
+function persistBrowserProfile() {
+  if (browserStrategy !== 'copy' || !fs.existsSync(browserPartitionDir)) return;
+  const tmp = browserProfileDir + '.tmp';
+  try {
+    fs.rmSync(tmp, { recursive: true, force: true });
+    copyBrowserEntries(browserPartitionDir, tmp);
+    fs.rmSync(browserProfileDir, { recursive: true, force: true });
+    fs.renameSync(tmp, browserProfileDir);
+  } catch {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+  }
+}
 
 // The renderer's app settings (theme, locale, panel visibility, agent-model
 // defaults, etc. — see docs/settings.md) are plain `localStorage`, which
@@ -133,13 +177,14 @@ function persistLocalStorage() {
 
 // The per-instance profile is disposable — drop it when this instance exits so
 // the dirs don't pile up across runs. First persist the live Local Storage back
-// to the shared snapshot, then remove the browser junction before the recursive
-// delete (a delete that followed it into the shared dir would wipe the logins it
-// exists to protect; rmdir removes the junction's reparse point only, never the
-// target's contents).
+// to the shared snapshot (and, with the copy strategy, the browser profile), then
+// remove the browser junction before the recursive delete (a delete that followed
+// it into the shared dir would wipe the logins it exists to protect; rmdir removes
+// the junction's reparse point only, never the target's contents).
 app.on('quit', () => {
   persistLocalStorage();
-  try { fs.rmdirSync(browserPartitionLink); } catch {}
+  persistBrowserProfile();
+  if (browserStrategy === 'link') { try { fs.rmdirSync(browserPartitionDir); } catch {} }
   try { fs.rmSync(instanceDir, { recursive: true, force: true }); } catch {}
 });
 

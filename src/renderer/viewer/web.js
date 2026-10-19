@@ -31,7 +31,28 @@ const terminateBtn = document.getElementById('web-terminate');
 const inspectBtn = document.getElementById('web-inspect');
 
 const isBlank = (url) => !url || url === 'about:blank';
-const isLoaded = () => !isBlank(webFrame.getAttribute('src'));
+// The last URL handed to the webview. Its `src` attribute only follows once a
+// navigation commits, so a page still loading would otherwise read as not loaded.
+let requestedUrl = '';
+const isLoaded = () => !isBlank(webFrame.getAttribute('src')) || !isBlank(requestedUrl);
+
+// Load through loadURL() rather than assigning `src`: Electron loads `src` with
+// an internal loadURL() whose rejection it logs as "Unexpected error while
+// loading URL" — and it rejects with ERR_ABORTED whenever a load is superseded
+// (a site redirecting to its sign-in page, the user navigating again mid-load),
+// which is normal browsing. A webview not yet dom-ready (a fresh one after
+// Terminate) can't loadURL() and throws, so it falls back to `src`.
+function loadInFrame(url) {
+  requestedUrl = url;
+  if (isBlank(url)) { webFrame.src = url; return; }
+  try {
+    webFrame.loadURL(url).catch((err) => {
+      if (!/ERR_ABORTED/.test(String(err && err.message))) console.warn('[web] load failed:', err);
+    });
+  } catch {
+    webFrame.src = url;
+  }
+}
 
 // The toolbar browser button is "active" (accent-coloured) whenever a real page
 // is loaded in the background webview, so it doubles as a browser-alive indicator.
@@ -99,7 +120,7 @@ export function showWeb(url) {
   syncScope();
   webUrlEl.value = isBlank(url) ? '' : url;
   webUrlEl.title = webUrlEl.value;
-  webFrame.src = url;
+  loadInFrame(url);
   setActive(!isBlank(url));
   webView.style.display = 'flex';
 }
@@ -134,6 +155,7 @@ export function terminateWeb() {
   const fresh = createFrame();
   webFrame.replaceWith(fresh);
   webFrame = fresh;
+  requestedUrl = '';
   clearConsole();
   setConsoleOpen(false);
   webUrlEl.value = '';
@@ -163,7 +185,7 @@ function navigateTo(input) {
   webUrlEl.value = url;
   webUrlEl.title = url;
   webUrlEl.blur();
-  webFrame.src = url;
+  loadInFrame(url);
   setActive(!isBlank(url));
 }
 
