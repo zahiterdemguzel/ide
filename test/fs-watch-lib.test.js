@@ -45,10 +45,15 @@ test('settleTarget skips sessions in another tree', () => {
   assert.strictEqual(got.id, 'here');
 });
 
-test('settleTarget skips a session still working', () => {
-  // Its own tool/turn windows are already holding a baseline for this change;
-  // settling underneath them would diff it twice.
+test('settleTarget settles nobody while a session on the tree is working', () => {
+  // The change is most likely the working session's in-progress work; handing it
+  // to the idle session would steal it before that session's own window claims it.
   const got = settleTarget([entry({ id: 'busy', working: true, turnEndedAt: 999 }), entry({ id: 'idle' })]);
+  assert.strictEqual(got, null);
+});
+
+test('settleTarget ignores a working session in another tree', () => {
+  const got = settleTarget([entry({ id: 'busy', repo: null, working: true }), entry({ id: 'idle' })]);
   assert.strictEqual(got.id, 'idle');
 });
 

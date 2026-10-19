@@ -17,7 +17,7 @@ const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require(
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
 const { LIMITS, hashContent, looksBinary, deriveOp } = require('./fs-content');
-const { tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, TURN_END_EVENTS } = require('./fs-track');
+const { tracksFs, editedFilePath, pendingEditChange, changedPaths, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, TURN_END_EVENTS } = require('./fs-track');
 const { watchRepo, stopAll } = require('./fs-watch');
 const { settleTarget, sameTree } = require('./fs-watch-lib');
 const { git } = require('./git');
@@ -41,7 +41,7 @@ const chat = require('./chat');
 const { keystrokes, dismissSteps } = require('./ask-lib');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
-//         preStatus, turnStatus, fsInFlight, firstPrompt, name, archived, suspended }
+//         preStatus, turnStatus, fsInFlight, pendingEdits, firstPrompt, name, archived, suspended }
 // `pty` is null while a session is suspended (archived in the UI, or freshly
 // restored from disk after a restart): the Claude process is killed/absent to free
 // resources, but the entry — and all its tracked-file state — is kept so resuming
@@ -574,22 +574,52 @@ async function unstageToolStaged(before, after, repo) {
   return paths.length > 0;
 }
 
+// Text edits other sessions have in flight (Pre seen, Post not yet), as absolute
+// paths. The file already holds the edit, but the owning session records it only
+// at its Post — so without this a diff closing in between would take it.
+function pendingEditsOfOthers(self) {
+  const out = new Set();
+  for (const [, o] of sessions) {
+    if (o === self || !o.pendingEdits) continue;
+    for (const f of o.pendingEdits.keys()) out.add(path.resolve(f));
+  }
+  return out;
+}
+
+// Paths that another session on the same tree has seen change inside a tool
+// window it is STILL holding open (e.g. a long Bash build). Its Post will claim
+// them; a coarse turn-wide or settle diff closing first must leave them alone.
+function openWindowPathsOfOthers(self, repoPath, after) {
+  const out = new Set();
+  for (const [, o] of sessions) {
+    if (o === self || !o.preStatus || !(o.fsInFlight > 0) || o.worktree) continue;
+    if (!sameTree(sessionCwd(o), repoPath)) continue;
+    for (const rel of changedPaths(o.preStatus.snap.codes, after.codes)) out.add(rel);
+  }
+  return out;
+}
+
 // `base` is a baseline from fsBaseline(); `after` is a raw snapshot. Async
 // because recovering the pre-image of a file that was CLEAN when the window
-// opened means asking git for the committed blob.
-async function applyFsDiff(s, base, after) {
+// opened means asking git for the committed blob. `deferToOpenWindows` is for
+// the coarse turn-wide/settle windows: they yield any path another session's
+// still-open tool window also saw change.
+async function applyFsDiff(s, base, after, { deferToOpenWindows = false } = {}) {
   const repoPath = sessionCwd(s);
   const before = base.snap;
   let changed = false;
   const claimed = pathsClaimedByOthers(s);
+  for (const abs of pendingEditsOfOthers(s)) claimed.add(abs);
+  const deferred = deferToOpenWindows ? openWindowPathsOfOthers(s, repoPath, after) : new Set();
   for (const rel of new Set([...before.codes.keys(), ...after.codes.keys()])) {
     if (before.codes.get(rel) === after.codes.get(rel)) continue; // untouched by this tool
+    if (deferred.has(rel)) continue;
     const abs = path.resolve(repoPath, rel);
     // The status snapshot is global, so a file ANOTHER session changed during
     // this tool's window shows up here too. If that session already owns the path
-    // (its exact text edits, or a filesystem change it recorded first), the change
-    // is theirs — don't attribute it to this Bash/MCP tool. See per-session commit
-    // "Known ceilings".
+    // (its exact text edits, a text edit it has in flight, or a filesystem change
+    // it recorded first), the change is theirs — don't attribute it to this
+    // Bash/MCP tool. See per-session commit "Known ceilings".
     if (claimed.has(abs)) continue;
     if (fs.existsSync(abs)) {
       // A text-edit tool that ran INSIDE this window already recorded the change
@@ -703,6 +733,13 @@ function noteAgentSessionId(id, agentSessionId) {
 // attribution costs, which is the expensive half of hook handling.
 async function trackFsChanges(s, payload, repo) {
   let changed = false;
+  // Mark a text edit in flight SYNCHRONOUSLY at its Pre, before any await: the
+  // hook blocks the tool until we answer, so the mark is guaranteed to be up
+  // before the file changes on disk.
+  const pending = pendingEditChange(payload);
+  if (pending && pending.delta > 0) {
+    s.pendingEdits.set(pending.file, (s.pendingEdits.get(pending.file) || 0) + 1);
+  }
   if (payload.hook_event_name === 'PostToolUse') {
     const ti = payload.tool_input || {};
     // editedFilePath also reads NotebookEdit's `notebook_path` — subagent edits
@@ -721,6 +758,9 @@ async function trackFsChanges(s, payload, repo) {
       s.edits.get(f).push(editOp(payload.tool_name, ti));
       changed = true;
     }
+    // Released only now that the edit is recorded (or rejected), so there is no
+    // gap in which the change on disk belongs to nobody.
+    if (pending) releasePendingEdit(s, pending.file);
   }
   // Filesystem changes a text-edit tool can't express — a binary file a Bash/MCP
   // tool created, or a file it renamed/moved/deleted — are caught by diffing the
@@ -809,7 +849,8 @@ async function trackFsChanges(s, payload, repo) {
     const base = s.turnStatus;
     s.turnStatus = null;
     const now = await statusSnapshot(repo);
-    if (turnPlan === 'diff-and-snapshot' && base && await applyFsDiff(s, base, now)) changed = true;
+    if (turnPlan === 'diff-and-snapshot' && base
+      && await applyFsDiff(s, base, now, { deferToOpenWindows: true })) changed = true;
     s.turnStatus = fsBaseline(s, now);
     // When the turn ENDED, the fresh baseline is what a backgrounded process
     // will be diffed against if it keeps writing (see settleTurn). Stamp the
@@ -818,6 +859,11 @@ async function trackFsChanges(s, payload, repo) {
     ensureRepoWatch(s, repo);
   }
   return changed;
+}
+
+function releasePendingEdit(s, file) {
+  const left = (s.pendingEdits.get(file) || 0) - 1;
+  if (left > 0) s.pendingEdits.set(file, left); else s.pendingEdits.delete(file);
 }
 
 // --- the post-turn settle diff ---
@@ -862,7 +908,7 @@ async function settleTurn(repo) {
   s.turnStatus = null; // claim it before the await, as every other planner does
   if (!base) return;
   const now = await statusSnapshot(sessionCwd(s));
-  const changed = await applyFsDiff(s, base, now);
+  const changed = await applyFsDiff(s, base, now, { deferToOpenWindows: true });
   s.turnStatus = fsBaseline(s, now);
   if (!changed) return;
   sendToRenderer('session-meta', { id: target.id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
@@ -908,6 +954,7 @@ async function recordSessionActivity(payload) {
     // to fire, which would otherwise suppress every later snapshot.
     s.fsInFlight = 0;
     s.preStatus = null;
+    s.pendingEdits.clear();
     s.tool = null;
     if (!s.firstPrompt && payload.prompt) {
       s.firstPrompt = String(payload.prompt).trim();
@@ -930,6 +977,10 @@ async function recordSessionActivity(payload) {
     s.lastActiveAt = Date.now();
   }
   if (!s.worktree && await trackFsChanges(s, payload, repo)) changed = true;
+  // A text edit whose Post never came (denied, interrupted) must not stay "in
+  // flight" and shield its file from every other session forever; the main
+  // agent's Stop ends the turn it belonged to.
+  if (payload.hook_event_name === 'Stop' && !payload.agent_id) s.pendingEdits.clear();
   if (changed) schedulePersist(payload.session_id);
   return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) } : null;
 }
@@ -1234,7 +1285,7 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // where the user left off. defaultEffortFor clamps it to the family's ladder (a
   // remembered `max` isn't reachable on Codex) and supplies a real level when nothing
   // is remembered — a session never starts at a level its badge can't name.
-  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, turnStatus: null, fsInFlight: 0, firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model), effort), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, worktree: '', branch: '', baseBranch: '', worktreeState: '', turnEndedAt: 0, unwatch: null, _seq: seqCounter++ });
+  sessions.set(id, { pty: null, repo, edits: new Map(), fileOps: new Map(), preStatus: null, turnStatus: null, fsInFlight: 0, pendingEdits: new Map(), firstPrompt: '', name: '', archived: false, state: 'idle', suspended: false, model: model || '', subagentModel: subagentModel || '', effort: defaultEffortFor(modelFamily(model), effort), agentSessionId: '', startedAt: Date.now(), lastActiveAt: Date.now(), tool: null, worktree: '', branch: '', baseBranch: '', worktreeState: '', turnEndedAt: 0, unwatch: null, _seq: seqCounter++ });
   // Worktree mode is read from main's own store, not from a client-supplied flag:
   // a stale renderer (or a phone that hasn't seen the toggle) must not decide
   // which kind of session this is. `forceMainTree` is the one deliberate override

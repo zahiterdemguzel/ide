@@ -115,6 +115,30 @@ function editedFilePath(toolInput) {
   return ti.file_path || ti.notebook_path || null;
 }
 
+// How a hook changes a session's set of text edits IN FLIGHT — a Write/Edit whose
+// PreToolUse has arrived but whose PostToolUse (where the edit gets recorded) has
+// not. Between the two the file on disk already holds the edit while no session
+// owns it yet, so another session's filesystem diff closing in that gap would see
+// an unclaimed change and take it. Returns { file, delta: +1 | -1 } or null.
+function pendingEditChange(payload) {
+  if (!payload || !TEXT_EDIT_TOOLS.has(payload.tool_name)) return null;
+  const file = editedFilePath(payload.tool_input);
+  if (!file) return null;
+  if (payload.hook_event_name === 'PreToolUse') return { file, delta: 1 };
+  if (payload.hook_event_name === 'PostToolUse') return { file, delta: -1 };
+  return null;
+}
+
+// The repo-relative paths whose status entry differs between two snapshots'
+// `codes` maps — what a window opened at `before` has seen change by `after`.
+function changedPaths(beforeCodes, afterCodes) {
+  const out = new Set();
+  for (const rel of new Set([...beforeCodes.keys(), ...afterCodes.keys()])) {
+    if (beforeCodes.get(rel) !== afterCodes.get(rel)) out.add(rel);
+  }
+  return out;
+}
+
 // Snapshot/diff plan for providers that run tools SERIALLY but don't guarantee
 // a PostToolUse for every PreToolUse — Codex skips the Post hook when a tool
 // errors (observed with apply_patch), so the claude-style balanced ref-count
@@ -197,4 +221,4 @@ function newlyStagedPaths(before, after) {
   return out;
 }
 
-module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, READONLY_TOOLS, TURN_END_EVENTS };
+module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, pendingEditChange, changedPaths, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, READONLY_TOOLS, TURN_END_EVENTS };

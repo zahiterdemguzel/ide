@@ -179,3 +179,24 @@ test('isInsideRepo keeps repo paths and rejects the scratchpad', () => {
   assert.equal(isInsideRepo('', '/projects/app/a.js'), false);
   assert.equal(isInsideRepo('/projects/app', ''), false);
 });
+
+test('pendingEditChange counts a text edit from its Pre to its Post', () => {
+  const { pendingEditChange } = require('../src/main/fs-track');
+  const edit = (ev) => ({ hook_event_name: ev, tool_name: 'Edit', tool_input: { file_path: '/r/a.js' } });
+  assert.deepStrictEqual(pendingEditChange(edit('PreToolUse')), { file: '/r/a.js', delta: 1 });
+  assert.deepStrictEqual(pendingEditChange(edit('PostToolUse')), { file: '/r/a.js', delta: -1 });
+  assert.deepStrictEqual(
+    pendingEditChange({ hook_event_name: 'PreToolUse', tool_name: 'NotebookEdit', tool_input: { notebook_path: '/r/n.ipynb' } }),
+    { file: '/r/n.ipynb', delta: 1 });
+  // Not a text edit, or no file named: nothing in flight to track.
+  assert.strictEqual(pendingEditChange({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } }), null);
+  assert.strictEqual(pendingEditChange({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: {} }), null);
+  assert.strictEqual(pendingEditChange({ hook_event_name: 'Stop' }), null);
+});
+
+test('changedPaths lists entries that differ between two snapshots', () => {
+  const { changedPaths } = require('../src/main/fs-track');
+  const before = new Map([['same.js', ' M:1'], ['edited.js', ' M:1'], ['gone.js', '??:1']]);
+  const after = new Map([['same.js', ' M:1'], ['edited.js', ' M:2'], ['new.js', '??:3']]);
+  assert.deepStrictEqual([...changedPaths(before, after)].sort(), ['edited.js', 'gone.js', 'new.js']);
+});

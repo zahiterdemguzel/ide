@@ -95,6 +95,7 @@ function deserializeSession(obj) {
     fileOps: inRepoEntries(obj.fileOps, repo),
     preStatus: null,
     turnStatus: null,
+    pendingEdits: new Map(),
     firstPrompt: obj.firstPrompt || '',
     name: obj.name || '',
     archived: !!obj.archived,

@@ -31,10 +31,20 @@ function isNoiseEvent(rel) {
 // Handing the same change to every idle session would put one file in several
 // sessions' commits. A tie (two turns ending in the same millisecond) picks
 // neither, for the same reason.
+//
+// And nobody at all while ANY session on the tree is still working: the change
+// that woke the watcher is then far more likely that session's in-progress work
+// (a long Bash build, a backgrounded command it is still inside the turn of)
+// than an idle session's leftovers — and settling would hand it to the idle one
+// before the working session's own tool/turn window could claim it. The idle
+// session's baseline is kept, so its real background writes are still caught
+// by the next settle once the tree is quiet.
 function settleTarget(entries) {
+  const onTree = entries.filter((e) => e && e.repo != null);
+  if (onTree.some((e) => e.working)) return null;
   let best = null, tie = false;
-  for (const e of entries) {
-    if (!e || e.repo == null || e.working || !e.hasBaseline) continue;
+  for (const e of onTree) {
+    if (!e.hasBaseline) continue;
     if (!best || e.turnEndedAt > best.turnEndedAt) { best = e; tie = false; }
     else if (e.turnEndedAt === best.turnEndedAt) tie = true;
   }
