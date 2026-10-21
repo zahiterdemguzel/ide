@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { sendToRenderer } = require('./window');
 const { getRepoPath, getMainRepoPath, setActiveWorktree } = require('./repo');
-const { resolveClaude, runHaiku, claudeAvailable, readUsage } = require('./claude');
+const { resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
@@ -17,7 +17,7 @@ const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require(
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
 const { LIMITS, hashContent, looksBinary, deriveOp } = require('./fs-content');
-const { tracksFs, editedFilePath, pendingEditChange, changedPaths, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, TURN_END_EVENTS } = require('./fs-track');
+const { bulkDirs, isUnderBulkDir, isUnderIgnored, tracksFs, editedFilePath, pendingEditChange, changedPaths, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, TURN_END_EVENTS } = require('./fs-track');
 const { watchRepo, stopAll } = require('./fs-watch');
 const { settleTarget, sameTree } = require('./fs-watch-lib');
 const { git } = require('./git');
@@ -196,6 +196,40 @@ function loadPersistedSessions() {
   }
 }
 loadPersistedSessions();
+pruneIgnoredFileOps();
+
+// Sessions saved before their repo ignored its generated output (a Unity project
+// that got its .gitignore after Library/ was attributed) still list every one of
+// those paths. Drop the ones git now ignores, so the record shrinks back and the
+// session's commit can't pick them up. One `ls-files` per repo: `--directory`
+// collapses an ignored folder to a single entry.
+async function pruneIgnoredFileOps() {
+  const byRepo = new Map();
+  for (const [id, s] of sessions) {
+    const repo = sessionCwd(s);
+    if (!repo || !s.fileOps || !s.fileOps.size) continue;
+    if (!byRepo.has(repo)) byRepo.set(repo, []);
+    byRepo.get(repo).push(id);
+  }
+  for (const [repo, ids] of byRepo) {
+    const r = await git(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: repo });
+    if (!r.ok) continue;
+    const ignored = new Set(r.stdout.split('\0').filter(Boolean));
+    if (!ignored.size) continue;
+    for (const id of ids) {
+      const s = sessions.get(id);
+      if (!s) continue;
+      let pruned = 0;
+      for (const abs of [...s.fileOps.keys()]) {
+        const rel = path.relative(repo, abs).split(path.sep).join('/');
+        if (isUnderIgnored(rel, ignored)) { s.fileOps.delete(abs); pruned += 1; }
+      }
+      if (!pruned) continue;
+      persistSession(id);
+      sendToRenderer('session-meta', { id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) });
+    }
+  }
+}
 
 // Drop the oldest evictable sessions whenever the on-disk set would exceed the 100 MB
 // budget. A session with a live PTY (one the user is actively running) is never
@@ -611,8 +645,11 @@ async function applyFsDiff(s, base, after, { deferToOpenWindows = false } = {}) 
   const claimed = pathsClaimedByOthers(s);
   for (const abs of pendingEditsOfOthers(s)) claimed.add(abs);
   const deferred = deferToOpenWindows ? openWindowPathsOfOthers(s, repoPath, after) : new Set();
-  for (const rel of new Set([...before.codes.keys(), ...after.codes.keys()])) {
-    if (before.codes.get(rel) === after.codes.get(rel)) continue; // untouched by this tool
+  const touched = changedPaths(before.codes, after.codes);
+  const bulky = bulkDirs(touched);
+  if (bulky.size) console.warn(`[sessions] not attributing generated output in ${[...bulky].join(', ')} — consider a .gitignore`);
+  for (const rel of touched) {
+    if (isUnderBulkDir(rel, bulky)) continue;
     if (deferred.has(rel)) continue;
     const abs = path.resolve(repoPath, rel);
     // The status snapshot is global, so a file ANOTHER session changed during
@@ -1064,6 +1101,7 @@ async function spawnPty(id, cols, rows, resume) {
     // the effort it was last set to (see agent-effort.js). `auto` passes no flag at all.
     const startArg = resume ? ['--resume', id] : ['--session-id', id];
     exe = await resolveClaude();
+    ensureFolderTrusted(sessionCwd(s));
     args = [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings(id)];
   }
   // An Ollama model routes the CLI through the local proxy; a Claude (or Codex)

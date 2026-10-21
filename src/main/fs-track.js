@@ -221,4 +221,40 @@ function newlyStagedPaths(before, after) {
   return out;
 }
 
-module.exports = { isBulkVcsCommand, tracksFs, editedFilePath, pendingEditChange, changedPaths, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, READONLY_TOOLS, TURN_END_EVENTS };
+// A tool or turn window in which one top-level folder changes by more than this
+// many paths is generated output, not the agent's work: Unity importing a new
+// project writes ~200k files under Library/, an un-ignored `npm install` fills
+// node_modules/. Attributing those made one session own 200k paths, and its
+// record (persisted and pushed to the renderer on every change) froze the app.
+const BULK_DIR_LIMIT = 1000;
+
+// The top-level folders of `relPaths` that hold more than `limit` of them. Files
+// at the repo root never group, so a burst there is always kept.
+function bulkDirs(relPaths, limit = BULK_DIR_LIMIT) {
+  const counts = new Map();
+  for (const rel of relPaths) {
+    const cut = rel.indexOf('/');
+    if (cut <= 0) continue;
+    const top = rel.slice(0, cut + 1);
+    counts.set(top, (counts.get(top) || 0) + 1);
+  }
+  return new Set([...counts].filter(([, n]) => n > limit).map(([top]) => top));
+}
+
+function isUnderBulkDir(rel, dirs) {
+  const cut = rel.indexOf('/');
+  return cut > 0 && dirs.has(rel.slice(0, cut + 1));
+}
+
+// True when `rel` is one of `ignoredEntries` (a Set of what `git ls-files
+// --others --ignored --directory` prints: a file, or a folder with a trailing
+// slash) or lies inside one of those folders.
+function isUnderIgnored(rel, ignoredEntries) {
+  if (ignoredEntries.has(rel)) return true;
+  for (let cut = rel.indexOf('/'); cut > 0; cut = rel.indexOf('/', cut + 1)) {
+    if (ignoredEntries.has(rel.slice(0, cut + 1))) return true;
+  }
+  return false;
+}
+
+module.exports = { bulkDirs, isUnderBulkDir, isUnderIgnored, BULK_DIR_LIMIT, isBulkVcsCommand, tracksFs, editedFilePath, pendingEditChange, changedPaths, serialFsPlan, turnFsPlan, newlyStagedPaths, statusCode, isInsideRepo, TEXT_EDIT_TOOLS, READONLY_TOOLS, TURN_END_EVENTS };

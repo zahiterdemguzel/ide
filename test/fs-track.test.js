@@ -200,3 +200,36 @@ test('changedPaths lists entries that differ between two snapshots', () => {
   const after = new Map([['same.js', ' M:1'], ['edited.js', ' M:2'], ['new.js', '??:3']]);
   assert.deepStrictEqual([...changedPaths(before, after)].sort(), ['edited.js', 'gone.js', 'new.js']);
 });
+
+const { bulkDirs, isUnderBulkDir, isUnderIgnored } = require('../src/main/fs-track');
+
+test('bulkDirs: a top-level folder past the limit is generated output', () => {
+  const paths = [];
+  for (let i = 0; i < 5; i++) paths.push(`Library/Artifacts/${i}`);
+  paths.push('Assets/Player.cs', 'Assets/Enemy.cs', 'README.md');
+  const dirs = bulkDirs(paths, 3);
+  assert.deepStrictEqual([...dirs], ['Library/']);
+  assert.ok(isUnderBulkDir('Library/Artifacts/0', dirs));
+  assert.ok(!isUnderBulkDir('Assets/Player.cs', dirs), 'other folders in the same window are kept');
+  assert.ok(!isUnderBulkDir('README.md', dirs));
+});
+
+test('bulkDirs: files at the repo root never group', () => {
+  const paths = Array.from({ length: 10 }, (_, i) => `file${i}.txt`);
+  assert.strictEqual(bulkDirs(paths, 3).size, 0);
+});
+
+test('bulkDirs: exactly the limit is still the agent\'s work', () => {
+  const paths = Array.from({ length: 3 }, (_, i) => `src/f${i}.js`);
+  assert.strictEqual(bulkDirs(paths, 3).size, 0);
+});
+
+test('isUnderIgnored: matches ignored files and anything inside ignored folders', () => {
+  const ignored = new Set(['Library/', 'Temp/', 'Assets/Plugins/cache/', 'debug.log']);
+  assert.ok(isUnderIgnored('Library/ArtifactDB', ignored));
+  assert.ok(isUnderIgnored('Assets/Plugins/cache/a/b.bin', ignored));
+  assert.ok(isUnderIgnored('debug.log', ignored));
+  assert.ok(!isUnderIgnored('Assets/Player.cs', ignored));
+  assert.ok(!isUnderIgnored('LibraryNotes.md', ignored), 'a name prefix is not a folder');
+  assert.ok(!isUnderIgnored('Assets/Plugins/cached.txt', ignored));
+});

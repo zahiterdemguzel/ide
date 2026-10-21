@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { usageView } = require('./usage-parse');
+const { withFolderTrusted } = require('./claude-trust-lib');
 
 // node-pty on Windows doesn't search PATH — resolve the full claude.exe path once.
 // Async (the `where`/`which` subprocess used to run execFileSync and block the
@@ -332,8 +333,29 @@ async function readUsage() {
   return token ? fetchUsage(token) : null;
 }
 
+// Pre-accept Claude Code's folder-trust dialog for `dir` (see claude-trust-lib.js).
+// Best effort: an unreadable or unparsable config is left alone rather than
+// replaced, and the session then just shows the dialog as before. Written via a
+// temp file + rename so a concurrently starting `claude` never reads half a file.
+function ensureFolderTrusted(dir) {
+  if (!dir) return;
+  const configDir = process.env.CLAUDE_CONFIG_DIR || os.homedir();
+  const configPath = path.join(configDir, '.claude.json');
+  try {
+    let config = {};
+    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const next = withFolderTrusted(config, dir);
+    if (!next) return;
+    const tmpPath = `${configPath}.ide-${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(next, null, 2));
+    fs.renameSync(tmpPath, configPath);
+  } catch (err) {
+    console.warn('[claude] could not pre-trust folder:', err.message);
+  }
+}
+
 module.exports = {
-  resolveClaude, runHaiku, claudeAvailable, readUsage,
+  resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage,
   // General-purpose access for other features (inline AI assist in the editor).
   callMessages, runCli, readOauthToken, HAIKU_MODEL, CC_IDENTITY,
 };
