@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { usageView } = require('./usage-parse');
+const { pickOauthToken } = require('./oauth-creds-lib');
 const { withFolderTrusted } = require('./claude-trust-lib');
 
 // node-pty on Windows doesn't search PATH — resolve the full claude.exe path once.
@@ -50,27 +51,25 @@ const OUTPUT_RULE = 'Do exactly what the user message asks and output only the '
 // same `{ claudeAiOauth: { accessToken, expiresAt, … } }` JSON blob.
 const KEYCHAIN_SERVICE = 'Claude Code-credentials';
 
-function readCredsJson() {
-  try { return fs.readFileSync(CREDS_PATH, 'utf8'); } catch {}
-  if (process.platform === 'darwin') {
-    try {
-      return execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-w'],
-        { encoding: 'utf8' });
-    } catch {}
-  }
-  return null;
+function readKeychainCreds(account) {
+  const args = ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-w'];
+  if (account) args.splice(3, 0, '-a', account);
+  try { return execFileSync('security', args, { encoding: 'utf8' }); } catch { return null; }
+}
+
+// Lazily yields candidate credential blobs in priority order, so the common
+// case (file, or the current user's Keychain entry) spawns at most one process.
+function* credsCandidates() {
+  try { yield fs.readFileSync(CREDS_PATH, 'utf8'); } catch {}
+  if (process.platform !== 'darwin') return;
+  // The CLI writes under the OS username; a stale entry (often account
+  // "unknown") with no claudeAiOauth can sort first, so ask for ours first.
+  yield readKeychainCreds(os.userInfo().username);
+  yield readKeychainCreds(null);
 }
 
 function readOauthToken() {
-  try {
-    const raw = readCredsJson();
-    if (!raw) return null;
-    const o = JSON.parse(raw).claudeAiOauth;
-    if (!o || !o.accessToken) return null;
-    // treat as expired a minute early to avoid racing the boundary
-    if (o.expiresAt && Date.now() > o.expiresAt - 60000) return null;
-    return o.accessToken;
-  } catch { return null; }
+  return pickOauthToken(credsCandidates(), Date.now());
 }
 
 const MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
