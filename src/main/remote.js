@@ -75,11 +75,9 @@ let config = normalizeConfig(rawConfig);
 // so it has to be on disk before the first QR is shown — not just in memory.
 if (!rawConfig || !isRoom(rawConfig.room)) saveConfig(config);
 
-// The relay this run talks to: the one on this machine while developing, the
-// deployed one from a build. Resolved here rather than read off `config` so the
-// dev URL is never written back to the shared config file — see resolveRelayUrl.
+// The relay this run talks to — the deployed one in dev and builds alike, unless
+// IDE_RELAY_URL overrides it. Resolved here so an override is never persisted.
 const relayUrl = resolveRelayUrl({
-  isDev: !app.isPackaged,
   env: process.env,
   stored: rawConfig && rawConfig.relayUrl,
 });
@@ -210,7 +208,7 @@ async function enable() {
   // the relay is not fatal — it retries in the background.
   console.log(`[remote] relay ${relayUrl}${app.isPackaged ? '' : ' (dev)'}`);
   relay = startRelayClient({
-    relayUrl, // the desktop's own route to it: localhost in dev, no rewrite needed
+    relayUrl, // the desktop's own route to it, no rewrite needed
     room: config.room,
     instance: instanceId,
     hub,

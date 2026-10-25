@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const {
   normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone,
-  DEFAULT_RELAY_URL, DEV_RELAY_URL,
+  DEFAULT_RELAY_URL,
 } = require('../src/main/remote-config-lib');
 
 // The room id is minted when it's missing, so pin it to keep these deterministic.
@@ -49,25 +49,18 @@ test('a non-http relay URL falls back to the default', () => {
   assert.equal(norm({ relayUrl: 'http://localhost:8080' }).relayUrl, 'http://localhost:8080');
 });
 
-// Debugging the relay means debugging *your* relay: a dev run that quietly talked
-// to Render would be testing the deployed code, not the code it is running.
-test('a dev run uses the local relay, a build the hosted one', () => {
-  assert.equal(resolveRelayUrl({ isDev: true }), DEV_RELAY_URL);
-  assert.equal(resolveRelayUrl({ isDev: false }), DEFAULT_RELAY_URL);
+// Dev and packaged runs both talk to the hosted relay unless configured otherwise.
+test('resolveRelayUrl uses the hosted relay unless overridden', () => {
+  assert.equal(resolveRelayUrl(), DEFAULT_RELAY_URL);
 
-  // A build takes a self-hosted relay from the config; a dev run does not, so a
-  // stored URL can never drag a debug session back onto a remote relay.
   const stored = 'https://relay.example';
-  assert.equal(resolveRelayUrl({ isDev: false, stored }), stored);
-  assert.equal(resolveRelayUrl({ isDev: true, stored }), DEV_RELAY_URL);
-  assert.equal(resolveRelayUrl({ isDev: false, stored: 'ws://nonsense' }), DEFAULT_RELAY_URL);
+  assert.equal(resolveRelayUrl({ stored }), stored);
+  assert.equal(resolveRelayUrl({ stored: 'ws://nonsense' }), DEFAULT_RELAY_URL);
 
-  // IDE_RELAY_URL overrides either way — a staging relay, or a dev run deliberately
-  // pointed at the deployed one. Junk in it is ignored, not obeyed.
+  // IDE_RELAY_URL wins (e.g. a local relay while debugging); junk in it is ignored.
   const env = { IDE_RELAY_URL: 'http://10.0.0.5:8080' };
-  assert.equal(resolveRelayUrl({ isDev: true, env }), 'http://10.0.0.5:8080');
-  assert.equal(resolveRelayUrl({ isDev: false, env, stored }), 'http://10.0.0.5:8080');
-  assert.equal(resolveRelayUrl({ isDev: true, env: { IDE_RELAY_URL: 'nonsense' } }), DEV_RELAY_URL);
+  assert.equal(resolveRelayUrl({ env, stored }), 'http://10.0.0.5:8080');
+  assert.equal(resolveRelayUrl({ env: { IDE_RELAY_URL: 'nonsense' } }), DEFAULT_RELAY_URL);
 });
 
 // `localhost` on a phone is the phone. The desktop still dials localhost itself;

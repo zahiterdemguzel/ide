@@ -2,7 +2,7 @@
 
 Developers can drive the IDE from a phone: QR pairing, project switching, Claude sessions, git, file editing, terminals, and a **remote browser** (a page rendered on the desktop, streamed to the phone — see **Remote browser**). Dev-server port forwarding exists but is **parked** — see **Port forwarding is parked**. Three parts: the Electron-free `server/` socket bridge, thin glue in `src/main/remote*.js`, and the Expo app in `mobile/`. Design rule (user requirement): **the backend only bridges sockets/communications** — all IDE logic and auth verification live in the desktop app; `server/` never inspects business payloads.
 
-**One transport: the cloud relay.** A phone reaches the desktop only through the relay (`https://ide-yj3x.onrender.com` in a build, `http://localhost:8080` in a dev run). There is no LAN ws server and no "try the LAN first, fall back to the relay" — that dual-transport was removed. A build uses the hosted relay; a dev run uses the relay on your machine (see **Which relay a run talks to**).
+**One transport: the cloud relay.** A phone reaches the desktop only through the relay (`https://ide-yj3x.onrender.com`, in dev runs and builds alike). There is no LAN ws server and no "try the LAN first, fall back to the relay" — that dual-transport was removed. Both dev runs and builds use the hosted relay unless `IDE_RELAY_URL` overrides it.
 
 ## server/ — the socket bridge (plain Node, CommonJS, linted like src/main)
 
@@ -42,18 +42,15 @@ The QR carries the relay origin and the room (`ide://pair?v=1&relay=…&room=…
 
 ## Which relay a run talks to (dev vs build)
 
-**A dev run talks to the relay on your machine; a build talks to the deployed one.** Debugging the relay against Render would be debugging the *deployed* code, not the code you are running, so this is not a setting you remember to flip — `resolveRelayUrl` (`remote-config-lib.js`) decides it:
+**Dev and packaged runs both talk to the deployed relay.** `resolveRelayUrl` (`remote-config-lib.js`) decides it:
 
 | | relay |
 | --- | --- |
-| unpackaged (`!app.isPackaged`) | `DEV_RELAY_URL` = `http://localhost:8080` (server/index.js's own default port) |
-| packaged | stored `relayUrl` (self-hosted), else `DEFAULT_RELAY_URL` (Render) |
-| `IDE_RELAY_URL` set | that, either way — a staging relay, or a dev run aimed at the deployed one |
+| default | stored `relayUrl` (self-hosted), else `DEFAULT_RELAY_URL` (Render, `https://ide-yj3x.onrender.com`) |
+| `IDE_RELAY_URL` set | that — e.g. `http://localhost:8080` to debug a local relay |
 
-Two things this gets right that the obvious version doesn't:
-
-- **The dev URL is resolved, never persisted.** `remote-config.json` lives in `sharedDataDir` and is shared with the *installed* app, so writing `localhost` into it would strand a real build. `remote.js` therefore resolves `relayUrl` at startup from the **raw** stored value and never writes it back; a stored URL is honoured only by a packaged app, so it can't drag a debug session onto a remote relay either.
-- **A phone can't dial your `localhost`** — that word names the phone. The desktop keeps dialling the relay at `localhost` (same machine), but everything *handed to a phone* — the QR's `relay=`, a forwarded dev-server link, the status the settings pane shows — goes through `relayUrlForPhone`, which swaps in the desktop's LAN address. So a phone on the network follows a dev desktop to the local relay with nothing to configure.
+- **An override is resolved, never persisted.** `remote-config.json` lives in `sharedDataDir` and is shared with the *installed* app, so `remote.js` resolves `relayUrl` at startup from the **raw** stored value and never writes it back.
+- **A phone can't dial your `localhost`** — that word names the phone. Everything *handed to a phone* (QR `relay=`, forwarded dev-server links, settings status) goes through `relayUrlForPhone`, which swaps in the desktop's LAN address when the relay is local.
 
 The mobile app's `DEFAULT_RELAY_URL` (`mobile/src/api/config.ts`) is only a **fallback for a QR that carries no relay** — the desktop's QR always carries one, so an Expo run paired with a dev desktop is already on the local relay. A build always falls back to the hosted URL; an Expo run (`__DEV__`) can be pointed elsewhere with `EXPO_PUBLIC_RELAY_URL` (a LAN address — a phone cannot dial your machine's localhost).
 
@@ -266,7 +263,7 @@ Both apply to the **run console** — the one terminal left on the phone. (A Cla
 ## Gotchas
 
 - `git-log` takes `{limit, skip, query}` and returns `{commits, incoming, hasMore}`. **The desktop calls it with no args**, so the defaults must keep reproducing its old behavior (newest 100 + incoming) — don't make an option required. Browsing pages straight out of git (`-n`/`--skip`), but a *search* can't: the query matches author and hash as well as the subject, which `git log --grep` can't express, so main scans the log in 2000-commit chunks and filters each with `filterCommits` — the same matcher the desktop History tab uses — stopping as soon as the page is full. Both paths over-fetch one commit past the page so `hasMore` is free (`pageCommits`). `incoming` rides along only on an unfiltered first page: repeating it per page would duplicate rows, and a search asks about local history, not about what a pull would bring in.
-- **The relay link is `wss://`** (TLS terminated at Render), so it is encrypted in transit; but the relay operator sits in the middle of it. Frames are opaque to the relay and auth is verified end-to-end by the desktop, yet nothing is end-to-end *encrypted*. In a dev run the relay is plain `ws://localhost:8080` (handed to a phone as `ws://<lan>:8080`) — trusted-network only. End-to-end encryption + cert pinning in the QR remains the known fast-follow.
+- **The relay link is `wss://`** (TLS terminated at Render), so it is encrypted in transit; but the relay operator sits in the middle of it. Frames are opaque to the relay and auth is verified end-to-end by the desktop, yet nothing is end-to-end *encrypted*. With `IDE_RELAY_URL` pointed at a local relay it is plain `ws://localhost:8080` (handed to a phone as `ws://<lan>:8080`) — trusted-network only. End-to-end encryption + cert pinning in the QR remains the known fast-follow.
 - Revoking a device does not terminate its already-open socket; it only blocks the next auth.
 - **One socket carries one identity for its whole life.** The hub refuses a `pair` on an already-identified client and an `auth` that would resolve to a *different* device (an identity swap) — otherwise the swap would leak the original identity, since `close()` releases only the current `deviceId`. Re-auth to the *same* device is allowed, because a desktop restart re-announces its phones and they re-auth on the socket they already hold.
 - **The relay bounds what it accepts, because it is logic-free but not liveness-free.** The ws accept path validates `room` with the same `isRoom` the HTTP-routing path uses (the two diverging was an unbounded room-creation hole); rooms and per-room clients are capped (`maxRooms`/`maxClientsPerRoom`, options on `startRelay` so tests can shrink them); a ws heartbeat (`ping` every 30s, terminate on a missed pong) reaps half-open desktops/phones a locked screen or dropped Wi-Fi left behind; a raw demuxer socket has a head-delivery deadline (slow-loris) cleared the moment it's routed; `WebSocketServer` sets `maxPayload`; and `relay-client` caps a stream's pre-connect queue. The desktop keeps the last word on auth regardless — these only stop resource exhaustion, not access.

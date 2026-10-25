@@ -90,13 +90,17 @@
 }
 .settings-row { display: flex; flex-direction: column; gap: 6px; }
 .settings-row > span { font-size: 11px; color: var(--fg-dim); }
-.settings-row select {
-  width: 100%; padding: 7px 8px;
+.settings-row select,
+.settings-row input:not([type="range"]):not([type="checkbox"]) {
+  width: 100%; box-sizing: border-box; font-family: inherit; padding: 7px 8px;
   background: var(--bg-3); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 5px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 5px; font-size: 13px;
   transition: border-color .12s ease, box-shadow .12s ease;
 }
-.settings-row select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.settings-row select { cursor: pointer; }
+.settings-row input::placeholder { color: var(--fg-dim); }
+.settings-row select:focus,
+.settings-row input:not([type="range"]):not([type="checkbox"]):focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 .settings-row input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
 
 /* Panel-visibility toggles: a titled group of switch cards in a 2-up grid. */

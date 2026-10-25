@@ -12,9 +12,6 @@ const crypto = require('crypto');
 // self-hosted relay would set.
 const DEFAULT_RELAY_URL = 'https://ide-yj3x.onrender.com';
 
-// The relay you are running next to (server/index.js's own default port).
-const DEV_RELAY_URL = 'http://localhost:8080';
-
 const isHttpUrl = (s) => {
   try {
     const u = new URL(s);
@@ -22,18 +19,10 @@ const isHttpUrl = (s) => {
   } catch { return false; }
 };
 
-// Which relay this run talks to. A dev run is the one you are debugging the relay
-// *in*, so it must reach the relay on your machine and not Render — and it must
-// not need a config file edit to say so, because that edit is what would then
-// leak into a build. Hence: the packaged app always takes the stored/hosted URL,
-// a dev run always takes the local one, and `IDE_RELAY_URL` overrides either (a
-// staging relay, or a dev run deliberately pointed at the deployed one).
-//
-// The dev URL is resolved, never *persisted*: `remote-config.json` is shared with
-// the installed app, so writing `localhost` into it would strand a real build.
-function resolveRelayUrl({ isDev = false, env = {}, stored } = {}) {
+// Which relay this run talks to. Dev and packaged runs both use the stored or
+// hosted relay; `IDE_RELAY_URL` overrides it (e.g. a local relay while debugging).
+function resolveRelayUrl({ env = {}, stored } = {}) {
   if (isHttpUrl(env.IDE_RELAY_URL)) return env.IDE_RELAY_URL;
-  if (isDev) return DEV_RELAY_URL;
   return isHttpUrl(stored) ? stored : DEFAULT_RELAY_URL;
 }
 
@@ -60,5 +49,5 @@ function normalizeConfig(raw, newRoom = () => crypto.randomUUID()) {
 }
 
 module.exports = {
-  normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone, DEFAULT_RELAY_URL, DEV_RELAY_URL,
+  normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone, DEFAULT_RELAY_URL,
 };
