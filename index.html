@@ -39,6 +39,10 @@
   <div id="toolbar" title="Launch configs and tasks from .vscode — click to open an external terminal">
     <div id="toolbar-runs"></div>
     <span id="phone-indicator" hidden data-i18n-title="remote.deviceConnected" title="Mobile device connected"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></svg></span>
+    <div id="account-switcher" class="acct-wrap" hidden>
+      <button id="account-btn" type="button" class="acct-btn" aria-haspopup="menu" aria-expanded="false"><span id="account-avatar" class="acct-avatar"></span><span id="account-name" class="acct-name"></span><svg class="acct-caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div id="account-menu" class="acct-menu" role="menu" hidden></div>
+    </div>
     <div id="usage-meter" hidden title=""></div>
     <button id="diagram-btn" data-i18n-title="diagram.open" title="Diagram"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v4"/><path d="M5 17v-2a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v2"/></svg></button>
     <button id="browser-btn" data-i18n-title="browser.open" title="Browser"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></button>

@@ -1,5 +1,6 @@
 import { t } from '../i18n/index.js';
 import { isPanelEnabled, onPanelsChanged } from './panels.js';
+import { usageLevel } from './shared/account-switch.js';
 
 // --- toolbar usage meter (Claude subscription limits) ---
 // Shows the user's remaining usage against the two rolling subscription windows —
@@ -44,9 +45,6 @@ function build() {
   }
 }
 
-// ≥80% used reads as critical (red), ≥50% as warning (yellow), else healthy (green).
-function level(util) { return util >= 0.8 ? 'crit' : util >= 0.5 ? 'warn' : 'ok'; }
-
 function render(view) {
   // Turned off in settings → stay hidden regardless of whether data is available.
   if (!isPanelEnabled('usage')) { meter.hidden = true; return; }
@@ -61,7 +59,7 @@ function render(view) {
     el.win.style.display = '';
     const pct = Math.round(data.utilization * 100);
     el.fill.style.width = pct + '%';
-    el.fill.dataset.level = level(data.utilization);
+    el.fill.dataset.level = usageLevel(data.utilization);
     el.reset.textContent = data.resetIn ? t('usage.resetsIn').replace('{t}', data.resetIn) : '';
     // .um-win is display:contents (no box), so the row tooltip rides on its children.
     const tip = `${t(w.labelKey)}: ${pct}% ${t('usage.used')}`
@@ -79,6 +77,8 @@ async function refresh() {
   try { view = await window.api?.getUsage?.(); } catch {}
   lastView = view;
   render(view);
+  // The account switcher watches each reading to offer a switch near the limit.
+  window.dispatchEvent(new CustomEvent('usage-updated', { detail: view }));
 }
 
 export function initUsageMeter() {
@@ -93,4 +93,6 @@ export function initUsageMeter() {
   // Re-apply visibility when the user flips the meter toggle in settings —
   // no re-fetch, just re-render the data we already have.
   onPanelsChanged(() => render(lastView));
+  // A different account has different limits — read them right away.
+  window.addEventListener('account-changed', refresh);
 }

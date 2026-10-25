@@ -100,3 +100,116 @@
 .um-reset { font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 
 /* The "can't run this config" dialog is plain .dlg (see base.css). */
+
+/* Account switcher: a pill naming the active Claude account, left of the usage
+   meter, with a dropdown of every account and its 5-hour usage (accounts.js).
+   The pill borrows the session-bar badge look; the menu is position:fixed because
+   #toolbar clips overflow, and its rows are shared with the switch prompt. */
+/* Its own reserved slot: a gap and a divider fence it off from the run strip, so a
+   clipped task button ends at the divider instead of running in under the pill. */
+.acct-wrap { flex: none; display: flex; align-items: center; gap: 12px; margin: 0 10px; }
+.acct-wrap::before { content: ''; width: 1px; height: 18px; background: var(--border); }
+.acct-wrap[hidden] { display: none; }
+.acct-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 170px; height: 26px; box-sizing: border-box; padding: 2px 8px 2px 2px;
+  background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
+  font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease;
+}
+.acct-btn:hover, .acct-btn[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-2)); border-color: var(--accent);
+}
+.acct-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.acct-caret { flex: none; opacity: .7; }
+.acct-avatar {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-3)); color: var(--fg);
+  font-size: 9px; font-weight: 700; letter-spacing: .02em;
+}
+.acct-btn .acct-avatar { background: var(--accent); color: var(--on-accent); }
+
+.acct-menu {
+  position: fixed; z-index: 60; width: 300px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); padding: 6px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 2px;
+  transform-origin: top right;
+  opacity: 0; transform: translateY(-8px) scaleY(0.85);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.acct-menu[hidden] { display: none; }
+.acct-menu.open { opacity: 1; transform: translateY(0) scaleY(1); }
+.acct-menu-head {
+  padding: 4px 8px 6px; font-size: 10px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--fg-dim);
+}
+.acct-menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+
+/* One account: avatar · name over email · 5-hour mini meter (· hover actions in the menu). */
+.acct-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: 6px; cursor: pointer;
+  border: 1px solid transparent;
+  transition: background .12s ease, border-color .12s ease;
+}
+.acct-row:hover, .acct-row:focus-visible { background: var(--bg-3); outline: none; }
+.acct-row.is-active { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.acct-row.is-active .acct-avatar { background: var(--accent); color: var(--on-accent); }
+.acct-row .acct-avatar { width: 26px; height: 26px; font-size: 10px; }
+.acct-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.acct-row-name { font-size: 12px; font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-row-sub { font-size: 11px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-row-sub.is-warn { color: var(--yellow); }
+.acct-usage { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+.acct-usage-bar {
+  width: 44px; height: 5px; border-radius: 3px; overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+.acct-usage-fill { display: block; height: 100%; border-radius: 3px; background: var(--green); transition: width .3s ease; }
+.acct-usage-fill[data-level="warn"] { background: var(--yellow); }
+.acct-usage-fill[data-level="crit"] { background: var(--red); }
+.acct-usage-pct { width: 30px; text-align: right; font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+
+/* Rename / sign-in / remove: revealed on hover so the list stays calm. */
+.acct-actions { flex: none; display: none; align-items: center; gap: 2px; }
+.acct-menu .acct-row:hover .acct-actions, .acct-menu .acct-row:focus-within .acct-actions { display: inline-flex; }
+.acct-menu .acct-row:hover .acct-usage { display: none; }
+.acct-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px;
+  background: transparent; color: var(--fg-dim); cursor: pointer;
+}
+.acct-icon-btn:hover { background: var(--bg-2); color: var(--fg); }
+
+.acct-add {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 8px; border: none; border-radius: 6px;
+  background: transparent; color: var(--fg-dim); cursor: pointer; font-size: 12px; text-align: left;
+}
+.acct-add:hover { background: var(--bg-3); color: var(--fg); }
+
+/* Inside dialogs: the switch prompt's choice list, and the sign-in terminal. */
+.acct-pick-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.acct-pick-list .acct-row { background: var(--bg-3); border-color: var(--border); }
+.acct-pick-list .acct-row.is-active { background: var(--list-sel); border-color: var(--accent); }
+.acct-term {
+  height: 300px; padding: 6px; border-radius: 5px;
+  background: var(--term-bg, #000); border: 1px solid var(--border); overflow: hidden;
+}
+
+/* An expired login: a red sub-line, an always-visible Renew button on its row, and
+   a red ring on the toolbar avatar when it's the active account. */
+.acct-row-sub.is-error { color: var(--red); }
+.acct-renew {
+  flex: none; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+  font-size: 11px; font-weight: 600; line-height: 1;
+  background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 45%, transparent);
+  transition: background .12s ease, border-color .12s ease;
+}
+.acct-renew:hover { background: color-mix(in srgb, var(--red) 24%, transparent); border-color: var(--red); }
+.acct-menu .acct-row:hover .acct-renew { display: none; }
+.acct-wrap.is-expired .acct-btn .acct-avatar { box-shadow: 0 0 0 2px var(--red); }

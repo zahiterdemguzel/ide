@@ -71,6 +71,8 @@ body {
   padding: 20px 24px; width: min(420px, 90vw);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
+/* Room for an embedded terminal (the account sign-in dialog adds it in onOpen). */
+.dlg.is-wide { width: min(680px, 92vw); }
 .dlg::backdrop { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
 .dlg-title { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--fg); }
 /* Error/warning dialogs carry the alarm in the title only — a wall of red
