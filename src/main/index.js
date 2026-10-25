@@ -9,6 +9,8 @@ if (process.platform === 'win32') app.setAppUserModelId('com.claude.session-edit
 // Redirect userData to a per-instance profile dir before any subsystem reads a
 // path from it (repo.js derives its config path on load). Must come first.
 require('./instance');
+// Before anything spawns: a Dock/Finder launch lacks the user's PATH (see shell-path.js).
+require('./shell-path').adoptLoginShellPath();
 const { createWindow } = require('./window');
 const { startHookServer } = require('./hook-server');
 const { killAllSessions, persistSessions } = require('./sessions');

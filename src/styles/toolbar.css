@@ -132,7 +132,7 @@
 .acct-btn .acct-avatar { background: var(--accent); color: var(--on-accent); }
 
 .acct-menu {
-  position: fixed; z-index: 60; width: 300px;
+  position: fixed; z-index: 60; width: 330px;
   background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); padding: 6px; box-sizing: border-box;
   display: flex; flex-direction: column; gap: 2px;

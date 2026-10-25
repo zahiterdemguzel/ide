@@ -3,12 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const net = require('net');
-const { spawn, execFile } = require('child_process');
+const { spawn } = require('child_process');
 const { sendToRenderer } = require('./window');
-const { cleanEnv } = require('./proc-env');
 const {
   encodeMessage, createMessageReader, serverKey, resolveLaunch,
-  extraSearchDirs, searchDirs, findExecutable, loginShellPathCommand, parseLoginShellPath,
+  extraSearchDirs, searchDirs, findExecutable,
   unpackedPath, serverEnv, spawnInvocation, findVenvPython, serverSettings,
 } = require('./lsp-lib');
 
@@ -50,19 +49,8 @@ function isExecutableFile(p) {
 }
 
 // The user's login-shell PATH, read once (see extraSearchDirs for why a GUI app
-// needs it). Resolves to null on Windows or when the shell can't be run.
-let loginShellPathPromise = null;
-function loginShellPath() {
-  if (process.platform === 'win32') return Promise.resolve(null);
-  if (!loginShellPathPromise) {
-    loginShellPathPromise = new Promise((resolve) => {
-      const shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh');
-      execFile(shell, ['-ilc', loginShellPathCommand()], { env: cleanEnv(), timeout: 5000, encoding: 'utf8' },
-        (_err, stdout) => resolve(parseLoginShellPath(stdout)));
-    });
-  }
-  return loginShellPathPromise;
-}
+// needs it) — shared with the Claude CLI lookup (shell-path.js).
+const { loginShellPath } = require('./shell-path');
 
 function currentSearchDirs(loginPath) {
   return searchDirs({

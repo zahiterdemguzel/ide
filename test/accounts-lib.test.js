@@ -118,3 +118,34 @@ test('classifyLogin: tells a working, renewable, expired and missing login apart
   assert.equal(lib.classifyLogin(staleFinal, 0), 'ok', 'offline never reads as expired');
   assert.equal(lib.classifyLogin(staleRenewable, undefined), 'stale');
 });
+
+test('discoveredAccountName: org name, else email for a personal org, else the folder', () => {
+  assert.equal(lib.discoveredAccountName({ oauthAccount: { organizationName: 'Halfblood Studio', emailAddress: 'a@b' } }, 'x'), 'Halfblood Studio');
+  assert.equal(lib.discoveredAccountName({ oauthAccount: { organizationName: "me@x.com's Organization", emailAddress: 'me@x.com' } }, 'x'), 'me@x.com');
+  assert.equal(lib.discoveredAccountName(null, 'better-meeting-rooms'), 'Better Meeting Rooms');
+});
+
+test('recoverAccounts: re-adds signed-in folders the list lost, nothing else', () => {
+  const store = lib.normalizeAccountStore({
+    activeId: 'kept', accounts: [{ id: 'kept', name: 'Kept', configDir: '/r/kept' }],
+  });
+  const folders = [
+    { folderName: 'kept', configDir: '/r/kept', signedIn: true, claudeJson: null },
+    { folderName: 'lost', configDir: '/r/lost', signedIn: true, claudeJson: { oauthAccount: { organizationName: 'Lost Org' } } },
+    { folderName: 'never', configDir: '/r/never', signedIn: false, claudeJson: null },
+  ];
+  const next = lib.recoverAccounts(store, folders);
+  assert.deepEqual(next.accounts.map((a) => a.id), ['default', 'kept', 'dir-lost']);
+  assert.equal(next.accounts[2].name, 'Lost Org');
+  assert.equal(next.activeId, 'kept');
+  // Idempotent: a second pass finds nothing new and hands back the same store.
+  assert.equal(lib.recoverAccounts(next, folders), next);
+});
+
+test('recoverAccounts: an account the user removed stays removed', () => {
+  const store = lib.normalizeAccountStore({ removedDirs: ['/r/gone', 7] });
+  assert.deepEqual(store.removedDirs, ['/r/gone']);
+  const folders = [{ folderName: 'gone', configDir: '/r/gone', signedIn: true, claudeJson: null }];
+  assert.equal(lib.recoverAccounts(store, folders), store);
+  assert.deepEqual(lib.serializeAccountStore(store).removedDirs, ['/r/gone']);
+});

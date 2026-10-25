@@ -17,8 +17,8 @@ const openByKey = new Map();
 
 // A spec is:
 //   title, tone ('error' reddens the title), body, mono (monospace body, for
-//   command output), label, input ({ placeholder, value, error }), options
-//   ([{ label, value }], the pickString list), buttons, cancelValue, singleton,
+//   command output), label, input ({ placeholder, value, error }), buttons,
+//   cancelValue, singleton,
 //   content (an element, or array of them, for a dialog whose middle is richer
 //   than text — a checkbox list, a progress bar), dismissible (false pins the
 //   dialog open: Esc and the backdrop do nothing, for a step that must be
@@ -33,7 +33,7 @@ const openByKey = new Map();
 export function openDialog(spec = {}) {
   const {
     title = '', tone, body = '', mono = false, label = '',
-    input, options, buttons = [], cancelValue = null, singleton,
+    input, buttons = [], cancelValue = null, singleton,
     content, dismissible = true, onOpen,
   } = spec;
 
@@ -87,14 +87,6 @@ export function openDialog(spec = {}) {
       resolve(value);
     };
     const valueOf = (v) => (typeof v === 'function' ? v(inputEl ? inputEl.value.trim() : '') : v);
-
-    for (const opt of options || []) {
-      const btn = document.createElement('button');
-      btn.className = 'dlg-option';
-      btn.textContent = opt.label;
-      btn.onclick = () => finish(opt.value);
-      dlg.append(btn);
-    }
 
     const actions = document.createElement('div');
     actions.className = 'dlg-actions';

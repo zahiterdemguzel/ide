@@ -23,8 +23,16 @@ const { resolveClaude, readUsage, readOauthCreds, probeOauthToken, runCli } = re
 const { authArgs } = require('./claude-install');
 const lib = require('./accounts-lib');
 
-const STORE_PATH = path.join(sharedDataDir, 'accounts.json');
 const ACCOUNTS_ROOT = path.join(os.homedir(), '.claude-accounts');
+// The list lives beside the account folders, not in the app's data folder: the dev
+// build and the installed app each have their own data folder (`-dev` suffix, see
+// instance.js), so a list kept there vanished whenever the other build was opened.
+const STORE_PATH = path.join(ACCOUNTS_ROOT, 'accounts.json');
+// Where earlier builds kept the list: this build's data folder and its dev/packaged twin.
+const LEGACY_STORE_PATHS = [
+  path.join(sharedDataDir, 'accounts.json'),
+  path.join(sharedDataDir.endsWith('-dev') ? sharedDataDir.slice(0, -4) : `${sharedDataDir}-dev`, 'accounts.json'),
+];
 const DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.claude');
 
 // Read on every call rather than cached: several app instances share this file,
@@ -35,6 +43,7 @@ function loadStore() {
 }
 
 function saveStore(store) {
+  fs.mkdirSync(ACCOUNTS_ROOT, { recursive: true });
   const tmpPath = `${STORE_PATH}.${process.pid}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(lib.serializeAccountStore(store), null, 2));
   fs.renameSync(tmpPath, STORE_PATH);
@@ -95,6 +104,7 @@ function addAccount(name) {
   seedClaudeJson(configDir);
   linkSharedConfig(account);
   store.accounts.push(account);
+  store.removedDirs = store.removedDirs.filter((dir) => dir !== configDir);
   saveStore(store);
   return account;
 }
@@ -108,7 +118,10 @@ function removeAccount(id) {
   // sessions move off it like any other switch.
   if (loadStore().activeId === id) setActiveAccount(lib.DEFAULT_ACCOUNT_ID);
   const store = loadStore();
+  const removed = store.accounts.find((a) => a.id === id);
   store.accounts = store.accounts.filter((a) => a.id !== id);
+  // Remembered so startup recovery doesn't bring it back from its folder.
+  if (removed && removed.configDir) store.removedDirs = [...store.removedDirs, removed.configDir];
   saveStore(store);
   return store;
 }
@@ -213,6 +226,41 @@ function loginCommand(id) {
   args[args.length - 1] = args[args.length - 1].replace(/claude$/, 'claude auth login');
   return { args, env: lib.accountEnv(account) };
 }
+
+// First run of a build with the new store location: carry over the newest list an
+// earlier build saved in an app data folder.
+function migrateLegacyStore() {
+  if (fs.existsSync(STORE_PATH)) return;
+  const newest = LEGACY_STORE_PATHS
+    .map((file) => { try { return { file, mtime: fs.statSync(file).mtimeMs }; } catch { return null; } })
+    .filter(Boolean)
+    .sort((a, b) => b.mtime - a.mtime)[0];
+  if (!newest) return;
+  try { saveStore(lib.normalizeAccountStore(JSON.parse(fs.readFileSync(newest.file, 'utf8')))); }
+  catch (err) { console.warn('[accounts] could not migrate the account list:', err.message); }
+}
+
+// Every account folder under ~/.claude-accounts that still holds a login.
+function signedInAccountFolders() {
+  let entries = [];
+  try { entries = fs.readdirSync(ACCOUNTS_ROOT, { withFileTypes: true }); } catch { return []; }
+  return entries.filter((e) => e.isDirectory()).map((e) => {
+    const configDir = path.join(ACCOUNTS_ROOT, e.name);
+    let claudeJson = null;
+    try { claudeJson = JSON.parse(fs.readFileSync(lib.claudeJsonPathFor(configDir, os.homedir()), 'utf8')); } catch {}
+    return { folderName: e.name, configDir, signedIn: !!readOauthCreds(configDir), claudeJson };
+  });
+}
+
+// Once per launch: logins outlive the list, so a list that lost an account
+// (an older build, a wiped data folder) gets it back from its folder.
+function restoreAccounts() {
+  migrateLegacyStore();
+  const store = loadStore();
+  const recovered = lib.recoverAccounts(store, signedInAccountFolders());
+  if (recovered !== store) saveStore(recovered);
+}
+try { restoreAccounts(); } catch (err) { console.warn('[accounts] could not restore accounts:', err.message); }
 
 ipcMain.handle('accounts-list', (_e, opts) => describeAccounts(opts || {}));
 ipcMain.handle('accounts-add', (_e, name) => addAccount(name));

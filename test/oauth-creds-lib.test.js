@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { pickOauthToken } = require('../src/main/oauth-creds-lib');
+const { pickOauthToken, pickOauthCreds } = require('../src/main/oauth-creds-lib');
 
 const NOW = 1_000_000_000_000;
 const mcpOnly = JSON.stringify({ mcpOAuth: { x: { accessToken: 'mcp' } } });
@@ -26,4 +26,13 @@ test('accepts a token with no expiry', () => {
 
 test('ignores missing and malformed blobs', () => {
   assert.strictEqual(pickOauthToken([null, undefined, 'not json', mcpOnly], NOW), null);
+});
+
+test('pickOauthCreds: prefers a fresh login, else reports the expired one', () => {
+  const withRefresh = (token, expiresAt) => JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt, refreshToken: 'r' } });
+  assert.deepStrictEqual(pickOauthCreds([login('old', NOW - 1), login('new', NOW + 3600e3)], NOW),
+    { accessToken: 'new', expiresAt: NOW + 3600e3, hasRefreshToken: false, expired: false });
+  assert.deepStrictEqual(pickOauthCreds([mcpOnly, withRefresh('old', NOW - 1)], NOW),
+    { accessToken: 'old', expiresAt: NOW - 1, hasRefreshToken: true, expired: true });
+  assert.strictEqual(pickOauthCreds([null, mcpOnly, 'junk'], NOW), null);
 });

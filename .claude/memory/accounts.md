@@ -13,8 +13,15 @@ Claude Code reads its whole config — including the login — from `CLAUDE_CONF
 `~/.claude-accounts/<slug>`, and running the CLI with that env var *is* being that
 account. The built-in **default** account is the user's normal setup: no env override.
 
-- **Store**: `accounts.json` in `sharedDataDir` (`{activeId, defaultName, accounts:[{id,name,configDir}]}`),
-  read fresh on every call so all app instances agree. Shape logic: `accounts-lib.js`.
+- **Store**: `~/.claude-accounts/accounts.json` (`{activeId, defaultName, accounts:[{id,name,configDir}], removedDirs}`),
+  beside the account folders — **not** in the app's data folder, because the dev build and the installed
+  app each get their own (`-dev` suffix, `instance.js`), so a list kept there vanished when the other build
+  was opened. Read fresh on every call so all app instances agree. Shape logic: `accounts-lib.js`.
+- **Persistence across restarts / builds** (`restoreAccounts()`, once per launch): first run migrates the
+  newest legacy `<userData>/accounts.json` (this build's or its dev/packaged twin); then `recoverAccounts`
+  re-adds any folder under `~/.claude-accounts` that still holds a login but is missing from the list
+  (id `dir-<folder>`, named from `.claude.json`'s org, or email for a personal org). Folders the user
+  removed are kept in `removedDirs` so they stay removed; never-signed-in folders are ignored.
 - **Login**: "Add account" creates the folder, then a dialog embeds a terminal running
   `claude auth login` with that env (`accounts-login-command` → `term-create` with
   `args`+`env`). The command exits when the browser login completes and the dialog

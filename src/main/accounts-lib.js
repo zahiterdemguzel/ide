@@ -40,7 +40,8 @@ function defaultAccount() {
 
 // Whatever was on disk → a well-formed store: the default account always first,
 // no duplicate ids, every extra account with a name and a folder, and an active
-// id that names an account that exists.
+// id that names an account that exists. `removedDirs` lists the folders of
+// accounts the user removed, so recovery (recoverAccounts) never re-adds them.
 function normalizeAccountStore(raw) {
   const accounts = [defaultAccount()];
   const seen = new Set([DEFAULT_ACCOUNT_ID]);
@@ -56,7 +57,10 @@ function normalizeAccountStore(raw) {
     accounts[0].name = raw.defaultName.trim();
   }
   const activeId = raw && seen.has(raw.activeId) ? raw.activeId : DEFAULT_ACCOUNT_ID;
-  return { accounts, activeId };
+  const removedDirs = raw && Array.isArray(raw.removedDirs)
+    ? [...new Set(raw.removedDirs.filter((d) => typeof d === 'string' && d))]
+    : [];
+  return { accounts, activeId, removedDirs };
 }
 
 // The store as written to disk (the default account is implied, only its name kept).
@@ -65,6 +69,7 @@ function serializeAccountStore(store) {
     activeId: store.activeId,
     defaultName: store.accounts[0].name,
     accounts: store.accounts.slice(1).map(({ id, name, configDir }) => ({ id, name, configDir })),
+    removedDirs: store.removedDirs || [],
   };
 }
 
@@ -160,7 +165,38 @@ function classifyLogin(creds, probeStatus) {
   return 'ok';
 }
 
+// A readable name for an account folder found on disk but missing from the list:
+// the org it belongs to, or the email for a personal plan (whose org is just
+// "<email>'s Organization"), else the folder name.
+function discoveredAccountName(claudeJson, folderName) {
+  const oauth = claudeJson && claudeJson.oauthAccount;
+  const org = oauth && typeof oauth.organizationName === 'string' ? oauth.organizationName.trim() : '';
+  if (org && !/'s Organization$/.test(org)) return org;
+  if (oauth && oauth.emailAddress) return oauth.emailAddress;
+  return String(folderName || 'account').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Put back every signed-in account folder the list doesn't know about — the list
+// got lost (another build of the app, a wiped app-data folder) but the logins
+// didn't. Folders of accounts the user removed stay removed. `folders` are { folderName, configDir, signedIn, claudeJson }. The id is
+// derived from the folder so two app windows recovering at once agree on it.
+// Returns the store unchanged (same object) when nothing was missing.
+function recoverAccounts(store, folders) {
+  const known = new Set([...store.accounts.map((a) => a.configDir).filter(Boolean), ...(store.removedDirs || [])]);
+  const ids = new Set(store.accounts.map((a) => a.id));
+  const recovered = [];
+  for (const f of folders) {
+    if (!f.signedIn || known.has(f.configDir)) continue;
+    const id = `dir-${f.folderName}`;
+    if (ids.has(id)) continue;
+    recovered.push({ id, name: discoveredAccountName(f.claudeJson, f.folderName), configDir: f.configDir });
+    ids.add(id);
+  }
+  return recovered.length ? { ...store, accounts: [...store.accounts, ...recovered] } : store;
+}
+
 module.exports = {
+  discoveredAccountName, recoverAccounts,
   classifyLogin,
   DEFAULT_ACCOUNT_ID, KEYCHAIN_BASE_SERVICE, SHARED_CONFIG_ENTRIES, SEEDED_CONFIG_KEYS,
   normalizeAccountStore, serializeAccountStore, accountFolderName,

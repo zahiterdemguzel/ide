@@ -129,12 +129,17 @@ rather than `ANTHROPIC_MODEL` alone — see [custom-models.md](custom-models.md)
 
 **Per-session override.** The New session button is a split button: the main
 action creates a session with the saved defaults, and the caret (`#new-session-opts`)
-opens a dropdown (`#session-model-menu`, one entry per `MODELS` item except the
-inherit `default` — the plain button already covers that — with the saved default
-highlighted) — clicking a model spawns just that one session with it as the
-session model (the subagent model keeps the saved default). `sessions.js`'s
-`newSession(opts)` takes the override (falling back to the defaults when omitted)
-and passes `{ model, subagentModel }` through the `new-session` IPC.
+opens a dropdown (`#session-model-menu`) listing **one family's** models followed by
+an **Effort** divider and that family's effort ladder (`effortsForFamily`). The family
+is Settings → Agent models → *New-session menu* (`#settings-new-session-menu`,
+`ide.newSessionMenuFamily`: `claude` default, `codex`, or `ollama`), so Codex/local
+models only appear there when chosen. A model row spawns a session on that model at
+the remembered effort; an effort row spawns one on the family's **last-used model**
+(`getLastModelOf(family)` — `setSessionModel` also writes `ide.lastModel.<family>`,
+so badge switches, Settings, and caret picks all count) at that effort. Both picks
+are remembered as the next session's defaults. The inherit `default` is never a row
+(the plain button covers it). `sessions.js`'s `newSession(opts)` takes
+`{ model, effort }` overrides and passes them through the `new-session` IPC.
 
 **Mobile.** `mobile/src/screens/SessionsScreen.tsx` mirrors the same split button:
 the wide half creates with the last-picked model (its label carries the suffix —

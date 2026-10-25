@@ -243,6 +243,12 @@ function parseMessage(raw) {
       // decides whether it is a path at all — see normalizeForwardPath.
       if (msg.path !== undefined && typeof msg.path !== 'string') return null;
       return Number.isInteger(msg.port) && msg.port > 0 && msg.port < 65536 ? msg : null;
+    case 'rtc-offer':
+      // Signaling for the direct link (p2p-host.js): the phone's WebRTC offer, then
+      // trickled ICE candidates. Only an authed client gets this far in the hub.
+      return typeof msg.sdp === 'string' ? msg : null;
+    case 'rtc-ice':
+      return typeof msg.candidate === 'string' && typeof msg.mid === 'string' ? msg : null;
     default:
       return null;
   }
@@ -257,6 +263,11 @@ const resErr = (id, error) => ({ t: 'res', id, ok: false, error });
 const ev = (ch, payload) => ({ t: 'ev', ch, payload });
 const fwdOk = (port, url) => ({ t: 'fwd-ok', port, url });
 const fwdErr = (port, error) => ({ t: 'fwd-err', port, error });
+const rtcAnswer = (sdp) => ({ t: 'rtc-answer', sdp });
+const rtcIce = (candidate, mid) => ({ t: 'rtc-ice', candidate, mid });
+// The desktop can't open a direct link (WebRTC module missing): the phone stops
+// trying and stays on the relay instead of waiting out its timeout.
+const rtcUnavailable = () => ({ t: 'rtc-unavailable' });
 
 const canCall = (kind, ch) => REMOTE_CHANNELS[kind] ? REMOTE_CHANNELS[kind].has(ch) : false;
 const isRemoteEvent = (ch) => REMOTE_EVENTS.has(ch);
@@ -270,5 +281,6 @@ const MAX_RES_BYTES = 12 * 1024 * 1024;
 module.exports = {
   PROTO_VERSION, REMOTE_CHANNELS, REMOTE_EVENTS, STREAM_EVENTS, ERR, MAX_RES_BYTES,
   parseMessage, hello, paired, authOk, authErr, resOk, resErr, ev, fwdOk, fwdErr,
+  rtcAnswer, rtcIce, rtcUnavailable,
   canCall, isRemoteEvent, isStreamEvent,
 };

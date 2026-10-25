@@ -127,3 +127,25 @@ body {
   transition: background .12s ease, border-color .12s ease;
 }
 .dlg-option:hover { background: var(--list-sel); border-color: var(--accent); }
+
+/* Searchable pickString list (pickOption in shared/prompt.js): a filter field
+ * over a scrolling list whose keyboard-highlighted row is .is-active. Rows are
+ * divs, not buttons — focus stays in the field so typing never stops. */
+.dlg-pick-list {
+  max-height: min(320px, 50vh); overflow-y: auto;
+  margin-top: 6px; padding-bottom: 2px;
+}
+.dlg-pick-list .dlg-option {
+  display: flex; align-items: center; gap: 8px; margin-top: 4px;
+  padding: 6px 10px; user-select: none;
+}
+.dlg-pick-list .dlg-option:hover { background: var(--bg-3); border-color: var(--border); }
+.dlg-pick-list .dlg-option.is-active { background: var(--list-sel); border-color: var(--accent); }
+.dlg-pick-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dlg-pick-label b { color: var(--accent-hi); font-weight: 700; }
+.dlg-pick-default {
+  font-size: 10px; color: var(--fg-dim);
+  border: 1px solid var(--border); border-radius: 3px; padding: 0 5px;
+}
+.dlg-pick-empty { padding: 10px; font-size: 12px; color: var(--fg-dim); text-align: center; }
+.dlg-pick-hint { margin-top: 8px; font-size: 11px; color: var(--fg-dim); }

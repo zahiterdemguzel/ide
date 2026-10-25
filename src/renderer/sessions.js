@@ -14,8 +14,9 @@ import { nextSessionId } from './shared/session-cycle.js';
 import {
   getSessionModel, getSubagentModel, setSessionModel, getSessionEffort, setSessionEffort,
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
-  effortsFor, effortName, DEFAULT_EFFORT,
+  effortsFor, effortName, DEFAULT_EFFORT, getLastModelOf, getNewSessionMenuFamily,
 } from './settings.js';
+import { effortsForFamily } from './shared/effort-levels.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
 
@@ -1310,10 +1311,12 @@ diffModeSplitBtn.onclick = () => setDiffMode('split');
 
 document.getElementById('new-session').onclick = () => newSession();
 
-// Per-session model picker: the split-button caret opens a dropdown listing the
-// available models; choosing one spawns a session with that model (the subagent
-// model keeps the saved default). The menu pops up above the button and mirrors
-// the recent-folders menu's open/close handling.
+// New-session caret menu: the split-button caret opens a dropdown of one family's
+// models (Claude unless changed in Settings → Agent models) followed by that family's
+// effort ladder. A model row spawns a session on that model at the remembered effort;
+// an effort row spawns one on the family's last-used model at that effort. Either pick
+// is remembered as the next session's default. The menu pops up above the button and
+// mirrors the recent-folders menu's open/close handling.
 const modelMenu = document.getElementById('session-model-menu');
 const newSessionOptsBtn = document.getElementById('new-session-opts');
 function closeModelMenu() {
@@ -1323,10 +1326,38 @@ function closeModelMenu() {
   // Wait for the collapse animation before hiding so it actually plays.
   modelMenu.addEventListener('transitionend', () => { modelMenu.hidden = true; }, { once: true });
 }
+function appendEffortItems(container, levels, currentEffort, onPick) {
+  const div = document.createElement('div');
+  div.className = 'model-menu-divider';
+  div.textContent = t('models.effortDivider');
+  container.appendChild(div);
+  for (const level of levels) {
+    const item = document.createElement('button');
+    item.className = 'model-menu-item' + (level.id === currentEffort ? ' current' : '');
+    item.textContent = level.name;
+    item.title = level.hint;
+    item.onclick = () => onPick(level.id);
+    container.appendChild(item);
+  }
+}
 function openModelMenu() {
-  const current = getSessionModel();
-  // Skip the inherit/default model — the plain New session button already uses it.
-  buildModelMenuItems(modelMenu, current, (id) => { closeModelMenu(); newSession({ model: id }); }, 'model-menu-item');
+  const family = getNewSessionMenuFamily();
+  const familyModels = getMergedModels().filter((m) => modelFamily(m.id) === family);
+  // buildModelMenuItems skips the inherit/default model — the plain New session button already uses it.
+  buildModelMenuItems(modelMenu, getLastModelOf(family), (model) => {
+    closeModelMenu();
+    setSessionModel(model);
+    newSession({ model });
+  }, 'model-menu-item', familyModels);
+  // With no local models installed the family has nothing to spawn, so skip the
+  // effort rows rather than offer ones that would fall back to another family.
+  if (familyModels.length) {
+    appendEffortItems(modelMenu, effortsForFamily(family), getSessionEffort(), (effort) => {
+      closeModelMenu();
+      setSessionEffort(effort);
+      newSession({ model: getLastModelOf(family), effort });
+    });
+  }
   modelMenu.hidden = false;
   newSessionOptsBtn.setAttribute('aria-expanded', 'true');
   // Next frame so the un-hidden element transitions from the collapsed state.

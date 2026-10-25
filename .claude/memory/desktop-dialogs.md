@@ -22,7 +22,7 @@ of them cover:
 | `confirmDialog({title, message, ok, danger})` | `shared/confirm.js` | `true` / `false` (Esc & backdrop → `false`) |
 | `noticeDialog({title, message})` | `shared/confirm.js` | one-button acknowledge — a failure with nothing to decide |
 | `promptText({title, label, value, ok, error})` | `shared/prompt.js` | trimmed string, or `null` if cancelled/blank |
-| `pickOption({title, label, options, def})` | `shared/prompt.js` | picked value, or `null` — the `pickString` run-config list |
+| `pickOption({title, label, options, def})` | `shared/prompt.js` | picked value, or `null` — the searchable `pickString` run-config list |
 | `showWarning(message, title)` | `shared/warn.js` | non-fatal error; OK + Copy |
 | `showError(message, title, {mono})` | `shared/warn.js` | failed git/CLI op; `mono` on by default for stderr |
 
@@ -37,12 +37,23 @@ close. Native (not a div + `.modal-backdrop`) because `showModal()` brings focus
 trapping, Esc and `::backdrop` with it — verified `:modal` is true for all six.
 
 Spec: `title`, `tone` (`'error'` reddens the title), `body`, `mono`, `label`,
-`input`, `options`, `buttons`, `cancelValue`, `singleton`.
+`input`, `buttons`, `cancelValue`, `singleton`, `content`, `dismissible`, `onOpen`.
 Buttons: `{label, value, variant: 'primary'|'secondary'|'danger', keepOpen, onClick}`
 — `value` may be a function of the input's trimmed text (that's how `promptText`
 maps blank → `null`). `keepOpen` is for Copy, which must not dismiss the text it
 just copied. `singleton: 'warn'` means a burst of errors replaces the open dialog
 instead of stacking a pile of them.
+
+## The pickString picker
+
+`pickOption` (launch.json `pickString` inputs) is a searchable list built from
+`content` + `onOpen`: a filter field (`.dlg-pick-search`) over a scrolling
+`.dlg-pick-list` of `.dlg-option` rows. Typing fuzzy-filters (shared
+`fuzzy.js`, matched chars in `<b>`); ↑/↓ move the `.is-active` row (wrapping),
+PgUp/PgDn jump 5; Enter picks the active row — the best match once something is
+typed, the config's `default` before that; a click picks a row. Rows are divs
+picked on `mousedown` so focus never leaves the field. The ranking and
+active-row arithmetic live in the pure `shared/option-picker.js` (tested).
 
 ## Design rules
 

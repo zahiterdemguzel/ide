@@ -18,6 +18,7 @@ const { getRepoPath, onRepoChange } = require('./repo');
 const registry = require('./instance-registry');
 const { createHub } = require('../../server/hub');
 const { startRelayClient } = require('../../server/relay-client');
+const { createP2pHost } = require('../../server/p2p-host');
 const { startPortForward } = require('../../server/http-proxy');
 const { normalizeForwardPath } = require('../../server/http-proxy-lib');
 const {
@@ -86,6 +87,7 @@ const phoneRelayUrl = () => relayUrlForPhone(relayUrl, lanAddresses()[0]);
 
 let hub = null;
 let relay = null; // outbound socket to the cloud relay, while enabled
+let p2p = null; // answers phones' WebRTC offers so they can leave the relay, while enabled
 let enabled = false;
 let awakeBlocker = null; // powerSaveBlocker id, while enabled
 
@@ -182,13 +184,29 @@ function status() {
 // roster must not offer it the others.
 const publishInstance = () => registry.publish({ project: getRepoPath(), relay: relayUrl });
 
+// node-datachannel is a native module: if its prebuild is missing, direct links are
+// simply off and every phone rides the relay, as it did before they existed.
+let nodeDataChannel;
+function loadNodeDataChannel() {
+  if (nodeDataChannel !== undefined) return nodeDataChannel;
+  try { nodeDataChannel = require('node-datachannel'); } catch (err) {
+    console.error('[remote] direct links unavailable:', err.message);
+    nodeDataChannel = null;
+  }
+  return nodeDataChannel;
+}
+
 async function enable() {
   if (enabled) return status();
+  const webrtc = loadNodeDataChannel();
   hub = createHub({
     invoke: invokeRemote,
     deviceStore,
     appVersion: app.getVersion(),
     forward: PORT_FORWARDING_ENABLED ? forward : undefined,
+    // The relay only introduces a phone; this answers its WebRTC offer so the two
+    // then talk directly. `hub` is assigned by the time a phone can signal.
+    p2p: webrtc ? { signal: (...args) => p2p.signal(...args), release: (no) => p2p.release(no) } : undefined,
     // The toolbar shows a phone icon while at least one paired device holds a
     // live socket to this window; the remote browser stops rendering when the
     // last one leaves.
@@ -200,6 +218,7 @@ async function enable() {
       chat.onClientCount(count); // transcript tailing runs only while a phone is connected
     },
   });
+  p2p = webrtc ? createP2pHost({ hub, PeerConnection: webrtc.PeerConnection }) : null;
   remoteBrowser.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
   remoteControl.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
   remoteAudio.setBroadcast((ch, payload) => { if (hub) hub.broadcast(ch, payload); });
@@ -239,6 +258,8 @@ async function disable() {
   push.setEnabled(false);
   if (relay) relay.close();
   relay = null;
+  p2p?.closeAll();
+  p2p = null;
   hub = null;
   remoteBrowser.setBroadcast(null);
   remoteControl.setBroadcast(null);
@@ -352,6 +373,9 @@ app.on('before-quit', () => {
   registry.remove();
   releaseSystemAwake();
   if (relay) relay.close();
+  p2p?.closeAll();
+  // libdatachannel's threads keep the process alive past quit unless told to stop.
+  nodeDataChannel?.cleanup();
   closeAllForwards();
 });
 

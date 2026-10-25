@@ -11,7 +11,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -35,6 +35,22 @@ const apkName = `app-${variant}.apk`;
 const builtApk = join(androidDir, 'app', 'build', 'outputs', 'apk', variant, apkName);
 const distApk = join(repoDir, 'dist', 'ide-remote.apk');
 
+// Gradle finds the SDK through ANDROID_HOME; when it's unset, use where Android
+// Studio installs it by default rather than failing deep inside Gradle.
+function defaultSdkDir() {
+  if (process.platform === 'win32') return join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk');
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Android', 'sdk');
+  return join(homedir(), 'Android', 'Sdk');
+}
+if (!process.env.ANDROID_HOME && !process.env.ANDROID_SDK_ROOT) {
+  const sdkDir = defaultSdkDir();
+  if (!existsSync(sdkDir)) {
+    console.error(`Android SDK not found: set ANDROID_HOME (looked in ${sdkDir})`);
+    process.exit(1);
+  }
+  process.env.ANDROID_HOME = sdkDir;
+}
+
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: isWindows });
   if (result.status !== 0) {
@@ -48,6 +64,20 @@ function run(command, args, cwd) {
 // on a phone that has both. app.config.js picks between them off APP_VARIANT.
 process.env.APP_VARIANT = isRelease ? 'production' : 'development';
 run(process.execPath, [join(repoDir, 'scripts', 'gen-icons.js')], repoDir);
+
+// package-lock.json is gitignored, so a fresh checkout has neither it nor
+// node_modules. Install whenever they're missing or package.json changed since the
+// last install — a dependency added to package.json must reach the APK.
+const packageJson = readFileSync(join(mobileDir, 'package.json'), 'utf8');
+const installStamp = join(mobileDir, 'node_modules', '.ide-package-stamp');
+const needsInstall = !existsSync(join(mobileDir, 'package-lock.json'))
+  || !existsSync(installStamp)
+  || readFileSync(installStamp, 'utf8') !== packageJson;
+if (needsInstall) {
+  console.log('Installing mobile dependencies');
+  run('npm', ['install'], mobileDir);
+  writeFileSync(installStamp, packageJson);
+}
 
 console.log(`Staging mobile app in ${stageDir}`);
 mkdirSync(stageDir, { recursive: true });

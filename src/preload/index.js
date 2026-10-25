@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld('api', {
   ...require('./ollama'),
   ...require('./stt'),
   ...require('./ai'),
+  ...require('./accounts'),
 });

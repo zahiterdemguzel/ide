@@ -4,8 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { usageView } = require('./usage-parse');
-const { pickOauthToken } = require('./oauth-creds-lib');
+const { adoptLoginShellPath } = require('./shell-path');
+const { pickOauthToken, pickOauthCreds } = require('./oauth-creds-lib');
 const { withFolderTrusted } = require('./claude-trust-lib');
+const { keychainServiceFor, credentialsPathFor, claudeJsonPathFor, accountEnv } = require('./accounts-lib');
 
 // node-pty on Windows doesn't search PATH — resolve the full claude.exe path once.
 // Async (the `where`/`which` subprocess used to run execFileSync and block the
@@ -14,12 +16,14 @@ let claudeCmd = null;
 function resolveClaude() {
   if (claudeCmd) return claudeCmd;
   const finder = process.platform === 'win32' ? 'where' : 'which';
-  claudeCmd = new Promise((resolve) => {
+  // Dock/Finder launches start without the user's PATH (no ~/.local/bin, where the
+  // native installer puts `claude`), so adopt the login shell's PATH first.
+  claudeCmd = adoptLoginShellPath().then(() => new Promise((resolve) => {
     execFile(finder, ['claude'], { encoding: 'utf8' }, (err, stdout) => {
       const found = !err && stdout.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
       resolve(found || 'claude');
     });
-  });
+  }));
   return claudeCmd;
 }
 
@@ -36,7 +40,6 @@ function resolveClaude() {
 // return null and the caller falls back to the CLI, which also refreshes the
 // stored token, so the fast path heals itself on the next call.
 
-const CREDS_PATH = path.join(os.homedir(), '.claude', '.credentials.json');
 const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 const CC_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OUTPUT_RULE = 'Do exactly what the user message asks and output only the '
@@ -49,27 +52,40 @@ const OUTPUT_RULE = 'Do exactly what the user message asks and output only the '
 // file there. Read the file first (cheap, and present if the user opted out of
 // the Keychain), then fall back to the Keychain on macOS. Either way we get the
 // same `{ claudeAiOauth: { accessToken, expiresAt, … } }` JSON blob.
-const KEYCHAIN_SERVICE = 'Claude Code-credentials';
-
-function readKeychainCreds(account) {
-  const args = ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-w'];
+// With several accounts (accounts.js), each extra one is its own CLAUDE_CONFIG_DIR
+// with its own credentials file and Keychain service; `configDir` null is the
+// default account. Callers that don't name one get the active account.
+function readKeychainCreds(service, account) {
+  const args = ['find-generic-password', '-s', service, '-w'];
   if (account) args.splice(3, 0, '-a', account);
-  try { return execFileSync('security', args, { encoding: 'utf8' }); } catch { return null; }
+  // stderr ignored: a miss (an account never signed in) is expected, not news.
+  try { return execFileSync('security', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return null; }
 }
 
 // Lazily yields candidate credential blobs in priority order, so the common
 // case (file, or the current user's Keychain entry) spawns at most one process.
-function* credsCandidates() {
-  try { yield fs.readFileSync(CREDS_PATH, 'utf8'); } catch {}
+function* credsCandidates(configDir) {
+  try { yield fs.readFileSync(credentialsPathFor(configDir, os.homedir()), 'utf8'); } catch {}
   if (process.platform !== 'darwin') return;
+  const service = keychainServiceFor(configDir);
   // The CLI writes under the OS username; a stale entry (often account
   // "unknown") with no claudeAiOauth can sort first, so ask for ours first.
-  yield readKeychainCreds(os.userInfo().username);
-  yield readKeychainCreds(null);
+  yield readKeychainCreds(service, os.userInfo().username);
+  yield readKeychainCreds(service, null);
 }
 
-function readOauthToken() {
-  return pickOauthToken(credsCandidates(), Date.now());
+// Required lazily: accounts.js needs Electron and itself requires this file.
+function activeConfigDir() {
+  try { return require('./accounts').activeAccount().configDir; } catch { return null; }
+}
+
+function readOauthToken(configDir = activeConfigDir()) {
+  return pickOauthToken(credsCandidates(configDir), Date.now());
+}
+
+// The account's stored login, expired or not (see pickOauthCreds), or null.
+function readOauthCreds(configDir = activeConfigDir()) {
+  return pickOauthCreds(credsCandidates(configDir), Date.now());
 }
 
 const MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
@@ -237,7 +253,7 @@ const DEFAULT_CLI_SYSTEM = `${CC_IDENTITY} ${OUTPUT_RULE}`;
 // edit fallback passes `sonnet` and its own system prompt. The system prompt
 // must not contain a double quote (see the Windows quoting note below).
 // `signal` (an AbortSignal) kills the child; it then resolves null.
-async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYSTEM, signal } = {}) {
+async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYSTEM, signal, configDir = activeConfigDir() } = {}) {
   const exe = await resolveClaude();
   if (signal?.aborted) return null;
   return new Promise((resolve) => {
@@ -249,7 +265,9 @@ async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYST
     // the tools. None of the args contains a double quote, so wrapping is enough.
     const quotedArgs = win32 ? args.map((a) => `"${a}"`) : args;
     const child = execFile(win32 ? `"${exe}"` : exe, quotedArgs,
-      { cwd: os.tmpdir(), maxBuffer: 4 * 1024 * 1024, shell: win32 },
+      // Run as the active account (unless told otherwise), so a fallback call bills
+      // the same login the sessions use.
+      { cwd: os.tmpdir(), maxBuffer: 4 * 1024 * 1024, shell: win32, env: { ...process.env, ...accountEnv({ configDir }) } },
       (err, stdout) => {
         signal?.removeEventListener('abort', kill);
         resolve(err ? null : stdout.trim());
@@ -276,7 +294,9 @@ async function claudeAvailable() {
     execFile(win32 ? `"${exe}"` : exe, ['--version'],
       { timeout: 10000, shell: win32 },
       (err, stdout) => {
-        if (err) return resolve({ installed: false, version: null });
+        // A binary that exists but was slow to answer (first run after an auto-update,
+        // while macOS verifies its signature) is installed, not missing.
+        if (err) return resolve({ installed: !!err.killed && path.isAbsolute(exe) && fs.existsSync(exe), version: null });
         resolve({ installed: true, version: (stdout || '').trim() || null });
       });
   });
@@ -325,10 +345,32 @@ function fetchUsage(token) {
   });
 }
 
+// Whether the API accepts `token`: resolves to the HTTP status of the same 1-token
+// call the usage meter makes (401 = the login is no longer valid), or 0 when the
+// API couldn't be reached at all — offline says nothing about the login.
+function probeOauthToken(token) {
+  return new Promise((resolve) => {
+    const payload = JSON.stringify({
+      model: HAIKU_MODEL,
+      max_tokens: 1,
+      system: [{ type: 'text', text: CC_IDENTITY }],
+      messages: [{ role: 'user', content: '.' }],
+    });
+    const req = https.request(MESSAGES_URL, { method: 'POST', headers: oauthHeaders(token, payload), timeout: 15000 }, (res) => {
+      res.on('data', () => {});
+      res.on('end', () => resolve(res.statusCode || 0));
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(0));
+    req.end(payload);
+  });
+}
+
 // Returns the usage view model ({ windows: [...] }) or null when there is no
 // usable OAuth token or the call fails — the renderer hides the meter on null.
-async function readUsage() {
-  const token = readOauthToken();
+// `configDir` picks the account (default: the active one).
+async function readUsage(configDir = activeConfigDir()) {
+  const token = readOauthToken(configDir);
   return token ? fetchUsage(token) : null;
 }
 
@@ -336,10 +378,13 @@ async function readUsage() {
 // Best effort: an unreadable or unparsable config is left alone rather than
 // replaced, and the session then just shows the dialog as before. Written via a
 // temp file + rename so a concurrently starting `claude` never reads half a file.
-function ensureFolderTrusted(dir) {
+// `accountConfigDir` is the account the session spawns as (null: the default one,
+// which still honours a CLAUDE_CONFIG_DIR the app itself was launched with).
+function ensureFolderTrusted(dir, accountConfigDir = null) {
   if (!dir) return;
-  const configDir = process.env.CLAUDE_CONFIG_DIR || os.homedir();
-  const configPath = path.join(configDir, '.claude.json');
+  const configPath = accountConfigDir
+    ? claudeJsonPathFor(accountConfigDir, os.homedir())
+    : path.join(process.env.CLAUDE_CONFIG_DIR || os.homedir(), '.claude.json');
   try {
     let config = {};
     if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -356,5 +401,5 @@ function ensureFolderTrusted(dir) {
 module.exports = {
   resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage,
   // General-purpose access for other features (inline AI assist in the editor).
-  callMessages, runCli, readOauthToken, HAIKU_MODEL, CC_IDENTITY,
+  callMessages, runCli, readOauthToken, readOauthCreds, probeOauthToken, activeConfigDir, HAIKU_MODEL, CC_IDENTITY,
 };

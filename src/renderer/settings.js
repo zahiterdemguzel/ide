@@ -61,7 +61,9 @@ const DEFAULT_MODEL = 'default';
 const STORE = {
   theme: 'ide.theme', locale: 'ide.locale',
   model: 'ide.sessionModel', subagentModel: 'ide.subagentModel',
-  effort: 'ide.sessionEffort',
+  effort: 'ide.sessionEffort', menuFamily: 'ide.newSessionMenuFamily',
+  // Suffixed with a model family (`ide.lastModel.codex`) — see getLastModelOf.
+  lastModelPrefix: 'ide.lastModel.',
   statusLine: 'ide.statusLine',
 };
 const DEFAULT_THEME = 'dark';
@@ -148,6 +150,31 @@ export function getSubagentModel() { return readModel(STORE.subagentModel); }
 export function setSessionModel(id) {
   const ok = MODELS.some((m) => m.id === id) || CODEX_MODELS.some((m) => m.id === id) || isOllamaId(id);
   localStorage.setItem(STORE.model, ok ? id : DEFAULT_MODEL);
+  if (ok) localStorage.setItem(STORE.lastModelPrefix + modelFamily(id), id);
+}
+
+// The most recently used model of one family, remembered apart from the session model
+// (which may belong to another family). The New-session caret's effort rows spawn with
+// it. Falls back to the session model when it's in that family, then to the family's
+// first concrete model (Claude's is the inherit default).
+export function getLastModelOf(family) {
+  const inFamily = (v) => modelFamily(v) === family && getMergedModels().some((m) => m.id === v);
+  const stored = localStorage.getItem(STORE.lastModelPrefix + family);
+  if (inFamily(stored)) return stored;
+  const current = getSessionModel();
+  if (inFamily(current)) return current;
+  return getMergedModels().find((m) => modelFamily(m.id) === family)?.id || DEFAULT_MODEL;
+}
+
+// Which model family the New-session caret menu lists: Claude by default, but someone
+// who mostly runs Codex or local models can switch it in Settings → Agent models.
+export const NEW_SESSION_MENU_FAMILIES = ['claude', 'codex', 'ollama'];
+export function getNewSessionMenuFamily() {
+  const v = localStorage.getItem(STORE.menuFamily);
+  return NEW_SESSION_MENU_FAMILIES.includes(v) ? v : 'claude';
+}
+function setNewSessionMenuFamily(family) {
+  if (NEW_SESSION_MENU_FAMILIES.includes(family)) localStorage.setItem(STORE.menuFamily, family);
 }
 
 // The last effort chosen from the per-session badge, reused as the starting level for
@@ -221,6 +248,7 @@ export function initSettings() {
   const osNotifyBox = document.getElementById('settings-notifications');
   const modelSel = document.getElementById('settings-model');
   const subagentSel = document.getElementById('settings-subagent-model');
+  const menuFamilySel = document.getElementById('settings-new-session-menu');
 
   langSel.onchange = () => {
     localStorage.setItem(STORE.locale, langSel.value);
@@ -249,7 +277,8 @@ export function initSettings() {
   osNotifyBox.onchange = () => setOsNotificationsEnabled(osNotifyBox.checked);
   // The model defaults apply to the *next* session created (and pre-fill the
   // per-session picker); live sessions keep the model they spawned with.
-  modelSel.onchange = () => localStorage.setItem(STORE.model, modelSel.value);
+  modelSel.onchange = () => setSessionModel(modelSel.value);
+  menuFamilySel.onchange = () => setNewSessionMenuFamily(menuFamilySel.value);
   subagentSel.onchange = () => localStorage.setItem(STORE.subagentModel, subagentSel.value);
 
   // Fill both default-model dropdowns from the merged Claude + Codex + Ollama
@@ -285,6 +314,11 @@ export function initSettings() {
     // Fill the dropdowns from the cached Ollama list right away so the dialog can
     // open instantly; the refresh below updates them if anything changed.
     fillModelSelects();
+    fillSelect(
+      menuFamilySel,
+      NEW_SESSION_MENU_FAMILIES.map((f) => ({ value: f, label: t(`settings.menuFamily.${f}`) })),
+      getNewSessionMenuFamily(),
+    );
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();

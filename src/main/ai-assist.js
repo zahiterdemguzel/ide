@@ -6,18 +6,22 @@
 // dependency so they can be driven from plain node; `electron` is only required
 // when the IPC handlers register (see registerIpc at the bottom).
 
-const { callMessages, runCli, readOauthToken, CC_IDENTITY } = require('./claude');
+const { callMessages, runCli, readOauthToken, activeConfigDir, CC_IDENTITY } = require('./claude');
 const lib = require('./ai-assist-lib');
 
 // readOauthToken shells out to the macOS Keychain synchronously — far too slow
-// to run per keystroke — so keep the token for a while and re-read on a 401.
+// to run per keystroke — so keep the token for a while and re-read on a 401,
+// or as soon as the user switches to another account.
 const TOKEN_TTL_MS = 2 * 60 * 1000;
 let cachedToken = null;
 let cachedTokenAt = 0;
+let cachedTokenConfigDir = null;
 function currentToken() {
-  if (!cachedToken || Date.now() - cachedTokenAt > TOKEN_TTL_MS) {
-    cachedToken = readOauthToken();
+  const configDir = activeConfigDir();
+  if (!cachedToken || Date.now() - cachedTokenAt > TOKEN_TTL_MS || configDir !== cachedTokenConfigDir) {
+    cachedToken = readOauthToken(configDir);
     cachedTokenAt = Date.now();
+    cachedTokenConfigDir = configDir;
   }
   return cachedToken;
 }

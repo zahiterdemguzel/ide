@@ -1,7 +1,12 @@
-// WebSocket client for the desktop, reached over the cloud relay (server/relay.js).
-// The protocol mirrors the desktop's IPC 1:1: req/res with id correlation,
-// fire-and-forget sends, and ev pushes. Reconnects to the relay with backoff and
-// re-auths using the stored device token.
+// Client for the desktop. It always dials the cloud relay (server/relay.js) first —
+// that is how the two ends find each other — and, once authed there, asks for a
+// direct WebRTC link (p2p.ts). When the direct link authenticates, every frame moves
+// onto it and the relay socket is closed; if it can't be made, everything stays on
+// the relay. The protocol mirrors the desktop's IPC 1:1: req/res with id correlation,
+// fire-and-forget sends, and ev pushes. Reconnects with backoff and re-auths using
+// the stored device token.
+
+import { startDirectLink, type DirectAttempt } from './p2p';
 
 export type Ev = { t: 'ev'; ch: string; payload: unknown };
 
@@ -25,8 +30,17 @@ const READY_TIMEOUT_MS = 10000;
 // wrong — this is a poll for the desktop's return, and it should stay brisk.
 const REDIAL_MS = 3000;
 
+// Frames a relay socket still delivers after the direct link took over: answers to
+// requests that went out over it. Pushes arrive directly now, so any others are dupes.
+const RETIRING_RELAY_FRAMES = new Set(['res', 'fwd-ok', 'fwd-err']);
+
 export class Connection {
   private ws: WebSocket | null = null;
+  // A direct link being negotiated over the relay, and the one that took over.
+  private directAttempt: DirectAttempt | null = null;
+  private direct: DirectAttempt | null = null;
+  // The relay socket the direct link replaced, open only until it has answered.
+  private retiredRelay: WebSocket | null = null;
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private listeners = new Map<string, Set<(payload: unknown) => void>>();
@@ -68,6 +82,7 @@ export class Connection {
     this.closedByUser = false;
     this.suspended = false;
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    this.dropDirect();
     this.setState('connecting');
     const ws = new WebSocket(this.url);
     this.ws = ws;
@@ -89,6 +104,16 @@ export class Connection {
     ws.onmessage = (e) => {
       let msg: any;
       try { msg = JSON.parse(String(e.data)); } catch { return; } // one bad frame can't wedge the socket
+      if (msg.t === 'rtc-answer' || msg.t === 'rtc-ice' || msg.t === 'rtc-unavailable') {
+        this.directAttempt?.handleSignal(msg);
+        return;
+      }
+      if (this.ws !== ws) {
+        // Retired in favour of the direct link: only settle what it still owes.
+        if (RETIRING_RELAY_FRAMES.has(msg.t)) this.dispatch(msg);
+        if (ws === this.retiredRelay) this.closeRetiredRelayWhenDrained();
+        return;
+      }
       switch (msg.t) {
         case 'hello':
           if (this.auth.deviceToken) {
@@ -107,6 +132,7 @@ export class Connection {
           this.setState('ready');
           this.replayWatches();
           this.flushQueued();
+          this.tryDirectLink(ws);
           return;
         case 'auth-ok':
           this.deviceId = msg.deviceId;
@@ -115,6 +141,7 @@ export class Connection {
           this.setState('ready');
           this.replayWatches();
           this.flushQueued();
+          this.tryDirectLink(ws);
           return;
         case 'auth-err':
           this.closedByUser = true; // don't retry a bad credential in a loop
@@ -124,29 +151,8 @@ export class Connection {
           this.setState('error');
           ws.close();
           return;
-        case 'res': {
-          const p = this.pending.get(msg.id);
-          if (!p) return;
-          clearTimeout(p.timer);
-          this.pending.delete(msg.id);
-          if (msg.ok) p.resolve(msg.result); else p.reject(new Error(msg.error));
-          return;
-        }
-        case 'ev':
-          this.listeners.get(msg.ch)?.forEach((fn) => fn(msg.payload));
-          return;
-        case 'fwd-ok': {
-          const w = this.fwdWaiters.get(msg.port);
-          this.fwdWaiters.delete(msg.port);
-          w?.resolve(msg.url);
-          return;
-        }
-        case 'fwd-err': {
-          const w = this.fwdWaiters.get(msg.port);
-          this.fwdWaiters.delete(msg.port);
-          w?.reject(new Error(msg.error));
-          return;
-        }
+        default:
+          this.dispatch(msg);
       }
     };
 
@@ -157,10 +163,8 @@ export class Connection {
       // token is still good — tell the app so it can fall back to the waiting screen
       // while the reconnect loop below keeps dialling until the desktop returns.
       if (e?.code === 4002) this.desktopGoneListeners.forEach((fn) => fn());
-      for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('connection closed')); }
-      this.pending.clear();
-      for (const w of this.fwdWaiters.values()) w.reject(new Error('connection closed'));
-      this.fwdWaiters.clear();
+      this.dropDirect(); // its signaling went with this socket
+      this.failPending();
       if (this.closedByUser) { if (this.state !== 'error') this.setState('closed'); return; }
       if (this.suspended) { this.setState('closed'); return; } // resume() reconnects on foreground
       this.setState('connecting');
@@ -173,9 +177,125 @@ export class Connection {
     ws.onerror = () => ws.close();
   }
 
+  // The frames every live transport carries alike: responses, pushes, forwards.
+  private dispatch(msg: any) {
+    switch (msg.t) {
+      case 'res': {
+        const p = this.pending.get(msg.id);
+        if (!p) return;
+        clearTimeout(p.timer);
+        this.pending.delete(msg.id);
+        if (msg.ok) p.resolve(msg.result); else p.reject(new Error(msg.error));
+        return;
+      }
+      case 'ev':
+        this.listeners.get(msg.ch)?.forEach((fn) => fn(msg.payload));
+        return;
+      case 'fwd-ok': {
+        const w = this.fwdWaiters.get(msg.port);
+        this.fwdWaiters.delete(msg.port);
+        w?.resolve(msg.url);
+        return;
+      }
+      case 'fwd-err': {
+        const w = this.fwdWaiters.get(msg.port);
+        this.fwdWaiters.delete(msg.port);
+        w?.reject(new Error(msg.error));
+        return;
+      }
+    }
+  }
+
+  private failPending() {
+    for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('connection closed')); }
+    this.pending.clear();
+    for (const w of this.fwdWaiters.values()) w.reject(new Error('connection closed'));
+    this.fwdWaiters.clear();
+  }
+
+  // Authed on the relay: ask the desktop for a direct link. Nothing waits on it — the
+  // app is already usable over the relay, and the switch is invisible when it lands.
+  private tryDirectLink(relay: WebSocket) {
+    if (this.direct || !this.auth.deviceToken) return;
+    this.directAttempt?.close();
+    const attempt: DirectAttempt | null = startDirectLink({
+      sendSignal: (msg) => { if (this.ws === relay && relay.readyState === WebSocket.OPEN) relay.send(JSON.stringify(msg)); },
+      onOpen: () => {}, // the desktop's hub greets us with `hello` on the channel
+      onFrame: (text) => { if (attempt) this.onDirectFrame(attempt, text); },
+      onClosed: () => { if (attempt) this.onDirectClosed(attempt); },
+    });
+    this.directAttempt = attempt;
+  }
+
+  // The channel runs its own hello → auth like any fresh socket; it only takes over
+  // once the desktop has accepted our device token on it.
+  private onDirectFrame(attempt: DirectAttempt, text: string) {
+    let msg: any;
+    try { msg = JSON.parse(text); } catch { return; }
+    if (attempt === this.direct) { this.dispatch(msg); return; }
+    if (attempt !== this.directAttempt) return;
+    if (msg.t === 'hello' && this.auth.deviceToken) {
+      attempt.send(JSON.stringify({ t: 'auth', deviceToken: this.auth.deviceToken }));
+    } else if (msg.t === 'auth-ok') {
+      this.promoteDirect(attempt);
+    } else if (msg.t === 'auth-err') {
+      attempt.close(); // the relay accepted the same token, so just stay on it
+    }
+  }
+
+  private promoteDirect(attempt: DirectAttempt) {
+    this.directAttempt = null;
+    this.direct = attempt;
+    // The desktop forgets watches per client, and this link is a new client.
+    this.replayWatches();
+    const relay = this.ws;
+    this.ws = null; // from here its close is no longer a disconnect
+    if (!relay) return;
+    this.retiredRelay = relay;
+    setTimeout(() => relay.close(), REQ_TIMEOUT_MS);
+    this.closeRetiredRelayWhenDrained();
+  }
+
+  // Requests sent over the relay before the switch still get their answers there, so
+  // it closes once nothing is outstanding — or after a request's timeout at the latest.
+  private closeRetiredRelayWhenDrained() {
+    if (!this.retiredRelay || this.pending.size > 0 || this.fwdWaiters.size > 0) return;
+    this.retiredRelay.close();
+    this.retiredRelay = null;
+  }
+
+  private onDirectClosed(attempt: DirectAttempt) {
+    if (attempt === this.directAttempt) { this.directAttempt = null; return; } // never took over: stay on the relay
+    if (attempt !== this.direct) return;
+    this.direct = null;
+    this.failPending();
+    if (this.closedByUser || this.suspended) { if (this.state !== 'error') this.setState('closed'); return; }
+    // Back through the relay, which offers a fresh direct link once authed.
+    this.connect();
+  }
+
+  private dropDirect() {
+    const direct = this.direct;
+    const attempt = this.directAttempt;
+    this.direct = null;
+    this.directAttempt = null;
+    direct?.close();
+    attempt?.close();
+  }
+
+  private sendFrame(frame: string) {
+    if (this.direct) this.direct.send(frame); else this.ws?.send(frame);
+  }
+
+  private get live(): boolean {
+    return this.state === 'ready' && (!!this.direct || !!this.ws);
+  }
+
   close() {
     this.closedByUser = true;
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    this.dropDirect();
+    this.failPending();
     this.ws?.close();
     this.setState('closed');
   }
@@ -187,6 +307,8 @@ export class Connection {
     if (this.closedByUser) return; // unpaired / auth-err: stay closed
     this.suspended = true;
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    if (this.direct) { this.failPending(); this.setState('closed'); }
+    this.dropDirect();
     this.ws?.close();
   }
 
@@ -204,10 +326,10 @@ export class Connection {
   // legitimately huge or slow (a multi-MB read-asset-chunk crossing the relay) —
   // without it the 20s default declares the socket dead mid-transfer and closes it.
   req<T = unknown>(ch: string, args?: unknown, opts?: { timeoutMs?: number }): Promise<T> {
-    if (this.state !== 'ready' || !this.ws) return Promise.reject(new Error('not connected'));
+    if (!this.live) return Promise.reject(new Error('not connected'));
     const id = this.nextId++;
-    const ws = this.ws;
-    ws.send(JSON.stringify({ t: 'req', id, ch, args }));
+    const link = this.direct ?? this.ws;
+    this.sendFrame(JSON.stringify({ t: 'req', id, ch, args }));
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -216,7 +338,9 @@ export class Connection {
         // reset) — the OS won't tell us for minutes. Close it so onclose fires and
         // the normal reconnect path heals it, instead of every later request also
         // burning 20s. Event-driven: no keepalive pings, no battery cost.
-        if (this.ws === ws && this.state === 'ready') ws.close();
+        if (this.state !== 'ready') return;
+        if (this.direct && link === this.direct) this.direct.close();
+        else if (this.ws && link === this.ws) this.ws.close();
       }, opts?.timeoutMs ?? REQ_TIMEOUT_MS);
       this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
     });
@@ -228,27 +352,27 @@ export class Connection {
   // in its browser. `path` ('/admin') is the page to land on — the whole site is
   // forwarded either way, so from there the browser can walk to any other path.
   forwardPort(port: number, path?: string): Promise<string> {
-    if (this.state !== 'ready' || !this.ws) return Promise.reject(new Error('not connected'));
-    this.ws.send(JSON.stringify({ t: 'fwd-open', port, path }));
+    if (!this.live) return Promise.reject(new Error('not connected'));
+    this.sendFrame(JSON.stringify({ t: 'fwd-open', port, path }));
     return new Promise((resolve, reject) => this.fwdWaiters.set(port, { resolve, reject }));
   }
 
   closeForward(port: number) {
-    if (this.state === 'ready' && this.ws) this.ws.send(JSON.stringify({ t: 'fwd-close', port }));
+    if (this.live) this.sendFrame(JSON.stringify({ t: 'fwd-close', port }));
   }
 
   send(ch: string, args?: unknown, opts?: { queue?: boolean }) {
     const frame = JSON.stringify({ t: 'send', ch, args });
-    if (this.state === 'ready' && this.ws) { this.ws.send(frame); return; }
+    if (this.live) { this.sendFrame(frame); return; }
     // Not ready: drop it unless the caller asked us to hold it across the reconnect.
     if (opts?.queue) this.queued.push(frame);
   }
 
   private flushQueued() {
-    if (!this.queued.length || !this.ws) return;
+    if (!this.queued.length || !this.live) return;
     const frames = this.queued;
     this.queued = [];
-    for (const frame of frames) this.ws.send(frame);
+    for (const frame of frames) this.sendFrame(frame);
   }
 
   // Subscribe to one stream (a session's transcript, a terminal's bytes) for as long
@@ -258,8 +382,8 @@ export class Connection {
     const key = `${ch}\n${id}`;
     const n = (this.watchCounts.get(key) ?? 0) + 1;
     this.watchCounts.set(key, n);
-    if (n === 1 && this.state === 'ready' && this.ws) {
-      this.ws.send(JSON.stringify({ t: 'watch', ch, id, on: true }));
+    if (n === 1 && this.live) {
+      this.sendFrame(JSON.stringify({ t: 'watch', ch, id, on: true }));
     }
     let done = false;
     return () => {
@@ -268,8 +392,8 @@ export class Connection {
       const left = (this.watchCounts.get(key) ?? 1) - 1;
       if (left > 0) { this.watchCounts.set(key, left); return; }
       this.watchCounts.delete(key);
-      if (this.state === 'ready' && this.ws) {
-        this.ws.send(JSON.stringify({ t: 'watch', ch, id, on: false }));
+      if (this.live) {
+        this.sendFrame(JSON.stringify({ t: 'watch', ch, id, on: false }));
       }
     };
   }
@@ -277,10 +401,10 @@ export class Connection {
   // A fresh (or re-authed) socket knows nothing of our subscriptions — restate them
   // before any queued sends, so a stream a screen is showing resumes without a gap.
   private replayWatches() {
-    if (!this.ws) return;
+    if (!this.live) return;
     for (const key of this.watchCounts.keys()) {
       const i = key.indexOf('\n');
-      this.ws.send(JSON.stringify({ t: 'watch', ch: key.slice(0, i), id: key.slice(i + 1), on: true }));
+      this.sendFrame(JSON.stringify({ t: 'watch', ch: key.slice(0, i), id: key.slice(i + 1), on: true }));
     }
   }
 

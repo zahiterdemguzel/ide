@@ -12,7 +12,7 @@ const debug = debugFor('hub');
 
 let nextClientNo = 1;
 
-// opts: { invoke, deviceStore, appVersion, forward, onDisconnect, onClientsChanged, pairing }
+// opts: { invoke, deviceStore, appVersion, forward, p2p, onDisconnect, onClientsChanged, pairing }
 function createHub(opts) {
   const { invoke, deviceStore, appVersion = '' } = opts;
   const pairing = opts.pairing || auth.createPairingState();
@@ -148,6 +148,19 @@ function createHub(opts) {
         return;
       }
 
+      // Direct-link signaling: the embedder injects `p2p` (p2p-host.js). The phone
+      // proved itself on this socket, so it may ask for a peer connection; the link
+      // that results authenticates again on its own before it carries anything.
+      if (msg.t === 'rtc-offer' || msg.t === 'rtc-ice') {
+        if (!opts.p2p) {
+          trace('rtc denied', { reason: 'p2p-unavailable' });
+          return reply(proto.rtcUnavailable());
+        }
+        trace('rtc signal', { t: msg.t });
+        opts.p2p.signal(client.no, msg, reply);
+        return;
+      }
+
       // Port forwarding: the embedder injects `forward`; without it the feature
       // is off. open() mints a relay entry URL the phone's browser can reach.
       if (msg.t === 'fwd-open') {
@@ -176,6 +189,9 @@ function createHub(opts) {
       if (!client.open) return;
       client.open = false;
       if (clients.delete(client)) notifyClients();
+      // A negotiation still in flight dies with the socket carrying its signaling; a
+      // direct link that already opened lives on — it is a client of its own.
+      if (opts.p2p) { try { opts.p2p.release(client.no); } catch {} }
       // A device that vanishes (locked phone, dropped Wi-Fi) can't release what it
       // was holding, so tell the embedder which one left — but only once it's
       // really gone: the same device may hold another live socket (a reconnect).

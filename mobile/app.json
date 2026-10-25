@@ -35,6 +35,13 @@
       "expo-asset",
       "expo-font",
       [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Scan the pairing QR code shown by the desktop IDE.",
+          "microphonePermission": "Not used: IDE Remote only uses WebRTC for a direct data connection to your desktop."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Attach a screenshot or photo to a message you send Claude.",

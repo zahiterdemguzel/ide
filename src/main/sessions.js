@@ -9,6 +9,8 @@ const { resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
+const accounts = require('./accounts');
+const { accountEnv, planAccountMove, shouldMoveAfterState } = require('./accounts-lib');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
@@ -331,6 +333,7 @@ function setSessionState(id, state) {
   // says nothing about whether the session is still busy.
   if (state !== 'working') s.tool = null;
   persistSession(id);
+  moveToActiveAccountIfSettled(id, state);
 }
 
 // Paint and persist a state the main process derived itself (not the hook stream,
@@ -727,6 +730,41 @@ function sessionEnv(models) {
   return { ...cleanEnv(process.env), ...modelEnv(models) };
 }
 
+// The CLAUDE_CONFIG_DIR of the account a Claude session was just spawned as
+// (spawnPty sets `accountId`); {} for the default account and non-Claude sessions.
+function accountEnvFor(s) {
+  return s && s.accountId ? accountEnv(accounts.accountById(s.accountId)) : {};
+}
+
+// The shape planAccountMove/shouldMoveAfterState read off a live session record.
+function accountMoveView(id, s) {
+  return { id, live: !!s.pty, family: modelFamily(s.model), accountId: s.accountId, state: s.state };
+}
+
+// Switching accounts moves every open Claude session onto the new account: it is
+// restarted with `--resume`, continuing the same conversation (the transcripts are
+// shared between account folders — see accounts.js). A session mid-turn isn't cut
+// off; it moves when the turn ends (setSessionState).
+accounts.onActiveAccountChanged((activeId) => {
+  const { now } = planAccountMove([...sessions].map(([id, s]) => accountMoveView(id, s)), activeId);
+  for (const id of now) respawnSession(id, sessions.get(id), 'moving session to another account');
+});
+
+// A session that ran as another account when the user switched moves once it
+// settles. Deferred a beat so the hook whose state change brought us here gets its
+// answer before the CLI that sent it is restarted.
+function moveToActiveAccountIfSettled(id, state) {
+  const s = sessions.get(id);
+  if (!s || !shouldMoveAfterState(accountMoveView(id, s), state, accounts.activeAccount().id)) return;
+  setTimeout(() => {
+    const cur = sessions.get(id);
+    if (cur && cur.pty && !cur.respawning
+      && shouldMoveAfterState(accountMoveView(id, cur), cur.state, accounts.activeAccount().id)) {
+      respawnSession(id, cur, 'moving session to another account');
+    }
+  }, 500);
+}
+
 // A session whose model is an `ollama:<name>` id can't talk to Anthropic — the
 // `claude` CLI must be pointed at the local translation proxy instead. This
 // starts the embedded engine + proxy (lazy) and returns the env that routes the
@@ -1101,7 +1139,12 @@ async function spawnPty(id, cols, rows, resume) {
     // the effort it was last set to (see agent-effort.js). `auto` passes no flag at all.
     const startArg = resume ? ['--resume', id] : ['--session-id', id];
     exe = await resolveClaude();
-    ensureFolderTrusted(sessionCwd(s));
+    // Every spawn runs as the account active right now; remembering which one lets
+    // an account switch find the sessions still running as the old one.
+    const account = accounts.activeAccount();
+    accounts.linkSharedConfig(account);
+    if (s) s.accountId = account.id;
+    ensureFolderTrusted(sessionCwd(s), account.configDir);
     args = [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings(id)];
   }
   // An Ollama model routes the CLI through the local proxy; a Claude (or Codex)
@@ -1119,7 +1162,7 @@ async function spawnPty(id, cols, rows, resume) {
     // (bare name) and adds the base-url/auth for an Ollama session. A Codex spawn
     // needs neither — its model rides on the argv above — so it gets the plain
     // cleaned env.
-    env: family === 'codex' ? cleanEnv(process.env) : { ...sessionEnv(s), ...route },
+    env: family === 'codex' ? cleanEnv(process.env) : { ...sessionEnv(s), ...accountEnvFor(s), ...route },
   });
   // A fresh PTY draws its own screen from scratch, so anything retained from a
   // previous run of this session is stale — start the tail empty on every spawn.
