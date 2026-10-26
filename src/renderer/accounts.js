@@ -8,6 +8,7 @@ import {
 import { registerTerminalLinks } from './terminal-links.js';
 import {
   fiveHourUtilization, switchPromptKey, rankSwitchTargets, usageLevel, accountInitials, reloginPromptKey,
+  autoSwitchKey, pickAutoSwitchTarget,
 } from './shared/account-switch.js';
 
 // --- toolbar account switcher (multiple Claude accounts) ---
@@ -15,7 +16,9 @@ import {
 // every account with its 5-hour usage, switches with one click, and adds or signs
 // in accounts. Each account is its own Claude Code config folder in main (see
 // src/main/accounts.js), so switching never signs anyone out. When the active
-// account crosses 95% of its 5-hour window, the user is asked whether to switch.
+// account crosses 95% of its 5-hour window, the user is asked whether to switch;
+// at 98% of any window it switches on its own, but only to an account with no
+// weekly limit.
 
 const switcher = document.getElementById('account-switcher');
 const button = document.getElementById('account-btn');
@@ -302,7 +305,7 @@ async function offerSwitch(key) {
     const pct = Math.round((fiveHourUtilization(usageById[current.id]) ?? 0.95) * 100);
     const targets = rankSwitchTargets(state.accounts, usageById, state.activeId).filter((r) => r.account.loggedIn);
     const title = t('accounts.limitTitle');
-    const intro = t('accounts.limitBody').replace('{name}', displayName(current)).replace('{pct}', pct);
+    const intro = `${t('accounts.limitBody').replace('{name}', displayName(current)).replace('{pct}', pct)}\n\n${t('accounts.autoSwitchHint')}`;
 
     if (!targets.length) {
       const add = await openDialog({
@@ -345,6 +348,49 @@ async function offerSwitch(key) {
     promptOpen = false;
   }
   askToRenewExpiredLogin(); // held back while this prompt was open
+}
+
+// --- the 98% automatic switch ---
+
+// When no account qualifies, look again now and then — a reading may have failed,
+// or an account been signed in — without fetching every account's usage each poll.
+const AUTO_SWITCH_RETRY_MS = 5 * 60 * 1000;
+let autoSwitching = false;
+let lastAutoSwitchAttempt = 0;
+
+// Not held back by an open prompt: the user may be away, and the 95% question
+// still sitting on screen is exactly the case this is for. Resolves to whether it
+// switched.
+async function autoSwitch(key) {
+  if (autoSwitching || Date.now() - lastAutoSwitchAttempt < AUTO_SWITCH_RETRY_MS) return false;
+  autoSwitching = true;
+  lastAutoSwitchAttempt = Date.now();
+  try {
+    await refreshAccounts();
+    try { usageById = (await window.api.accountsUsage()) || {}; } catch { return false; }
+    const target = pickAutoSwitchTarget(state.accounts, usageById, state.activeId);
+    if (!target) return false;
+    const from = activeAccount();
+    rememberPrompted(key);
+    await switchTo(target.id);
+    lastAutoSwitchAttempt = 0; // the new account may need its own switch later
+    // Replaces the 95% prompt if it's still open, and tells whoever comes back what happened.
+    openDialog({
+      title: t('accounts.autoSwitchedTitle'),
+      body: t('accounts.autoSwitchedBody').replace('{from}', from ? displayName(from) : '').replace('{to}', displayName(target)),
+      singleton: 'account-switch',
+      buttons: [{ label: t('accounts.done'), value: true, variant: 'primary' }],
+    });
+    return true;
+  } finally {
+    autoSwitching = false;
+  }
+}
+
+// Whether usage should keep being read while the window is in the background: only
+// worth a token per poll when there is another account the auto-switch could use.
+export function wantsBackgroundUsage() {
+  return state.accounts.filter((a) => a.loggedIn).length > 1;
 }
 
 // --- expired logins ---
@@ -391,6 +437,8 @@ function recheckIfUsageWentBlank(view) {
 async function onUsage(view) {
   await firstLoad;
   recheckIfUsageWentBlank(view);
+  const autoKey = autoSwitchKey(state.activeId, view);
+  if (autoKey && !prompted.has(autoKey) && await autoSwitch(autoKey)) return;
   const key = switchPromptKey(state.activeId, view);
   if (key && !prompted.has(key)) offerSwitch(key);
 }

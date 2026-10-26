@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState, hooksSettings, normalizeHookPayload, ORIGIN_STALE_MS } = require('../src/main/hook-events');
+const { eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState, hooksSettings, normalizeHookPayload, isUsageLimitStop, ORIGIN_STALE_MS } = require('../src/main/hook-events');
 
 test('eventToState: Stop -> completed', () => {
   assert.equal(eventToState({ hook_event_name: 'Stop' }), 'completed');
@@ -123,6 +123,24 @@ test('deriveStatus: no subagents — main Stop completes immediately (unchanged 
     { hook_event_name: 'Stop' },
   ]);
   assert.deepEqual(states, ['working', 'working', 'completed']);
+});
+
+test('deriveStatus: a turn ended by an API error (StopFailure) settles as interrupted', () => {
+  const { states, tracking } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Edit' },
+    { hook_event_name: 'StopFailure', error: 'rate_limit' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'interrupted']);
+  assert.equal(tracking.stopped, true);
+  assert.equal(eventToState({ hook_event_name: 'StopFailure' }), 'interrupted');
+});
+
+test('isUsageLimitStop: only a main-thread StopFailure for a rate limit', () => {
+  assert.equal(isUsageLimitStop({ hook_event_name: 'StopFailure', error: 'rate_limit' }), true);
+  assert.equal(isUsageLimitStop({ hook_event_name: 'StopFailure', error: 'overloaded' }), false);
+  assert.equal(isUsageLimitStop({ hook_event_name: 'StopFailure', error: 'rate_limit', agent_id: 'a' }), false);
+  assert.equal(isUsageLimitStop({ hook_event_name: 'Stop' }), false);
 });
 
 test('deriveStatus: a blocking subagent that finishes before main still completes on Stop', () => {
@@ -481,7 +499,7 @@ test('shouldApplyState: idle does NOT downgrade a meaningful current state (resu
 test('hooksSettings: wires every tracked event to a curl POST on the given port', () => {
   const cfg = JSON.parse(hooksSettings(54321));
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
-    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'SubagentStop'];
+    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStop'];
   assert.deepEqual(Object.keys(cfg.hooks).sort(), [...events].sort());
   for (const e of events) {
     const cmd = cfg.hooks[e][0].hooks[0].command;

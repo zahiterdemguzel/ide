@@ -17,7 +17,7 @@ import { initClaudeSetup } from './claude-setup.js';
 import { initSettings, cycleTheme } from './settings.js';
 import { initRemotePane } from './remote-pane.js';
 import { initUsageMeter } from './usage-meter.js';
-import { initAccounts } from './accounts.js';
+import { initAccounts, wantsBackgroundUsage } from './accounts.js';
 import { initPanels } from './panels.js';
 import { refreshWorktreeToggle, setTreeScope } from './worktrees.js';
 import { initOnboarding, activateOnboarding, startTour, openCheatSheet } from './onboarding/index.js';
@@ -221,7 +221,7 @@ initRemotePane();
 // Toolbar meter for the user's remaining Claude subscription usage (after
 // initSettings so its labels are translated).
 initAccounts(); // first: it listens for the meter's readings
-initUsageMeter();
+initUsageMeter({ pollInBackground: wantsBackgroundUsage });
 initPanels();
 initConsoles();
 // On every launch, detect whether the Claude Code CLI is installed and, if not,

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SWITCH_THRESHOLD, fiveHourUtilization, switchPromptKey, rankSwitchTargets, usageLevel, accountInitials,
-  reloginPromptKey,
+  reloginPromptKey, AUTO_SWITCH_THRESHOLD, hasWeeklyLimit, autoSwitchKey, pickAutoSwitchTarget,
 } from '../src/renderer/shared/account-switch.js';
 
 const view = (fiveHour, resetAt = 1700000000) => ({
@@ -62,4 +62,60 @@ test('reloginPromptKey: only an expired login asks, once per login', () => {
   assert.equal(reloginPromptKey(null), null);
   assert.equal(reloginPromptKey({ id: 'a', login: 'expired', loginStamp: 1 }), 'a:1');
   assert.notEqual(reloginPromptKey({ id: 'a', login: 'expired', loginStamp: 2 }), 'a:1');
+});
+
+const noWeekly = (fiveHour, resetAt = 1700000000) => ({ windows: [{ key: '5h', utilization: fiveHour, resetAt }] });
+
+test('hasWeeklyLimit: a 7-day window means a weekly limit', () => {
+  assert.equal(hasWeeklyLimit(view(0.1)), true);
+  assert.equal(hasWeeklyLimit(noWeekly(0.1)), false);
+  assert.equal(hasWeeklyLimit(null), false);
+});
+
+test('autoSwitchKey: fires at 98% of either window, once per window + reset', () => {
+  assert.equal(AUTO_SWITCH_THRESHOLD, 0.98);
+  assert.equal(autoSwitchKey('a', view(0.97)), null);
+  assert.equal(autoSwitchKey('a', view(0.98)), 'a:auto:5h:1700000000');
+  const weeklyFull = { windows: [{ key: '5h', utilization: 0.3, resetAt: 1 }, { key: '7d', utilization: 0.99, resetAt: 2 }] };
+  assert.equal(autoSwitchKey('a', weeklyFull), 'a:auto:7d:2');
+  assert.notEqual(autoSwitchKey('a', view(1, 1)), autoSwitchKey('a', view(1, 2)));
+  assert.equal(autoSwitchKey('', view(1)), null);
+  assert.equal(autoSwitchKey('a', null), null);
+});
+
+test('pickAutoSwitchTarget: never picks an account with a weekly limit', () => {
+  const accounts = [
+    { id: 'active', loggedIn: true },
+    { id: 'weekly', loggedIn: true },
+    { id: 'free', loggedIn: true },
+  ];
+  // The weekly-limited account has far more headroom, and still loses.
+  const usage = { weekly: view(0), free: noWeekly(0.6) };
+  assert.equal(pickAutoSwitchTarget(accounts, usage, 'active').id, 'free');
+  assert.equal(pickAutoSwitchTarget(accounts, { weekly: view(0) }, 'active'), null);
+});
+
+test('pickAutoSwitchTarget: skips unknown usage, signed-out, nearly-full and the active account', () => {
+  const accounts = [
+    { id: 'active', loggedIn: true },
+    { id: 'unknown', loggedIn: true },
+    { id: 'signedOut', loggedIn: false },
+    { id: 'nearlyFull', loggedIn: true },
+    { id: 'rejected', loggedIn: true },
+    { id: 'busy', loggedIn: true },
+    { id: 'fresh', loggedIn: true },
+  ];
+  const usage = {
+    active: noWeekly(0),
+    signedOut: noWeekly(0),
+    nearlyFull: noWeekly(0.95),
+    rejected: noWeekly(1),
+    busy: noWeekly(0.5),
+    fresh: noWeekly(0.2),
+  };
+  assert.equal(pickAutoSwitchTarget(accounts, usage, 'active').id, 'fresh');
+  delete usage.fresh;
+  assert.equal(pickAutoSwitchTarget(accounts, usage, 'active').id, 'busy');
+  delete usage.busy;
+  assert.equal(pickAutoSwitchTarget(accounts, usage, 'active'), null);
 });

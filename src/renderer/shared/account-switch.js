@@ -20,6 +20,41 @@ export function switchPromptKey(accountId, view, threshold = SWITCH_THRESHOLD) {
   return `${accountId}:${win.resetAt ?? ''}`;
 }
 
+// Past this, the app stops asking and switches on its own (the user may be away
+// with sessions running unattended) — but only ever to an account with no weekly
+// limit (see pickAutoSwitchTarget).
+export const AUTO_SWITCH_THRESHOLD = 0.98;
+
+// Whether a usage reading shows a weekly (7-day) window. Accounts on plans without
+// a weekly limit get no 7-day headers at all, so its absence is the tell.
+export function hasWeeklyLimit(view) {
+  return !!(view && Array.isArray(view.windows) && view.windows.some((w) => w.key === '7d'));
+}
+
+// A key naming "this account crossed the auto-switch threshold in this window", or
+// null. Any window counts: a full weekly window stalls a session as surely as a full
+// 5-hour one. One key per window + reset, so each limit switches once.
+export function autoSwitchKey(accountId, view, threshold = AUTO_SWITCH_THRESHOLD) {
+  if (!accountId || !view || !Array.isArray(view.windows)) return null;
+  const full = view.windows.find((w) => typeof w.utilization === 'number' && w.utilization >= threshold);
+  return full ? `${accountId}:auto:${full.key}:${full.resetAt ?? ''}` : null;
+}
+
+// The account to switch to automatically, or null when none qualifies. Strict on
+// purpose — nobody is there to correct a bad pick: signed in, a fresh usage reading
+// (unknown usage can't prove there's no weekly limit), NO weekly window, and 5-hour
+// headroom below the prompt threshold so it isn't about to need a switch itself.
+// A maxed-out reading synthesized from a rejected request has a single window at
+// 100%, so the headroom rule keeps it out even when that window is the 5-hour one.
+export function pickAutoSwitchTarget(accounts, usageById, activeId) {
+  const eligible = rankSwitchTargets(accounts, usageById, activeId).filter(({ account, utilization }) => {
+    const view = usageById && usageById[account.id];
+    return account.loggedIn && view && !hasWeeklyLimit(view)
+      && utilization !== null && utilization < SWITCH_THRESHOLD;
+  });
+  return eligible.length ? eligible[0].account : null;
+}
+
 // The accounts worth switching to, best first: signed-in before signed-out, then
 // the most 5-hour headroom, with unknown usage after known.
 export function rankSwitchTargets(accounts, usageById, activeId) {

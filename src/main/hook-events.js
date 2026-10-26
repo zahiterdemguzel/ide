@@ -24,6 +24,7 @@ function eventToState(payload) {
   if (payload.agent_id) return null;
   switch (payload.hook_event_name) {
     case 'Stop': return 'completed';
+    case 'StopFailure': return 'interrupted';
     // Claude Code fires Notification for two very different things: a permission
     // prompt ("Claude needs your permission to use Bash") and the generic idle
     // notice ("Claude is waiting for your input"), which follows *every* finished
@@ -74,7 +75,21 @@ function spawnsSubagent(payload) {
 // yellow forever.
 function isSubagentStop(payload) {
   return payload.hook_event_name === 'SubagentStop'
-    || (payload.hook_event_name === 'Stop' && Boolean(payload.agent_id));
+    || (isStopEvent(payload.hook_event_name) && Boolean(payload.agent_id));
+}
+
+// Claude Code fires `StopFailure` *instead of* `Stop` when an API error (a usage
+// limit, an auth failure, an overload) ends the turn. It ends the turn just the
+// same, so it settles the session like a Stop — otherwise a session that hit its
+// limit sat yellow forever — but as `interrupted`: the work was cut off, not done.
+function isStopEvent(eventName) {
+  return eventName === 'Stop' || eventName === 'StopFailure';
+}
+
+// Whether the main conversation's turn was just cut off by a usage limit. Such a
+// session is told to carry on once it moves to another account (sessions.js).
+function isUsageLimitStop(payload) {
+  return payload.hook_event_name === 'StopFailure' && payload.error === 'rate_limit' && !payload.agent_id;
 }
 
 // The conversation a payload belongs to when the CLI reports no id of its own —
@@ -138,7 +153,8 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
   // working sat flat green. Stamped like `active` so an agent that dies without a
   // stop ages out instead of spinning forever.
   let agents = (tracking.agents || []).filter((a) => !now || now - a.at < ORIGIN_STALE_MS);
-  const ev = payload.hook_event_name;
+  const failed = payload.hook_event_name === 'StopFailure';
+  const ev = failed ? 'Stop' : payload.hook_event_name;
   const subagentStopped = isSubagentStop(payload);
   // Set for an event fired inside an agent's own context: it updates the
   // bookkeeping but never maps to a state of its own.
@@ -241,7 +257,7 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
   if (subagentStopped || ev === 'Stop') {
     if (backgroundOnly) return { state: 'bg-agents', tracking: next };
     if (!stopped || active.length || inFlight > 0) return { state: 'working', tracking: next };
-    return { state: 'completed', tracking: next };
+    return { state: failed ? 'interrupted' : 'completed', tracking: next };
   }
   // A background conversation's own activity mustn't paint the chat yellow either:
   // a fork churning away after the main agent stopped leaves the chat free, so it
@@ -312,7 +328,7 @@ function hooksSettings(port, statusLineCommand, ideId) {
   const cmd = `curl -s -X POST "${url}" -d @-`;
   const entry = [{ matcher: '*', hooks: [{ type: 'command', command: cmd }] }];
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
-    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'SubagentStop'];
+    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStop'];
   const hooks = {};
   for (const e of events) hooks[e] = entry;
   // Turn off agent view in every spawned session: this app already manages
@@ -344,5 +360,5 @@ function normalizeHookPayload(payload, ideId) {
 
 module.exports = {
   eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState,
-  hooksSettings, normalizeHookPayload, ORIGIN_STALE_MS,
+  hooksSettings, normalizeHookPayload, isUsageLimitStop, ORIGIN_STALE_MS,
 };

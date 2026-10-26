@@ -84,6 +84,7 @@ test('serialFsPlan: an orphaned baseline (Post skipped on tool error) is flushed
   const pre = { hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'mv a b' } };
   assert.equal(serialFsPlan(pre, true), 'diff-and-snapshot');
   assert.equal(serialFsPlan({ hook_event_name: 'Stop' }, true), 'diff');
+  assert.equal(serialFsPlan({ hook_event_name: 'StopFailure' }, true), 'diff');
 });
 
 test('serialFsPlan: no-ops without a baseline or for untracked tools', () => {

@@ -93,7 +93,30 @@ per key (remembered in `localStorage` `ide.accountSwitchPrompted`), so "Not now"
 until that window resets. The dialog lists the other signed-in accounts best-first
 (`rankSwitchTargets`: most 5-hour headroom), each with its own usage bar (fetched via
 `accounts-usage`, one 1-token call per account). With no other signed-in account it
-offers "Add account" instead.
+offers "Add account" instead. The prompt also says the 98% auto-switch exists.
+
+## The 98% automatic switch (unattended use)
+
+The user leaves sessions running while away, so past `AUTO_SWITCH_THRESHOLD` (98%)
+of **either** window (`autoSwitchKey`, one key per window + reset, stored with the
+asked-keys) `onUsage` switches without asking — only when `pickAutoSwitchTarget`
+finds an account that is signed in, has a fresh usage reading, has **no 7-day
+window** (no weekly limit — a hard rule from the user: never auto-switch to a
+weekly-limited account), and sits below 95% of its 5-hour window. No such account →
+nothing happens, the 95% prompt still shows, and it retries at most every 5 min.
+It isn't held back by an open prompt: the notice it shows (singleton
+`account-switch`) replaces a still-open 95% question. For this to work while the
+window is unfocused, `initUsageMeter({ pollInBackground })` keeps the 30s poll
+running in the background whenever `wantsBackgroundUsage()` (more than one
+signed-in account).
+
+**Cut-off turns carry on.** A turn that runs into the limit ends with a
+`StopFailure` hook (`error: 'rate_limit'`) instead of `Stop` (see
+[status-detection.md](status-detection.md)); `recordSessionActivity` sets
+`s.cutOffByUsageLimit` (cleared by the next main-thread prompt). When that session
+moves to another account (`moveToActiveAccount`), `continueOnceResumed` waits for
+the resumed TUI to go quiet (2s, 30s cap) and types a "continue where you left off"
+prompt — so the work goes on unattended.
 
 ## UI
 

@@ -25,7 +25,7 @@ const { settleTarget, sameTree } = require('./fs-watch-lib');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
-const { isInterruptKey, interruptOutcome } = require('./hook-events');
+const { isInterruptKey, interruptOutcome, isUsageLimitStop } = require('./hook-events');
 const push = require('./push');
 const { querySessions } = require('./session-query-lib');
 const { getProjectSettings } = require('./project-settings');
@@ -747,7 +747,7 @@ function accountMoveView(id, s) {
 // off; it moves when the turn ends (setSessionState).
 accounts.onActiveAccountChanged((activeId) => {
   const { now } = planAccountMove([...sessions].map(([id, s]) => accountMoveView(id, s)), activeId);
-  for (const id of now) respawnSession(id, sessions.get(id), 'moving session to another account');
+  for (const id of now) moveToActiveAccount(id, sessions.get(id));
 });
 
 // A session that ran as another account when the user switched moves once it
@@ -760,9 +760,42 @@ function moveToActiveAccountIfSettled(id, state) {
     const cur = sessions.get(id);
     if (cur && cur.pty && !cur.respawning
       && shouldMoveAfterState(accountMoveView(id, cur), cur.state, accounts.activeAccount().id)) {
-      respawnSession(id, cur, 'moving session to another account');
+      moveToActiveAccount(id, cur);
     }
   }, 500);
+}
+
+// The resumed CLI repaints for a while before its input box takes keystrokes; it
+// counts as ready once its output has been quiet this long.
+const RESUME_QUIET_MS = 2000;
+const RESUME_READY_TIMEOUT_MS = 30000;
+const CONTINUE_AFTER_LIMIT_PROMPT = 'Continue where you left off: the previous turn was cut off by a usage limit and this session has moved to another account.';
+
+function moveToActiveAccount(id, s) {
+  const continueAfterMove = !!s.cutOffByUsageLimit;
+  const movedAt = Date.now();
+  respawnSession(id, s, 'moving session to another account');
+  if (continueAfterMove) continueOnceResumed(id, movedAt);
+}
+
+// A turn the usage limit cut off would otherwise sit there until someone came back
+// to it — the whole point of switching accounts unattended is that the work goes on.
+async function continueOnceResumed(id, movedAt) {
+  const deadline = Date.now() + RESUME_READY_TIMEOUT_MS;
+  const isReady = (cur) => cur.pty && cur.lastDataAt > movedAt && Date.now() - cur.lastDataAt >= RESUME_QUIET_MS;
+  for (;;) {
+    const cur = sessions.get(id);
+    if (!cur || cur.suspended || Date.now() > deadline) return;
+    if (isReady(cur)) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const s = sessions.get(id);
+  // Someone typed into it meanwhile — their prompt already restarted the work.
+  if (!s || !s.pty || !s.cutOffByUsageLimit) return;
+  s.cutOffByUsageLimit = false;
+  s.pty.write(CONTINUE_AFTER_LIMIT_PROMPT);
+  await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
+  if (s.pty) s.pty.write('\r');
 }
 
 // A session whose model is an `ollama:<name>` id can't talk to Anthropic — the
@@ -1007,6 +1040,8 @@ async function recordSessionActivity(payload) {
   // chat on *every* payload, not only when the path changes: a session started from
   // scratch is told the path before Claude has created the file, so this is also what
   // brings the chat back once the file exists.
+  // Remembered so that moving the session to another account can tell it to carry on.
+  if (isUsageLimitStop(payload)) s.cutOffByUsageLimit = true;
   if (payload.transcript_path) {
     const isNew = s.transcript !== payload.transcript_path;
     s.transcript = payload.transcript_path;
@@ -1028,6 +1063,7 @@ async function recordSessionActivity(payload) {
     // fs-tracking counter — self-heals a stuck count if a Post hook ever failed
     // to fire, which would otherwise suppress every later snapshot.
     s.fsInFlight = 0;
+    s.cutOffByUsageLimit = false;
     s.preStatus = null;
     s.pendingEdits.clear();
     s.tool = null;

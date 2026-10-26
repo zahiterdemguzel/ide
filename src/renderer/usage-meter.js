@@ -7,8 +7,10 @@ import { usageLevel } from './shared/account-switch.js';
 // the 5-hour session limit and the weekly limit — as labelled sliders with a
 // "resets in …" countdown. The data comes from main's get-usage, which reads the
 // Messages API's unified rate-limit response headers (see src/main/usage-parse.js).
-// Polled every 30s, but only while this window has focus (a background window
-// shouldn't spend a token + round-trip per tick); hidden whenever main returns
+// Polled every 30s while this window has focus (a background window shouldn't spend
+// a token + round-trip per tick) — or in the background too when `pollInBackground`
+// says so (the account auto-switch must see the limit coming while the user is
+// away); hidden whenever main returns
 // null (no OAuth token, an API-key user, or a transient failure).
 
 const POLL_MS = 30000;
@@ -81,12 +83,12 @@ async function refresh() {
   window.dispatchEvent(new CustomEvent('usage-updated', { detail: view }));
 }
 
-export function initUsageMeter() {
+export function initUsageMeter({ pollInBackground = () => false } = {}) {
   build();
   refresh();
   // Poll every 30s, but skip the tick while this window is in the background so an
-  // unfocused app doesn't keep spending a token per round-trip.
-  setInterval(() => { if (document.hasFocus()) refresh(); }, POLL_MS);
+  // unfocused app doesn't keep spending a token per round-trip — unless asked to.
+  setInterval(() => { if (document.hasFocus() || pollInBackground()) refresh(); }, POLL_MS);
   // Refresh the moment focus returns, so coming back from the background shows
   // current numbers without waiting for the next tick.
   window.addEventListener('focus', refresh);
