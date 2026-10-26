@@ -128,6 +128,8 @@ function compoundMembers(compound) {
 // their toolbar would be empty here while VS Code shows every script. A tasks.json
 // entry with the same label still wins (that's how VS Code lets you customize a
 // detected task) — listRunConfigs adds these last and its dedupe drops the rest.
+// A project that does declare tasks has curated its toolbar, so the detected
+// scripts are skipped there; otherwise every script would crowd it out.
 const npmTaskLabel = (script) => `npm: ${script}`;
 
 // The task definition behind an auto-detected `npm: <script>` button. Returns null
@@ -160,12 +162,12 @@ function listRunConfigs(launchJson, tasksJson, npmScripts) {
       if (c && !isHidden(c)) take(launch, c.name, { name: c.name, compound: true, members: compoundMembers(c) });
     }
   }
-  if (tasksJson) {
-    for (const t of (tasksJson.tasks || [])) {
-      if (t && !t.hide) take(tasks, t.label || t.taskName, { name: t.label || t.taskName });
-    }
+  const declaredTasks = (tasksJson && tasksJson.tasks) || [];
+  for (const t of declaredTasks) {
+    if (t && !t.hide) take(tasks, t.label || t.taskName, { name: t.label || t.taskName });
   }
-  for (const script of (npmScripts || [])) take(tasks, npmTaskLabel(script), { name: npmTaskLabel(script) });
+  const detectedScripts = declaredTasks.length ? [] : (npmScripts || []);
+  for (const script of detectedScripts) take(tasks, npmTaskLabel(script), { name: npmTaskLabel(script) });
   return { launch, tasks };
 }
 

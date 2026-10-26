@@ -110,9 +110,10 @@ test('listRunConfigs: package.json scripts appear as auto-detected npm tasks', (
   assert.deepEqual(listRunConfigs(null, null, ['build', 'test']).tasks, [
     { name: 'npm: build' }, { name: 'npm: test' },
   ]);
-  // A tasks.json entry with the same label is the customized version and wins.
+  // A project that declares its own tasks has curated the toolbar: no detected scripts.
   const r = listRunConfigs(null, { tasks: [{ label: 'npm: build', command: 'yarn build' }] }, ['build', 'dev']);
-  assert.deepEqual(r.tasks, [{ name: 'npm: build' }, { name: 'npm: dev' }]);
+  assert.deepEqual(r.tasks, [{ name: 'npm: build' }]);
+  assert.deepEqual(listRunConfigs(null, { tasks: [] }, ['dev']).tasks, [{ name: 'npm: dev' }]);
 });
 
 test('autoDetectedNpmTask: only the npm: prefix synthesizes a task', () => {

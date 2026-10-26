@@ -4,6 +4,18 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Install deps",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "Start app",
+      "type": "shell",
+      "command": "npm start",
+      "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
       "label": "Build windows",
       "type": "shell",
       "command": "npm run build",
@@ -14,6 +26,13 @@
       "type": "shell",
       "command": "npm run build:android",
       "options": { "cwd": "${workspaceFolder}" }
+    },
+    {
+      "label": "Run tests",
+      "type": "shell",
+      "command": "npm test",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "test", "isDefault": true }
     }
   ]
 }
