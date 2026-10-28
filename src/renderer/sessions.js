@@ -11,6 +11,7 @@ import { ensureClaude, ensureCodex } from './claude-setup.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
+import { isSessionBusy, reconcileArchived } from './shared/session-archive.js';
 import {
   getSessionModel, getSubagentModel, setSessionModel, getSessionEffort, setSessionEffort,
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
@@ -333,12 +334,24 @@ export function setSessionsRepo(repo) {
   if (!s || !sessionVisible(s)) selectFirstVisible();
 }
 
+// Archive a row immediately in the UI; main is told in the same tick. The
+// pending flag holds this choice against stale list pushes until main echoes it
+// back (see reconcileArchived).
+function markArchived(s) {
+  s.pendingArchived = true;
+  suspendSessionUI(s);
+  s.archived = true;
+}
+
 async function setArchived(id, archived) {
   const s = sessions.get(id);
   if (!s) return;
-  if (archived) suspendSessionUI(s);
-  else await resumeSessionUI(s);
-  s.archived = archived;
+  if (archived) markArchived(s);
+  else {
+    s.pendingArchived = false;
+    await resumeSessionUI(s);
+    s.archived = false;
+  }
   applyTabFilter();
   if (activeId === id && !sessionVisible(s)) selectFirstVisible();
   else if (!archived && activeId === id) selectSession(id); // re-fit the rebuilt terminal
@@ -1055,17 +1068,21 @@ function syncSessions(list) {
         renderRowDiff(s);
         if (activeId === s.id) updateSessionBar();
       }
-      if (meta.archived !== s.archived) {
-        s.archived = meta.archived;
+      const next = reconcileArchived(s.archived, s.pendingArchived, meta.archived);
+      s.pendingArchived = next.pending;
+      if (next.archived !== s.archived) {
+        s.archived = next.archived;
         // Main has already killed the PTY, so mirror it in the UI only.
-        if (meta.archived) suspendSessionUI(s, { notifyMain: false });
+        if (next.archived) suspendSessionUI(s, { notifyMain: false });
       }
       // A session can come alive without its archived flag moving at all: a phone
       // opening one that was restored from disk resumes it in main, and this row is
       // still the startup placeholder (archived was false the whole time). So key the
       // rebuild off the PTY being live rather than off an archive→active edge, or the
       // desktop sits on "select to resume" while the session is already running.
-      if (meta.live && s.suspended) rebuildTerminalUI(s);
+      // An archived row never rebuilds: a `live` flag on it is a push from before
+      // main handled our archive, and the PTY is about to be killed.
+      if (meta.live && s.suspended && !s.archived) rebuildTerminalUI(s);
     }
   }
   for (const id of [...sessions.keys()]) if (!seen.has(id)) removeSessionUI(id);
@@ -1233,6 +1250,21 @@ const MERGE_ERRORS = {
 };
 
 sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); };
+
+// Sidebar "clear": archive every session of the open project that isn't busy.
+// All rows are archived before anything is re-selected — selecting a stopped row
+// resumes it, so picking the next row mid-loop would wake a session about to go.
+function clearIdleSessions() {
+  for (const s of sessions.values()) {
+    if (s.archived || isSessionBusy(s.state)) continue;
+    if (currentRepo !== undefined && s.repo !== currentRepo) continue;
+    markArchived(s);
+  }
+  applyTabFilter();
+  const cur = sessions.get(activeId);
+  if (!cur || !sessionVisible(cur)) selectFirstVisible();
+}
+document.getElementById('sessions-clear').onclick = clearIdleSessions;
 
 // --- per-session Diff dialog: floats over the live terminal (kept alive behind
 // it, so the user doesn't lose track of which session it is). Closes on the ×, on

@@ -53,6 +53,7 @@ export default {
     'sessions.tab.archived': 'Archiviert',
     'sessions.tab.all': 'Alle',
     'sessions.search': 'Archiv durchsuchen…',
+    'sessions.clearIdle': 'Sitzungen archivieren, die nicht arbeiten',
     'sessions.new': 'Neue Sitzung',
     'sessions.newWithModel': 'Neue Sitzung mit gewähltem Modell',
 

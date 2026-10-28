@@ -53,6 +53,7 @@ export default {
     'sessions.tab.archived': 'Arşivlenmiş',
     'sessions.tab.all': 'Tümü',
     'sessions.search': 'Arşivde ara…',
+    'sessions.clearIdle': 'Çalışmayan oturumları arşivle',
     'sessions.new': 'Yeni oturum',
     'sessions.newWithModel': 'Seçili modelle yeni oturum',
 
