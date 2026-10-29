@@ -2,6 +2,7 @@
 // effect (DOM event handlers, IPC listeners); this file then registers the
 // cross-module hand-offs and kicks off the initial loads.
 import './shared/bootstrap.js';
+import './shared/storage-sync.js'; // before any module that writes settings
 import { onClose, refreshDiagram } from './viewer/center.js';
 import { onEditorRepoChanged } from './viewer/file.js';
 import { showActiveSession, restoreSessions, setSessionsRepo, newSession, sessionNameForWorktree, setSessionScope } from './sessions.js';

@@ -34,6 +34,7 @@ require('./lsp'); // language servers for the editor (each spawns when a file of
 require('./runners');
 require('./consoles');
 require('./onboarding-store');
+require('./settings-store'); // the renderer's localStorage, mirrored to a file write by write
 require('./remote');
 require('./ollama'); // embedded Ollama engine + custom-models IPC (lazy — nothing starts here)
 require('./stt'); // voice input: Whisper recognizer + VAD (lazy — loads on first hover)

@@ -56,6 +56,7 @@ export default {
     'sessions.clearIdle': 'Archivar sesiones que no están trabajando',
     'sessions.new': 'Nueva sesión',
     'sessions.newWithModel': 'Nueva sesión con un modelo elegido',
+    'sessions.newWithEffort': 'Nueva sesión con esfuerzo {level}',
 
     'explorer.search': 'Buscar archivos…',
     'explorer.openFolder': 'Abrir carpeta',
@@ -365,6 +366,7 @@ export default {
     'voice.unavailable': 'La entrada de voz no está disponible — faltan los modelos de habla. Ejecuta «npm run fetch:stt» para descargarlos.',
     'settings.sessionDiffBadge': 'Estadísticas de diff en las sesiones',
     'settings.statusLine': 'Medidor de coste de tokens',
+    'settings.quickEffortButtons': 'Botones rápidos de esfuerzo',
     'settings.osNotifications': 'Notificaciones de escritorio',
     'settings.close': 'Cerrar',
     'settings.done': 'Listo',

@@ -57,6 +57,7 @@ export default {
     'sessions.clearIdle': "Archive sessions that aren't working",
     'sessions.new': 'New session',
     'sessions.newWithModel': 'New session with a chosen model',
+    'sessions.newWithEffort': 'New session at {level} effort',
 
     'explorer.search': 'Search files…',
     'explorer.openFolder': 'Open folder',
@@ -366,6 +367,7 @@ export default {
     'voice.unavailable': 'Voice input is unavailable — the speech models are missing. Run "npm run fetch:stt" to download them.',
     'settings.sessionDiffBadge': 'Diff stats on sessions',
     'settings.statusLine': 'Token cost meter',
+    'settings.quickEffortButtons': 'Quick effort buttons',
     'settings.osNotifications': 'Desktop notifications',
     'settings.close': 'Close',
     'settings.done': 'Done',

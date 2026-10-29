@@ -88,7 +88,7 @@ Monaco supplies most of VS Code's bindings: multi-cursor, Cmd/Ctrl+F/H find and 
   - EOL toggles LF/CRLF.
   - Language opens the Change Language Mode picker.
   - The LSP item restarts the server.
-  - AI toggles inline completions.
+  - AI toggles inline completions (**off by default** — every suggestion spends the user's tokens).
 
 ## Preview
 

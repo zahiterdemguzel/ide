@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EFFORTS, CODEX_EFFORTS, DEFAULT_EFFORT, effortsForFamily, effortNameForFamily,
+  EFFORTS, CODEX_EFFORTS, QUICK_EFFORTS, DEFAULT_EFFORT, effortsForFamily, effortNameForFamily,
 } from '../src/renderer/shared/effort-levels.js';
 import agentEffort from '../src/main/agent-effort.js';
 
@@ -83,5 +83,12 @@ test('a new session starts on a level its own ladder can show', () => {
       const start = defaultEffortFor(family, remembered);
       assert.ok(ids(effortsForFamily(family)).includes(start), `${family}/${remembered} off-ladder`);
     }
+  }
+});
+
+test('every quick-start effort button is a level both ladders offer', () => {
+  for (const { id } of QUICK_EFFORTS) {
+    assert.ok(EFFORTS.some((e) => e.id === id), `${id} missing from the claude ladder`);
+    assert.ok(CODEX_EFFORTS.some((e) => e.id === id), `${id} missing from the codex ladder`);
   }
 });

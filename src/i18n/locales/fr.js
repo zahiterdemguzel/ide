@@ -56,6 +56,7 @@ export default {
     'sessions.clearIdle': 'Archiver les sessions inactives',
     'sessions.new': 'Nouvelle session',
     'sessions.newWithModel': 'Nouvelle session avec un modèle choisi',
+    'sessions.newWithEffort': 'Nouvelle session avec effort {level}',
 
     'explorer.search': 'Rechercher des fichiers…',
     'explorer.openFolder': 'Ouvrir un dossier',
@@ -365,6 +366,7 @@ export default {
     'voice.unavailable': 'La saisie vocale est indisponible — les modèles de parole sont absents. Lancez « npm run fetch:stt » pour les télécharger.',
     'settings.sessionDiffBadge': 'Statistiques de diff sur les sessions',
     'settings.statusLine': 'Indicateur de coût des tokens',
+    'settings.quickEffortButtons': 'Boutons rapides d’effort',
     'settings.osNotifications': 'Notifications de bureau',
     'settings.close': 'Fermer',
     'settings.done': 'Terminé',

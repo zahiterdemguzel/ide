@@ -13,7 +13,7 @@ import {
   SOUNDS, getSound, setSound, playNotification, getVolume, setVolume,
 } from './shared/notify.js';
 import {
-  isSessionDiffBadgeEnabled, setSessionDiffBadge,
+  isSessionDiffBadgeEnabled, setSessionDiffBadge, isQuickEffortButtonsEnabled, setQuickEffortButtons,
   isOsNotificationsEnabled, setOsNotificationsEnabled,
 } from './sessions.js';
 import { initCustomModels, refreshCustomModels } from './custom-models.js';
@@ -245,6 +245,7 @@ export function initSettings() {
   const volumeInput = document.getElementById('settings-volume');
   const sessionDiffBox = document.getElementById('settings-session-diff');
   const statusLineBox = document.getElementById('settings-statusline');
+  const quickEffortBox = document.getElementById('settings-quick-effort');
   const osNotifyBox = document.getElementById('settings-notifications');
   const modelSel = document.getElementById('settings-model');
   const subagentSel = document.getElementById('settings-subagent-model');
@@ -274,6 +275,7 @@ export function initSettings() {
   };
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
   statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
+  quickEffortBox.onchange = () => setQuickEffortButtons(quickEffortBox.checked);
   osNotifyBox.onchange = () => setOsNotificationsEnabled(osNotifyBox.checked);
   // The model defaults apply to the *next* session created (and pre-fill the
   // per-session picker); live sessions keep the model they spawned with.
@@ -321,6 +323,7 @@ export function initSettings() {
     );
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
+    quickEffortBox.checked = isQuickEffortButtonsEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();
     refreshEditorSettingsSection();
     dialog.showModal();

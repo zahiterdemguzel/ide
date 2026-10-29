@@ -56,6 +56,7 @@ export default {
     'sessions.clearIdle': 'Çalışmayan oturumları arşivle',
     'sessions.new': 'Yeni oturum',
     'sessions.newWithModel': 'Seçili modelle yeni oturum',
+    'sessions.newWithEffort': '{level} eforla yeni oturum',
 
     'explorer.search': 'Dosyalarda ara…',
     'explorer.openFolder': 'Klasör aç',
@@ -365,6 +366,7 @@ export default {
     'voice.unavailable': 'Sesli giriş kullanılamıyor — konuşma modelleri eksik. İndirmek için "npm run fetch:stt" komutunu çalıştırın.',
     'settings.sessionDiffBadge': 'Oturumlarda fark istatistikleri',
     'settings.statusLine': 'Token maliyet göstergesi',
+    'settings.quickEffortButtons': 'Hızlı efor düğmeleri',
     'settings.osNotifications': 'Masaüstü bildirimleri',
     'settings.close': 'Kapat',
     'settings.done': 'Tamam',

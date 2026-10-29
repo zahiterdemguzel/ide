@@ -6,6 +6,26 @@ settings dialog (`#settings-dialog`), where the user picks a **theme**, a
 which **panels** are visible. Every choice applies instantly and persists across
 restarts.
 
+**How `localStorage` persists.** The renderer's `localStorage` LevelDB lives in the
+disposable per-instance profile (`instance.js`) and used to reach the shared dir
+only through a copy on a *clean* quit, so a crash, force-kill or killed dev run lost
+every change from that run. It is now mirrored, write by write, into
+`settings.json` in `sharedDataDir`:
+- `renderer/shared/storage-sync.js` (imported right after `bootstrap.js` in
+  `index.js`) wraps `Storage.prototype.setItem/removeItem/clear` for `localStorage`
+  and sends batched diffs (200 ms, flushed on `pagehide`/`beforeunload`) over
+  `settings-store-changes`. Only method calls are caught, so **always use
+  `setItem`/`removeItem`, never `localStorage.foo = …`**.
+- `main/settings-store.js` re-reads the file and applies each diff per key
+  (`applyChanges` in the pure `settings-store-lib.js`), so two windows changing
+  different settings both keep theirs. Writes are atomic (`atomic-write.js`).
+- `preload/settings-store.js` runs first in the preload and restores the file into
+  `localStorage` (exactly — clear then set) through a sync IPC, before any page
+  module reads it.
+- No file yet (first run after the upgrade): the preload leaves the LevelDB copy in
+  place and the renderer's `settings-store-seed` adopts it. The old quit-time
+  LevelDB copy in `instance.js` still runs but is only that migration source now.
+
 The dialog body is a **three-column grid** (`.settings-body` → three
 `.settings-col`, `settings.css`), split by vertical rules so the form reads wide
 rather than tall: the left column holds Appearance + Notifications + Agent models
@@ -140,6 +160,13 @@ so badge switches, Settings, and caret picks all count) at that effort. Both pic
 are remembered as the next session's defaults. The inherit `default` is never a row
 (the plain button covers it). `sessions.js`'s `newSession(opts)` takes
 `{ model, effort }` overrides and passes them through the `new-session` IPC.
+
+**Quick effort buttons.** Optional (Settings → General → *Quick effort buttons*,
+`#settings-quick-effort`, `ide.quickEffortButtons`, off by default): **Low / Mid / High**
+buttons (`#new-session-quick`, levels from `QUICK_EFFORTS` in `shared/effort-levels.js`)
+continue the split-button pill after the caret. Each spawns a session at that effort on
+the caret-menu family's last-used model, but — unlike the caret's effort rows — does
+**not** change the remembered effort, so the plain button keeps its default.
 
 **Mobile.** `mobile/src/screens/SessionsScreen.tsx` mirrors the same split button:
 the wide half creates with the last-picked model (its label carries the suffix —

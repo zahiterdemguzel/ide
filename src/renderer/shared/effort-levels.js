@@ -48,3 +48,12 @@ export function effortNameForFamily(id, family) {
   const level = id || DEFAULT_EFFORT;
   return effortsForFamily(family).find((e) => e.id === level)?.name ?? level;
 }
+
+// The optional quick-start buttons beside New session (Settings → General): one click
+// spawns a session at that level. Short labels so three fit in the narrow sidebar; every
+// id must be on both ladders so the buttons work whichever family the caret menu lists.
+export const QUICK_EFFORTS = [
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Mid' },
+  { id: 'high', label: 'High' },
+];

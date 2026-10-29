@@ -12,6 +12,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { sharedDataDir, instanceId } = require('./instance');
+const { writeFileAtomic } = require('./atomic-write');
 const { onBroadcast, sendToRenderer } = require('./window');
 const { handle, invokeRemote } = require('./remote-bridge');
 const { getRepoPath, onRepoChange } = require('./repo');
@@ -50,7 +51,7 @@ const deviceStore = {
     return [];
   },
   save(list) {
-    try { fs.writeFileSync(devicesFile, JSON.stringify(list)); } catch (err) { console.error('[remote devices save]', err); }
+    try { writeFileAtomic(devicesFile, JSON.stringify(list)); } catch (err) { console.error('[remote devices save]', err); }
   },
 };
 
@@ -63,7 +64,7 @@ function readConfigFile() {
 }
 function saveConfig(next) {
   config = next;
-  try { fs.writeFileSync(configFile, JSON.stringify(config)); } catch (err) { console.error('[remote config save]', err); }
+  try { writeFileAtomic(configFile, JSON.stringify(config)); } catch (err) { console.error('[remote config save]', err); }
 }
 
 // Push notifications ride the device store: a phone registers its Expo token over

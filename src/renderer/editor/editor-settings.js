@@ -20,7 +20,7 @@ export const EDITOR_DEFAULTS = {
   formatOnPaste: false,
   autoSave: 'off',         // 'off' | 'afterDelay' | 'onFocusChange'
   autoSaveDelay: 1000,
-  inlineCompletions: true, // AI ghost-text suggestions
+  inlineCompletions: false, // AI ghost-text suggestions; off by default since every suggestion spends tokens
   inlineBlame: true,       // "author, 3 days ago · summary" after the caret line
   bracketPairColorization: true,
   cursorBlinking: 'smooth',

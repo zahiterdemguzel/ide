@@ -14,6 +14,7 @@
 const path = require('path');
 const fs = require('fs');
 const { sharedDataDir, instanceId, startedAt } = require('./instance');
+const { writeFileAtomic } = require('./atomic-write');
 const { liveInstances, upsertInstance, HEARTBEAT_MS } = require('./instance-lib');
 
 const file = path.join(sharedDataDir, 'remote-instances.json');
@@ -31,7 +32,7 @@ function read() {
 }
 
 function write(entries) {
-  try { fs.writeFileSync(file, JSON.stringify(entries)); } catch (err) { console.error('[instance registry save]', err); }
+  try { writeFileAtomic(file, JSON.stringify(entries)); } catch (err) { console.error('[instance registry save]', err); }
 }
 
 // Publish this instance's entry. Always read-modify-write: siblings write this file

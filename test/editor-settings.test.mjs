@@ -54,3 +54,9 @@ test('relativeTime: picks the largest whole unit', () => {
   assert.equal(relativeTime(now - 2 * 3600e3, now), '2 hours ago');
   assert.equal(relativeTime(now - 5e3, now), 'now');
 });
+
+test('AI inline completions are off by default (each suggestion spends tokens)', () => {
+  assert.equal(EDITOR_DEFAULTS.inlineCompletions, false);
+  assert.equal(normalizeSettings({}).inlineCompletions, false);
+  assert.equal(normalizeSettings({ inlineCompletions: true }).inlineCompletions, true);
+});

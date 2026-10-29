@@ -2,6 +2,7 @@ const { ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { sharedDataDir } = require('./instance');
+const { writeFileAtomic } = require('./atomic-write');
 
 // Onboarding flags (e.g. "the first-run tour has been shown") must survive app
 // restarts. Renderer localStorage can't: the default session lives in the
@@ -22,7 +23,7 @@ function load() {
 let state = load();
 
 function save() {
-  try { fs.writeFileSync(file, JSON.stringify(state)); } catch {}
+  try { writeFileAtomic(file, JSON.stringify(state)); } catch {}
 }
 
 ipcMain.handle('onboarding-get', () => state);

@@ -17,7 +17,7 @@ import {
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
   effortsFor, effortName, DEFAULT_EFFORT, getLastModelOf, getNewSessionMenuFamily,
 } from './settings.js';
-import { effortsForFamily } from './shared/effort-levels.js';
+import { effortsForFamily, QUICK_EFFORTS } from './shared/effort-levels.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
 
@@ -1403,6 +1403,31 @@ document.addEventListener('click', (e) => {
   if (!modelMenu.hidden && !modelMenu.contains(e.target) && !newSessionOptsBtn.contains(e.target)) closeModelMenu();
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModelMenu(); });
+
+// Optional Low/Mid/High buttons beside New session (Settings → General, off by default):
+// one click spawns a session at that effort on the caret-menu family's last-used model.
+// Unlike the caret's effort rows they don't change the remembered effort, so the plain
+// New session button keeps its default.
+const QUICK_EFFORT_STORE = 'ide.quickEffortButtons';
+const quickEffortEl = document.getElementById('new-session-quick');
+for (const level of QUICK_EFFORTS) {
+  const btn = document.createElement('button');
+  btn.className = 'quick-effort-btn';
+  btn.textContent = level.label;
+  btn.onclick = () => newSession({ model: getLastModelOf(getNewSessionMenuFamily()), effort: level.id });
+  // Built on hover so the tooltip follows a language change made after startup.
+  btn.onmouseenter = () => { btn.title = t('sessions.newWithEffort').replace('{level}', level.label); };
+  quickEffortEl.appendChild(btn);
+}
+export function isQuickEffortButtonsEnabled() {
+  return localStorage.getItem(QUICK_EFFORT_STORE) === 'true';
+}
+export function setQuickEffortButtons(on) {
+  localStorage.setItem(QUICK_EFFORT_STORE, on ? 'true' : 'false');
+  quickEffortEl.hidden = !on;
+  quickEffortEl.parentElement.classList.toggle('has-quick', !!on);
+}
+setQuickEffortButtons(isQuickEffortButtonsEnabled());
 
 for (const btn of sessionTabs.children) btn.onclick = () => setTab(btn.dataset.tab);
 

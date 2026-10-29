@@ -58,6 +58,12 @@
 .split-btn { display: flex; gap: 1px; }
 .split-btn > #new-session { flex: 1; border-radius: 5px 0 0 5px; }
 .split-btn .split-btn-caret { flex: 0 0 auto; padding: 7px 8px; border-radius: 0 5px 5px 0; }
+/* Optional Low/Mid/High quick-start buttons continue the same pill after the caret. */
+.split-btn.has-quick .split-btn-caret { border-radius: 0; }
+.quick-effort { display: flex; gap: 1px; }
+.quick-effort[hidden] { display: none; }
+.split-btn .quick-effort-btn { flex: 0 0 auto; padding: 7px 7px; border-radius: 0; font-size: 11px; }
+.split-btn .quick-effort-btn:last-child { border-radius: 0 5px 5px 0; }
 /* Point the caret up — the model menu opens above the button. */
 .split-btn .split-btn-caret svg { transform: rotate(180deg); }
 

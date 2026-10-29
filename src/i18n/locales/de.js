@@ -56,6 +56,7 @@ export default {
     'sessions.clearIdle': 'Sitzungen archivieren, die nicht arbeiten',
     'sessions.new': 'Neue Sitzung',
     'sessions.newWithModel': 'Neue Sitzung mit gewähltem Modell',
+    'sessions.newWithEffort': 'Neue Sitzung mit Aufwand {level}',
 
     'explorer.search': 'Dateien suchen…',
     'explorer.openFolder': 'Ordner öffnen',
@@ -365,6 +366,7 @@ export default {
     'voice.unavailable': 'Spracheingabe nicht verfügbar — die Sprachmodelle fehlen. Mit „npm run fetch:stt" herunterladen.',
     'settings.sessionDiffBadge': 'Diff-Statistik in Sitzungen',
     'settings.statusLine': 'Token-Kosten-Anzeige',
+    'settings.quickEffortButtons': 'Schnellknöpfe für Denkaufwand',
     'settings.osNotifications': 'Desktop-Benachrichtigungen',
     'settings.close': 'Schließen',
     'settings.done': 'Fertig',
