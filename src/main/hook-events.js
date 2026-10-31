@@ -7,7 +7,8 @@
 // The tools whose whole purpose is to block on the user: Claude asking a
 // multiple-choice question. The question itself is read off this same payload by
 // src/main/ask-lib.js.
-const { isAskTool } = require('./ask-lib');
+const { isAskTool, ASK_TOOLS } = require('./ask-lib');
+const { TEXT_EDIT_TOOLS } = require('./fs-track');
 
 // Map a Claude Code hook payload to a session status, or null to leave it
 // unchanged. PostToolUse sniffs the command for a `git push` so the dot can flip
@@ -323,14 +324,31 @@ function shouldApplyState(next, current) {
 // is the one thing the CLI can't rewrite, so normalizeHookPayload can always map
 // the payload back onto our session. Quoted because Claude runs hook commands
 // through the platform shell.
-function hooksSettings(port, statusLineCommand, ideId) {
+//
+// `detailedToolHooks: false` (Settings → General → "Track every tool call" off)
+// narrows the tool hooks to the few tools whose payloads drive something:
+// subagent spawns (in-flight count), ask tools (needs-input + the phone's
+// question card), text edits (the replayable op log), and — Post only — Bash, for
+// the `git push` sniff and the bulk-VCS re-baseline. Every other tool call fires
+// no hook at all, which is what makes a session with many subagents light: each
+// hook is a `curl` process the tool waits on, and a Bash/MCP Pre/Post also costs a
+// working-tree scan. The trade: Bash/MCP file changes are attributed by the
+// turn-wide diff at each Stop/SubagentStop instead of per tool call, and the
+// row's tool line only names the matched tools.
+function lightToolMatchers() {
+  const pre = [...ASK_TOOLS, ...SUBAGENT_TOOLS, ...TEXT_EDIT_TOOLS].join('|');
+  return { PreToolUse: pre, PostToolUse: `${pre}|Bash` };
+}
+
+function hooksSettings(port, statusLineCommand, ideId, { detailedToolHooks = true } = {}) {
   const url = `http://127.0.0.1:${port}/hook${ideId ? `?ide=${ideId}` : ''}`;
   const cmd = `curl -s -X POST "${url}" -d @-`;
-  const entry = [{ matcher: '*', hooks: [{ type: 'command', command: cmd }] }];
+  const entry = (matcher) => [{ matcher, hooks: [{ type: 'command', command: cmd }] }];
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
     'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStop'];
+  const matchers = detailedToolHooks ? {} : lightToolMatchers();
   const hooks = {};
-  for (const e of events) hooks[e] = entry;
+  for (const e of events) hooks[e] = entry(matchers[e] || '*');
   // Turn off agent view in every spawned session: this app already manages
   // sessions side by side, so Claude Code's own background-agent screen (opened
   // with `claude agents`) is redundant here. There is no CLI flag for it — the

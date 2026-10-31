@@ -6,6 +6,7 @@ module.exports = {
   checkCodex: () => ipcRenderer.invoke('check-codex'),
   getUsage: () => ipcRenderer.invoke('get-usage'),
   setStatusLineEnabled: (on) => ipcRenderer.send('set-statusline-enabled', on),
+  setToolHooksEnabled: (on) => ipcRenderer.send('set-tool-hooks-enabled', on),
   notifySessionFinished: (payload) => ipcRenderer.send('notify-session-finished', payload),
   onSelectSession: (cb) => ipcRenderer.on('select-session', (_e, id) => cb(id)),
   getSessions: () => ipcRenderer.invoke('get-sessions'),
@@ -13,6 +14,7 @@ module.exports = {
   setSessionModel: (id, model) => ipcRenderer.send('set-session-model', { id, model }),
   setSessionEffort: (id, effort) => ipcRenderer.send('set-session-effort', { id, effort }),
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),
+  sessionsWithBackgroundWork: (ids) => ipcRenderer.invoke('sessions-with-background-work', ids),
   resumeSession: (id, { cols, rows }) => ipcRenderer.invoke('resume-session', { id, cols, rows }),
   killSession: (id) => ipcRenderer.send('kill-session', { id }),
   // Worktree sessions: closing one decides the fate of its checkout, so unlike

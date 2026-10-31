@@ -315,10 +315,13 @@ export default function SessionsScreen({ navigation }: any) {
   // opening it as-is gives you a conversation you can read but not continue. That is
   // not only the archived case: every session restored from disk comes back without a
   // PTY, and the desktop only respawns one when someone clicks its row. Resume on
-  // `live`, not on `archived` — main spawns it headlessly and pushes sessions-changed,
-  // so the desktop follows along without anyone opening the session there.
+  // `live` — main spawns it headlessly and pushes sessions-changed, so the desktop
+  // follows along without anyone opening the session there. An archived session is
+  // the exception: resuming un-archives it, so opening one just to read it would pull
+  // it back into Active everywhere. It opens read-only and resumes when you send it a
+  // message (see ChatScreen's send), or via its Restore button.
   const open = async (s: Session) => {
-    if (!s.live) await conn?.req('resume-session', { id: s.id, cols: 80, rows: 30 });
+    if (!s.live && !s.archived) await conn?.req('resume-session', { id: s.id, cols: 80, rows: 30 });
     navigation.navigate('Chat', { id: s.id, name: title(s) });
   };
 

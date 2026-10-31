@@ -3,6 +3,7 @@ const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const execFileAsync = require('util').promisify(require('child_process').execFile);
 const { sendToRenderer } = require('./window');
 const { getRepoPath, getMainRepoPath, setActiveWorktree } = require('./repo');
 const { resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage } = require('./claude');
@@ -28,10 +29,12 @@ const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes
 const { isInterruptKey, interruptOutcome, isUsageLimitStop } = require('./hook-events');
 const push = require('./push');
 const { querySessions } = require('./session-query-lib');
+const { fileStamp, planFileChange, idsToWriteOnQuit } = require('./session-sync-lib');
 const { getProjectSettings } = require('./project-settings');
 const { createWorktree, cancelCreate, emitProgress, worktreeStatus, removeWorktree, renameSessionBranch } = require('./worktrees');
 const { createCoalescer } = require('./concurrency');
 const { createPtyBatcher } = require('./pty-batch');
+const { processListCommand, parseProcessList, hasBackgroundWork } = require('./background-work-lib');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
 // session (runtime), long after both modules have loaded — safe circular require.
 const hookServer = require('./hook-server');
@@ -89,8 +92,24 @@ function writeSessionFileAtomic(filePath, data) {
 // Delete one session's file (on kill or eviction). A missing file is fine — the
 // session may never have been written yet.
 function removeSessionFile(id) {
+  syncedStamps.delete(id);
   try { fs.unlinkSync(sessionFilePath(id)); }
   catch (err) { if (err.code !== 'ENOENT') reportSessionError('removing a saved session', err); }
+}
+
+// The version of each session file this instance last wrote or read (see
+// session-sync-lib). Other instances share the directory, so a file event whose
+// stamp differs from this one is a change made elsewhere.
+const syncedStamps = new Map();
+
+function currentFileStamp(id) {
+  try { return fileStamp(fs.statSync(sessionFilePath(id))); } catch { return null; }
+}
+
+function writeSessionFile(id, s) {
+  if (s._seq === undefined) s._seq = seqCounter++;
+  writeSessionFileAtomic(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+  syncedStamps.set(id, currentFileStamp(id));
 }
 
 // One-time migration of the old single-file store into per-session files, so an
@@ -166,13 +185,15 @@ function loadPersistedSessions() {
     // A file that can't be parsed (e.g. empty/truncated by a crash mid-write) is
     // unrecoverable. Report it once, then delete it so the same error doesn't resurface
     // on every launch.
-    try { obj = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+    let stamp;
+    try { stamp = fileStamp(fs.statSync(filePath)); obj = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
     catch (err) {
       reportSessionError('reading saved sessions', err);
       try { fs.unlinkSync(filePath); } catch { /* best-effort */ }
       continue;
     }
     if (!obj || typeof obj.id !== 'string') continue;
+    syncedStamps.set(obj.id, stamp);
     snapshots.push(obj);
   }
   snapshots.sort((a, b) => (a._seq || 0) - (b._seq || 0));
@@ -272,25 +293,31 @@ function persistSession(id) {
   if (!isSessionPersistable(s)) { removeSessionFile(id); return; }
   try {
     ensureSessionsDir();
-    if (s._seq === undefined) s._seq = seqCounter++;
-    writeSessionFileAtomic(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+    writeSessionFile(id, s);
     evictOverBudget();
   } catch (err) {
     reportSessionError('saving a session', err);
   }
 }
 
-// Write every session to disk (used on quit). Synchronous so it completes before the
-// process exits. Evicts first so an over-budget set never writes files it's about to
-// delete. A throw here would otherwise be an uncaught exception on quit — surface it.
+// Flush this instance's sessions to disk (used on quit). Synchronous so it completes
+// before the process exits. Only the sessions running here and the debounced writes
+// still pending are written: every other change was saved when it happened, and
+// rewriting the whole set from this instance's copy would undo what another
+// instance did since (see session-sync-lib). Evicts first so an over-budget set
+// never writes files it's about to delete. A throw here would otherwise be an
+// uncaught exception on quit — surface it.
 function persistSessions() {
   try {
     evictOverBudget();
     ensureSessionsDir();
-    for (const [id, s] of sessions) {
+    const entries = [...sessions].map(([id, s]) => ({ id, live: isLiveHere(s), pendingWrite: persistTimers.has(id) }));
+    for (const id of idsToWriteOnQuit(entries)) {
+      clearTimeout(persistTimers.get(id));
+      persistTimers.delete(id);
+      const s = sessions.get(id);
       if (!isSessionPersistable(s)) { removeSessionFile(id); continue; }
-      if (s._seq === undefined) s._seq = seqCounter++;
-      writeSessionFileAtomic(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+      writeSessionFile(id, s);
     }
   } catch (err) {
     reportSessionError('saving sessions', err);
@@ -305,6 +332,101 @@ function schedulePersist(id) {
   if (persistTimers.has(id)) clearTimeout(persistTimers.get(id));
   persistTimers.set(id, setTimeout(() => { persistTimers.delete(id); persistSession(id); }, 1000));
 }
+
+// A session whose Claude process runs in this instance (or is being spawned here).
+function isLiveHere(s) {
+  return !!(s && (s.pty || s.spawning));
+}
+
+// ── Following other instances ────────────────────────────────────────────────
+// Every running instance shares sessionsDir, so a session archived, created or
+// deleted in one window must show up in the others (and on the phone driving
+// them) without a restart. Watch the directory and reconcile each changed file
+// against this instance's record (rules in session-sync-lib).
+
+function readSessionSnapshot(id) {
+  try {
+    const obj = JSON.parse(fs.readFileSync(sessionFilePath(id), 'utf8'));
+    return obj && obj.id === id ? obj : null;
+  } catch { return null; } // gone again, or replaced mid-read: the next event retries
+}
+
+// Apply one file's change made by another instance. Returns whether the list changed.
+function syncSessionFile(id) {
+  const local = sessions.get(id);
+  const diskStamp = currentFileStamp(id);
+  const action = planFileChange({ local: local && { live: isLiveHere(local) }, diskStamp, syncedStamp: syncedStamps.get(id) });
+  if (action === 'drop') {
+    releaseRepoWatch(local);
+    sessions.delete(id);
+    chat.forget(id);
+    syncedStamps.delete(id);
+    return true;
+  }
+  if (action !== 'adopt') return false;
+  const obj = readSessionSnapshot(id);
+  if (!obj) return false;
+  syncedStamps.set(id, diskStamp);
+  const entry = deserializeSession(obj);
+  if (!isSessionPersistable(entry)) return false;
+  entry._seq = obj._seq || 0;
+  seqCounter = Math.max(seqCounter, entry._seq + 1);
+  chat.noteTranscript(id, entry.transcript);
+  if (!local) { sessions.set(id, entry); return true; }
+  // The dot keeps this instance's value: what's on disk for a session running
+  // elsewhere is its restart state (`working` stored as `interrupted`), not the live one.
+  const { state } = local;
+  const renamed = entry.name !== local.name;
+  Object.assign(local, entry, { state });
+  local.diffStatKey = null; // the edits were replaced wholesale
+  if (renamed) sendToRenderer('session-name', { id, name: local.name });
+  sendToRenderer('session-meta', { id, firstPrompt: local.firstPrompt, files: trackedFiles(local) });
+  return true;
+}
+
+const SYNC_DEBOUNCE_MS = 250;
+const pendingSyncIds = new Set();
+let syncTimer = null;
+let syncEverything = false;
+
+function flushSessionSync() {
+  syncTimer = null;
+  let ids = [...pendingSyncIds];
+  pendingSyncIds.clear();
+  if (syncEverything) {
+    syncEverything = false;
+    let names = [];
+    try { names = fs.readdirSync(sessionsDir); } catch { /* dir gone: only drops apply */ }
+    const onDisk = names.filter((n) => n.endsWith('.json')).map((n) => decodeURIComponent(n.slice(0, -5)));
+    ids = [...new Set([...onDisk, ...sessions.keys(), ...syncedStamps.keys()])];
+  }
+  let changed = false;
+  for (const id of ids) {
+    try { changed = syncSessionFile(id) || changed; }
+    catch (err) { reportSessionError('syncing a session from another window', err); }
+  }
+  if (changed) broadcastSessions();
+}
+
+function queueSessionSync(fileName) {
+  // No name (some platforms omit it) means "something changed": rescan.
+  if (!fileName) syncEverything = true;
+  else if (fileName.endsWith('.json')) pendingSyncIds.add(decodeURIComponent(fileName.slice(0, -5)));
+  else return; // `.json.tmp` halves of an atomic write; the rename reports the real file
+  if (!syncTimer) syncTimer = setTimeout(flushSessionSync, SYNC_DEBOUNCE_MS);
+}
+
+function watchSessionsDir() {
+  try {
+    ensureSessionsDir();
+    const watcher = fs.watch(sessionsDir, (_event, fileName) => queueSessionSync(fileName && String(fileName)));
+    watcher.on('error', () => { /* the store stays usable; this window just stops following others */ });
+    watcher.unref();
+  } catch (err) {
+    reportSessionError('watching saved sessions', err);
+  }
+}
+watchSessionsDir();
 
 // Record a session's current status-dot state so it survives a restart (the hook
 // server drives this from the live event stream; commit-session marks 'pushed').
@@ -518,7 +640,7 @@ function scanStatus(repo) {
       const abs = path.resolve(repo, rel);
       let stamp = null;
       if (capture) {
-        const buf = readCapped(abs, Math.min(LIMITS.maxFileBytes, budget));
+        const buf = await readCapped(abs, Math.min(LIMITS.maxFileBytes, budget));
         if (buf) {
           budget -= buf.length;
           // The hash replaces the old size+mtime stamp for captured files: a
@@ -531,7 +653,7 @@ function scanStatus(repo) {
       }
       // Not captured: too many dirty paths, too big, binary past the budget, or
       // gone from disk (a deletion, which the status code already reports).
-      if (stamp == null) stamp = lines.length <= STAMP_LIMIT ? ':' + contentStamp(abs) : '';
+      if (stamp == null) stamp = lines.length <= STAMP_LIMIT ? ':' + await contentStamp(abs) : '';
       codes.set(rel, line.slice(0, 2) + stamp);
     }
     return { codes, contents };
@@ -539,20 +661,23 @@ function scanStatus(repo) {
 }
 
 // The file's bytes, or null when it's missing or larger than `max` — stat'd
-// first so a huge file is never read just to be thrown away.
-function readCapped(abs, max) {
+// first so a huge file is never read just to be thrown away. Async because a scan
+// runs on nearly every Bash/MCP hook and can read up to LIMITS.maxTotalBytes: done
+// synchronously it froze the main process (and every terminal's output with it)
+// once a session's subagents started running tools in parallel.
+async function readCapped(abs, max) {
   try {
-    if (max <= 0 || fs.statSync(abs).size > max) return null;
-    return fs.readFileSync(abs);
+    if (max <= 0 || (await fs.promises.stat(abs)).size > max) return null;
+    return await fs.promises.readFile(abs);
   } catch { return null; }
 }
 
 // size+mtime of a path, or `-` when it isn't there (a deletion, which the status
 // code already tells us about). The fallback identity for files whose content the
 // snapshot didn't capture.
-function contentStamp(abs) {
+async function contentStamp(abs) {
   try {
-    const st = fs.statSync(abs);
+    const st = await fs.promises.stat(abs);
     return st.size + ':' + st.mtimeMs;
   } catch { return '-'; }
 }
@@ -769,7 +894,7 @@ function moveToActiveAccountIfSettled(id, state) {
 // counts as ready once its output has been quiet this long.
 const RESUME_QUIET_MS = 2000;
 const RESUME_READY_TIMEOUT_MS = 30000;
-const CONTINUE_AFTER_LIMIT_PROMPT = 'Continue where you left off: the previous turn was cut off by a usage limit and this session has moved to another account.';
+const CONTINUE_AFTER_LIMIT_PROMPT = 'Continue';
 
 function moveToActiveAccount(id, s) {
   const continueAfterMove = !!s.cutOffByUsageLimit;
@@ -1387,6 +1512,9 @@ bridge.handle('get-usage', async () => {
 // saved value on startup and whenever it changes; it gates whether the next
 // spawned session gets a statusLine (live sessions keep what they spawned with).
 bridge.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
+// Settings → General → "Track every tool call". Same push-and-apply-at-spawn
+// shape as the token meter: off narrows the next session's tool hooks.
+bridge.on('set-tool-hooks-enabled', (_e, on) => hookServer.setDetailedToolHooks(on));
 
 bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows, model, subagentModel, effort, skip, forceMainTree }) => {
   const id = crypto.randomUUID();
@@ -1442,6 +1570,26 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
     worktree: created.worktree || '', branch: created.branch || '', worktreeState: created.worktreeState || '',
   };
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
+
+// Which of `ids` still own a background terminal or Monitor under their agent
+// process. The sidebar's bulk clear skips these: archiving kills the CLI and the
+// background work with it. One process listing serves every id. If the listing
+// fails, every live session is reported busy so the clear errs on keeping them.
+bridge.handle('sessions-with-background-work', guard('checking background work', async (_e, ids) => {
+  const live = (Array.isArray(ids) ? ids : [])
+    .map((id) => ({ id, pid: sessions.get(id)?.pty?.pid }))
+    .filter((entry) => Number.isInteger(entry.pid));
+  if (!live.length) return [];
+  const { file, args } = processListCommand(process.platform);
+  let processes;
+  try {
+    const { stdout } = await execFileAsync(file, args, { windowsHide: true, maxBuffer: 16 * 1024 * 1024 });
+    processes = parseProcessList(stdout);
+  } catch {
+    return live.map((entry) => entry.id);
+  }
+  return live.filter((entry) => hasBackgroundWork(processes, entry.pid)).map((entry) => entry.id);
+}));
 
 // Archive: kill the Claude process to free resources but keep the session entry
 // (and all its tracked-file state) so it can resume under the same id.

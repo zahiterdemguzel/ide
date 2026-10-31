@@ -509,6 +509,33 @@ test('hooksSettings: wires every tracked event to a curl POST on the given port'
   }
 });
 
+// With "Track every tool call" off, only the tools whose payloads drive status,
+// asks, the edit log or the push sniff may fire tool hooks — every other tool
+// call (Read, Grep, MCP…) must cost the agent no hook at all.
+test('hooksSettings: light mode narrows only the tool hooks', () => {
+  const cfg = JSON.parse(hooksSettings(54321, '', 'ide-uuid', { detailedToolHooks: false }));
+  const matches = (event, tool) => new RegExp(`^(?:${cfg.hooks[event][0].matcher})$`).test(tool);
+  for (const tool of ['Task', 'Agent', 'AskUserQuestion', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
+    assert.ok(matches('PreToolUse', tool), `Pre ${tool}`);
+    assert.ok(matches('PostToolUse', tool), `Post ${tool}`);
+  }
+  assert.ok(matches('PostToolUse', 'Bash'), 'Post Bash keeps the git push sniff');
+  for (const tool of ['Read', 'Grep', 'Glob', 'WebFetch', 'mcp__x__y']) {
+    assert.ok(!matches('PreToolUse', tool), `Pre ${tool}`);
+    assert.ok(!matches('PostToolUse', tool), `Post ${tool}`);
+  }
+  assert.ok(!matches('PreToolUse', 'Bash'), 'no Bash Pre: its working-tree snapshot is the expensive half');
+  for (const e of ['SessionStart', 'UserPromptSubmit', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStop']) {
+    assert.equal(cfg.hooks[e][0].matcher, '*', e);
+  }
+});
+
+test('hooksSettings: detailed mode (the default) hooks every tool', () => {
+  const cfg = JSON.parse(hooksSettings(54321, '', 'ide-uuid', { detailedToolHooks: true }));
+  assert.equal(cfg.hooks.PreToolUse[0].matcher, '*');
+  assert.equal(cfg.hooks.PostToolUse[0].matcher, '*');
+});
+
 // A `/fork` makes the Claude CLI continue under a NEW session id, so the payload
 // alone can no longer identify our session — the `?ide=` tag on the hook URL is
 // what keeps the fork's edits, status and chat attributed to it.

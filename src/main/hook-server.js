@@ -12,11 +12,13 @@ const sessions = require('./sessions');
 let hookPort = 0;
 const getHookPort = () => hookPort;
 
-// TEMPORARY (status-dot debugging): append every hook event and the state it
-// derived to a log so the live sequence can be read back. Remove once the
-// background-agent dot is confirmed working.
+// Status-dot debugging: append every hook event and the state it derived to a
+// log so the live sequence can be read back. Opt-in via IDE_HOOK_DEBUG=1 — it
+// was always on, and a stat + synchronous append per hook on the main thread
+// added up fast in a session with many subagents.
 // Truncated once it passes DEBUG_LOG_MAX: every hook event appends a line, and
 // unbounded it had already grown to tens of MB in the user's temp folder.
+const DEBUG_LOG_ENABLED = process.env.IDE_HOOK_DEBUG === '1';
 const DEBUG_LOG_MAX = 4 * 1024 * 1024;
 const debugLog = (line) => {
   try {
@@ -41,7 +43,13 @@ const clearTracking = (id) => subagentTracking.delete(id);
 // --- hooks injected per session via `claude --settings <json>` ---
 // Every event posts its raw stdin payload to our local server, which derives
 // state from hook_event_name. Bound to the live server port at spawn time.
-const hooksSettings = (ideId) => buildHooksSettings(hookPort, statusLineCommand(), ideId);
+// User toggle (Settings → General → "Track every tool call"). The renderer
+// pushes the saved value on startup and on change; default on. Off narrows the
+// tool hooks of the next-spawned session (see hook-events.hooksSettings) — a live
+// session keeps the hooks it spawned with.
+let detailedToolHooks = true;
+const setDetailedToolHooks = (on) => { detailedToolHooks = !!on; };
+const hooksSettings = (ideId) => buildHooksSettings(hookPort, statusLineCommand(), ideId, { detailedToolHooks });
 
 function startHookServer() {
   const server = http.createServer((req, res) => {
@@ -74,14 +82,17 @@ function startHookServer() {
           // An ESC/Ctrl+C keystroke on its own never moves the dot — this event is
           // the trusted word on whether it actually cut the turn short.
           state = sessions.resolveInterrupt(payload, derived);
-          debugLog(`ev=${payload.hook_event_name} tool=${payload.tool_name || '-'} agent=${payload.agent_id || '-'} origin=${normalized.agentSessionId || '-'} derived=${derived} final=${state} track=${JSON.stringify(tracking)}`);
+          if (DEBUG_LOG_ENABLED) debugLog(`ev=${payload.hook_event_name} tool=${payload.tool_name || '-'} agent=${payload.agent_id || '-'} origin=${normalized.agentSessionId || '-'} derived=${derived} final=${state} track=${JSON.stringify(tracking)}`);
         }
         if (state && payload.session_id) {
           // Don't let a resume's SessionStart → idle wipe the meaningful colour a
           // session was reopened with (completed/pushed/interrupted); shouldApplyState
           // encodes that rule (see test/hook-events.test.js).
+          // An unchanged state is not re-sent: most hooks of a busy session (every
+          // subagent tool call) derive the `working` it already shows, and each
+          // push is an IPC message plus a broadcast to paired phones.
           const cur = sessions.getSessionState(payload.session_id);
-          if (shouldApplyState(state, cur)) {
+          if (state !== cur && shouldApplyState(state, cur)) {
             sendToRenderer('status', { id: payload.session_id, state });
             sessions.setSessionState(payload.session_id, state); // persist so it survives a restart
           }
@@ -113,4 +124,4 @@ function startHookServer() {
 // required before sessions (see main/index.js), so sessions captures this object
 // mid-load. Reassigning module.exports here would swap in a new object sessions
 // never sees, leaving hookServer.hooksSettings undefined at spawn time.
-Object.assign(module.exports, { startHookServer, getHookPort, hooksSettings, clearTracking });
+Object.assign(module.exports, { startHookServer, getHookPort, hooksSettings, setDetailedToolHooks, clearTracking });

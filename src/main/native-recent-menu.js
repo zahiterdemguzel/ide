@@ -40,4 +40,24 @@ function dockMenuItems(recents) {
     .map((dir) => ({ label: folderLabel(dir), folder: dir }));
 }
 
-module.exports = { folderLabel, jumpListCategories, dockMenuItems };
+// Windows Jump List: a "Tasks" entry that launches a fresh instance (no
+// `--folder`, so it reopens the last folder). Same exe/extraArgs rules as above.
+function newWindowTask(execPath, { extraArgs = [], title = 'New Window' } = {}) {
+  return { type: 'task', program: execPath, args: extraArgs.join(' '), title, description: title };
+}
+
+// How to start one more instance of the app. On macOS, clicking the Dock icon of a
+// running app only re-activates it, so a second instance has to be launched
+// explicitly: packaged, `open -n <bundle>` asks LaunchServices for a new instance
+// of the .app (execPath is `<bundle>/Contents/MacOS/<name>`); everywhere else, and
+// in a dev run where the exe is the bare Electron binary, spawn the exe directly
+// with the app directory as its first arg.
+function newInstanceCommand({ platform, isPackaged, execPath, appPath }) {
+  if (platform === 'darwin' && isPackaged) {
+    const bundleMatch = execPath.match(/^(.*?\.app)\/Contents\/MacOS\//);
+    if (bundleMatch) return { command: 'open', args: ['-n', bundleMatch[1]] };
+  }
+  return { command: execPath, args: isPackaged ? [] : [appPath] };
+}
+
+module.exports = { folderLabel, jumpListCategories, dockMenuItems, newWindowTask, newInstanceCommand };

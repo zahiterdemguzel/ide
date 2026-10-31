@@ -199,6 +199,9 @@ export default function ChatScreen({ route, navigation }: any) {
     try {
       const paths = [];
       for (const img of images) paths.push(await uploadImage(conn, img.name, img.base64));
+      // An archived session opens read-only (nothing runs behind it); writing to it is
+      // what brings it back. A no-op when the session is already running.
+      await conn.req('resume-session', { id, cols: 80, rows: 30 });
       await sendPrompt(conn, id, text, paths);
     } catch (e: any) {
       drop(mine.uuid);

@@ -19,6 +19,7 @@ import {
 import { initCustomModels, refreshCustomModels } from './custom-models.js';
 import { initVoice, refreshVoiceSection } from './voice.js';
 import { initEditorSettingsSection, refreshEditorSettingsSection } from './editor/settings-section.js';
+import { initSettingsNav } from './settings-nav.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -65,6 +66,7 @@ const STORE = {
   // Suffixed with a model family (`ide.lastModel.codex`) — see getLastModelOf.
   lastModelPrefix: 'ide.lastModel.',
   statusLine: 'ide.statusLine',
+  toolHooks: 'ide.toolHooks',
 };
 const DEFAULT_THEME = 'dark';
 
@@ -77,6 +79,17 @@ export function isStatusLineEnabled() {
 export function setStatusLineEnabled(on) {
   localStorage.setItem(STORE.statusLine, on ? '1' : '0');
   window.api?.setStatusLineEnabled?.(on);
+}
+
+// Whether spawned sessions hook every tool call (default) or only the few tools
+// that drive status, asks and edit tracking — the light mode for sessions that
+// run many subagents. Applied in main at spawn time, like the token meter.
+export function isToolHooksEnabled() {
+  return localStorage.getItem(STORE.toolHooks) !== '0';
+}
+export function setToolHooksEnabled(on) {
+  localStorage.setItem(STORE.toolHooks, on ? '1' : '0');
+  window.api?.setToolHooksEnabled?.(on);
 }
 
 // An `ollama:<name>` model id (an installed custom model). Kept as an inline
@@ -209,6 +222,33 @@ export function cycleTheme() {
   applyTheme(next);
 }
 
+// One card per theme, each drawing a miniature window in that theme's own palette
+// (the preview carries data-theme, so themes.css scopes the variables to it).
+function renderThemeCards(grid, activeId, onPick) {
+  const cards = THEMES.map((theme) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'theme-card';
+    card.setAttribute('role', 'radio');
+    card.setAttribute('aria-checked', String(theme.id === activeId));
+    card.tabIndex = theme.id === activeId ? 0 : -1;
+    card.dataset.themeId = theme.id;
+    const preview = document.createElement('span');
+    preview.className = 'theme-preview';
+    preview.dataset.theme = theme.id;
+    preview.innerHTML =
+      '<span class="theme-preview-side"><i></i><i></i><i></i></span>' +
+      '<span class="theme-preview-main"><i class="accent"></i><i></i><i class="short"></i><i class="green"></i></span>';
+    const name = document.createElement('span');
+    name.className = 'theme-card-name';
+    name.textContent = theme.name;
+    card.append(preview, name);
+    card.onclick = () => onPick(theme.id);
+    return card;
+  });
+  grid.replaceChildren(...cards);
+}
+
 function fillSelect(select, items, value) {
   select.innerHTML = '';
   for (const it of items) {
@@ -237,14 +277,17 @@ export function initSettings() {
   // Push the saved token-meter preference to main before any session spawns, so
   // the very first session honours it (main defaults on until told otherwise).
   window.api?.setStatusLineEnabled?.(isStatusLineEnabled());
+  window.api?.setToolHooksEnabled?.(isToolHooksEnabled());
 
   const dialog = document.getElementById('settings-dialog');
   const langSel = document.getElementById('settings-language');
-  const themeSel = document.getElementById('settings-theme');
+  const themeGrid = document.getElementById('settings-theme-grid');
   const soundSel = document.getElementById('settings-sound');
   const volumeInput = document.getElementById('settings-volume');
+  const volumeValue = document.getElementById('settings-volume-value');
   const sessionDiffBox = document.getElementById('settings-session-diff');
   const statusLineBox = document.getElementById('settings-statusline');
+  const toolHooksBox = document.getElementById('settings-tool-hooks');
   const quickEffortBox = document.getElementById('settings-quick-effort');
   const osNotifyBox = document.getElementById('settings-notifications');
   const modelSel = document.getElementById('settings-model');
@@ -256,10 +299,26 @@ export function initSettings() {
     setLocale(langSel.value);
     applyTranslations();
   };
-  themeSel.onchange = () => {
-    localStorage.setItem(STORE.theme, themeSel.value);
-    applyTheme(themeSel.value);
+  const pickTheme = (id) => {
+    localStorage.setItem(STORE.theme, id);
+    applyTheme(id);
+    for (const card of themeGrid.children) {
+      const selected = card.dataset.themeId === id;
+      card.setAttribute('aria-checked', String(selected));
+      card.tabIndex = selected ? 0 : -1;
+    }
   };
+  // Arrow keys move the selection like a native radio group.
+  themeGrid.addEventListener('keydown', (event) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const cards = [...themeGrid.children];
+    const current = cards.findIndex((card) => card.getAttribute('aria-checked') === 'true');
+    const next = cards[(current + step + cards.length) % cards.length];
+    pickTheme(next.dataset.themeId);
+    next.focus();
+  });
   // Persist the choice and immediately preview it, so picking a sound plays it.
   // "None" persists too and previews as silence (its empty notes play nothing).
   soundSel.onchange = () => {
@@ -269,12 +328,15 @@ export function initSettings() {
   // Same persist-then-preview pattern as the sound picker, fired on `change`
   // (handle release) rather than `input` so dragging the slider doesn't replay
   // the chime on every tick.
+  const showVolume = () => { volumeValue.textContent = `${volumeInput.value}%`; };
+  volumeInput.oninput = showVolume;
   volumeInput.onchange = () => {
     setVolume(Number(volumeInput.value) / 100);
     playNotification(soundSel.value);
   };
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
   statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
+  toolHooksBox.onchange = () => setToolHooksEnabled(toolHooksBox.checked);
   quickEffortBox.onchange = () => setQuickEffortButtons(quickEffortBox.checked);
   osNotifyBox.onchange = () => setOsNotificationsEnabled(osNotifyBox.checked);
   // The model defaults apply to the *next* session created (and pre-fill the
@@ -299,11 +361,7 @@ export function initSettings() {
       availableLocales().map((m) => ({ value: m.code, label: m.name })),
       currentLocale(),
     );
-    fillSelect(
-      themeSel,
-      THEMES.map((t) => ({ value: t.id, label: t.name })),
-      document.documentElement.dataset.theme,
-    );
+    renderThemeCards(themeGrid, document.documentElement.dataset.theme, pickTheme);
     fillSelect(
       soundSel,
       SOUNDS.map((s) => ({
@@ -313,6 +371,7 @@ export function initSettings() {
       getSound(),
     );
     volumeInput.value = String(Math.round(getVolume() * 100));
+    showVolume();
     // Fill the dropdowns from the cached Ollama list right away so the dialog can
     // open instantly; the refresh below updates them if anything changed.
     fillModelSelects();
@@ -323,9 +382,11 @@ export function initSettings() {
     );
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     statusLineBox.checked = isStatusLineEnabled();
+    toolHooksBox.checked = isToolHooksEnabled();
     quickEffortBox.checked = isQuickEffortButtonsEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();
     refreshEditorSettingsSection();
+    resetSettingsNav();
     dialog.showModal();
     // Refresh installed Ollama models and the Custom Models section after the
     // dialog is up — these touch the (possibly not-yet-running) engine, so keep
@@ -338,7 +399,10 @@ export function initSettings() {
 
   document.getElementById('settings-btn').onclick = open;
   document.getElementById('settings-close').onclick = () => dialog.close();
-  document.getElementById('settings-done').onclick = () => dialog.close();
+  // Clicking the dimmed backdrop (outside the dialog box) closes it too.
+  dialog.addEventListener('mousedown', (event) => {
+    if (event.target === dialog) dialog.close();
+  });
 
   // The Custom Models section (install/uninstall Ollama models) lives in its own
   // module; it calls back here to refresh the shared cache when the model set
@@ -347,6 +411,7 @@ export function initSettings() {
   // it only needs to be started once, from here, like the Custom Models section.
   initVoice();
   initEditorSettingsSection();
+  const resetSettingsNav = initSettingsNav();
 
   initCustomModels(async () => {
     await refreshOllamaModels();

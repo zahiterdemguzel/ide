@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { folderLabel, jumpListCategories, dockMenuItems } = require('../src/main/native-recent-menu');
+const { folderLabel, jumpListCategories, dockMenuItems, newWindowTask, newInstanceCommand } = require('../src/main/native-recent-menu');
 
 test('folderLabel: last segment of a path (both separators)', () => {
   assert.equal(folderLabel('C:\\Users\\me\\my-app'), 'my-app');
@@ -54,4 +54,31 @@ test('dockMenuItems: label + folder per entry', () => {
 test('dockMenuItems: tolerates garbage and non-array input', () => {
   assert.deepEqual(dockMenuItems(['/a', '', null]), [{ label: 'a', folder: '/a' }]);
   assert.deepEqual(dockMenuItems(undefined), []);
+});
+
+test('newWindowTask: relaunches the exe with only the extra args', () => {
+  assert.deepEqual(newWindowTask('/opt/ide'), {
+    type: 'task', program: '/opt/ide', args: '', title: 'New Window', description: 'New Window',
+  });
+  assert.equal(newWindowTask('/opt/electron', { extraArgs: ['"/src/app"'] }).args, '"/src/app"');
+});
+
+test('newInstanceCommand: packaged macOS asks LaunchServices for a new bundle instance', () => {
+  assert.deepEqual(newInstanceCommand({
+    platform: 'darwin', isPackaged: true,
+    execPath: '/Applications/My IDE.app/Contents/MacOS/My IDE', appPath: '/ignored',
+  }), { command: 'open', args: ['-n', '/Applications/My IDE.app'] });
+});
+
+test('newInstanceCommand: dev run spawns Electron with the app directory', () => {
+  assert.deepEqual(newInstanceCommand({
+    platform: 'darwin', isPackaged: false,
+    execPath: '/x/Electron.app/Contents/MacOS/Electron', appPath: '/src/app',
+  }), { command: '/x/Electron.app/Contents/MacOS/Electron', args: ['/src/app'] });
+});
+
+test('newInstanceCommand: packaged Windows/Linux spawns the exe itself', () => {
+  assert.deepEqual(newInstanceCommand({
+    platform: 'win32', isPackaged: true, execPath: 'C:\\ide\\ide.exe', appPath: 'C:\\ide\\resources\\app.asar',
+  }), { command: 'C:\\ide\\ide.exe', args: [] });
 });

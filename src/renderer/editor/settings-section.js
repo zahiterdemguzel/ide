@@ -86,10 +86,15 @@ export function initEditorSettingsSection() {
   const group = document.getElementById('editor-settings');
   if (!group) return;
   for (const field of FIELDS.filter((f) => f.kind !== 'switch')) group.appendChild(valueRow(field));
-  const grid = document.createElement('div');
-  grid.className = 'panel-grid';
-  for (const field of FIELDS.filter((f) => f.kind === 'switch')) grid.appendChild(switchToggle(field));
-  group.appendChild(grid);
+  // The dialog gives the switches their own card; without one they follow the
+  // value rows in a grid of their own.
+  let switchHost = document.getElementById('editor-settings-switches');
+  if (!switchHost) {
+    switchHost = document.createElement('div');
+    switchHost.className = 'panel-grid';
+    group.appendChild(switchHost);
+  }
+  for (const field of FIELDS.filter((f) => f.kind === 'switch')) switchHost.appendChild(switchToggle(field));
 }
 
 // Sync the controls with the current settings (the dialog is opening, or the

@@ -643,187 +643,335 @@
     </div>
   </dialog>
 
-  <dialog id="settings-dialog">
-    <div class="settings-head">
-      <h3 data-i18n="settings.title">Settings</h3>
-      <button id="settings-close" data-i18n-title="settings.close" title="Close">×</button>
-    </div>
-    <div class="settings-body">
-      <div class="settings-col">
-      <div class="settings-group">
-        <div class="settings-group-title" data-i18n="settings.appearance">Appearance</div>
-        <label class="settings-row">
-          <span data-i18n="settings.language">Language</span>
-          <select id="settings-language"></select>
-        </label>
-        <label class="settings-row">
-          <span data-i18n="settings.theme">Theme</span>
-          <select id="settings-theme"></select>
-        </label>
+  <!-- Settings: a sidebar of pages (with a search box that filters every page at
+       once) beside the active page. Navigation + search live in
+       src/renderer/settings-nav.js; each control keeps its id so the modules that
+       own it (settings.js, panels.js, voice.js, remote-pane.js, custom-models.js,
+       editor/settings-section.js) wire it exactly as before. -->
+  <dialog id="settings-dialog" aria-labelledby="settings-heading">
+    <nav class="settings-nav">
+      <h3 id="settings-heading" class="settings-nav-title" data-i18n="settings.title">Settings</h3>
+      <label class="settings-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="settings-search" type="search" spellcheck="false" autocomplete="off" data-i18n-placeholder="settings.search" placeholder="Search settings" />
+      </label>
+      <div class="settings-nav-list" role="tablist" aria-orientation="vertical">
+        <button class="settings-nav-item" role="tab" data-page="appearance">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+          <span data-i18n="settings.appearance">Appearance</span>
+        </button>
+        <button class="settings-nav-item" role="tab" data-page="notifications">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <span data-i18n="settings.notifications">Notifications</span>
+        </button>
+        <button class="settings-nav-item" role="tab" data-page="sessions">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+          <span data-i18n="settings.sessions">Sessions</span>
+        </button>
+        <button class="settings-nav-item" role="tab" data-page="panels">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M9 15h12"/></svg>
+          <span data-i18n="settings.panels">Panels</span>
+        </button>
+        <button class="settings-nav-item" role="tab" data-page="editor">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <span data-i18n="settings.editor">Editor</span>
+        </button>
+        <button class="settings-nav-item" role="tab" data-page="voice">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+          <span data-i18n="voice.title">Voice input</span>
+        </button>
+        <button class="settings-nav-item" role="tab" data-page="remote">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg>
+          <span data-i18n="remote.title">Remote access</span>
+        </button>
+        <button class="settings-nav-item" role="tab" data-page="local-models">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+          <span data-i18n="settings.customModels">Local models</span>
+        </button>
       </div>
-      <div class="settings-group">
-        <div class="settings-group-title" data-i18n="settings.notifications">Notifications</div>
-        <label class="settings-row">
-          <span data-i18n="settings.sound">Notification sound</span>
-          <select id="settings-sound"></select>
-        </label>
-        <label class="settings-row">
-          <span data-i18n="settings.soundVolume">Volume</span>
-          <input type="range" id="settings-volume" min="0" max="100" step="5" />
-        </label>
-        <div class="panel-grid">
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.osNotifications">Desktop notifications</span>
-            <input type="checkbox" id="settings-notifications" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
+    </nav>
+
+    <div class="settings-main">
+      <button id="settings-close" class="settings-close" data-i18n-title="settings.close" title="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+      <div class="settings-body">
+        <section class="settings-page" data-page="appearance" role="tabpanel">
+          <header class="settings-page-head">
+            <h2 data-i18n="settings.appearance">Appearance</h2>
+            <p data-i18n="settings.page.appearance">Language and color theme for the whole app.</p>
+          </header>
+          <div class="settings-group">
+            <div class="settings-card">
+              <label class="settings-row">
+                <span data-i18n="settings.language">Language</span>
+                <select id="settings-language"></select>
+              </label>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="theme-block" data-search-item>
+              <div class="settings-group-title" id="settings-theme-title" data-i18n="settings.theme">Theme</div>
+              <!-- Theme cards are rendered by settings.js from THEMES. -->
+              <div id="settings-theme-grid" class="theme-grid" role="radiogroup" aria-labelledby="settings-theme-title"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-page" data-page="notifications" role="tabpanel">
+          <header class="settings-page-head">
+            <h2 data-i18n="settings.notifications">Notifications</h2>
+            <p data-i18n="settings.page.notifications">How the app tells you a session has finished.</p>
+          </header>
+          <div class="settings-group">
+            <div class="settings-card">
+              <label class="settings-row">
+                <span class="settings-label">
+                  <span data-i18n="settings.sound">Notification sound</span>
+                  <small class="settings-desc" data-i18n="settings.soundDesc">Plays when a session finishes. Picking one previews it.</small>
+                </span>
+                <select id="settings-sound"></select>
+              </label>
+              <label class="settings-row">
+                <span data-i18n="settings.soundVolume">Volume</span>
+                <span class="settings-range">
+                  <input type="range" id="settings-volume" min="0" max="100" step="5" />
+                  <output id="settings-volume-value" for="settings-volume"></output>
+                </span>
+              </label>
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.osNotifications">Desktop notifications</span>
+                  <small class="settings-desc" data-i18n="settings.osNotificationsDesc">Show a system notification when a session finishes while the app isn't focused.</small>
+                </span>
+                <input type="checkbox" id="settings-notifications" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-page" data-page="sessions" role="tabpanel">
+          <header class="settings-page-head">
+            <h2 data-i18n="settings.sessions">Sessions</h2>
+            <p data-i18n="settings.page.sessions">Defaults for new agent sessions and what each session shows.</p>
+          </header>
+          <div class="settings-group">
+            <div class="settings-group-title" data-i18n="settings.agents">Agent models</div>
+            <div class="settings-card">
+              <label class="settings-row">
+                <span class="settings-label">
+                  <span data-i18n="settings.model">Session model</span>
+                  <small class="settings-desc" data-i18n="settings.agentsHint">Applies to new sessions. Pick a model per session when creating one.</small>
+                </span>
+                <select id="settings-model"></select>
+              </label>
+              <label class="settings-row">
+                <span class="settings-label">
+                  <span data-i18n="settings.subagentModel">Subagent model</span>
+                  <small class="settings-desc" data-i18n="settings.subagentModelDesc">Used by Explore, Plan and the other subagents a session starts.</small>
+                </span>
+                <select id="settings-subagent-model"></select>
+              </label>
+              <label class="settings-row">
+                <span class="settings-label">
+                  <span data-i18n="settings.newSessionMenu">New-session menu</span>
+                  <small class="settings-desc" data-i18n="settings.newSessionMenuDesc">Which model family the New session dropdown lists.</small>
+                </span>
+                <select id="settings-new-session-menu"></select>
+              </label>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title" data-i18n="settings.general">General</div>
+            <div class="settings-card">
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.sessionDiffBadge">Diff stats on sessions</span>
+                  <small class="settings-desc" data-i18n="settings.sessionDiffBadgeDesc">Show added and removed line counts on each session in the list.</small>
+                </span>
+                <input type="checkbox" id="settings-session-diff" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.statusLine">Token cost meter</span>
+                  <small class="settings-desc" data-i18n="settings.statusLineDesc">Show tokens and cost at the bottom of each session. Applies to new sessions.</small>
+                </span>
+                <input type="checkbox" id="settings-statusline" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.toolHooks">Track every tool call</span>
+                  <small class="settings-desc" data-i18n="settings.toolHooksHint">Off: only subagent, question, edit and Bash calls fire hooks — much lighter for sessions running many subagents. Applies to sessions started or resumed afterwards.</small>
+                </span>
+                <input type="checkbox" id="settings-tool-hooks" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.quickEffortButtons">Quick effort buttons</span>
+                  <small class="settings-desc" data-i18n="settings.quickEffortButtonsDesc">Add Low, Mid and High buttons beside New session.</small>
+                </span>
+                <input type="checkbox" id="settings-quick-effort" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-page" data-page="panels" role="tabpanel">
+          <header class="settings-page-head">
+            <h2 data-i18n="settings.panels">Panels</h2>
+            <p data-i18n="settings.page.panels">Choose which panels and toolbar items are visible.</p>
+          </header>
+          <div class="settings-group">
+            <div class="settings-card panel-grid">
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="settings.panel.explorer">Explorer</span>
+                <input type="checkbox" id="settings-panel-explorer" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="settings.panel.git">Git</span>
+                <input type="checkbox" id="settings-panel-git" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="settings.panel.terminal">Terminal</span>
+                <input type="checkbox" id="settings-panel-terminal" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="settings.panel.launch">Launch configs</span>
+                <input type="checkbox" id="settings-panel-launch" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="settings.panel.tasks">Tasks</span>
+                <input type="checkbox" id="settings-panel-tasks" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="settings.panel.browser">Browser</span>
+                <input type="checkbox" id="settings-panel-browser" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="settings.panel.diagram">Diagram</span>
+                <input type="checkbox" id="settings-panel-diagram" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="settings.panel.usage">Usage metrics</span>
+                <input type="checkbox" id="settings-panel-usage" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-page" data-page="editor" role="tabpanel">
+          <header class="settings-page-head">
+            <h2 data-i18n="settings.editor">Editor</h2>
+            <p data-i18n="settings.page.editor">Fonts, indentation and behavior of the code editor.</p>
+          </header>
+          <!-- Rows are built by src/renderer/editor/settings-section.js from
+               editor-settings.js so the defaults and the dialog can't drift apart:
+               value rows into #editor-settings, switches into #editor-settings-switches. -->
+          <div class="settings-group">
+            <div class="settings-card" id="editor-settings"></div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title" data-i18n="settings.editorFeatures">Features</div>
+            <div class="settings-card panel-grid" id="editor-settings-switches"></div>
+          </div>
+        </section>
+
+        <section class="settings-page" data-page="voice" role="tabpanel" id="voice-input">
+          <header class="settings-page-head">
+            <h2 data-i18n="voice.title">Voice input</h2>
+            <p data-i18n="voice.hint">While a session terminal has focus, what you say is transcribed on this device and typed into that session. Nothing is sent until you press Enter.</p>
+          </header>
+          <div class="settings-group">
+            <div class="settings-card">
+              <label class="panel-toggle">
+                <span class="panel-toggle-label" data-i18n="voice.enable">Dictate into the focused session</span>
+                <input type="checkbox" id="settings-voice" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="settings-row">
+                <span data-i18n="voice.model">Voice model</span>
+                <select id="settings-voice-model"></select>
+              </label>
+              <label class="settings-row">
+                <span data-i18n="voice.language">Spoken language</span>
+                <select id="settings-voice-language"></select>
+              </label>
+            </div>
+            <div id="voice-note" class="settings-group-hint settings-note" hidden></div>
+          </div>
+        </section>
+
+        <!-- Remote (mobile) access: LAN server toggle, pairing QR, paired-device
+             list. Driven by src/renderer/remote-pane.js. -->
+        <section class="settings-page" data-page="remote" role="tabpanel">
+          <header class="settings-page-head">
+            <h2 data-i18n="remote.title">Remote access</h2>
+            <p data-i18n="settings.page.remote">Pair the companion mobile app and manage paired devices.</p>
+          </header>
+          <div class="settings-group">
+            <div class="settings-card">
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="remote.enable">Allow mobile devices on this network</span>
+                  <small class="settings-desc" data-i18n="remote.hint">Scan the QR code with the companion mobile app to pair this device. The connection is unencrypted — only enable this on a network you trust.</small>
+                </span>
+                <input type="checkbox" id="remote-enable" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <div id="remote-qr-wrap" class="remote-pairing" hidden>
+                <div id="remote-qr"></div>
+                <div class="remote-pairing-info">
+                  <div id="remote-addr" class="settings-group-hint"></div>
+                  <button id="remote-new-code" class="settings-secondary" data-i18n="remote.newCode">New code</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title" data-i18n="remote.devices">Paired devices</div>
+            <div id="remote-device-list"></div>
+          </div>
+        </section>
+
+        <section class="settings-page" data-page="local-models" role="tabpanel" id="custom-models">
+          <header class="settings-page-head">
+            <h2 data-i18n="settings.customModels">Local models</h2>
+            <p data-i18n="settings.customModelsHint">Install open-source models that run locally and start sessions with them.</p>
+          </header>
+          <div class="settings-group">
+            <div id="cm-status" class="cm-status"></div>
+            <div id="cm-body" class="cm-body" hidden>
+              <div id="cm-system" class="cm-system"></div>
+              <label class="settings-search cm-search-box">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input id="cm-search" class="cm-search" type="text" spellcheck="false" data-i18n-placeholder="settings.customModels.search" placeholder="Search models…" />
+              </label>
+              <div id="cm-catalog" class="cm-list"></div>
+              <div class="settings-group-title cm-installed-title" data-i18n="settings.customModels.installed">Installed models</div>
+              <div id="cm-installed" class="cm-list"></div>
+              <button id="cm-remove-all" class="cm-remove-all" data-i18n="settings.customModels.removeAll">Remove all local model data</button>
+            </div>
+          </div>
+        </section>
+
+        <div id="settings-no-results" class="settings-no-results" hidden>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <span data-i18n="settings.noResults">No settings match your search.</span>
         </div>
       </div>
-      <div class="settings-group">
-        <div class="settings-group-title" data-i18n="settings.agents">Agent models</div>
-        <div class="settings-group-hint" data-i18n="settings.agentsHint">Applies to new sessions. Pick a model per session when creating one.</div>
-        <label class="settings-row">
-          <span data-i18n="settings.model">Session model</span>
-          <select id="settings-model"></select>
-        </label>
-        <label class="settings-row">
-          <span data-i18n="settings.subagentModel">Subagent model</span>
-          <select id="settings-subagent-model"></select>
-        </label>
-        <label class="settings-row">
-          <span data-i18n="settings.newSessionMenu">New-session menu</span>
-          <select id="settings-new-session-menu"></select>
-        </label>
-      </div>
-      <div class="settings-group" id="voice-input">
-        <div class="settings-group-title" data-i18n="voice.title">Voice input</div>
-        <div class="settings-group-hint" data-i18n="voice.hint">While a session terminal has focus, what you say is transcribed on this device and typed into that session. Nothing is sent until you press Enter.</div>
-        <div class="panel-grid">
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="voice.enable">Dictate into the focused session</span>
-            <input type="checkbox" id="settings-voice" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-        </div>
-        <label class="settings-row">
-          <span data-i18n="voice.model">Voice model</span>
-          <select id="settings-voice-model"></select>
-        </label>
-        <label class="settings-row">
-          <span data-i18n="voice.language">Spoken language</span>
-          <select id="settings-voice-language"></select>
-        </label>
-        <div id="voice-note" class="settings-group-hint" hidden></div>
-      </div>
-      <div class="settings-group">
-        <div class="settings-group-title" data-i18n="settings.general">General</div>
-        <div class="panel-grid">
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.sessionDiffBadge">Diff stats on sessions</span>
-            <input type="checkbox" id="settings-session-diff" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.statusLine">Token cost meter</span>
-            <input type="checkbox" id="settings-statusline" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.quickEffortButtons">Quick effort buttons</span>
-            <input type="checkbox" id="settings-quick-effort" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-        </div>
-      </div>
-      </div>
-      <div class="settings-col">
-      <div class="settings-group">
-        <div class="settings-group-title" data-i18n="settings.panels">Panels</div>
-        <div class="panel-grid">
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.panel.explorer">Explorer</span>
-            <input type="checkbox" id="settings-panel-explorer" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.panel.git">Git</span>
-            <input type="checkbox" id="settings-panel-git" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.panel.terminal">Terminal</span>
-            <input type="checkbox" id="settings-panel-terminal" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.panel.launch">Launch configs</span>
-            <input type="checkbox" id="settings-panel-launch" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.panel.tasks">Tasks</span>
-            <input type="checkbox" id="settings-panel-tasks" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.panel.browser">Browser</span>
-            <input type="checkbox" id="settings-panel-browser" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.panel.diagram">Diagram</span>
-            <input type="checkbox" id="settings-panel-diagram" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-          <label class="panel-toggle">
-            <span class="panel-toggle-label" data-i18n="settings.panel.usage">Usage metrics</span>
-            <input type="checkbox" id="settings-panel-usage" class="switch-input" />
-            <span class="switch-ui"></span>
-          </label>
-        </div>
-      </div>
-      <!-- Code editor preferences; rows are built by src/renderer/editor/settings-section.js
-           from editor-settings.js so the defaults and the dialog can't drift apart. -->
-      <div class="settings-group" id="editor-settings">
-        <div class="settings-group-title" data-i18n="settings.editor">Editor</div>
-      </div>
-      <!-- Remote (mobile) access: LAN server toggle, pairing QR, paired-device
-           list. Driven by src/renderer/remote-pane.js. -->
-      <div class="settings-group">
-        <div class="settings-group-title" data-i18n="remote.title">Remote access</div>
-        <label class="panel-toggle">
-          <span class="panel-toggle-label" data-i18n="remote.enable">Allow mobile devices on this network</span>
-          <input type="checkbox" id="remote-enable" class="switch-input" />
-          <span class="switch-ui"></span>
-        </label>
-        <div class="settings-group-hint" data-i18n="remote.hint">Scan the QR code with the companion mobile app to pair this device. The connection is unencrypted — only enable this on a network you trust.</div>
-        <div id="remote-qr-wrap" hidden>
-          <div id="remote-qr"></div>
-          <div id="remote-addr" class="settings-group-hint"></div>
-          <button id="remote-new-code" class="settings-secondary" data-i18n="remote.newCode">New code</button>
-        </div>
-        <div class="settings-group-title" data-i18n="remote.devices">Paired devices</div>
-        <div id="remote-device-list"></div>
-      </div>
-      </div>
-      <div class="settings-col">
-      <div class="settings-group" id="custom-models">
-        <div class="settings-group-title" data-i18n="settings.customModels">Local models</div>
-        <div class="settings-group-hint" data-i18n="settings.customModelsHint">Install open-source models that run locally and start sessions with them.</div>
-        <div id="cm-status" class="cm-status"></div>
-        <div id="cm-body" hidden>
-          <div id="cm-system" class="cm-system"></div>
-          <input id="cm-search" class="cm-search" type="text" data-i18n-placeholder="settings.customModels.search" placeholder="Search models…" />
-          <div id="cm-catalog" class="cm-list"></div>
-          <div class="cm-installed-title" data-i18n="settings.customModels.installed">Installed models</div>
-          <div id="cm-installed" class="cm-list"></div>
-          <button id="cm-remove-all" class="cm-remove-all" data-i18n="settings.customModels.removeAll">Remove all local model data</button>
-        </div>
-      </div>
-      </div>
-    </div>
-    <div class="settings-actions">
-      <button id="settings-done" class="settings-primary" data-i18n="settings.done">Done</button>
     </div>
   </dialog>
   <!-- Setup gate: a step-by-step wizard shown when the Claude Code CLI isn't

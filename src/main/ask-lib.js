@@ -144,4 +144,4 @@ function dismissSteps(ask) {
   return [{ key: ESC }];
 }
 
-module.exports = { fromHook, clearsAsk, keystrokes, dismissSteps, isAskTool, ESC };
+module.exports = { fromHook, clearsAsk, keystrokes, dismissSteps, isAskTool, ASK_TOOLS, ESC };

@@ -1251,13 +1251,22 @@ const MERGE_ERRORS = {
 
 sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); };
 
-// Sidebar "clear": archive every session of the open project that isn't busy.
-// All rows are archived before anything is re-selected — selecting a stopped row
-// resumes it, so picking the next row mid-loop would wake a session about to go.
-function clearIdleSessions() {
-  for (const s of sessions.values()) {
-    if (s.archived || isSessionBusy(s.state)) continue;
-    if (currentRepo !== undefined && s.repo !== currentRepo) continue;
+// Sidebar "clear": archive every session of the open project that isn't busy
+// and has no background terminal or Monitor still running (archiving kills the
+// agent and those with it). All rows are archived before anything is re-selected
+// — selecting a stopped row resumes it, so picking the next row mid-loop would
+// wake a session about to go.
+async function clearIdleSessions() {
+  const candidates = [...sessions.values()].filter((s) => !s.archived && !isSessionBusy(s.state)
+    && (currentRepo === undefined || s.repo === currentRepo));
+  if (!candidates.length) return;
+  // On any failure main answers with no list; archive nothing rather than kill work.
+  const busyIds = await window.api.sessionsWithBackgroundWork(candidates.map((s) => s.id)).catch(() => null);
+  if (!Array.isArray(busyIds)) return;
+  const withBackgroundWork = new Set(busyIds);
+  for (const s of candidates) {
+    // Re-checked after the await: the row may have started working or been archived meanwhile.
+    if (s.archived || isSessionBusy(s.state) || withBackgroundWork.has(s.id)) continue;
     markArchived(s);
   }
   applyTabFilter();

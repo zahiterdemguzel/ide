@@ -26,38 +26,48 @@ every change from that run. It is now mirrored, write by write, into
   place and the renderer's `settings-store-seed` adopts it. The old quit-time
   LevelDB copy in `instance.js` still runs but is only that migration source now.
 
-The dialog body is a **three-column grid** (`.settings-body` → three
-`.settings-col`, `settings.css`), split by vertical rules so the form reads wide
-rather than tall: the left column holds Appearance + Notifications + Agent models
-+ Voice input + General; the middle holds Panels + Editor + Remote access (the pairing QR
-and paired-device list); the right holds Local models. The body scrolls while the
-header/footer stay pinned.
+**Layout: sidebar + pages.** The dialog (`#settings-dialog`) is a two-column grid:
+a sidebar (`.settings-nav` — title, search box `#settings-search`, page list of
+`.settings-nav-item[data-page]` buttons) and the content pane, which shows **one
+`.settings-page[data-page]` at a time**: Appearance, Notifications, Sessions
+(agent models + the General toggles), Panels, Editor, Voice input, Remote access,
+Local models. Each page is a header (`h2` + one-line description,
+`settings.page.*` strings) over titled `.settings-group`s whose rows sit in a
+`.settings-card` (hairline-separated). There is no footer — the × (`#settings-close`),
+Escape, or a backdrop click closes it. Every control kept its id, so the module
+owning it wires it unchanged.
 
-**Every block is a titled `.settings-group`** — there are no bare rows floating
-above the first title, so the columns share one rhythm.
-
-**The dividers are declared per breakpoint, not with a generic
-`:not(:last-child)` rule.** Which column ends a row changes with the column count,
-so one generic rule leaves a rule dangling at the grid's right edge and strands
-the wrapped column with a phantom 20px indent. The steps are:
-
-- **3 columns** (default) — each column after the first carries a `border-left`,
-  with equal 20px gutters either side of every rule.
-- **2 columns** (≤900px) — the third column spans the full row
-  (`grid-column: 1 / -1`) and is separated by a *horizontal* rule instead.
-- **1 column** (≤620px) — all rules go horizontal, all side padding drops.
-
-Inside a column, `.panel-grid` is `repeat(auto-fit, minmax(160px, 1fr))` rather
-than a hard `1fr 1fr`, so switch labels stop ellipsising when the column is
-narrow and a group with a single toggle (Voice input) fills the width instead of
-sitting in a half-width stub.
+- **Row shapes.** `.settings-row` is a two-column grid: label left (optionally a
+  `.settings-label` wrapping the label span + a `.settings-desc` description),
+  control right. `.panel-toggle` is the same with a switch. A card that is also a
+  `.panel-grid` lays bare switches out two-up (hairlines drawn by a 1px grid gap
+  over the line colour). Below 640px the sidebar becomes a top bar and rows stack.
+- **Theme cards.** The theme is picked from `#settings-theme-grid`, cards rendered
+  by `renderThemeCards()` in `settings.js` (a `role=radiogroup`, arrow keys move
+  the pick). Each card's miniature carries `data-theme="<id>"`, so `themes.css`
+  scopes that palette to it — which is why `base.css` declares the default palette
+  on `:root, [data-theme="dark"]`: without it a Dark preview under another theme
+  would inherit the active palette.
+- **Navigation + search** are `src/renderer/settings-nav.js` (`initSettingsNav()`
+  returns a reset that `open()` calls — each open starts unfiltered on the last
+  page, `ide.settingsPage`). Search matches a row by its **label/description
+  only** (not a select's options, which would make "en" match half the dialog);
+  a page whose title matches shows whole; groups with no matching row hide, and
+  groups with nothing searchable (QR, model catalog) hide on a partial match.
+  Non-matching pages dim in the sidebar. Escape clears a filled search before it
+  closes the dialog; Cmd/Ctrl+F focuses the box. The matching rules (case/accent
+  fold incl. Turkish ı/İ, every word must appear) are the pure, unit-tested
+  `shared/settings-search.js`. A new row is searchable automatically; a custom
+  block opts in with `data-search-item`.
+- `#settings-dialog [hidden]` is forced `display:none !important`, because the
+  blocks modules toggle with `hidden` (`#cm-body`, `#remote-qr-wrap`) are flex here.
 
 ## Editor group
 
-The **Editor** group (`#editor-settings`) is generated at startup by
-`src/renderer/editor/settings-section.js` from a field table (value rows first —
-font size/family, tab size, line numbers, whitespace, auto save — then a
-`.panel-grid` of switches), so every preference in `editor/editor-settings.js`
+The **Editor** page is generated at startup by
+`src/renderer/editor/settings-section.js` from a field table (value rows —
+font size/family, tab size, line numbers, whitespace, auto save — into the
+`#editor-settings` card, switches into the `#editor-settings-switches` card), so every preference in `editor/editor-settings.js`
 has exactly one control. Labels carry `data-i18n` (`settings.editor*`,
 `settings.editorOpt.*`), so a language switch relabels them live. A change calls
 `setEditorSettings()` in `viewer/file.js`, which persists the blob
@@ -283,7 +293,7 @@ input stream, so the badge won't see it until something else pushes. See
 
 ## Voice input
 
-The **Voice input** group (`#voice-input`, left column) holds the dictate-into-the-focused-session
+The **Voice input** page (`#voice-input`) holds the dictate-into-the-focused-session
 toggle (`#settings-voice`, default **off**), the voice-model dropdown
 (`#settings-voice-model`) and the spoken-language dropdown
 (`#settings-voice-language`, Auto-detect / English / Turkish, default English —
@@ -297,7 +307,7 @@ See [voice-input.md](voice-input.md).
 
 ## General preferences
 
-The **General** group (same frameless switch rows as Panels) holds standalone
+The **General** group (on the Sessions page; switch rows with descriptions) holds standalone
 on/off toggles wired in `src/renderer/settings.js`:
 
 - **Diff stats on sessions** (`#settings-session-diff`, default **off**) shows a
@@ -319,6 +329,13 @@ on/off toggles wired in `src/renderer/settings.js`:
   off so the next-spawned session gets no statusLine. A **live session keeps the
   meter it spawned with** — the toggle affects the next session, like the agent
   model defaults.
+- **Track every tool call** (`#settings-tool-hooks`, default **on**) — same
+  push-to-main, apply-at-spawn shape as the token meter (`localStorage`
+  `ide.toolHooks`, `isToolHooksEnabled()` / `setToolHooksEnabled()`, IPC
+  `set-tool-hooks-enabled`). Off narrows each new session's tool hooks to the
+  few tools that drive status/asks/edit tracking — the fix for sessions with
+  many subagents lagging the app. See
+  [status-detection.md](status-detection.md#light-tool-hooks-settings--track-every-tool-call).
 - **Desktop notifications** (`#settings-notifications`, default **off**, and
   grouped under *Notifications* rather than *General* since it shares that
   group's working → completed trigger) sends an
@@ -351,7 +368,7 @@ on/off toggles wired in `src/renderer/settings.js`:
 
 ## Panel visibility
 
-The dialog's **Panels** group is a 2-up grid of frameless switch rows, one per
+The dialog's **Panels** page is a 2-up card of switch rows, one per
 toggleable area: **Explorer**, **Git**, **Terminal**, **Launch configs**,
 **Tasks**, **Browser**, and **Usage metrics**.
 Each row is a hidden `<input type="checkbox">` styled as a sliding toggle (the

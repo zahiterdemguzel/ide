@@ -22,131 +22,299 @@
  * doubles as a browser-is-alive indicator. */
 #browser-btn.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
-/* Settings dialog. */
+/* --- Settings dialog ------------------------------------------------------
+ * A page-per-section layout: the sidebar (title, search, page list) on the left,
+ * the active page on the right. Each page is a header plus titled groups of
+ * cards; a card stacks rows separated by hairlines, every row a label (with an
+ * optional description) on the left and its control on the right. Navigation and
+ * search are src/renderer/settings-nav.js. The local tokens below are derived from
+ * the theme variables, so every theme gets the same structure. */
 #settings-dialog {
-  border: 1px solid var(--border); border-radius: 8px;
+  --set-card: color-mix(in srgb, var(--bg-3) 55%, var(--bg-2));
+  --set-line: color-mix(in srgb, var(--border) 80%, transparent);
+  --set-nav: color-mix(in srgb, var(--bg) 70%, var(--bg-2));
+  --set-hover: color-mix(in srgb, var(--fg) 6%, transparent);
+  --set-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+  border: 1px solid var(--border); border-radius: 12px;
   background: var(--bg-2); color: var(--fg);
-  padding: 0; width: min(1000px, 92vw); max-height: 90vh;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  padding: 0; overflow: hidden;
+  width: min(980px, 94vw); height: min(700px, 88vh);
+  max-width: none; max-height: none;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.25);
 }
-/* Pin the header/footer and scroll only the body, so the two-column form never
-   overflows the viewport on short screens. Scoped to [open] so the flex display
-   doesn't override the native dialog:not([open]) hide. */
-#settings-dialog[open] { display: flex; flex-direction: column; }
-.settings-head, .settings-actions { flex: none; }
-#settings-dialog .settings-body { flex: 1 1 auto; min-height: 0; }
-#settings-dialog::backdrop { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
+/* Scoped to [open] so the grid doesn't override the native dialog:not([open]) hide. */
+#settings-dialog[open] {
+  display: grid; grid-template-columns: 224px minmax(0, 1fr);
+  animation: settings-in 160ms cubic-bezier(.2, .8, .3, 1);
+}
+#settings-dialog::backdrop { background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(3px); }
+#settings-dialog[open]::backdrop { animation: settings-fade 160ms ease-out; }
+@keyframes settings-in { from { opacity: 0; transform: translateY(6px) scale(.985); } }
+@keyframes settings-fade { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  #settings-dialog[open], #settings-dialog[open]::backdrop { animation: none; }
+}
+/* Modules toggle `hidden` on display:flex/grid blocks here; keep it authoritative. */
+#settings-dialog [hidden], #settings-dialog .search-miss { display: none !important; }
 
+/* Sidebar. */
+.settings-nav {
+  display: flex; flex-direction: column; gap: 14px; min-height: 0;
+  padding: 18px 12px; background: var(--set-nav);
+  border-right: 1px solid var(--border);
+}
+.settings-nav-title { margin: 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.settings-search {
+  display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px;
+  background: var(--bg-2); color: var(--fg-dim);
+  border: 1px solid var(--border); border-radius: 7px; cursor: text;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.settings-search svg { flex: none; }
+.settings-search:focus-within { border-color: var(--accent); box-shadow: var(--set-ring); }
+.settings-search input {
+  flex: 1; min-width: 0; height: 100%; padding: 0;
+  background: none; border: none; outline: none; color: var(--fg);
+  font: inherit; font-size: 12.5px;
+}
+.settings-search input::placeholder { color: var(--fg-dim); }
+.settings-search input::-webkit-search-cancel-button { cursor: pointer; }
+.settings-nav-list {
+  display: flex; flex-direction: column; gap: 2px;
+  min-height: 0; overflow-y: auto; margin: 0 -4px; padding: 0 4px;
+}
+.settings-nav-item {
+  position: relative; display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 7px 10px; border: none; border-radius: 6px;
+  background: none; color: var(--fg-dim); text-align: left;
+  font: inherit; font-size: 13px; cursor: pointer;
+  transition: background .12s ease, color .12s ease, opacity .12s ease;
+}
+.settings-nav-item svg { flex: none; opacity: .85; }
+.settings-nav-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-nav-item:hover { background: var(--set-hover); color: var(--fg); }
+.settings-nav-item:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: -2px; }
+.settings-nav-item[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--fg);
+}
+.settings-nav-item[aria-selected="true"] svg { color: var(--accent-hi); opacity: 1; }
+.settings-nav-item[aria-selected="true"]::before {
+  content: ""; position: absolute; left: -4px; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 2px; background: var(--accent);
+}
+/* While searching every page is on screen at once, so no item reads as selected;
+   pages with no match fade out instead. */
+#settings-dialog.is-searching .settings-nav-item[aria-selected="true"] { background: none; color: var(--fg-dim); }
+#settings-dialog.is-searching .settings-nav-item[aria-selected="true"]::before { display: none; }
+#settings-dialog.is-searching .settings-nav-item[aria-selected="true"] svg { color: inherit; opacity: .85; }
+.settings-nav-item.search-dim { opacity: .38; }
+
+/* Content. */
+.settings-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.settings-close {
+  position: absolute; top: 14px; right: 16px; z-index: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; padding: 0;
+  background: none; border: none; border-radius: 6px; color: var(--fg-dim); cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.settings-close:hover { background: var(--set-hover); color: var(--fg); }
+.settings-close:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 0; }
+#settings-dialog .settings-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: 26px 40px 40px; scrollbar-gutter: stable;
+}
+
+.settings-page { display: none; max-width: 700px; }
+.settings-page.is-active { display: block; }
+#settings-dialog.is-searching .settings-page { display: none; }
+#settings-dialog.is-searching .settings-page.search-hit { display: block; }
+#settings-dialog.is-searching .settings-page.search-hit ~ .settings-page.search-hit {
+  margin-top: 30px; padding-top: 26px; border-top: 1px solid var(--set-line);
+}
+.settings-page-head { margin: 0 0 22px; padding-right: 40px; }
+.settings-page-head h2 { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: -.015em; }
+.settings-page-head p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--fg-dim); }
+
+.settings-group { display: flex; flex-direction: column; gap: 8px; }
+.settings-group + .settings-group { margin-top: 24px; }
+.settings-group-title {
+  margin: 0 2px; font-size: 11px; font-weight: 600; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .07em;
+}
+.settings-group-hint { font-size: 11.5px; color: var(--fg-dim); line-height: 1.45; }
+.settings-note { margin: 0 2px; }
+
+/* Cards and their rows. */
+.settings-card {
+  background: var(--set-card); border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden;
+}
+.settings-card > * { padding: 12px 16px; }
+/* Hairline above every row that follows a visible one — a plain `* + *` would
+   double the card's own top border when search hides the first row. */
+.settings-card > :not(.search-miss):not([hidden]) ~ * { border-top: 1px solid var(--set-line); }
+.settings-card:empty { display: none; }
+
+.settings-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 260px);
+  align-items: center; gap: 6px 28px;
+}
+.settings-row > span:first-child, .settings-label > span:first-child { font-size: 13px; color: var(--fg); }
+.settings-label { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.settings-desc { font-size: 11.5px; line-height: 1.45; color: var(--fg-dim); }
+.settings-row select,
+.settings-row input:not([type="range"]):not([type="checkbox"]) {
+  width: 100%; height: 30px; box-sizing: border-box; padding: 0 10px;
+  font-family: inherit; font-size: 12.5px;
+  background-color: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+/* Drawn chevron (two gradient triangles) so it follows the theme's --fg-dim. */
+.settings-row select {
+  appearance: none; padding-right: 28px; cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-dim) 50%),
+    linear-gradient(135deg, var(--fg-dim) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px; background-repeat: no-repeat;
+}
+.settings-row select:hover,
+.settings-row input:not([type="range"]):not([type="checkbox"]):hover { border-color: color-mix(in srgb, var(--fg-dim) 60%, var(--border)); }
+.settings-row select:focus,
+.settings-row input:not([type="range"]):not([type="checkbox"]):focus { outline: none; border-color: var(--accent); box-shadow: var(--set-ring); }
+.settings-row select:disabled { opacity: .55; cursor: default; }
+.settings-row input::placeholder { color: var(--fg-dim); }
+.settings-range { display: flex; align-items: center; gap: 12px; }
+.settings-range input[type="range"] { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.settings-range output {
+  flex: none; min-width: 36px; text-align: right;
+  font-size: 12px; color: var(--fg-dim); font-variant-numeric: tabular-nums;
+}
+
+/* Switch rows: label (and description) left, the switch right. */
+.panel-toggle {
+  display: flex; align-items: center; gap: 20px;
+  cursor: pointer; user-select: none; transition: background .12s ease;
+}
+.panel-toggle > :first-child { flex: 1; min-width: 0; }
+.panel-toggle:hover { background: var(--set-hover); }
+.panel-toggle-label {
+  font-size: 13px; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.settings-label .panel-toggle-label { white-space: normal; }
+
+/* A card of bare switches lays them out two-up; the 1px gap over the --set-line
+   background draws the hairlines between cells. */
+.settings-card.panel-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px; background: var(--set-line);
+}
+.settings-card.panel-grid > * { border-top: none; background: var(--set-card); }
+.settings-card.panel-grid > .panel-toggle:hover { background: color-mix(in srgb, var(--fg) 4%, var(--set-card)); }
+.settings-card.panel-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+/* Outside a card (no dialog host for the editor switches) the grid stays plain. */
+.panel-grid:not(.settings-card) {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 4px 14px;
+}
+
+/* The native checkbox is hidden; the .switch-ui span draws the track + knob. */
+.switch-input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+.switch-ui {
+  flex: none; position: relative; width: 34px; height: 20px; border-radius: 999px;
+  background: color-mix(in srgb, var(--fg-dim) 45%, var(--bg-3));
+  transition: background 160ms ease;
+}
+.switch-ui::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .3);
+  transition: transform 160ms cubic-bezier(.3, .7, .4, 1), background 160ms ease;
+}
+.switch-input:checked + .switch-ui { background: var(--accent); }
+.switch-input:checked + .switch-ui::after { transform: translateX(14px); background: var(--on-accent); }
+.switch-input:disabled + .switch-ui { opacity: .5; }
+.switch-input:focus-visible + .switch-ui { box-shadow: var(--set-ring); }
+
+/* Theme cards: a miniature window in each theme's own palette. The ring color is
+   captured on the card (--ring) because inside the preview --accent is the
+   previewed theme's, not the app's. */
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 14px; }
+.theme-block { display: flex; flex-direction: column; gap: 10px; }
+.theme-card {
+  --ring: var(--accent);
+  display: flex; flex-direction: column; gap: 8px; padding: 0;
+  background: none; border: none; color: var(--fg-dim);
+  font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.theme-preview {
+  display: flex; aspect-ratio: 16 / 10; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  outline: 2px solid transparent; outline-offset: 2px;
+  transition: outline-color .12s ease, transform .12s ease;
+}
+.theme-card:hover .theme-preview { transform: translateY(-1px); outline-color: color-mix(in srgb, var(--ring) 45%, transparent); }
+.theme-card[aria-checked="true"] .theme-preview { outline-color: var(--ring); }
+.theme-card:focus-visible { outline: none; }
+.theme-card:focus-visible .theme-preview { outline-color: var(--ring); outline-style: dashed; }
+.theme-card[aria-checked="true"] { color: var(--fg); font-weight: 600; }
+.theme-preview i { display: block; height: 4px; border-radius: 2px; }
+.theme-preview-side {
+  display: flex; flex-direction: column; gap: 5px; width: 28%; padding: 9px 7px;
+  background: var(--bg-2); border-right: 1px solid var(--border);
+}
+.theme-preview-side i { background: var(--fg-dim); opacity: .55; }
+.theme-preview-side i:first-child { background: var(--list-sel); opacity: 1; }
+.theme-preview-main { display: flex; flex-direction: column; gap: 6px; flex: 1; padding: 10px; }
+.theme-preview-main i { width: 78%; background: var(--fg); opacity: .4; }
+.theme-preview-main i.accent { width: 42%; background: var(--accent); opacity: 1; }
+.theme-preview-main i.short { width: 56%; }
+.theme-preview-main i.green { width: 32%; background: var(--green); opacity: .85; }
+.theme-card-name { padding: 0 2px; }
+
+/* Search: nothing matched. */
+.settings-no-results {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 96px 0; color: var(--fg-dim); font-size: 13px; text-align: center;
+}
+.settings-no-results svg { opacity: .6; }
+
+@media (max-width: 860px) {
+  #settings-dialog[open] { grid-template-columns: 188px minmax(0, 1fr); }
+  #settings-dialog .settings-body { padding: 22px 24px 32px; }
+}
+/* Narrow: the sidebar becomes a top bar with a horizontally scrolling page list,
+   and rows stack their control under the label. */
+@media (max-width: 640px) {
+  #settings-dialog[open] { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-nav { border-right: none; border-bottom: 1px solid var(--border); padding: 14px 12px 8px; gap: 10px; }
+  .settings-nav-list { flex-direction: row; overflow-x: auto; overflow-y: hidden; }
+  .settings-nav-item { width: auto; flex: none; }
+  .settings-nav-item[aria-selected="true"]::before { left: 10px; right: 10px; top: auto; bottom: -1px; width: auto; height: 2px; }
+  .settings-row { grid-template-columns: minmax(0, 1fr); }
+  .settings-card.panel-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-card.panel-grid > :last-child:nth-child(odd) { grid-column: auto; }
+}
+
+/* Header/body/footer chrome shared with the Claude Code setup wizard below. */
+.settings-head, .settings-actions { flex: none; }
 .settings-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 12px 16px; border-bottom: 1px solid var(--border);
 }
 .settings-head h3 { margin: 0; font-size: 14px; }
-#settings-close, #claude-setup-close {
+#claude-setup-close {
   background: none; border: none; color: var(--fg-dim);
   font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px;
   border-radius: 4px; transition: color .12s ease;
 }
-#settings-close:hover, #claude-setup-close:hover { color: var(--fg); }
-
-/* Three-column form: general prefs/models on the left, panels + remote (QR) in
-   the middle, custom (Ollama) models on the right. Vertical rules separate the
-   columns; the column count steps 3 -> 2 -> 1 as the dialog narrows.
-
-   The dividers are declared per breakpoint rather than with a generic
-   :not(:last-child) rule: which column ends a row changes with the count, so a
-   generic rule leaves a rule dangling at the grid's right edge and strands the
-   wrapped column with a phantom indent. At two columns the third column spans
-   the full row and is separated by a horizontal rule instead. */
-.settings-body {
-  padding: 16px; overflow-y: auto;
+#claude-setup-close:hover { color: var(--fg); }
+#claude-setup-dialog .settings-body {
+  flex: 1 1 auto; min-height: 0; padding: 16px; overflow-y: auto;
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px 0;
   align-items: start;
-}
-.settings-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-/* Equal 20px gutters on both sides of every rule, so each column's content sits
-   the same distance from its neighbour. */
-.settings-col + .settings-col { border-left: 1px solid var(--border); padding-left: 20px; }
-.settings-col:not(:last-child) { padding-right: 20px; }
-
-@media (max-width: 900px) {
-  .settings-body { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  /* Third column drops to its own full-width row: no vertical rule, a
-     horizontal one instead. */
-  .settings-col:nth-child(3) {
-    grid-column: 1 / -1;
-    border-left: none; border-top: 1px solid var(--border);
-    padding-left: 0; padding-top: 20px;
-  }
-  .settings-col:nth-child(2) { padding-right: 0; }
-}
-@media (max-width: 620px) {
-  .settings-body { grid-template-columns: minmax(0, 1fr); }
-  .settings-col + .settings-col {
-    border-left: none; border-top: 1px solid var(--border);
-    padding-left: 0; padding-top: 16px;
-  }
-  .settings-col:not(:last-child) { padding-right: 0; }
-}
-.settings-row { display: flex; flex-direction: column; gap: 6px; }
-.settings-row > span { font-size: 11px; color: var(--fg-dim); }
-.settings-row select,
-.settings-row input:not([type="range"]):not([type="checkbox"]) {
-  width: 100%; box-sizing: border-box; font-family: inherit; padding: 7px 8px;
-  background: var(--bg-3); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 5px; font-size: 13px;
-  transition: border-color .12s ease, box-shadow .12s ease;
-}
-.settings-row select { cursor: pointer; }
-.settings-row input::placeholder { color: var(--fg-dim); }
-.settings-row select:focus,
-.settings-row input:not([type="range"]):not([type="checkbox"]):focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
-.settings-row input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
-
-/* Panel-visibility toggles: a titled group of switch cards in a 2-up grid. */
-.settings-group { display: flex; flex-direction: column; gap: 8px; }
-.settings-group-title {
-  font-size: 11px; color: var(--fg-dim);
-  text-transform: uppercase; letter-spacing: .08em;
-}
-.settings-group-title:not(:first-child) { margin-top: 6px; }
-.settings-group-hint { font-size: 11px; color: var(--fg-dim); line-height: 1.4; margin-top: -2px; }
-.panel-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 4px 14px;
-}
-
-.panel-toggle {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 5px 2px; cursor: pointer; user-select: none;
-}
-.panel-toggle-label {
-  font-size: 12.5px; color: var(--fg);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  transition: color 120ms ease;
-}
-.panel-toggle:hover .panel-toggle-label { color: var(--accent-hi); }
-
-/* The native checkbox is hidden; the .switch-ui span draws the track + knob. */
-.switch-input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
-.switch-ui {
-  flex: none; position: relative; width: 34px; height: 18px; border-radius: 999px;
-  background: var(--bg-2); border: 1px solid var(--border);
-  transition: background 140ms ease, border-color 140ms ease;
-}
-.switch-ui::after {
-  content: ""; position: absolute; top: 50%; left: 2px; transform: translateY(-50%);
-  width: 13px; height: 13px; border-radius: 50%; background: var(--fg-dim);
-  transition: transform 140ms ease, background 140ms ease;
-}
-.switch-input:checked + .switch-ui {
-  background: var(--accent); border-color: var(--accent);
-}
-.switch-input:checked + .switch-ui::after {
-  transform: translate(15px, -50%); background: var(--on-accent);
-}
-.switch-input:focus-visible + .switch-ui {
-  outline: 2px solid var(--accent-hi); outline-offset: 1px;
 }
 
 .settings-actions {
@@ -155,7 +323,7 @@
 }
 .settings-primary {
   background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent);
-  border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px;
+  border-radius: 6px; padding: 6px 18px; cursor: pointer; font-size: 13px;
   transition: background .12s ease, border-color .12s ease;
 }
 .settings-primary:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
@@ -164,11 +332,11 @@
    .settings-primary and the dialog buttons — those live in .dlg-* and are for
    dialogs only, so this exists rather than borrowing them across families. */
 .settings-secondary {
-  background: var(--bg-3); color: var(--fg); border: 1px solid var(--border);
-  border-radius: 5px; padding: 6px 18px; cursor: pointer; font-size: 13px;
+  background: var(--bg-2); color: var(--fg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 16px; cursor: pointer; font-size: 12.5px;
   transition: background .12s ease, border-color .12s ease;
 }
-.settings-secondary:hover { background: var(--border); }
+.settings-secondary:hover { background: var(--bg-3); border-color: color-mix(in srgb, var(--fg-dim) 60%, var(--border)); }
 .settings-secondary:disabled { opacity: .55; cursor: default; }
 
 /* --- Claude Code setup wizard (src/renderer/claude-setup.js) --- */
@@ -254,82 +422,83 @@
 }
 .setup-back:hover { border-color: var(--accent); color: var(--accent-hi); }
 
-/* Remote access dialog: the QR needs a light quiet zone to scan reliably,
+/* Remote access: the pairing block sits inside the toggle's card, QR left and the
+   address + New code right. The QR needs a light quiet zone to scan reliably,
    regardless of theme. */
+.remote-pairing:not([hidden]) { display: flex; align-items: center; gap: 22px; }
 #remote-qr {
-  width: 200px;
-  height: 200px;
-  margin: 10px auto 4px;
-  background: #fff;
-  padding: 8px;
-  border-radius: 6px;
+  flex: none; width: 152px; height: 152px; padding: 8px;
+  background: #fff; border-radius: 8px;
 }
 #remote-qr svg { width: 100%; height: 100%; display: block; }
-#remote-qr-wrap { text-align: center; }
-#remote-addr { margin: 6px 0 10px; }
-#remote-device-list { display: flex; flex-direction: column; gap: 6px; }
-/* Name on the left, Revoke pinned right. These rows used to borrow .settings-row,
-   which is a *column* flex for label-above-control, so they stacked and centred. */
-.remote-device {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px;
-  background: var(--bg-3);
+.remote-pairing-info { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; min-width: 0; }
+#remote-addr { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; color: var(--fg); word-break: break-all; }
+#remote-addr:empty { display: none; }
+/* Paired devices read as a card of rows. Name on the left, Revoke pinned right
+   (these rows used to borrow .settings-row, a label-above-control grid). */
+#remote-device-list {
+  display: flex; flex-direction: column;
+  background: var(--set-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
 }
+#remote-device-list:empty { display: none; }
+#remote-device-list > .settings-group-hint { padding: 14px 16px; }
+.remote-device {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px;
+}
+.remote-device + .remote-device { border-top: 1px solid var(--set-line); }
 .remote-device > span {
-  min-width: 0; font-size: 12px; color: var(--fg);
+  min-width: 0; font-size: 12.5px; color: var(--fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.remote-device .settings-secondary { flex: none; padding: 4px 10px; font-size: 12px; }
+.remote-device .settings-secondary { flex: none; padding: 4px 12px; font-size: 12px; }
 
-/* Custom models (Ollama) section. Reuses the settings chrome; the list rows,
-   install/uninstall buttons and progress bars are scoped here. */
-.cm-note { font-size: 12px; color: var(--fg-dim); line-height: 1.4; }
-.cm-system { font-size: 11px; color: var(--fg-dim); }
+/* Local models (custom-models.js): a search box over the catalog card, then the
+   installed card. Rows are hairline-separated like every other settings card. */
+.cm-body:not([hidden]) { display: flex; flex-direction: column; gap: 10px; }
+.cm-note { font-size: 12.5px; color: var(--fg-dim); line-height: 1.5; }
+.cm-system { font-size: 11.5px; color: var(--fg-dim); }
 .cm-setup-btn, .cm-remove-all {
-  align-self: flex-start; padding: 6px 12px; font-size: 12px;
-  background: var(--bg-3); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+  align-self: flex-start; padding: 7px 14px; font-size: 12.5px;
+  background: var(--accent); color: var(--on-accent);
+  border: 1px solid var(--accent); border-radius: 6px; cursor: pointer;
   transition: border-color .12s ease, background .12s ease;
 }
-.cm-setup-btn:hover { border-color: var(--accent); }
+.cm-setup-btn:hover { background: var(--accent-hi); border-color: var(--accent-hi); }
 .cm-setup-btn:disabled, .cm-remove-all:disabled { opacity: .6; cursor: default; }
-.cm-remove-all { color: var(--red); border-color: var(--red); margin-top: 4px; }
+.cm-remove-all { background: none; color: var(--red); border-color: color-mix(in srgb, var(--red) 60%, transparent); margin-top: 6px; }
 .cm-remove-all:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
-.cm-search {
-  width: 100%; padding: 7px 8px; box-sizing: border-box;
-  background: var(--bg-3); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 5px; font-size: 13px;
+.cm-search-box { background: var(--set-card); height: 32px; }
+.cm-installed-title { margin-top: 10px; }
+.cm-list {
+  display: flex; flex-direction: column; max-height: 300px; overflow-y: auto;
+  background: var(--set-card); border: 1px solid var(--border); border-radius: 10px;
 }
-.cm-search:focus { outline: none; border-color: var(--accent); }
-.cm-installed-title {
-  font-size: 11px; color: var(--fg-dim);
-  text-transform: uppercase; letter-spacing: .08em; margin-top: 6px;
-}
-.cm-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
-.cm-empty { font-size: 12px; color: var(--fg-dim); padding: 4px 2px; }
+.cm-empty { font-size: 12.5px; color: var(--fg-dim); padding: 14px 16px; }
 .cm-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 6px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg-3);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px;
 }
-.cm-row-info { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cm-row + .cm-row { border-top: 1px solid var(--set-line); }
+.cm-row-info { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .cm-row-name {
-  font-size: 12.5px; color: var(--fg);
-  display: flex; align-items: center; gap: 2px;
+  font-size: 13px; color: var(--fg);
+  display: flex; align-items: center; gap: 4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cm-row-req { font-size: 11px; color: var(--fg-dim); }
-.cm-row-action { display: flex; align-items: center; gap: 6px; flex: none; }
+.cm-row-req { font-size: 11.5px; color: var(--fg-dim); }
+.cm-row-action { display: flex; align-items: center; gap: 8px; flex: none; }
 .cm-install-btn, .cm-uninstall-btn {
-  padding: 4px 10px; font-size: 12px; cursor: pointer;
+  padding: 4px 12px; font-size: 12px; cursor: pointer;
   background: var(--bg-2); color: var(--fg);
-  border: 1px solid var(--border); border-radius: 5px;
+  border: 1px solid var(--border); border-radius: 6px;
   transition: border-color .12s ease, background .12s ease;
 }
 .cm-install-btn:hover { border-color: var(--accent); }
 .cm-install-btn:disabled { opacity: .6; cursor: default; }
-.cm-uninstall-btn { color: var(--red); border-color: var(--red); }
+.cm-uninstall-btn { color: var(--red); border-color: color-mix(in srgb, var(--red) 60%, transparent); }
 .cm-uninstall-btn:hover { background: color-mix(in srgb, var(--red) 12%, transparent); }
-.cm-progress { width: 80px; height: 5px; background: var(--bg-1); border-radius: 3px; overflow: hidden; }
+.cm-progress { width: 80px; height: 5px; background: var(--bg-1, var(--bg)); border-radius: 3px; overflow: hidden; }
 .cm-progress-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
 /* The fit warning sign — red when a model won't fit, yellow when it's tight.
    Also used inline in the New-session / session-bar model menus. */

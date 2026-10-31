@@ -27,6 +27,8 @@ On Apple Silicon (and any hardened-runtime macOS), if the `node_modules/electron
 
 Dependency is **`@homebridge/node-pty-prebuilt-multiarch`**, not upstream `node-pty`. Upstream fails to compile on Windows — winpty's gyp step runs `GetCommitHash.bat` from a git submodule that is absent in the npm tarball (`'GetCommitHash.bat' is not recognized`). The fork ships a prebuilt N-API Windows binary, so the Node-ABI prebuild loads fine under Electron. **Do not** add `electron-rebuild` or switch back to `node-pty`.
 
+**Keep it at ≥ 0.15.0.** Up to 0.14 the macOS `pty_posix_spawn` leaked a `/dev/ptmx` fd (plus the slave fd) on *every* spawn. A long-running app climbs to macOS's `kern.tty.ptmx_max` (511), after which every spawn fails with `posix_spawnp failed.` The failures first showed up on an account switch, which respawns every session at once. 0.15.0 closes those fds and reports the real errno (`posix_openpt failed: Device not configured`).
+
 ## PTY needs a full executable path
 
 node-pty on Windows does **not** search `PATH`. Spawning bare `'claude'` throws `Error: File not found`. `resolveClaude()` runs `where claude` once and caches the absolute path. Keep using it.

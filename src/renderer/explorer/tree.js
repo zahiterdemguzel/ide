@@ -210,17 +210,34 @@ async function rebuildTree() {
       .map(row => row.dataset.rel)
       .filter(Boolean)
   );
-  // Emptying the container clamps scrollTop to 0, so remember it and put it back
-  // once the rows exist again — otherwise every file add/remove jumps to the top.
-  const scroll = fileTree.scrollTop;
-  await loadDir('', fileTree, 0, expanded.size ? expanded : null);
-  fileTree.scrollTop = scroll;
-  // Re-apply the selection highlight (select() cleared it when the DOM was wiped).
+  // Build the new tree off-screen: loading it in place would paint a wiped,
+  // half-filled tree between each expanded folder's fetch (a visible flicker).
+  const nextTree = document.createElement('div');
+  await loadDir('', nextTree, 0, expanded.size ? expanded : null);
+  // Most disk events are content edits that leave the listing unchanged — then
+  // keep the current DOM untouched so nothing repaints at all.
+  if (treeSignature(nextTree) === treeSignature(fileTree)) return;
+  // Re-apply the selection highlight on the fresh rows before they go on screen.
   if (selected) {
-    for (const row of fileTree.querySelectorAll('.tree-row')) {
+    for (const row of nextTree.querySelectorAll('.tree-row')) {
       if (row.dataset.rel === selected.rel) { row.classList.add('sel'); break; }
     }
   }
+  // Decode the (cached) icons first so the swapped-in rows don't flash blank icons.
+  await Promise.all([...nextTree.querySelectorAll('img')].map((img) => img.decode().catch(() => {})));
+  // Swapping children clamps scrollTop to 0, so put it back in the same task —
+  // otherwise every file add/remove would jump the tree to the top.
+  const scroll = fileTree.scrollTop;
+  fileTree.replaceChildren(...nextTree.childNodes);
+  fileTree.scrollTop = scroll;
+}
+
+// What a tree looks like to the user: each row's path plus its open/closed
+// state. Two trees with the same signature render identically.
+function treeSignature(container) {
+  return [...container.querySelectorAll('.tree-row')]
+    .map((row) => row.dataset.rel + ':' + row.querySelector('.tree-twist').textContent)
+    .join('\n');
 }
 function rowFor(rel) {
   for (const row of fileTree.querySelectorAll('.tree-row')) {

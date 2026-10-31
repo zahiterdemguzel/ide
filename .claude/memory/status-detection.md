@@ -62,6 +62,17 @@ The same transition can also raise an OS-level desktop notification — opt-in v
 
 The same payloads feed `recordSessionActivity()`, which records each session's first prompt (`UserPromptSubmit.prompt`) and its edits — each `PostToolUse` of a file tool is kept as a replayable op (`old_string`/`new_string`/content), not just the path. That op log is what lets the per-session commit reconstruct and commit only that session's hunks. It also diffs `git status` across each non-edit tool call (`PreToolUse` → `PostToolUse`) to attribute binary creates, renames/moves, and deletes — changes no text op can express — to the session (see [Tracking filesystem changes](architecture.md#tracking-filesystem-changes)). Because the `PreToolUse` snapshot must predate the tool's writes, the hook server **awaits** `recordSessionActivity()` before answering the hook (a command hook blocks its tool until `curl` returns). See [architecture.md](architecture.md).
 
+### Light tool hooks (Settings → "Track every tool call")
+
+Every hook is a `curl` process the tool **waits on**, and a Bash/MCP `PreToolUse`/`PostToolUse` also costs a working-tree scan (`git status` plus reading each dirty file, up to `fs-content.LIMITS`). A session running many subagents fires these for every Read/Grep/Bash call of every subagent, which is what made the app lag. So `hooksSettings(port, statusLine, ideId, { detailedToolHooks })` can narrow the two tool events' `matcher` (a regex on the tool name) — `lightToolMatchers()` in `hook-events.js`:
+
+- `PreToolUse`: `Task|Agent` (subagent spawn count), `AskUserQuestion` (needs-input + phone question card), `Write|Edit|MultiEdit|NotebookEdit` (pending-edit marks);
+- `PostToolUse`: the same plus `Bash` (the `git push` → purple sniff and the bulk-VCS re-baseline). No Bash *Pre* means no per-tool snapshot ever opens, so the Post is cheap.
+
+Every other event keeps `matcher: '*'`. The trade: Bash/MCP file changes are attributed by the turn-wide diff at each `Stop`/`SubagentStop` (`turnFsPlan`) rather than per tool call, so two sessions writing the same repo at once attribute less precisely, and the row's tool line only names the matched tools. Default is **on** (every tool hooked); the renderer pushes the flag to main (`set-tool-hooks-enabled` → `hookServer.setDetailedToolHooks`) and it applies at **spawn** — a live session keeps the hooks it started with. Codex sessions' `-c hooks.*` overrides are unaffected. Tested in `test/hook-events.test.js`.
+
+Two cheaper fixes apply in both modes: the hook server **doesn't re-send an unchanged state** (most hooks of a busy session re-derive the `working` it already shows; each push was IPC + a phone broadcast), and the per-event debug log (`ide-hook-debug.log` in the OS temp dir — a stat + sync append per hook) is now **opt-in via `IDE_HOOK_DEBUG=1`**. The status scan (`scanStatus` in `sessions.js`) reads dirty files with `fs.promises`, so a scan no longer blocks the main process (and every terminal's output with it).
+
 ## Interrupting a turn
 
 Stopping an agent mid-response turns the dot **red (interrupted)**. Claude Code emits **no dedicated hook** for an interrupt, so this is the one state a keystroke has any say in — but **the keystroke alone is never believed**, because it is only a *request*. The TUI swallows ESC/Ctrl+C for its own reasons constantly (dismissing an overlay, clearing a half-typed prompt), and a stray press against a dot that is merely stale interrupts nothing at all — so trusting the keypress by itself painted still-running sessions red.
