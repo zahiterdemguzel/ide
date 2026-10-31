@@ -8,6 +8,7 @@ const { adoptLoginShellPath } = require('./shell-path');
 const { pickOauthToken, pickOauthCreds } = require('./oauth-creds-lib');
 const { withFolderTrusted } = require('./claude-trust-lib');
 const { keychainServiceFor, credentialsPathFor, claudeJsonPathFor, accountEnv } = require('./accounts-lib');
+const { MODEL_ORDER, requestExtrasFor, isModelRejection } = require('./ai-assist-lib');
 
 // node-pty on Windows doesn't search PATH — resolve the full claude.exe path once.
 // Async (the `where`/`which` subprocess used to run execFileSync and block the
@@ -219,12 +220,25 @@ function callMessages({
 }
 
 // Haiku one-shot over the fast path: trimmed text, or null on any failure.
+// Short generations (commit messages, titles) use the cheapest model with
+// thinking off: Haiku 5.5 first, Haiku 4.5 only if the API rejects 5.5. The id
+// that works is memoised so the fallback costs one round-trip per app run.
+let shortGenModel = null;
 async function runApi(token, prompt) {
-  const result = await callMessages({
-    token, model: HAIKU_MODEL, system: OUTPUT_RULE, maxTokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  });
-  return result.ok ? result.text.trim() : null;
+  const candidates = shortGenModel ? [shortGenModel] : MODEL_ORDER.complete;
+  for (const model of candidates) {
+    const result = await callMessages({
+      token, model, system: OUTPUT_RULE, maxTokens: 1024,
+      messages: [{ role: 'user', content: prompt }],
+      extra: requestExtrasFor(model),
+    });
+    if (result.ok) {
+      shortGenModel = model;
+      return result.text.trim();
+    }
+    if (!isModelRejection(result)) return null;
+  }
+  return null;
 }
 
 // --- Fallback: one-shot CLI call ---------------------------------------------
@@ -267,7 +281,8 @@ async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYST
     const child = execFile(win32 ? `"${exe}"` : exe, quotedArgs,
       // Run as the active account (unless told otherwise), so a fallback call bills
       // the same login the sessions use.
-      { cwd: os.tmpdir(), maxBuffer: 4 * 1024 * 1024, shell: win32, env: { ...process.env, ...accountEnv({ configDir }) } },
+      { cwd: os.tmpdir(), maxBuffer: 4 * 1024 * 1024, shell: win32, // MAX_THINKING_TOKENS=0 turns extended thinking off: these are short one-shot generations.
+      env: { ...process.env, ...accountEnv({ configDir }), MAX_THINKING_TOKENS: '0' } },
       (err, stdout) => {
         signal?.removeEventListener('abort', kill);
         resolve(err ? null : stdout.trim());

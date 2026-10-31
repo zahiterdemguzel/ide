@@ -40,7 +40,7 @@ Other areas live in their own docs: code editor → [editor.md](editor.md) (lang
 
 **Commit messages prefer a local model.** Both auto-generation call sites — the git pane's Commit button (`git.js`) and the per-session commit (`session-commit.js`) — go through `runCommitModel()` (`commit-model.js`) rather than `runHaiku()` directly. It asks the llama engine for the GGUFs the user downloaded via Settings → Custom models and, if there is one, runs the prompt there (no subscription usage, no network); `pickCommitModel()` (pure, in `commit-msg.js`) picks the **smallest** installed model, since it loads and generates fastest and a commit message is an easy generation. With nothing installed — or if the local run throws or returns empty — it falls back to `runHaiku()`. `llama-engine.js` is `require`d lazily inside `commit-model.js` so users with no local model never pay for loading node-llama-cpp. Session **titles** still call `runHaiku()` directly. Because a local model may run on CPU and has to load its GGUF first, the per-session `COMMIT_MSG_TIMEOUT_MS` is 60s.
 
-The model id is pinned (`claude-haiku-4-5-20251001`) because the raw API needs a full id, not the `haiku` alias; if it ever 404s the call returns null and the CLI fallback (which does accept the alias) takes over.
+The fast path uses the cheapest model with thinking off: it reuses `MODEL_ORDER.complete` + `requestExtrasFor()` from `ai-assist-lib.js`, so it sends `claude-haiku-5-5` with `thinking:{type:'disabled'}` and drops to `claude-haiku-4-5-20251001` only on a 400/404. The model that works is memoised for the rest of the app run. The raw API needs full ids, not the `haiku` alias. The CLI fallback runs with `MAX_THINKING_TOKENS=0` so it doesn't think either.
 
 ## Usage meter
 
