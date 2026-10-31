@@ -36,7 +36,7 @@ const LEGACY_STORE_PATHS = [
 const DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.claude');
 
 // Read on every call rather than cached: several app instances share this file,
-// and one switching accounts must be seen by the others' next spawn.
+// and an account one of them adds, renames or removes must reach the others.
 function loadStore() {
   try { return lib.normalizeAccountStore(JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'))); }
   catch { return lib.normalizeAccountStore(null); }
@@ -49,9 +49,14 @@ function saveStore(store) {
   fs.renameSync(tmpPath, STORE_PATH);
 }
 
+// Which account *this* app instance runs as. Every instance makes its own choice:
+// switching in one window never moves another window's sessions. The store's
+// `activeId` only remembers the latest choice, so a newly opened instance starts
+// on it. Set once the store has been restored (below).
+let instanceActiveId = lib.DEFAULT_ACCOUNT_ID;
+
 function activeAccount() {
-  const store = loadStore();
-  return store.accounts.find((a) => a.id === store.activeId) || store.accounts[0];
+  return lib.resolveActiveAccount(loadStore(), instanceActiveId);
 }
 
 function accountById(id) {
@@ -116,7 +121,7 @@ function removeAccount(id) {
   if (id === lib.DEFAULT_ACCOUNT_ID) return loadStore();
   // Removing the active account switches back to the default one first, so open
   // sessions move off it like any other switch.
-  if (loadStore().activeId === id) setActiveAccount(lib.DEFAULT_ACCOUNT_ID);
+  if (activeAccount().id === id) setActiveAccount(lib.DEFAULT_ACCOUNT_ID);
   const store = loadStore();
   const removed = store.accounts.find((a) => a.id === id);
   store.accounts = store.accounts.filter((a) => a.id !== id);
@@ -134,20 +139,22 @@ function renameAccount(id, name) {
   return store;
 }
 
-// Listeners told when the active account changes (sessions.js moves live sessions).
+// Listeners told when this instance's active account changes (sessions.js and the
+// account proxy follow it).
 const activeListeners = new Set();
 function onActiveAccountChanged(cb) { activeListeners.add(cb); }
 
 function setActiveAccount(id) {
   const store = loadStore();
-  if (!store.accounts.some((a) => a.id === id) || store.activeId === id) return store;
+  if (!store.accounts.some((a) => a.id === id) || activeAccount().id === id) return activeAccount().id;
+  instanceActiveId = id;
   store.activeId = id;
   saveStore(store);
   for (const cb of activeListeners) {
     try { cb(id); } catch (err) { console.error('[accounts] active-change listener failed', err); }
   }
   sendToRenderer('account-changed', { activeId: id });
-  return store;
+  return id;
 }
 
 // `claude auth status --json` run as the account: whether it is signed in, and as
@@ -210,7 +217,7 @@ async function describeAccounts({ recheck = false } = {}) {
     return { ...status, loggedIn: state === 'ok', login: state, loginStamp };
   }));
   return {
-    activeId: store.activeId,
+    activeId: lib.resolveActiveAccount(store, instanceActiveId).id,
     accounts: store.accounts.map((a, i) => ({ id: a.id, name: a.name, configDir: a.configDir, ...results[i] })),
   };
 }
@@ -261,12 +268,13 @@ function restoreAccounts() {
   if (recovered !== store) saveStore(recovered);
 }
 try { restoreAccounts(); } catch (err) { console.warn('[accounts] could not restore accounts:', err.message); }
+instanceActiveId = loadStore().activeId;
 
 ipcMain.handle('accounts-list', (_e, opts) => describeAccounts(opts || {}));
 ipcMain.handle('accounts-add', (_e, name) => addAccount(name));
 ipcMain.handle('accounts-remove', (_e, id) => { removeAccount(id); return describeAccounts(); });
 ipcMain.handle('accounts-rename', (_e, { id, name }) => { renameAccount(id, name); return describeAccounts(); });
-ipcMain.handle('accounts-set-active', (_e, id) => setActiveAccount(id).activeId);
+ipcMain.handle('accounts-set-active', (_e, id) => setActiveAccount(id));
 ipcMain.handle('accounts-login-command', (_e, id) => loginCommand(id));
 // Each account's subscription usage, for picking which one to switch to. One
 // 1-token Messages call per signed-in account, so it's fetched only on demand.

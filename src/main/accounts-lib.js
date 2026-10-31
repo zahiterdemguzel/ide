@@ -63,6 +63,12 @@ function normalizeAccountStore(raw) {
   return { accounts, activeId, removedDirs };
 }
 
+// The account an app instance runs as: the one it chose, or the default account
+// when that one is gone (another instance removed it).
+function resolveActiveAccount(store, activeId) {
+  return store.accounts.find((a) => a.id === activeId) || store.accounts[0];
+}
+
 // The store as written to disk (the default account is implied, only its name kept).
 function serializeAccountStore(store) {
   return {
@@ -131,23 +137,29 @@ function seedAccountConfig(defaultConfig) {
 // it to another account then would cut the turn off, so the move waits for it.
 const BUSY_STATES = new Set(['working', 'bg-agents', 'needs-input']);
 
-// Which live sessions must move to `activeId`, split into those that can restart
-// now and those to move once their turn ends. Only Claude sessions carry an
-// account (Codex and local models don't log in to Claude).
+// Whether a live session has to be restarted to run as `activeId`. Only Claude
+// sessions carry an account (Codex and local models don't log in to Claude), and
+// one routed through the account proxy (`proxied`) already follows the switch
+// without a restart.
+function needsRestartToMove(s, activeId) {
+  return !!(s && s.live && s.family === 'claude' && !s.proxied && s.accountId && s.accountId !== activeId);
+}
+
+// Which live sessions must restart to move to `activeId`, split into those that
+// can restart now and those to move once their turn ends.
 function planAccountMove(sessions, activeId) {
   const now = [];
   const later = [];
   for (const s of sessions) {
-    if (!s.live || s.family !== 'claude' || !s.accountId || s.accountId === activeId) continue;
+    if (!needsRestartToMove(s, activeId)) continue;
     (BUSY_STATES.has(s.state) ? later : now).push(s.id);
   }
   return { now, later };
 }
 
-// Whether a session should move to the active account right after settling into `state`.
+// Whether a session should restart onto the active account right after settling into `state`.
 function shouldMoveAfterState(session, state, activeId) {
-  return !!(session && session.live && session.family === 'claude' && session.accountId
-    && session.accountId !== activeId && !BUSY_STATES.has(state));
+  return needsRestartToMove(session, activeId) && !BUSY_STATES.has(state);
 }
 
 // The state of an account's stored login, from its credentials (pickOauthCreds) and
@@ -199,7 +211,7 @@ module.exports = {
   discoveredAccountName, recoverAccounts,
   classifyLogin,
   DEFAULT_ACCOUNT_ID, KEYCHAIN_BASE_SERVICE, SHARED_CONFIG_ENTRIES, SEEDED_CONFIG_KEYS,
-  normalizeAccountStore, serializeAccountStore, accountFolderName,
+  normalizeAccountStore, serializeAccountStore, resolveActiveAccount, accountFolderName,
   keychainServiceFor, credentialsPathFor, claudeJsonPathFor, accountEnv,
   sharedEntriesToLink, seedAccountConfig, planAccountMove, shouldMoveAfterState,
 };

@@ -492,7 +492,7 @@ export default {
     'accounts.done': "Terminé",
     'accounts.switch': "Changer",
     'accounts.switchNowTitle': "Passer à « {name} » maintenant ?",
-    'accounts.switchBody': "Les sessions ouvertes redémarrent sur le nouveau compte et reprennent leur conversation. Une session en plein tour change à la fin de celui-ci.",
+    'accounts.switchBody': "Les sessions ouvertes dans cette fenêtre passent immédiatement sur le nouveau compte, sans redémarrer, même en plein tour. Les autres fenêtres de l’app gardent leur propre compte.",
     'accounts.limitTitle': "Limite de 5 heures presque atteinte",
     'accounts.limitBody': "« {name} » a utilisé {pct} % de sa limite de 5 heures. Passer à un autre compte ?",
     'accounts.limitNoOther': "Vous n’avez pas d’autre compte connecté. Ajoutez-en un pour continuer sans attendre la réinitialisation.",

@@ -12,6 +12,8 @@ const { cleanEnv } = require('./proc-env');
 const { modelEnv } = require('./agent-models');
 const accounts = require('./accounts');
 const { accountEnv, planAccountMove, shouldMoveAfterState } = require('./accounts-lib');
+const { ensureAccountProxy } = require('./account-proxy');
+const { canRouteThroughProxy, proxyRouteEnv } = require('./account-proxy-lib');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
@@ -863,16 +865,47 @@ function accountEnvFor(s) {
 
 // The shape planAccountMove/shouldMoveAfterState read off a live session record.
 function accountMoveView(id, s) {
-  return { id, live: !!s.pty, family: modelFamily(s.model), accountId: s.accountId, state: s.state };
+  return {
+    id, live: !!s.pty, family: modelFamily(s.model), accountId: s.accountId,
+    proxied: !!s.viaAccountProxy, state: s.state,
+  };
 }
 
-// Switching accounts moves every open Claude session onto the new account: it is
-// restarted with `--resume`, continuing the same conversation (the transcripts are
-// shared between account folders — see accounts.js). A session mid-turn isn't cut
-// off; it moves when the turn ends (setSessionState).
+// The `env` block of the user's Claude settings: the CLI applies it over the
+// process env, so a base URL set there would bypass the account proxy.
+function claudeSettingsEnv(configDir) {
+  const file = path.join(configDir || path.join(require('os').homedir(), '.claude'), 'settings.json');
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')).env || {}; } catch { return {}; }
+}
+
+// Routes a Claude session's API traffic through this instance's account proxy
+// (account-proxy.js), so switching accounts later reaches it without a restart.
+// Returns the env to add, and marks the session; a session that already talks to
+// some other endpoint, or a proxy that couldn't start, gets {} and falls back to
+// moving by restart.
+async function accountProxyRoute(s, spawnEnv, configDir) {
+  if (!s) return {};
+  s.viaAccountProxy = false;
+  if (modelFamily(s.model) !== 'claude' || isOllamaId(s.model)) return {};
+  if (!canRouteThroughProxy(spawnEnv, claudeSettingsEnv(configDir))) return {};
+  const port = await ensureAccountProxy();
+  if (!port) return {};
+  s.viaAccountProxy = true;
+  return proxyRouteEnv(port);
+}
+
+// Switching accounts moves every open Claude session onto the new account. One
+// routed through the account proxy is already there: its next request goes out as
+// the new account, mid-turn or not. Any other is restarted with `--resume`,
+// continuing the same conversation (the transcripts are shared between account
+// folders — see accounts.js); one mid-turn moves when the turn ends
+// (setSessionState). Either way, a turn the old account's limit cut off carries on.
 accounts.onActiveAccountChanged((activeId) => {
   const { now } = planAccountMove([...sessions].map(([id, s]) => accountMoveView(id, s)), activeId);
   for (const id of now) moveToActiveAccount(id, sessions.get(id));
+  for (const [id, s] of sessions) {
+    if (s.pty && s.viaAccountProxy && s.cutOffByUsageLimit) continueCutOffTurn(id);
+  }
 });
 
 // A session that ran as another account when the user switched moves once it
@@ -914,6 +947,11 @@ async function continueOnceResumed(id, movedAt) {
     if (isReady(cur)) break;
     await new Promise((r) => setTimeout(r, 250));
   }
+  continueCutOffTurn(id);
+}
+
+// Types the "continue" prompt into a session whose last turn the usage limit cut off.
+async function continueCutOffTurn(id) {
   const s = sessions.get(id);
   // Someone typed into it meanwhile — their prompt already restarted the work.
   if (!s || !s.pty || !s.cutOffByUsageLimit) return;
@@ -1308,10 +1346,13 @@ async function spawnPty(id, cols, rows, resume) {
     ensureFolderTrusted(sessionCwd(s), account.configDir);
     args = [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings(id)];
   }
-  // An Ollama model routes the CLI through the local proxy; a Claude (or Codex)
-  // model adds nothing. Computed before the spawn because it may start the
-  // engine (async).
-  const route = await ollamaRoute(s);
+  // An Ollama model routes the CLI through the local proxy; a Claude model through
+  // the account proxy; a Codex model adds nothing. Computed before the spawn
+  // because either may start a server (async).
+  const route = family === 'codex' ? {} : {
+    ...(await accountProxyRoute(s, { ...sessionEnv(s), ...accountEnvFor(s) }, s && accounts.accountById(s.accountId)?.configDir)),
+    ...(await ollamaRoute(s)),
+  };
   const p = pty.spawn(exe, args, {
     name: 'xterm-color',
     cols: cols || 80,

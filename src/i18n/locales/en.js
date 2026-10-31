@@ -493,7 +493,7 @@ export default {
     'accounts.done': "Done",
     'accounts.switch': "Switch",
     'accounts.switchNowTitle': "Switch to “{name}” now?",
-    'accounts.switchBody': "Open sessions restart on the new account and continue their conversations. A session that is mid-turn moves when its turn ends.",
+    'accounts.switchBody': "Open sessions in this window move to the new account right away, without restarting — even mid-turn. Other app windows keep their own account.",
     'accounts.limitTitle': "5-hour limit almost reached",
     'accounts.limitBody': "“{name}” has used {pct}% of its 5-hour limit. Switch to another account?",
     'accounts.limitNoOther': "You have no other signed-in account. Add one to keep working without waiting for the reset.",

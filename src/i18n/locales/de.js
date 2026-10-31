@@ -492,7 +492,7 @@ export default {
     'accounts.done': "Fertig",
     'accounts.switch': "Wechseln",
     'accounts.switchNowTitle': "Jetzt zu „{name}“ wechseln?",
-    'accounts.switchBody': "Offene Sitzungen starten mit dem neuen Konto neu und setzen ihre Unterhaltung fort. Eine Sitzung mitten in einem Durchlauf wechselt, sobald er endet.",
+    'accounts.switchBody': "Offene Sitzungen in diesem Fenster wechseln sofort zum neuen Konto, ohne Neustart – auch mitten in einem Durchlauf. Andere App-Fenster behalten ihr eigenes Konto.",
     'accounts.limitTitle': "5-Stunden-Limit fast erreicht",
     'accounts.limitBody': "„{name}“ hat {pct} % seines 5-Stunden-Limits verbraucht. Zu einem anderen Konto wechseln?",
     'accounts.limitNoOther': "Du hast kein weiteres angemeldetes Konto. Füge eines hinzu, um ohne Warten auf den Reset weiterzuarbeiten.",

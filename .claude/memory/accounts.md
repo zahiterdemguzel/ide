@@ -4,7 +4,9 @@ Several Claude subscriptions can live on one machine at once. A pill in the top
 toolbar (left of the usage meter) names the **active account**; its menu lists every
 account with its 5-hour usage, switches with one click, and adds / renames /
 re-signs-in / removes accounts. New sessions spawn as the active account, and a
-switch moves the open sessions over too.
+switch moves the open sessions over too — **without restarting them**, through the
+account proxy (below). **Each app instance (window process) has its own active
+account**: switching in one window never touches another window's sessions.
 
 ## How an account is isolated
 
@@ -16,7 +18,12 @@ account. The built-in **default** account is the user's normal setup: no env ove
 - **Store**: `~/.claude-accounts/accounts.json` (`{activeId, defaultName, accounts:[{id,name,configDir}], removedDirs}`),
   beside the account folders — **not** in the app's data folder, because the dev build and the installed
   app each get their own (`-dev` suffix, `instance.js`), so a list kept there vanished when the other build
-  was opened. Read fresh on every call so all app instances agree. Shape logic: `accounts-lib.js`.
+  was opened. Read fresh on every call so all app instances agree on the *list*. Shape logic: `accounts-lib.js`.
+- **Active account is per instance**: `instanceActiveId` in `accounts.js`, in memory. The store's
+  `activeId` is only the latest choice made in any window, read once at launch so a new window starts
+  on it. `activeAccount()` = `resolveActiveAccount(store, instanceActiveId)` (falls back to default if
+  another window removed that account). Everything that "uses the active account" — spawns, the
+  proxy, Haiku/AI assist, the usage meter, `runCli` — therefore follows this window's choice.
 - **Persistence across restarts / builds** (`restoreAccounts()`, once per launch): first run migrates the
   newest legacy `<userData>/accounts.json` (this build's or its dev/packaged twin); then `recoverAccounts`
   re-adds any folder under `~/.claude-accounts` that still holds a login but is missing from the list
@@ -45,8 +52,41 @@ account. The built-in **default** account is the user's normal setup: no env ove
   and a recursive delete isn't worth the risk. Removing the active one switches to
   default first.
 
-## Switching moves open sessions
+## The account proxy — switching without a restart
 
+`account-proxy.js` (pure parts in `account-proxy-lib.js`, tested): a loopback HTTP server, **one per
+app instance**, started lazily on the first Claude spawn (`ensureAccountProxy()` → port, or null if it
+can't listen). `spawnPty` adds `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>` to every Claude session
+(`accountProxyRoute`, marks `s.viaAccountProxy`). The proxy forwards each request to
+`api.anthropic.com` **byte for byte**, except that a request carrying an OAuth bearer
+(`carriesClaudeLogin`) gets the login of the account active in this instance instead of the session's
+own (`upstreamHeaders`). So a switch is just a different header on the next request — mid-turn
+included; the CLI never notices. Verified against the real API (CLI 2.1.310): the CLI sends its
+OAuth bearer to a custom base URL without any extra env, responses carry the new account's org id
+and rate-limit headers.
+
+- **Cost**: the body is untouched, so prompt caching works as before. Caches are per org, so the
+  first request after a switch writes the conversation into the new account's cache once (measured
+  ~20k tokens on a 33k context), then reads resume. Restart-and-resume paid the same.
+- **Logins**: read with `readOauthCredsAsync` (non-blocking Keychain), cached per account
+  (`isCachedLoginFresh`: re-read every 60s or near expiry; cache cleared on a switch). A login that
+  ran out with a refresh token (`loginAction` → `renew`) is renewed by a one-line `runCli` as that
+  account — **never refreshed by the proxy itself** (refresh tokens rotate). No usable login → the
+  request keeps the session's own.
+- **401** from an injected login (`isLoginRefused`): re-read; if the stored login is still the
+  refused one, renew via the CLI; retry once. Without this the CLI would try to renew *its own*
+  login for a refusal that wasn't about it.
+- **Not routed** (`canRouteThroughProxy`): a session whose spawn env or `settings.json` `env` sets a
+  base URL, API key, auth token, OAuth-token env or a 3P provider — the proxy only stands in for a
+  claude.ai login. Codex and local-model sessions never are. Those, and every session if the proxy
+  can't start, fall back to the restart move below.
+- **What doesn't move**: `/status` inside the TUI still names the account the session spawned as
+  (its `CLAUDE_CONFIG_DIR`); only API traffic through the base URL moves. Esc mid-stream closes the
+  client socket, which destroys the upstream request.
+
+## Fallback: switching by restart
+
+For a session *not* behind the proxy (`proxied: false` in `accountMoveView`):
 `spawnPty` stamps each Claude session with the `accountId` it spawned as and adds
 `CLAUDE_CONFIG_DIR`; `ensureFolderTrusted` writes into that account's `.claude.json`.
 On a switch (`setActiveAccount` → `onActiveAccountChanged`), `planAccountMove` splits
@@ -114,9 +154,10 @@ signed-in account).
 `StopFailure` hook (`error: 'rate_limit'`) instead of `Stop` (see
 [status-detection.md](status-detection.md)); `recordSessionActivity` sets
 `s.cutOffByUsageLimit` (cleared by the next main-thread prompt). When that session
-moves to another account (`moveToActiveAccount`), `continueOnceResumed` waits for
-the resumed TUI to go quiet (2s, 30s cap) and types a "continue where you left off"
-prompt — so the work goes on unattended.
+moves to another account, it gets a "Continue" prompt typed in (`continueCutOffTurn`)
+— right away for a proxied session (it is idle and already on the new account), or,
+after a restart move, once `continueOnceResumed` sees the resumed TUI go quiet (2s,
+30s cap) — so the work goes on unattended.
 
 ## UI
 

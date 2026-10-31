@@ -93,8 +93,20 @@ test('planAccountMove: idle sessions move now, busy ones after their turn, other
     { id: 'already', live: true, family: 'claude', accountId: 'work', state: 'completed' },
     { id: 'suspended', live: false, family: 'claude', accountId: 'default', state: 'completed' },
     { id: 'codex', live: true, family: 'codex', accountId: 'default', state: 'completed' },
+    { id: 'proxied', live: true, family: 'claude', accountId: 'default', proxied: true, state: 'completed' },
   ];
   assert.deepEqual(lib.planAccountMove(sessions, 'work'), { now: ['idle'], later: ['busy', 'asking'] });
+});
+
+test('shouldMoveAfterState: a session behind the account proxy never restarts', () => {
+  const s = { live: true, family: 'claude', accountId: 'default', proxied: true };
+  assert.equal(lib.shouldMoveAfterState(s, 'completed', 'work'), false);
+});
+
+test('resolveActiveAccount: the instance choice, or the default once that account is gone', () => {
+  const store = lib.normalizeAccountStore({ accounts: [{ id: 'work', name: 'Work', configDir: '/w' }] });
+  assert.equal(lib.resolveActiveAccount(store, 'work').id, 'work');
+  assert.equal(lib.resolveActiveAccount(store, 'removed-elsewhere').id, 'default');
 });
 
 test('shouldMoveAfterState: a deferred session moves once it settles', () => {

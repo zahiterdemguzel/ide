@@ -89,6 +89,28 @@ function readOauthCreds(configDir = activeConfigDir()) {
   return pickOauthCreds(credsCandidates(configDir), Date.now());
 }
 
+// readOauthCreds without blocking the main process on the Keychain, for the
+// account proxy, which reads logins while sessions are streaming.
+function readKeychainCredsAsync(service, account) {
+  const args = ['find-generic-password', '-s', service, '-w'];
+  if (account) args.splice(3, 0, '-a', account);
+  return new Promise((resolve) => {
+    execFile('security', args, { encoding: 'utf8' }, (err, stdout) => resolve(err ? null : stdout));
+  });
+}
+
+async function readOauthCredsAsync(configDir = activeConfigDir()) {
+  const blobs = [];
+  try { blobs.push(fs.readFileSync(credentialsPathFor(configDir, os.homedir()), 'utf8')); } catch {}
+  if (process.platform !== 'darwin') return pickOauthCreds(blobs, Date.now());
+  const service = keychainServiceFor(configDir);
+  blobs.push(await readKeychainCredsAsync(service, os.userInfo().username));
+  const found = pickOauthCreds(blobs, Date.now());
+  if (found && !found.expired) return found;
+  blobs.push(await readKeychainCredsAsync(service, null));
+  return pickOauthCreds(blobs, Date.now());
+}
+
 const MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 
 // Headers every OAuth Messages API call needs (the oauth beta flag is what makes
@@ -416,5 +438,5 @@ function ensureFolderTrusted(dir, accountConfigDir = null) {
 module.exports = {
   resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage,
   // General-purpose access for other features (inline AI assist in the editor).
-  callMessages, runCli, readOauthToken, readOauthCreds, probeOauthToken, activeConfigDir, HAIKU_MODEL, CC_IDENTITY,
+  callMessages, runCli, readOauthToken, readOauthCreds, readOauthCredsAsync, probeOauthToken, activeConfigDir, HAIKU_MODEL, CC_IDENTITY,
 };

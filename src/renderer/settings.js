@@ -33,6 +33,13 @@ export const THEMES = [
   { id: 'high-contrast', name: 'High Contrast' },
   { id: 'blender', name: 'Blender' },
   { id: 'dracula', name: 'Dracula' },
+  { id: 'nord', name: 'Nord' },
+  { id: 'monokai', name: 'Monokai' },
+  { id: 'one-dark', name: 'One Dark' },
+  { id: 'gruvbox', name: 'Gruvbox' },
+  { id: 'catppuccin', name: 'Catppuccin Mocha' },
+  { id: 'tokyo-night', name: 'Tokyo Night' },
+  { id: 'solarized-light', name: 'Solarized Light' },
 ];
 
 // Selectable agent models. The id is what the `claude` CLI reads from

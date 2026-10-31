@@ -492,7 +492,7 @@ export default {
     'accounts.done': "Listo",
     'accounts.switch': "Cambiar",
     'accounts.switchNowTitle': "¿Cambiar a «{name}» ahora?",
-    'accounts.switchBody': "Las sesiones abiertas se reinician con la nueva cuenta y continúan su conversación. Una sesión a mitad de turno cambia cuando el turno termina.",
+    'accounts.switchBody': "Las sesiones abiertas en esta ventana pasan a la nueva cuenta al instante, sin reiniciarse, incluso a mitad de turno. Las demás ventanas de la app conservan su propia cuenta.",
     'accounts.limitTitle': "Límite de 5 horas casi alcanzado",
     'accounts.limitBody': "«{name}» ha usado el {pct} % de su límite de 5 horas. ¿Cambiar a otra cuenta?",
     'accounts.limitNoOther': "No tienes otra cuenta con sesión iniciada. Añade una para seguir trabajando sin esperar al reinicio.",

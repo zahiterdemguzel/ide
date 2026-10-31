@@ -492,7 +492,7 @@ export default {
     'accounts.done': "Bitti",
     'accounts.switch': "Geç",
     'accounts.switchNowTitle': "Şimdi “{name}” hesabına geçilsin mi?",
-    'accounts.switchBody': "Açık oturumlar yeni hesapta yeniden başlar ve konuşmalarına devam eder. Bir tur ortasındaki oturum, tur bitince geçer.",
+    'accounts.switchBody': "Bu penceredeki açık oturumlar yeniden başlamadan, tur ortasında bile hemen yeni hesaba geçer. Diğer uygulama pencereleri kendi hesaplarını korur.",
     'accounts.limitTitle': "5 saatlik sınıra yaklaşıldı",
     'accounts.limitBody': "“{name}” 5 saatlik sınırının %{pct} kadarını kullandı. Başka bir hesaba geçilsin mi?",
     'accounts.limitNoOther': "Oturum açılmış başka hesabınız yok. Sıfırlanmayı beklemeden çalışmaya devam etmek için bir hesap ekleyin.",
