@@ -133,6 +133,7 @@ async function loadDir(rel, container, depth, expandedSet = null) {
   const r = await window.api.listDir(rel);
   container.innerHTML = '';
   if (!r.ok) return;
+  const expandedLoads = [];
   for (const e of r.entries) {
     const childRel = rel ? rel + '/' + e.name : e.name;
     const row = document.createElement('div');
@@ -177,7 +178,8 @@ async function loadDir(rel, container, depth, expandedSet = null) {
         twist.textContent = '▾';
         setFolderIcon(icon, true);
         loaded = true;
-        await loadDir(childRel, kids, depth + 1, expandedSet);
+        // Fetched alongside its siblings below rather than one folder at a time.
+        expandedLoads.push(loadDir(childRel, kids, depth + 1, expandedSet));
       }
     } else {
       row.draggable = true;
@@ -191,6 +193,7 @@ async function loadDir(rel, container, depth, expandedSet = null) {
       };
     }
   }
+  await Promise.all(expandedLoads);
 }
 
 // Serializes refreshes: a rebuild empties #file-tree, so two overlapping ones
@@ -269,7 +272,29 @@ export async function revealInTree(rel) {
 // debounced `tree-changed` whenever something changes on disk, so the tree stays
 // in sync on its own. refreshTree() only re-fetches the folders that are actually
 // expanded, so an auto-refresh is cheap.
-window.api.onTreeChanged(() => { refreshTree(); });
+window.api.onTreeChanged((paths) => { if (affectsVisibleTree(paths)) refreshTree(); });
+
+// A change deep inside a collapsed folder can't alter any visible row, so it
+// needn't re-list anything. Walk each changed path down through the expanded
+// folders: it matters only if it lands on a row position that isn't an existing
+// collapsed folder (a new or removed entry, or a file row). `null` = unknown.
+function affectsVisibleTree(paths) {
+  if (!paths) return true;
+  const twistByRel = new Map();
+  for (const row of fileTree.querySelectorAll('.tree-row')) {
+    twistByRel.set(row.dataset.rel, row.querySelector('.tree-twist')?.textContent);
+  }
+  return paths.some((changed) => {
+    const parts = changed.split('/');
+    for (let depth = 1; depth <= parts.length; depth++) {
+      const rel = parts.slice(0, depth).join('/');
+      const twist = twistByRel.get(rel);
+      if (twist === '▾' && depth < parts.length) continue; // expanded: look inside
+      return depth === parts.length || twist !== '▸';
+    }
+    return true;
+  });
+}
 
 // Where a new file lands relative to a tree item: inside it when it's a folder,
 // alongside it (its parent dir) when it's a file.

@@ -110,7 +110,31 @@ function gitItem(file, status, staged, action, label) {
   return li;
 }
 
-export async function refreshGit() {
+// The poll, focus regain and session updates can all ask at once; on a large
+// repo one refresh can outlast the poll interval. Keep one in flight and fold
+// any requests made meanwhile into a single follow-up run.
+let gitRefreshInFlight = null;
+let gitRefreshQueued = false;
+
+export function refreshGit() {
+  if (gitRefreshInFlight) {
+    gitRefreshQueued = true;
+    return gitRefreshInFlight;
+  }
+  gitRefreshInFlight = (async () => {
+    try {
+      do {
+        gitRefreshQueued = false;
+        await refreshGitOnce();
+      } while (gitRefreshQueued);
+    } finally {
+      gitRefreshInFlight = null;
+    }
+  })();
+  return gitRefreshInFlight;
+}
+
+async function refreshGitOnce() {
   // No folder open yet (fresh launch, nothing picked): leave the pane alone —
   // the create-repo panel would make no sense with no folder to init.
   const repoPath = await window.api.getRepoPath();

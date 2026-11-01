@@ -17,13 +17,22 @@ function resizer(gutter, axis, sign, read, write, min, max) {
     gutter.classList.add('dragging');
     const start = axis === 'x' ? e.clientX : e.clientY;
     const base = read();
-    const move = (ev) => {
-      const d = (axis === 'x' ? ev.clientX : ev.clientY) - start;
-      write(Math.max(min, Math.min(max(), base + sign * d)) + 'px');
-      fitActive(); // ponytail: reflow live; throttle if janky
+    // Pointer events can outpace the display; apply only the latest position once
+    // per frame so each frame does one layout and one terminal refit.
+    let latest = start;
+    let frame = 0;
+    const apply = () => {
+      frame = 0;
+      write(Math.max(min, Math.min(max(), base + sign * (latest - start))) + 'px');
+      fitActive();
       fitConsole();
     };
+    const move = (ev) => {
+      latest = axis === 'x' ? ev.clientX : ev.clientY;
+      if (!frame) frame = requestAnimationFrame(apply);
+    };
     const up = (ev) => {
+      if (frame) { cancelAnimationFrame(frame); apply(); }
       gutter.classList.remove('dragging');
       gutter.releasePointerCapture(ev.pointerId);
       gutter.removeEventListener('pointermove', move);

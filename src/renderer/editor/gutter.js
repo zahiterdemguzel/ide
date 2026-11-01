@@ -30,6 +30,7 @@ const headTextCache = new Map(); // file -> committed text (or null for untracke
 let gitTimer = null;
 let blameTimer = null;
 let blameRequest = 0;
+let lastBlameKey = ''; // file + buffer version + line of the blame on screen
 
 export function initGutter(monacoNs, editorInstance, hostCallbacks) {
   monaco = monacoNs;
@@ -76,6 +77,7 @@ export function showGutterFor(doc) {
   current = doc ? { doc } : null;
   hoverDecos.clear();
   blameDecos.clear();
+  lastBlameKey = '';
   if (!doc) { breakpointDecos.clear(); execDecos.clear(); gitDecos.clear(); return; }
   doc.breakpointBase = getBreakpoints(doc.file).length ? doc.model.getValue() : null;
   paintBreakpoints();
@@ -100,6 +102,7 @@ export function onContentChanged(doc) {
   clearTimeout(gitTimer);
   gitTimer = setTimeout(paintGit, 250);
   blameDecos.clear();
+  lastBlameKey = '';
   scheduleBlame();
 }
 
@@ -182,12 +185,17 @@ async function paintBlame() {
   if (!current || !host.settings().inlineBlame || current.doc.readOnly) { blameDecos.clear(); return; }
   const { doc } = current;
   const pos = editor.getPosition();
-  if (!pos || headTextCache.get(doc.file) == null) { blameDecos.clear(); return; }
+  if (!pos || headTextCache.get(doc.file) == null) { blameDecos.clear(); lastBlameKey = ''; return; }
+  // Moving along the same line of an unchanged buffer keeps the same blame;
+  // skip re-running `git blame` over the whole file.
+  const blameKey = `${doc.file}\0${doc.model.getVersionId()}\0${pos.lineNumber}`;
+  if (blameKey === lastBlameKey) return;
+  lastBlameKey = blameKey;
   const request = ++blameRequest;
   const blame = await window.api.gitBlameLine({ file: doc.file, line: pos.lineNumber, text: doc.model.getValue() });
   if (request !== blameRequest || !current || current.doc !== doc) return;
   const now = editor.getPosition();
-  if (!blame || !now || now.lineNumber !== pos.lineNumber) { blameDecos.clear(); return; }
+  if (!blame || !now || now.lineNumber !== pos.lineNumber) { blameDecos.clear(); lastBlameKey = ''; return; }
   const text = blame.uncommitted
     ? t('editor.blameUncommitted')
     : `${blame.author}, ${relativeTime(blame.time, Date.now(), currentLocale())} · ${blame.summary}`;

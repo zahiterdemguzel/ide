@@ -191,7 +191,7 @@ async function loadLanguageServers() {
       ensureModel: (uri) => ensureModelForUri(uri).then((model) => { if (model) trackWithLsp(docForModel(model)); return model; }),
       onStatus: (languageId, status) => { lspStates.set(languageId, status); refreshStatus(); },
     });
-    lsp.onDiagnosticsChanged(() => refreshStatus());
+    lsp.onDiagnosticsChanged(() => { invalidateProblemCounts(); refreshStatus(); });
   } catch (e) { lsp = null; console.error('[editor] language servers unavailable:', e); }
 }
 
@@ -569,11 +569,17 @@ function openCompare(doc) {
 // ── Editor events, openers, links ───────────────────────────────────────────
 
 function wireEditorEvents() {
+  // Cursor moves fire per keystroke/drag step; coalesce them to one update per frame.
+  let cursorFrame = 0;
   editor.onDidChangeCursorSelection(() => {
-    if (!activeDoc) return;
-    refreshStatus();
-    syncJsonBar();
-    renderBreadcrumbs(activeDoc.file, activeDoc.model, editor.getPosition(), { dirty: isDirty(activeDoc) });
+    if (cursorFrame) return;
+    cursorFrame = requestAnimationFrame(() => {
+      cursorFrame = 0;
+      if (!activeDoc || activeDoc.model.isDisposed()) return;
+      refreshStatus();
+      syncJsonBar();
+      renderBreadcrumbs(activeDoc.file, activeDoc.model, editor.getPosition(), { dirty: isDirty(activeDoc) });
+    });
   });
   editor.onDidChangeModelLanguage(() => refreshStatus());
   editor.onDidChangeModelOptions(() => refreshStatus());
@@ -581,7 +587,7 @@ function wireEditorEvents() {
     if (settings.autoSave === 'onFocusChange' && activeDoc && isDirty(activeDoc)) saveDocWithHooks(activeDoc);
   });
   window.addEventListener('blur', () => { if (settings.autoSave === 'onFocusChange') saveAllFiles(); });
-  monaco.editor.onDidChangeMarkers(() => refreshStatus());
+  monaco.editor.onDidChangeMarkers(() => { invalidateProblemCounts(); refreshStatus(); });
 }
 
 // Go to Definition / Peek / Find References into another file opens it in a tab.
@@ -861,12 +867,16 @@ function markerGroups() {
   return [...byFile].map(([file, items]) => ({ file, items }));
 }
 
-function refreshStatus() {
-  if (!editor || !activeDoc || activeDoc.model.isDisposed()) return;
-  const model = activeDoc.model;
-  const pos = editor.getPosition() || { lineNumber: 1, column: 1 };
-  const selections = editor.getSelections() || [];
-  const opts = model.getOptions();
+// Error/warning totals only change with diagnostics/markers, so the status bar
+// reuses them across cursor moves instead of re-walking every problem.
+let problemCounts = null;
+
+function invalidateProblemCounts() {
+  problemCounts = null;
+}
+
+function countProblems() {
+  if (problemCounts) return problemCounts;
   let errors = 0;
   let warnings = 0;
   for (const g of problemGroups()) {
@@ -875,6 +885,17 @@ function refreshStatus() {
       else if (item.severity === MARKER_WARNING) warnings++;
     }
   }
+  problemCounts = { errors, warnings };
+  return problemCounts;
+}
+
+function refreshStatus() {
+  if (!editor || !activeDoc || activeDoc.model.isDisposed()) return;
+  const model = activeDoc.model;
+  const pos = editor.getPosition() || { lineNumber: 1, column: 1 };
+  const selections = editor.getSelections() || [];
+  const opts = model.getOptions();
+  const { errors, warnings } = countProblems();
   const languageId = model.getLanguageId();
   const aiState = ai && ai.aiStatus ? ai.aiStatus() : { available: false, busy: false };
   updateStatusBar({

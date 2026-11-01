@@ -95,6 +95,7 @@ function writeSessionFileAtomic(filePath, data) {
 // session may never have been written yet.
 function removeSessionFile(id) {
   syncedStamps.delete(id);
+  persistedBytes.delete(id);
   try { fs.unlinkSync(sessionFilePath(id)); }
   catch (err) { if (err.code !== 'ENOENT') reportSessionError('removing a saved session', err); }
 }
@@ -104,13 +105,19 @@ function removeSessionFile(id) {
 // stamp differs from this one is a change made elsewhere.
 const syncedStamps = new Map();
 
+// Size of each session's file as last written or read, so the eviction budget
+// check doesn't re-serialize every session on every save.
+const persistedBytes = new Map();
+
 function currentFileStamp(id) {
   try { return fileStamp(fs.statSync(sessionFilePath(id))); } catch { return null; }
 }
 
 function writeSessionFile(id, s) {
   if (s._seq === undefined) s._seq = seqCounter++;
-  writeSessionFileAtomic(sessionFilePath(id), JSON.stringify({ ...serializeSession(id, s), _seq: s._seq }));
+  const data = JSON.stringify({ ...serializeSession(id, s), _seq: s._seq });
+  writeSessionFileAtomic(sessionFilePath(id), data);
+  persistedBytes.set(id, Buffer.byteLength(data));
   syncedStamps.set(id, currentFileStamp(id));
 }
 
@@ -187,15 +194,16 @@ function loadPersistedSessions() {
     // A file that can't be parsed (e.g. empty/truncated by a crash mid-write) is
     // unrecoverable. Report it once, then delete it so the same error doesn't resurface
     // on every launch.
-    let stamp;
-    try { stamp = fileStamp(fs.statSync(filePath)); obj = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+    let stat;
+    try { stat = fs.statSync(filePath); obj = JSON.parse(fs.readFileSync(filePath, 'utf8')); }
     catch (err) {
       reportSessionError('reading saved sessions', err);
       try { fs.unlinkSync(filePath); } catch { /* best-effort */ }
       continue;
     }
     if (!obj || typeof obj.id !== 'string') continue;
-    syncedStamps.set(obj.id, stamp);
+    syncedStamps.set(obj.id, fileStamp(stat));
+    persistedBytes.set(obj.id, stat.size);
     snapshots.push(obj);
   }
   snapshots.sort((a, b) => (a._seq || 0) - (b._seq || 0));
@@ -263,7 +271,7 @@ async function pruneIgnoredFileOps() {
 function evictOverBudget() {
   const measured = [...sessions].map(([id, s]) => ({
     id,
-    bytes: sessionBytes(serializeSession(id, s)),
+    bytes: persistedBytes.get(id) ?? sessionBytes(serializeSession(id, s)),
     evictable: !s.pty, // never evict a session the user is actively running
   }));
   const { evictedIds } = enforceLimit(measured);
@@ -363,12 +371,14 @@ function syncSessionFile(id) {
     sessions.delete(id);
     chat.forget(id);
     syncedStamps.delete(id);
+    persistedBytes.delete(id);
     return true;
   }
   if (action !== 'adopt') return false;
   const obj = readSessionSnapshot(id);
   if (!obj) return false;
   syncedStamps.set(id, diskStamp);
+  persistedBytes.delete(id); // rewritten elsewhere: measure afresh on the next budget check
   const entry = deserializeSession(obj);
   if (!isSessionPersistable(entry)) return false;
   entry._seq = obj._seq || 0;

@@ -28,7 +28,7 @@ Ghost-text completions, Cmd/Ctrl+K inline edits with a reviewable inline diff, "
 - The 5.5 models think by default, which only adds latency here. Haiku 5.5 gets `thinking:{type:'disabled'}`. Sonnet 5.5 rejects `disabled`, so it gets `thinking:{type:'between_tools'}` (no tools, so in effect no thinking). Don't send `temperature`: the 5.5 models reject non-default sampling. Don't prefill the assistant turn either: the 4.6+ models return a 400.
 - With this account's OAuth token (checked 2026-10), `claude-sonnet-4-5` returns 404, so the edit fallback goes straight to Haiku.
 - No token: completions return `''` (`error:'no_token'`). Edits fall back to `claude -p --model sonnet` with lean args. That path doesn't stream (it sends one chunk at the end) and it also refreshes the token. The CLI system prompt must not contain `"` (Windows argv quoting).
-- `readOauthToken` runs the macOS Keychain lookup synchronously, so `ai-assist.js` caches the token for 2 minutes.
+- `readOauthToken` runs the macOS Keychain lookup synchronously, so `ai-assist.js` caches the token for 2 minutes. (The usage meter, `runHaiku` and the accounts login check use the non-blocking `readOauthTokenAsync`/`readOauthCredsAsync` instead.)
 
 ## Prompts
 

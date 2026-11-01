@@ -111,6 +111,13 @@ async function readOauthCredsAsync(configDir = activeConfigDir()) {
   return pickOauthCreds(blobs, Date.now());
 }
 
+// readOauthToken without blocking the main process on the Keychain, for the
+// periodic usage poll and background Haiku calls.
+async function readOauthTokenAsync(configDir = activeConfigDir()) {
+  const creds = await readOauthCredsAsync(configDir);
+  return creds && !creds.expired ? creds.accessToken : null;
+}
+
 const MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
 
 // Headers every OAuth Messages API call needs (the oauth beta flag is what makes
@@ -345,7 +352,7 @@ async function claudeAvailable() {
 // pays for more than the text it passed in. Resolves to the trimmed text, or
 // null only when both paths fail.
 async function runHaiku(prompt) {
-  const token = readOauthToken();
+  const token = await readOauthTokenAsync();
   if (token) {
     const out = await runApi(token, prompt);
     if (out !== null) return out;
@@ -407,7 +414,7 @@ function probeOauthToken(token) {
 // usable OAuth token or the call fails — the renderer hides the meter on null.
 // `configDir` picks the account (default: the active one).
 async function readUsage(configDir = activeConfigDir()) {
-  const token = readOauthToken(configDir);
+  const token = await readOauthTokenAsync(configDir);
   return token ? fetchUsage(token) : null;
 }
 
@@ -438,5 +445,5 @@ function ensureFolderTrusted(dir, accountConfigDir = null) {
 module.exports = {
   resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage,
   // General-purpose access for other features (inline AI assist in the editor).
-  callMessages, runCli, readOauthToken, readOauthCreds, readOauthCredsAsync, probeOauthToken, activeConfigDir, HAIKU_MODEL, CC_IDENTITY,
+  callMessages, runCli, readOauthToken, readOauthTokenAsync, readOauthCreds, readOauthCredsAsync, probeOauthToken, activeConfigDir, HAIKU_MODEL, CC_IDENTITY,
 };

@@ -65,7 +65,7 @@ These follow VS Code's rules.
   - Breakpoints follow edits: on each content change, the before/after text goes through `applyEditToBreakpoints`.
   - While paused, the exec line is highlighted, and hovering an identifier (with its `a.b.c` member chain) evaluates it in the paused frame via `evaluateForHover` in `debug/panel.js`.
 - **Git change bars.** The committed text comes from `git-head-text` (`git show HEAD:./file`) and is cached per file. The cache is cleared on any tree change. Bars repaint 250 ms after an edit and are mirrored in the overview ruler and the minimap.
-- **Inline blame.** Shown after the caret's line, 400 ms after the caret settles. It comes from `git-blame-line`, which runs `blame --porcelain -L n,n --contents -` over the *buffer*, so line numbers stay correct while dirty. The result is parsed by `parseBlamePorcelain` in `git-parse.js`. It is toggled by the `inlineBlame` setting.
+- **Inline blame.** Shown after the caret's line, 400 ms after the caret settles. It comes from `git-blame-line`, which runs `blame --porcelain -L n,n --contents -` over the *buffer*, so line numbers stay correct while dirty. The result is parsed by `parseBlamePorcelain` in `git-parse.js`. Moving along the same line of an unchanged buffer (same file + model version + line) skips the request. It is toggled by the `inlineBlame` setting.
 
 ## Keybindings
 
@@ -80,6 +80,8 @@ Monaco supplies most of VS Code's bindings: multi-cursor, Cmd/Ctrl+F/H find and 
 - **Command Palette.** The `editor-*` commands are registered from `file.js`; `registerCommands` *appends* and replaces by id.
 
 ## Status bar and Problems
+
+Cursor/selection changes refresh the status bar, JSON bar and breadcrumbs **at most once per animation frame**, and the error/warning totals are cached (`countProblems`), recomputed only when markers or LSP diagnostics change — not on every caret move.
 
 - **Problems.** The error and warning counts combine the language servers' diagnostics (`getAllDiagnostics`, covering every file a server reports on) with Monaco's built-in worker markers (JSON/CSS/HTML) for files no server covers. Clicking the counts opens the Problems popover, which jumps to a problem when clicked.
 - **Clickable items.**

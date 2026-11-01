@@ -15,7 +15,7 @@ const CONFLICT = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
 function parsePorcelain(stdout) {
   const staged = [], unstaged = [], conflicts = [];
   for (const line of stdout.split('\n')) {
-    if (!line) continue;
+    if (!line || line.startsWith('## ')) continue; // `--branch` header (parseStatusBranch)
     const x = line[0], y = line[1];
     let file = line.slice(3);
     if (file.includes(' -> ')) file = file.split(' -> ')[1]; // rename
@@ -24,6 +24,34 @@ function parsePorcelain(stdout) {
     if (y !== ' ') unstaged.push({ status: y === '?' ? '?' : y, file });
   }
   return { staged, unstaged, conflicts };
+}
+
+// Parse the `## …` header line `git status --porcelain=v1 --branch` prints first,
+// so one status call also yields the branch and ahead/behind counts instead of
+// three extra rev-parse/rev-list spawns. Header shapes:
+//   ## main...origin/main [ahead 1, behind 2]   tracking an upstream
+//   ## main                                     no upstream
+//   ## HEAD (no branch)                         detached
+//   ## No commits yet on main                   unborn branch (older git: "Initial commit on")
+// `branch` mirrors `rev-parse --abbrev-ref HEAD`: 'HEAD' when detached, '' before
+// the first commit. Branch names can't contain "..", so "..." splits safely.
+function parseStatusBranch(stdout) {
+  const result = { branch: '', ahead: 0, behind: 0 };
+  const firstLine = stdout.split('\n', 1)[0];
+  if (!firstLine.startsWith('## ')) return result;
+  const header = firstLine.slice(3);
+  if (/^(No commits yet on|Initial commit on) /.test(header)) return result;
+  if (header.startsWith('HEAD (no branch)')) return { ...result, branch: 'HEAD' };
+  const counts = header.match(/ \[(.*)\]$/);
+  const names = counts ? header.slice(0, counts.index) : header;
+  result.branch = names.split('...')[0];
+  if (counts) {
+    const ahead = counts[1].match(/ahead (\d+)/);
+    const behind = counts[1].match(/behind (\d+)/);
+    if (ahead) result.ahead = parseInt(ahead[1], 10);
+    if (behind) result.behind = parseInt(behind[1], 10);
+  }
+  return result;
 }
 
 // Parse `git log --pretty=format:%H%x1f%h%x1f%s%x1f%an%x1f%ar` stdout. Fields are
@@ -242,4 +270,4 @@ function parseBlamePorcelain(out) {
   };
 }
 
-module.exports = { parseBlamePorcelain, ignorePattern, appendIgnoreLine, CONFLICT, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl };
+module.exports = { parseBlamePorcelain, ignorePattern, appendIgnoreLine, CONFLICT, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl };

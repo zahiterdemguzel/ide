@@ -4,7 +4,7 @@ const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runCommitModel } = require('./commit-model');
-const { parseBlamePorcelain, ignorePattern, appendIgnoreLine, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
+const { parseBlamePorcelain, ignorePattern, appendIgnoreLine, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
 const { createLimiter } = require('./concurrency');
@@ -72,14 +72,17 @@ function gitExec(args, opts = {}) {
 const STATUS_ARGS = ['status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=all'];
 
 async function gitStatus() {
-  const r = await git(STATUS_ARGS);
+  // The pane polls this every few seconds, so `--branch` folds branch and
+  // ahead/behind into the same spawn rather than three more.
+  const r = await git([...STATUS_ARGS, '--branch']);
   if (!r.ok) return { ok: false, error: r.stderr, staged: [], unstaged: [], conflicts: [] };
   const { staged, unstaged, conflicts } = parsePorcelain(r.stdout);
+  const { branch, ahead, behind } = parseStatusBranch(r.stdout);
   // `head` feeds the pane's state signature: a per-session commit can land
   // without changing the porcelain lists or `ahead` (a repo with no upstream
   // always reports 0), and the gate would then skip the rebuild and keep rows
   // whose staged/untracked flags no longer match the new HEAD.
-  const [ahead, behind, branch, head] = await Promise.all([aheadCount(), behindCount(), currentBranch(), headSha()]);
+  const head = await headSha();
   return { ok: true, staged, unstaged, conflicts, repo: getRepoPath(), ahead, behind, branch, head };
 }
 
@@ -94,23 +97,6 @@ async function headSha() {
 async function currentBranch() {
   const r = await git(['rev-parse', '--abbrev-ref', 'HEAD']);
   return r.ok ? r.stdout.trim() : '';
-}
-
-// Commits on HEAD not yet on its upstream. Returns 0 when there is no upstream
-// (no remote-tracking branch) or HEAD has no commits yet, so the badge stays hidden.
-async function aheadCount() {
-  const r = await git(['rev-list', '--count', '@{u}..HEAD']);
-  if (!r.ok) return 0;
-  return parseInt(r.stdout.trim(), 10) || 0;
-}
-
-// Commits on the upstream not yet on HEAD — i.e. what a pull would bring in.
-// Reflects the last fetch's view of the remote, mirroring aheadCount(); returns
-// 0 when there is no upstream, so the pull badge stays hidden.
-async function behindCount() {
-  const r = await git(['rev-list', '--count', 'HEAD..@{u}']);
-  if (!r.ok) return 0;
-  return parseInt(r.stdout.trim(), 10) || 0;
 }
 
 // Is the open folder inside a git work tree? Drives the git pane's two modes:
@@ -437,7 +423,7 @@ async function unpushedHashes(commits) {
 // fields/format as gitLog so the History tab can render them with the regular
 // commit row (tagged `incoming`). Newest first, capped at 100. Empty when there is
 // no upstream, nothing is incoming, or the rev-list fails. Reflects the last
-// fetch's view of the remote, mirroring behindCount(); the fetched objects are
+// fetch's view of the remote, like gitStatus's `behind` count; the fetched objects are
 // local, so the diff viewer can already `git show` each one before pulling.
 async function incomingCommits() {
   const fmt = ['%H', '%h', '%s', '%an', '%ar'].join('%x1f');

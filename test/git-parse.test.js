@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseBlamePorcelain, parsePorcelain, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl, ignorePattern, appendIgnoreLine, CONFLICT } = require('../src/main/git-parse');
+const { parseBlamePorcelain, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl, ignorePattern, appendIgnoreLine, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -338,4 +338,24 @@ test('parseBlamePorcelain: an unsaved/uncommitted line is flagged; junk is null'
   assert.equal(parseBlamePorcelain(`${zero} 1 1 1\nauthor External file (--contents)\nauthor-time 0\n`).uncommitted, true);
   assert.equal(parseBlamePorcelain('fatal: no such path'), null);
   assert.equal(parseBlamePorcelain(''), null);
+});
+
+test('parseStatusBranch: branch tracking an upstream with ahead/behind', () => {
+  assert.deepEqual(parseStatusBranch('## main...origin/main [ahead 2, behind 3]\n M a.js\n'), { branch: 'main', ahead: 2, behind: 3 });
+  assert.deepEqual(parseStatusBranch('## feat/x...origin/feat/x [behind 1]\n'), { branch: 'feat/x', ahead: 0, behind: 1 });
+  assert.deepEqual(parseStatusBranch('## main...origin/main\n'), { branch: 'main', ahead: 0, behind: 0 });
+  assert.deepEqual(parseStatusBranch('## main...origin/main [gone]\n'), { branch: 'main', ahead: 0, behind: 0 });
+});
+
+test('parseStatusBranch: no upstream, detached, and unborn branches', () => {
+  assert.deepEqual(parseStatusBranch('## main\n'), { branch: 'main', ahead: 0, behind: 0 });
+  assert.deepEqual(parseStatusBranch('## HEAD (no branch)\n'), { branch: 'HEAD', ahead: 0, behind: 0 });
+  assert.deepEqual(parseStatusBranch('## No commits yet on main\n'), { branch: '', ahead: 0, behind: 0 });
+  assert.deepEqual(parseStatusBranch(''), { branch: '', ahead: 0, behind: 0 });
+});
+
+test('parsePorcelain: skips the --branch header line', () => {
+  const r = parsePorcelain('## main...origin/main [ahead 1]\n M a.js\n');
+  assert.deepEqual(r.unstaged, [{ status: 'M', file: 'a.js' }]);
+  assert.deepEqual(r.staged, []);
 });

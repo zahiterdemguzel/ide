@@ -19,7 +19,7 @@ const path = require('path');
 const { sharedDataDir } = require('./instance');
 const { sendToRenderer } = require('./window');
 const { cleanEnv } = require('./proc-env');
-const { resolveClaude, readUsage, readOauthCreds, probeOauthToken, runCli } = require('./claude');
+const { resolveClaude, readUsage, readOauthCreds, readOauthCredsAsync, probeOauthToken, runCli } = require('./claude');
 const { authArgs } = require('./claude-install');
 const lib = require('./accounts-lib');
 
@@ -183,11 +183,11 @@ const LOGIN_CHECK_TTL_MS = 5 * 60 * 1000;
 const loginChecks = new Map(); // account id -> { at, login, loginStamp }
 
 async function checkLogin(account) {
-  let creds = readOauthCreds(account.configDir);
+  let creds = await readOauthCredsAsync(account.configDir);
   let login = lib.classifyLogin(creds, creds ? await probeOauthToken(creds.accessToken) : null);
   if (login === 'stale') {
     await runCli('.', { configDir: account.configDir });
-    creds = readOauthCreds(account.configDir);
+    creds = await readOauthCredsAsync(account.configDir);
     login = creds && !creds.expired ? 'ok' : 'expired';
   }
   return { login, loginStamp: creds ? creds.expiresAt : 0 };
