@@ -331,6 +331,24 @@ export default function SessionsScreen({ navigation }: any) {
     refresh();
   };
 
+  // The desktop sidebar's clean button: main archives every session of the project
+  // that isn't busy and has no background terminal/Monitor running — the same
+  // handler the desktop calls, so both clean exactly the same set. Archiving is
+  // reversible (Restore), so like the desktop it asks for no confirmation.
+  const [cleaning, setCleaning] = useState(false);
+  const cleanIdle = async () => {
+    if (!conn || cleaning) return;
+    setCleaning(true);
+    try {
+      await conn.req('archive-idle-sessions');
+    } catch (e: any) {
+      showError('Could not clean up sessions', e);
+    } finally {
+      setCleaning(false);
+      refresh();
+    }
+  };
+
   const unarchive = async (s: Session) => {
     await conn?.req('resume-session', { id: s.id, cols: 80, rows: 30 });
     refresh();
@@ -442,21 +460,34 @@ export default function SessionsScreen({ navigation }: any) {
   return (
     <View style={styles.fill}>
       <ScreenHeader title="Sessions">
-        <View style={styles.segments}>
-          {TABS.map((t) => {
-            const on = t.key === tab;
-            return (
-              <Pressable
-                key={t.key}
-                style={[styles.segment, on && styles.segmentOn]}
-                onPress={() => selectTab(t.key)}
-              >
-                <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>
-                  {t.label} <Text style={styles.segmentCount}>{counts[t.key]}</Text>
-                </Text>
-              </Pressable>
-            );
-          })}
+        <View style={styles.segmentRow}>
+          <View style={styles.segments}>
+            {TABS.map((t) => {
+              const on = t.key === tab;
+              return (
+                <Pressable
+                  key={t.key}
+                  style={[styles.segment, on && styles.segmentOn]}
+                  onPress={() => selectTab(t.key)}
+                >
+                  <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>
+                    {t.label} <Text style={styles.segmentCount}>{counts[t.key]}</Text>
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {cleaning ? (
+            <ActivityIndicator size="small" color={color.muted} style={styles.cleanSpin} />
+          ) : (
+            <IconButton
+              icon="sparkles-outline"
+              label="Archive idle sessions"
+              hue={counts.active > 0 ? color.muted : color.faint}
+              onPress={cleanIdle}
+              style={counts.active === 0 && styles.cleanOff}
+            />
+          )}
         </View>
 
         {tab === 'archived' && (
@@ -724,9 +755,12 @@ const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: color.bg },
   list: { padding: 16, paddingBottom: 8, gap: 8 },
 
+  segmentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   segments: {
-    flexDirection: 'row', backgroundColor: color.bg, borderRadius: 9, padding: 2, marginBottom: 12,
+    flex: 1, flexDirection: 'row', backgroundColor: color.bg, borderRadius: 9, padding: 2,
   },
+  cleanSpin: { width: 32, height: 32 },
+  cleanOff: { opacity: 0.5 },
   segment: { flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: 7 },
   segmentOn: { backgroundColor: color.raisedHi, ...shadow.thumb },
   segmentLabel: { color: color.muted, fontSize: 13, fontWeight: '600' },

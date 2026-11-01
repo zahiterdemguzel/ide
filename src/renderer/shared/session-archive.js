@@ -1,12 +1,5 @@
-// Pure, DOM-free rules for archiving sessions from the sidebar.
-
-// States in which a session is still doing something on its own (or is blocked
-// on a question for the user), so a bulk "clear" must leave it alone.
-const BUSY_STATES = new Set(['working', 'bg-agents', 'needs-input']);
-
-export function isSessionBusy(state) {
-  return BUSY_STATES.has(state);
-}
+// Pure, DOM-free rules for archiving sessions from the sidebar. Which sessions a
+// bulk clean archives is decided in main (session-query-lib's idleSessionIds).
 
 // Which archived value a row should adopt from main's sessions-changed push.
 // The desktop flips a row the moment the user clicks; main confirms with its own

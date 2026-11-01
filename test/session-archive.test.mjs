@@ -1,11 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isSessionBusy, reconcileArchived } from '../src/renderer/shared/session-archive.js';
-
-test('busy states are the ones still doing something', () => {
-  for (const s of ['working', 'bg-agents', 'needs-input']) assert.equal(isSessionBusy(s), true);
-  for (const s of ['idle', 'completed', 'pushed', 'interrupted', undefined]) assert.equal(isSessionBusy(s), false);
-});
+import { reconcileArchived } from '../src/renderer/shared/session-archive.js';
 
 test('with no local change in flight, main wins', () => {
   assert.deepEqual(reconcileArchived(true, undefined, false), { archived: false, pending: undefined });

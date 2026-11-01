@@ -14,7 +14,7 @@ module.exports = {
   setSessionModel: (id, model) => ipcRenderer.send('set-session-model', { id, model }),
   setSessionEffort: (id, effort) => ipcRenderer.send('set-session-effort', { id, effort }),
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),
-  sessionsWithBackgroundWork: (ids) => ipcRenderer.invoke('sessions-with-background-work', ids),
+  archiveIdleSessions: () => ipcRenderer.invoke('archive-idle-sessions'),
   resumeSession: (id, { cols, rows }) => ipcRenderer.invoke('resume-session', { id, cols, rows }),
   killSession: (id) => ipcRenderer.send('kill-session', { id }),
   // Worktree sessions: closing one decides the fate of its checkout, so unlike

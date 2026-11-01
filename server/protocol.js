@@ -24,6 +24,8 @@ const REMOTE_CHANNELS = {
     // one page of the list, tab-filtered and searchable — what a phone lists with,
     // so a long archive is never shipped in full
     'query-sessions',
+    // the clean button: archive every idle session of the open project, decided in main
+    'archive-idle-sessions',
     'new-session',
     'resume-session',
     'check-claude',

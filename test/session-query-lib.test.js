@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { compileQuery, matchesTerms, querySessions, DEFAULT_LIMIT, MAX_LIMIT } = require('../src/main/session-query-lib');
+const { compileQuery, matchesTerms, querySessions, isSessionBusy, idleSessionIds, DEFAULT_LIMIT, MAX_LIMIT } = require('../src/main/session-query-lib');
 
 // Sessions in creation order, the shape `query-sessions` builds them in.
 function rows(...specs) {
@@ -98,4 +98,23 @@ test('limit is clamped and defaulted so one page can never pull the whole archiv
 test('an empty set yields an empty page and zeroed counts', () => {
   const r = querySessions([], { tab: 'archived', query: 'x' });
   assert.deepEqual(r, { items: [], total: 0, counts: { active: 0, archived: 0, all: 0 } });
+});
+
+test('busy states are the ones still doing something', () => {
+  for (const s of ['working', 'bg-agents', 'needs-input']) assert.equal(isSessionBusy(s), true);
+  for (const s of ['idle', 'completed', 'pushed', 'interrupted', undefined]) assert.equal(isSessionBusy(s), false);
+});
+
+test('clean: only active, non-busy sessions of the open project are archivable', () => {
+  const list = [
+    { id: 'done', repo: '/r', archived: false, state: 'completed' },
+    { id: 'restored', repo: '/r', archived: false, state: 'interrupted' },
+    { id: 'running', repo: '/r', archived: false, state: 'working' },
+    { id: 'asking', repo: '/r', archived: false, state: 'needs-input' },
+    { id: 'agents', repo: '/r', archived: false, state: 'bg-agents' },
+    { id: 'gone', repo: '/r', archived: true, state: 'idle' },
+    { id: 'elsewhere', repo: '/other', archived: false, state: 'idle' },
+  ];
+  assert.deepEqual(idleSessionIds(list, '/r'), ['done', 'restored']);
+  assert.deepEqual(idleSessionIds(list, '/none'), []);
 });

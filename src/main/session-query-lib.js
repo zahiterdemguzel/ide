@@ -66,4 +66,19 @@ function querySessions(rows, opts = {}) {
   return { items: matched.slice(offset, offset + limit), total: matched.length, counts };
 }
 
-module.exports = { compileQuery, matchesTerms, sessionHaystack, querySessions, DEFAULT_LIMIT, MAX_LIMIT };
+// States in which a session is still doing something on its own (or is blocked on
+// a question for the user), so a bulk "clean" must leave it alone.
+const BUSY_STATES = new Set(['working', 'bg-agents', 'needs-input']);
+
+function isSessionBusy(state) {
+  return BUSY_STATES.has(state);
+}
+
+// The sessions a bulk "clean" may archive: active, not busy, in the open project.
+// Background terminals/Monitors are a separate check (one process listing), applied
+// by the caller to what this returns.
+function idleSessionIds(rows, repo) {
+  return rows.filter((s) => !s.archived && !isSessionBusy(s.state) && s.repo === repo).map((s) => s.id);
+}
+
+module.exports = { compileQuery, matchesTerms, sessionHaystack, querySessions, isSessionBusy, idleSessionIds, DEFAULT_LIMIT, MAX_LIMIT };

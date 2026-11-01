@@ -119,30 +119,56 @@ if (!existsSync(androidDir) || staleConfig) {
   writeFileSync(configStamp, config);
 }
 
-// Every APK this script produces must run standalone. React Native's gradle
-// plugin skips JS bundling for "debuggable" variants (it expects a Metro dev
-// server on the same network), so a stock debug APK installed on a phone dies
-// with "Unable to load script … index.android.bundle". Emptying
-// debuggableVariants makes the debug variant bundle + Hermes-compile its JS
-// like release does, while still skipping R8 minification — so it stays the
-// fast build. Re-applied after every prebuild because prebuild regenerates
-// build.gradle.
+// Settings injected into the generated react{} block. Re-applied after every
+// prebuild because prebuild regenerates build.gradle.
+//
+// debuggableVariants: every APK this script produces must run standalone. React
+// Native's gradle plugin skips JS bundling for "debuggable" variants (it expects
+// a Metro dev server on the same network), so a stock debug APK installed on a
+// phone dies with "Unable to load script … index.android.bundle". Emptying it
+// makes the debug variant bundle + Hermes-compile its JS like release does,
+// while still skipping R8 minification — so it stays the fast build.
+//
+// hermesFlags: the stock flags plus -Wno-undefined-variable. Hermes compiles
+// the bundle without knowing the runtime's globals (setTimeout, fetch,
+// nativeFabricUIManager, …), so every typeof-guarded reference to one prints a
+// false-positive "variable was not declared" warning.
+const reactBlockSettings = [
+  'debuggableVariants = []',
+  'hermesFlags = ["-O", "-output-source-map", "-Wno-undefined-variable"]',
+];
 const appGradle = join(androidDir, 'app', 'build.gradle');
-const gradleSrc = readFileSync(appGradle, 'utf8');
-if (!gradleSrc.includes('debuggableVariants = []')) {
-  const anchor = 'bundleCommand = "export:embed"';
-  if (!gradleSrc.includes(anchor)) {
-    console.error(`Could not find react{} bundleCommand anchor in ${appGradle}`);
-    process.exit(1);
-  }
-  writeFileSync(appGradle, gradleSrc.replace(anchor, `${anchor}\n    debuggableVariants = []`));
+let gradleSrc = readFileSync(appGradle, 'utf8');
+const reactBlockAnchor = 'bundleCommand = "export:embed"';
+if (!gradleSrc.includes(reactBlockAnchor)) {
+  console.error(`Could not find react{} bundleCommand anchor in ${appGradle}`);
+  process.exit(1);
 }
+for (const setting of reactBlockSettings) {
+  const alreadyApplied = gradleSrc.split('\n').some((line) => line.trim() === setting);
+  if (!alreadyApplied) {
+    gradleSrc = gradleSrc.replace(reactBlockAnchor, `${reactBlockAnchor}\n    ${setting}`);
+  }
+}
+writeFileSync(appGradle, gradleSrc);
+
+// Under a Turkish system locale the JVM upper-cases "i" to "İ" (Gradle prints
+// "BUİLD SUCCESSFUL"), and locale-sensitive case mapping in build tooling can
+// break on it. Pin both the Gradle client (GRADLE_OPTS) and daemon (jvmargs)
+// to an English locale.
+const englishLocaleJvmFlags = '-Duser.language=en -Duser.country=US';
+process.env.GRADLE_OPTS = [process.env.GRADLE_OPTS, englishLocaleJvmFlags].filter(Boolean).join(' ');
+
+// expo-constants' createExpoConfig task reads NODE_ENV to pick the mode-specific
+// .env file and warns when it's unset. Both variants bundle with dev disabled
+// (debuggableVariants is emptied above), so production is the truthful mode.
+process.env.NODE_ENV = 'production';
 
 // Give Gradle a large heap and turn on parallel + build caching. These live in
 // GRADLE_USER_HOME (not android/, which prebuild regenerates) so they survive.
 mkdirSync(gradleHome, { recursive: true });
 writeFileSync(join(gradleHome, 'gradle.properties'), [
-  'org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8',
+  `org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8 ${englishLocaleJvmFlags}`,
   'org.gradle.parallel=true',
   'org.gradle.caching=true',
   'org.gradle.daemon=true',

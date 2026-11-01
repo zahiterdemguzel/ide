@@ -11,7 +11,7 @@ import { ensureClaude, ensureCodex } from './claude-setup.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
-import { isSessionBusy, reconcileArchived } from './shared/session-archive.js';
+import { reconcileArchived } from './shared/session-archive.js';
 import {
   getSessionModel, getSubagentModel, setSessionModel, getSessionEffort, setSessionEffort,
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
@@ -336,10 +336,14 @@ export function setSessionsRepo(repo) {
 
 // Archive a row immediately in the UI; main is told in the same tick. The
 // pending flag holds this choice against stale list pushes until main echoes it
-// back (see reconcileArchived).
+// back (see reconcileArchived). Main is told directly rather than through
+// suspendSessionUI: a row restored from disk is already `suspended` (it has no
+// PTY yet), so that call returns early — and archiving it used to change only
+// this window while main, and so the phone, kept it active.
 function markArchived(s) {
   s.pendingArchived = true;
-  suspendSessionUI(s);
+  window.api.suspendSession(s.id);
+  suspendSessionUI(s, { notifyMain: false });
   s.archived = true;
 }
 
@@ -1251,27 +1255,12 @@ const MERGE_ERRORS = {
 
 sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); };
 
-// Sidebar "clear": archive every session of the open project that isn't busy
-// and has no background terminal or Monitor still running (archiving kills the
-// agent and those with it). All rows are archived before anything is re-selected
-// — selecting a stopped row resumes it, so picking the next row mid-loop would
-// wake a session about to go.
+// Sidebar "clear": main archives every idle session of the open project (the same
+// handler the phone's clean button calls, so both clean the same set) and pushes
+// the list once; syncSessions mirrors the archive and re-selects a visible row.
+// Nothing is archived optimistically here — main checks for background work first.
 async function clearIdleSessions() {
-  const candidates = [...sessions.values()].filter((s) => !s.archived && !isSessionBusy(s.state)
-    && (currentRepo === undefined || s.repo === currentRepo));
-  if (!candidates.length) return;
-  // On any failure main answers with no list; archive nothing rather than kill work.
-  const busyIds = await window.api.sessionsWithBackgroundWork(candidates.map((s) => s.id)).catch(() => null);
-  if (!Array.isArray(busyIds)) return;
-  const withBackgroundWork = new Set(busyIds);
-  for (const s of candidates) {
-    // Re-checked after the await: the row may have started working or been archived meanwhile.
-    if (s.archived || isSessionBusy(s.state) || withBackgroundWork.has(s.id)) continue;
-    markArchived(s);
-  }
-  applyTabFilter();
-  const cur = sessions.get(activeId);
-  if (!cur || !sessionVisible(cur)) selectFirstVisible();
+  await window.api.archiveIdleSessions().catch(() => null);
 }
 document.getElementById('sessions-clear').onclick = clearIdleSessions;
 

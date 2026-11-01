@@ -30,7 +30,7 @@ const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
 const { isInterruptKey, interruptOutcome, isUsageLimitStop } = require('./hook-events');
 const push = require('./push');
-const { querySessions } = require('./session-query-lib');
+const { querySessions, idleSessionIds } = require('./session-query-lib');
 const { fileStamp, planFileChange, idsToWriteOnQuit } = require('./session-sync-lib');
 const { getProjectSettings } = require('./project-settings');
 const { createWorktree, cancelCreate, emitProgress, worktreeStatus, removeWorktree, renameSessionBranch } = require('./worktrees');
@@ -1623,11 +1623,11 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
 }, (err) => ({ error: err && err.message ? err.message : String(err) })));
 
 // Which of `ids` still own a background terminal or Monitor under their agent
-// process. The sidebar's bulk clear skips these: archiving kills the CLI and the
-// background work with it. One process listing serves every id. If the listing
-// fails, every live session is reported busy so the clear errs on keeping them.
-bridge.handle('sessions-with-background-work', guard('checking background work', async (_e, ids) => {
-  const live = (Array.isArray(ids) ? ids : [])
+// process. The bulk clean skips these: archiving kills the CLI and the background
+// work with it. One process listing serves every id. If the listing fails, every
+// live session is reported busy so the clean errs on keeping them.
+async function sessionsWithBackgroundWork(ids) {
+  const live = ids
     .map((id) => ({ id, pid: sessions.get(id)?.pty?.pid }))
     .filter((entry) => Number.isInteger(entry.pid));
   if (!live.length) return [];
@@ -1640,13 +1640,14 @@ bridge.handle('sessions-with-background-work', guard('checking background work',
     return live.map((entry) => entry.id);
   }
   return live.filter((entry) => hasBackgroundWork(processes, entry.pid)).map((entry) => entry.id);
-}));
+}
 
 // Archive: kill the Claude process to free resources but keep the session entry
-// (and all its tracked-file state) so it can resume under the same id.
-bridge.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
+// (and all its tracked-file state) so it can resume under the same id. Callers
+// broadcast, so a bulk archive pushes the list once rather than per session.
+function archiveSession(id) {
   const s = sessions.get(id);
-  if (!s) return;
+  if (!s) return false;
   s.suspended = true;
   s.archived = true;
   // Archiving stops the agent: a session that was actively working can't keep
@@ -1658,8 +1659,34 @@ bridge.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
   setSessionState(id, stopped);
   if (s.pty) { try { s.pty.kill(); } catch { /* already gone */ } s.pty = null; }
   persistSession(id);
-  broadcastSessions();
+  return true;
+}
+
+bridge.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {
+  if (archiveSession(id)) broadcastSessions();
 }));
+
+// The "clean" button (desktop sidebar and phone alike): archive every session of
+// the open project that isn't busy and has no background work running. Decided
+// here, against main's own state, so both clients clean exactly the same set.
+// The state is re-checked after the process listing, since a session may have
+// started working (or been archived) while it ran.
+bridge.handle('archive-idle-sessions', guard('archiving idle sessions', async () => {
+  const repo = getMainRepoPath();
+  if (!repo) return { archived: 0 };
+  const rows = () => [...sessions].map(([id, s]) => ({ id, repo: s.repo, archived: s.archived, state: s.state }));
+  const candidates = idleSessionIds(rows(), repo);
+  if (!candidates.length) return { archived: 0 };
+  const withBackgroundWork = new Set(await sessionsWithBackgroundWork(candidates));
+  const stillIdle = new Set(idleSessionIds(rows(), repo));
+  let archived = 0;
+  for (const id of candidates) {
+    if (!stillIdle.has(id) || withBackgroundWork.has(id)) continue;
+    if (archiveSession(id)) archived++;
+  }
+  if (archived) broadcastSessions();
+  return { archived };
+}, { archived: 0 }));
 
 // Restore: respawn the PTY (resuming the same Claude conversation) for an entry
 // that was suspended; its edits/fileOps continue accumulating against the same id.
