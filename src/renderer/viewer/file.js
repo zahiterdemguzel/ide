@@ -239,7 +239,12 @@ export async function showFile(file, jump, { preview = true } = {}) {
   if (token !== showToken) return;
   if (r.binary) { showNotice(t('editor.binary')); return; }
   if (r.error) { showNotice(r.error); return; }
-  if (r.doc.model.getValueLength() > MAX_FILE_CHARS) { showNotice(t('editor.tooLarge')); return; }
+  if (r.doc.model.getValueLength() > MAX_FILE_CHARS) {
+    // Never shown, so nothing else would ever free its model and disk copy.
+    if (!tabs.tabs.some((tab) => tab.file === file) && !isDirty(r.doc)) disposeDoc(r.doc);
+    showNotice(t('editor.tooLarge'));
+    return;
+  }
 
   const before = tabs;
   tabs = openTab(tabs, file, { preview: preview && !isDirty(r.doc) });
@@ -288,7 +293,19 @@ function mountDoc(doc) {
   syncJsonBar();
   refreshStatus();
   showRunFor(isAbsolutePath(doc.file) ? '' : doc.file);
+  disposeUntabbedDocs();
   requestAnimationFrame(() => { editor.layout(); editor.focus(); });
+}
+
+// Models loaded only for language-server navigation (Cmd+hover, peek, Find
+// References across hundreds of files) never get a tab, so closing tabs never
+// frees them. Once the user is on another file, drop every clean doc with no tab;
+// a rename's unsaved background edits are dirty and stay.
+function disposeUntabbedDocs() {
+  for (const doc of allDocs()) {
+    if (doc === activeDoc || isDirty(doc) || tabs.tabs.some((tab) => tab.file === doc.file)) continue;
+    disposeDoc(doc);
+  }
 }
 
 function isMarkdown(file) { const ext = extOf(file); return ext === 'md' || ext === 'markdown'; }
@@ -312,7 +329,8 @@ function hookDoc(doc) {
       renderTabs(tabs);
     }
     onContentChanged(doc);
-    if (doc === activeDoc) syncJsonBar();
+    // The JSON bar is not synced here: every edit also moves the cursor, and the
+    // cursor handler already re-syncs it once per frame (it scans the whole buffer).
     scheduleAutoSave(doc);
   });
 }
@@ -587,7 +605,13 @@ function wireEditorEvents() {
     if (settings.autoSave === 'onFocusChange' && activeDoc && isDirty(activeDoc)) saveDocWithHooks(activeDoc);
   });
   window.addEventListener('blur', () => { if (settings.autoSave === 'onFocusChange') saveAllFiles(); });
-  monaco.editor.onDidChangeMarkers(() => { invalidateProblemCounts(); refreshStatus(); });
+  // Fires once per file per marker owner — a diagnostics burst across a workspace is
+  // hundreds of events, each rebuilding every problem count. One update per frame.
+  let markersFrame = 0;
+  monaco.editor.onDidChangeMarkers(() => {
+    if (markersFrame) return;
+    markersFrame = requestAnimationFrame(() => { markersFrame = 0; invalidateProblemCounts(); refreshStatus(); });
+  });
 }
 
 // Go to Definition / Peek / Find References into another file opens it in a tab.
@@ -1094,10 +1118,14 @@ previewToggle.addEventListener('keydown', (e) => {
 // array/object the caret sits in (pure helper: shared/json-edit.js). The insert
 // is one undoable edit; then the placeholder is selected so typing replaces it.
 
+const MAX_JSON_BAR_CHARS = 1_000_000;
 function currentJsonInsertion() {
   const doc = activeDoc;
   const pos = editor && editor.getPosition();
   if (!doc || doc.readOnly || previewEl || !pos || extOf(doc.file) !== 'json') return null;
+  // A huge JSON file (a lockfile) would be copied and scanned from the top on every
+  // cursor move; the add-item helper isn't worth that.
+  if (doc.model.getValueLength() > MAX_JSON_BAR_CHARS) return null;
   return jsonInsertion(doc.model.getValue(), doc.model.getOffsetAt(pos));
 }
 

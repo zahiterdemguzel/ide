@@ -35,12 +35,13 @@ const SEEDED_CONFIG_KEYS = [
 ];
 
 function defaultAccount() {
-  return { id: DEFAULT_ACCOUNT_ID, name: 'Default', configDir: null };
+  return { id: DEFAULT_ACCOUNT_ID, name: 'Default', configDir: null, autoSwitch: true };
 }
 
 // Whatever was on disk → a well-formed store: the default account always first,
 // no duplicate ids, every extra account with a name and a folder, and an active
-// id that names an account that exists. `removedDirs` lists the folders of
+// id that names an account that exists. `autoSwitch` (default on) says whether
+// the unattended auto-switch may pick the account. `removedDirs` lists the folders of
 // accounts the user removed, so recovery (recoverAccounts) never re-adds them.
 function normalizeAccountStore(raw) {
   const accounts = [defaultAccount()];
@@ -50,12 +51,13 @@ function normalizeAccountStore(raw) {
     if (a.id === DEFAULT_ACCOUNT_ID) continue;
     if (typeof a.configDir !== 'string' || !a.configDir) continue;
     const name = typeof a.name === 'string' && a.name.trim() ? a.name.trim() : a.id;
-    accounts.push({ id: a.id, name, configDir: a.configDir });
+    accounts.push({ id: a.id, name, configDir: a.configDir, autoSwitch: a.autoSwitch !== false });
     seen.add(a.id);
   }
   if (raw && typeof raw.defaultName === 'string' && raw.defaultName.trim()) {
     accounts[0].name = raw.defaultName.trim();
   }
+  if (raw && raw.defaultAutoSwitch === false) accounts[0].autoSwitch = false;
   const activeId = raw && seen.has(raw.activeId) ? raw.activeId : DEFAULT_ACCOUNT_ID;
   const removedDirs = raw && Array.isArray(raw.removedDirs)
     ? [...new Set(raw.removedDirs.filter((d) => typeof d === 'string' && d))]
@@ -74,7 +76,9 @@ function serializeAccountStore(store) {
   return {
     activeId: store.activeId,
     defaultName: store.accounts[0].name,
-    accounts: store.accounts.slice(1).map(({ id, name, configDir }) => ({ id, name, configDir })),
+    defaultAutoSwitch: store.accounts[0].autoSwitch !== false,
+    accounts: store.accounts.slice(1).map(({ id, name, configDir, autoSwitch }) => (
+      { id, name, configDir, autoSwitch: autoSwitch !== false })),
     removedDirs: store.removedDirs || [],
   };
 }
@@ -201,7 +205,7 @@ function recoverAccounts(store, folders) {
     if (!f.signedIn || known.has(f.configDir)) continue;
     const id = `dir-${f.folderName}`;
     if (ids.has(id)) continue;
-    recovered.push({ id, name: discoveredAccountName(f.claudeJson, f.folderName), configDir: f.configDir });
+    recovered.push({ id, name: discoveredAccountName(f.claudeJson, f.folderName), configDir: f.configDir, autoSwitch: true });
     ids.add(id);
   }
   return recovered.length ? { ...store, accounts: [...store.accounts, ...recovered] } : store;

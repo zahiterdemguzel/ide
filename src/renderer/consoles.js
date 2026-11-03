@@ -1,4 +1,4 @@
-import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
+import { createTerminal, FitAddon, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { sessionNameForWorktree, worktreeRootForPath } from './sessions.js';
 
@@ -132,7 +132,7 @@ export function resetConsoles() {
 
 // Build a tab + xterm + PTY. opts: { shell:{name,path}, command, cwd, env, name, kind }.
 async function createConsole(opts = {}) {
-  const term = new Terminal({ fontSize: 11, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
+  const term = createTerminal();
   trackTermTheme(term);
   const fit = new FitAddon();
   term.loadAddon(fit);

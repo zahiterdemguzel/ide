@@ -9,14 +9,22 @@
 // across all calls yields the total tokens billed for the session — the same
 // basis the session's cost is computed on (the growing context is re-sent each
 // call, so the per-call input counts are genuinely additive, not double-counted).
+// Claude Code writes one transcript line per content block (thinking, text,
+// tool_use) of a single API response, each repeating that response's usage, so
+// entries are keyed by `message.id` and only the last copy of each is counted.
 function sumTranscriptTokens(text) {
-  let total = 0;
+  const usageByMessage = new Map();
+  let anonymousCount = 0;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let entry;
     try { entry = JSON.parse(line); } catch { continue; } // skip a partial/garbled line
     const u = entry && entry.message && entry.message.usage;
     if (!u) continue;
+    usageByMessage.set(entry.message.id || `anonymous-${anonymousCount++}`, u);
+  }
+  let total = 0;
+  for (const u of usageByMessage.values()) {
     total += (u.input_tokens || 0) + (u.output_tokens || 0)
       + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0);
   }

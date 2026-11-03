@@ -21,7 +21,7 @@
 // See .claude/memory/architecture.md "Claude Code setup gate".
 import { t } from '../i18n/index.js';
 import {
-  Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer,
+  createTerminal, FitAddon, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer,
 } from './shared/terminal.js';
 import { registerTerminalLinks } from './terminal-links.js';
 
@@ -127,7 +127,7 @@ nextBtn.onclick = () => goStep(step + 1);
 
 // --- embedded terminal ---------------------------------------------------------
 function buildTerminal() {
-  term = new Terminal({ fontSize: 11, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
+  term = createTerminal();
   trackTermTheme(term);
   termFit = new FitAddon();
   term.loadAddon(termFit);

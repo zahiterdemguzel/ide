@@ -45,10 +45,13 @@ export function primePrompt(conn: Connection, id: string, text: string) {
 // session's id so the caller can navigate to its terminal. Throws with the desktop's
 // reason on failure: new-session is guard()ed on main, so a failure comes back as a
 // *successful* response carrying { error }, never a rejection.
-export async function newSessionWithPrompt(conn: Connection, text: string): Promise<string> {
-  // No model (this path deliberately inherits the CLI's), but the effort still carries
-  // over: a session started from a git error should think as hard as the last one did.
-  const r = await conn.req<NewSession>('new-session', { cols: 80, rows: 30, effort: await getSessionEffort() });
+export async function newSessionWithPrompt(conn: Connection, text: string, opts: { model?: string } = {}): Promise<string> {
+  // No model unless asked (a git hand-off deliberately inherits the CLI's; a spoken
+  // task uses the one New session would), but the effort always carries over: a
+  // session started from a git error should think as hard as the last one did.
+  const r = await conn.req<NewSession>('new-session', {
+    cols: 80, rows: 30, ...(opts.model ? { model: opts.model } : {}), effort: await getSessionEffort(),
+  });
   if (!r?.id) throw new Error(r?.error || 'Could not start a session');
   primePrompt(conn, r.id, text);
   return r.id;

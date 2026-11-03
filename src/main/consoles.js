@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { sendToRenderer } = require('./window');
 const { getRepoPath } = require('./repo');
 const { cleanEnv } = require('./proc-env');
+const { terminalEnv, PTY_TERM_NAME } = require('./terminal-env');
 const { createPtyBatcher } = require('./pty-batch');
 
 // --- git-pane consoles: interactive shell PTYs in the repo dir, keyed by id.
@@ -119,7 +120,7 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env, name, ki
   let p;
   try {
     p = pty.spawn(shPath, args || [], {
-      name: 'xterm-color',
+      name: PTY_TERM_NAME,
       cols: cols || 80,
       rows: rows || 24,
       // Home as the last resort: with no project open yet, a null cwd would crash the spawn.
@@ -128,7 +129,7 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env, name, ki
       // (the setup gate's install/auth terminal does), itself a Node process that would
       // otherwise boot debug-attached and fail — the reason the install died here but
       // worked in a clean Terminal. See src/main/proc-env.js.
-      env: env ? { ...cleanEnv(), ...env } : cleanEnv(),
+      env: terminalEnv(env ? { ...cleanEnv(), ...env } : cleanEnv()),
     });
   } catch (e) {
     // A bad shell path / cwd / winpty hiccup must never take the app down: report the

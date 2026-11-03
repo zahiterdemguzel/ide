@@ -6,6 +6,7 @@ module.exports = {
   addAccount: (name) => ipcRenderer.invoke('accounts-add', name),
   removeAccount: (id) => ipcRenderer.invoke('accounts-remove', id),
   renameAccount: (id, name) => ipcRenderer.invoke('accounts-rename', { id, name }),
+  setAccountAutoSwitch: (id, allowed) => ipcRenderer.invoke('accounts-set-auto-switch', { id, allowed }),
   setActiveAccount: (id) => ipcRenderer.invoke('accounts-set-active', id),
   accountLoginCommand: (id) => ipcRenderer.invoke('accounts-login-command', id),
   accountsUsage: () => ipcRenderer.invoke('accounts-usage'),

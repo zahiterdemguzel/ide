@@ -38,3 +38,16 @@ test('lineChanges: CRLF vs LF bases compare by line content', () => {
 test('lineChanges: a new file against an empty base is all added', () => {
   assert.deepEqual(lineChanges('', join('x', 'y')), [{ type: 'modified', start: 1, end: 2 }]);
 });
+
+test('lineChanges: a large interleaved rewrite still diffs exactly (windowed trace)', () => {
+  // 600 kept lines, each followed by a line that is changed — 600 one-line hunks.
+  const base = [];
+  const current = [];
+  for (let i = 0; i < 600; i++) {
+    base.push(`keep ${i}`, `old ${i}`);
+    current.push(`keep ${i}`, `new ${i}`);
+  }
+  const changes = lineChanges(base.join('\n'), current.join('\n'));
+  assert.equal(changes.length, 600);
+  changes.forEach((c, i) => assert.deepEqual(c, { type: 'modified', start: 2 * i + 2, end: 2 * i + 2 }));
+});

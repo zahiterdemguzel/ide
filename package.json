@@ -83,6 +83,7 @@
     "@repomix/tree-sitter-wasms": "^0.1.17",
     "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-unicode11": "^0.8.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
     "elkjs": "^0.12.0",

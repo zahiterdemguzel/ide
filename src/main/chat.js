@@ -168,6 +168,14 @@ function ptyStopped(id) {
   setAsk(id, null);
 }
 
+// The session was archived: nothing tails it any more, so let go of its retained
+// messages too. The path stays — session-transcript reads an untailed session's
+// file straight off disk, so its chat is still readable on demand.
+function release(id) {
+  ptyStopped(id);
+  streams.delete(id);
+}
+
 // The session is gone for good.
 function forget(id) {
   ptyStopped(id);
@@ -262,6 +270,6 @@ bridgeHandle('save-attachment', async (_e, { name, data } = {}) => {
 });
 
 module.exports = {
-  noteTranscript, ptyStarted, ptyStopped, forget, onHook, currentAsk, clearAsk, transcriptPath,
+  noteTranscript, ptyStarted, ptyStopped, release, forget, onHook, currentAsk, clearAsk, transcriptPath,
   onClientCount,
 };

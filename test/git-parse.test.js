@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseBlamePorcelain, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl, ignorePattern, appendIgnoreLine, CONFLICT } = require('../src/main/git-parse');
+const { parseBlamePorcelain, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, mergeHitConflicts, parseBranches, orderBranchesByUsage, firstUrl, ignorePattern, appendIgnoreLine, CONFLICT } = require('../src/main/git-parse');
 
 test('parsePorcelain: splits staged, unstaged, and untracked', () => {
   const out = [
@@ -55,6 +55,19 @@ test('pullNeedsMerge: true only when an ff-only pull failed on divergence', () =
   assert.equal(pullNeedsMerge('fatal: Authentication failed'), false);
   assert.equal(pullNeedsMerge(''), false);
   assert.equal(pullNeedsMerge(undefined), false);
+});
+
+test('mergeHitConflicts: true only when the merge stopped on conflicts', () => {
+  const conflict = [
+    'Auto-merging CLAUDE.md',
+    'CONFLICT (content): Merge conflict in CLAUDE.md',
+    'Automatic merge failed; fix conflicts and then commit the result.',
+  ].join('\n');
+  assert.equal(mergeHitConflicts(conflict), true);
+  // A merge git refused to start leaves no conflicts to resolve.
+  assert.equal(mergeHitConflicts('error: Your local changes to the following files would be overwritten by merge:\n\tCLAUDE.md'), false);
+  assert.equal(mergeHitConflicts(''), false);
+  assert.equal(mergeHitConflicts(undefined), false);
 });
 
 test('pushNeedsMerge: true only when the remote rejected a stale push', () => {

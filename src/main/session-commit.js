@@ -392,7 +392,9 @@ bridge.handle('revert-session', guard('reverting a session', (_e, id) => repoWri
   // Other live sessions' ops for a path, oldest session first, so replaying them
   // onto HEAD reproduces the order they were actually written in.
   const otherEditsFor = (abs) => [...sessions]
-    .filter(([sid, o]) => sid !== id && (o.edits.get(abs) || []).length)
+    // `has` first: an archived session keeps its ops on disk, and only the ones
+    // that actually touched `abs` are worth reading back.
+    .filter(([sid, o]) => sid !== id && o.edits.has(abs) && o.edits.get(abs).length)
     .sort((a, b) => (a[1]._seq || 0) - (b[1]._seq || 0))
     .map(([, o]) => o.edits.get(abs));
   // Rebuild `abs` without this session's contribution, keeping the other

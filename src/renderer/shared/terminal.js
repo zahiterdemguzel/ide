@@ -10,6 +10,45 @@ export const FitAddon = window.FitAddon.FitAddon;
 // build ever ships without them, attachRenderer degrades to the DOM renderer.
 const WebglAddon = window.WebglAddon && window.WebglAddon.WebglAddon;
 const CanvasAddon = window.CanvasAddon && window.CanvasAddon.CanvasAddon;
+const Unicode11Addon = window.Unicode11Addon && window.Unicode11Addon.Unicode11Addon;
+
+const onWindows = navigator.platform.toLowerCase().startsWith('win');
+
+// Consolas first keeps the Windows look; macOS/Linux lack it and land on Menlo /
+// DejaVu, which (unlike the generic `monospace`) carry the braille, block and
+// geometric glyphs CLI spinners and progress bars draw with.
+const TERMINAL_FONT_STACK = 'Consolas, Menlo, Monaco, "Cascadia Mono", "DejaVu Sans Mono", "Liberation Mono", monospace';
+
+// The one place every app terminal is constructed, so they all render CLI
+// loaders, progress bars and TUIs the same way. All of these are cheap: they
+// change how a glyph is measured or rasterized once, not the per-frame path.
+export function createTerminal() {
+  const term = new Terminal({
+    fontSize: 11,
+    fontFamily: TERMINAL_FONT_STACK,
+    theme: termTheme(),
+    cursorBlink: true,
+    // The Unicode 11 width table needs the (stable-in-practice) proposed `unicode` API.
+    allowProposedApi: true,
+    // Box-drawing and block elements (█▓▒░ ━ ╭╮) are drawn pixel-exact by the GPU
+    // renderer instead of from the font, so progress bars have no seams or gaps.
+    customGlyphs: true,
+    // A fallback-font glyph wider than its cell (common for spinners/symbols) is
+    // scaled to fit instead of overlapping and smearing its neighbor on redraw.
+    rescaleOverlappingGlyphs: true,
+    // ConPTY repaints/reflows differently from a Unix PTY; telling xterm avoids
+    // duplicated or misplaced lines after a resize mid-progress-bar.
+    ...(onWindows ? { windowsPty: { backend: 'conpty' } } : {}),
+  });
+  if (Unicode11Addon) {
+    // xterm defaults to Unicode 6 widths, which count emoji (✔ 📦 ⚡) as one
+    // cell while the program counted two — every redraw then lands shifted and
+    // leaves trailing garbage. Unicode 11 matches what modern CLIs assume.
+    term.loadAddon(new Unicode11Addon());
+    term.unicode.activeVersion = '11';
+  }
+  return term;
+}
 
 // Attach a GPU renderer to a *visible* terminal and return a handle whose
 // dispose() detaches it. xterm's default renderer is the DOM (one node per

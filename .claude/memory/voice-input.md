@@ -311,7 +311,8 @@ Probed headlessly under Electron 31.7.7 (Node 20.18, ABI 125) on Windows:
 
 Voice input is driven by this machine's cursor and microphone, so none of the `stt-*`
 channels are in the `server/protocol.js` allowlist. A paired phone can't arm, stop, or
-configure it. Console terminals are deliberately excluded too — only
+configure it. (The phone has its own voice path — its own recognizer, sending only the
+transcript as a new session's prompt; see [remote-access.md](remote-access.md#voice-sessions-and-the-home-screen-widget-phone).) Console terminals are deliberately excluded too — only
 `.term-container` (the panes where the user talks to Claude) arms the mic, not the
 build-output consoles.
 

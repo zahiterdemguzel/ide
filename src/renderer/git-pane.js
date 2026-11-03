@@ -957,12 +957,20 @@ syncBtn.onclick = async () => {
   const r = await window.api.gitPull();
   syncBtn.classList.remove('loading');
   syncBtn.disabled = false;
-  showGitMsg(r.ok ? 'Synced' : (r.stderr || 'Sync failed'), r.ok);
+  showGitMsg(r.ok ? (r.merged ? 'Synced (merged remote changes)' : 'Synced') : (r.stderr || 'Sync failed'), r.ok);
   refreshGit();
   // The pull moved incoming commits into local history; keep the History preview in sync.
   if (!historyView.hidden) refreshHistory();
-  if (r.needsMerge) offerClaudeMerge(t('git.pullMergeTitle'), t('git.pullMergeMsg'), r.stderr, t('git.opPull'));
+  if (r.needsMerge) offerMergeHelp(r, t('git.pullMergeTitle'), t('git.pullMergeMsg'), t('git.opPull'));
 };
+
+// A pull/push that could not merge on its own: either it stopped on real
+// conflicts (left in the tree, listed in the Conflicts section) or git refused to
+// start the merge. Both are offered to a Claude session, worded for the case.
+function offerMergeHelp(r, title, message, operation) {
+  if (r.conflicted) offerClaudeMerge(t('git.conflictsTitle'), t('git.conflictsMsg'), r.stderr, t('git.opResolve'));
+  else offerClaudeMerge(title, message, r.stderr, operation);
+}
 const commitBtn = document.getElementById('git-commit');
 commitBtn.onclick = async () => {
   const box = document.getElementById('commit-msg');
@@ -993,10 +1001,14 @@ pushBtn.onclick = async () => {
   // A rejection because the remote moved on is fixable by a pull/merge/push, so
   // offer to hand it to Claude rather than just reporting the wall of git text.
   if (!r.ok) {
-    if (r.needsMerge) offerClaudeMerge(t('git.pushMergeTitle'), t('git.pushMergeMsg'), r.stderr, t('git.opPush'));
+    if (r.needsMerge) offerMergeHelp(r, t('git.pushMergeTitle'), t('git.pushMergeMsg'), t('git.opPush'));
     else showGitErrorDialog(r.stderr || 'Push failed');
+  } else if (r.merged) {
+    showGitMsg('Pushed (merged remote changes first)', true);
   }
   refreshGit();
+  // A merge before the push pulled the other machine's commits into History.
+  if (r.merged && !historyView.hidden) refreshHistory();
 };
 
 // --- the "⋯" overflow menu ---

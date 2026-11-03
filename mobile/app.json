@@ -24,7 +24,8 @@
       "package": "com.ideremote.app",
       "permissions": [
         "CAMERA",
-        "REQUEST_INSTALL_PACKAGES"
+        "REQUEST_INSTALL_PACKAGES",
+        "RECORD_AUDIO"
       ],
       "usesCleartextTraffic": true
     },
@@ -38,7 +39,7 @@
         "@config-plugins/react-native-webrtc",
         {
           "cameraPermission": "Scan the pairing QR code shown by the desktop IDE.",
-          "microphonePermission": "Not used: IDE Remote only uses WebRTC for a direct data connection to your desktop."
+          "microphonePermission": "Speak a task to start a new Claude session."
         }
       ],
       [
@@ -46,6 +47,36 @@
         {
           "photosPermission": "Attach a screenshot or photo to a message you send Claude.",
           "cameraPermission": "Take a photo to attach to a message you send Claude."
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Speak a task to start a new Claude session.",
+          "speechRecognitionPermission": "Turn the task you speak into text for a new Claude session.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox",
+            "com.google.android.as"
+          ]
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "VoiceSession",
+              "label": "New session (voice)",
+              "description": "Tap to speak a task; tap again to start a session with it.",
+              "minWidth": "110dp",
+              "minHeight": "50dp",
+              "targetCellWidth": 3,
+              "targetCellHeight": 1,
+              "maxResizeHeight": "110dp",
+              "resizeMode": "horizontal|vertical",
+              "previewImage": "./src/widget/preview.png"
+            }
+          ]
         }
       ]
     ]

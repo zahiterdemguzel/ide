@@ -183,6 +183,9 @@
   background: transparent; color: var(--fg-dim); cursor: pointer;
 }
 .acct-icon-btn:hover { background: var(--bg-2); color: var(--fg); }
+/* Marks an account the auto-switch may not pick; hidden while the hover actions show. */
+.acct-noauto { flex: none; display: inline-flex; color: var(--fg-dim); }
+.acct-menu .acct-row:hover .acct-noauto { display: none; }
 
 .acct-add {
   display: flex; align-items: center; gap: 8px; width: 100%;

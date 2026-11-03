@@ -15,7 +15,7 @@ Opening a text file shows it in a **Monaco** editor (the editor component of VS 
 | `editor/tabs-model.js` *(pure)* | Tab state transitions (preview tabs, MRU, reorder, rename, background tabs). |
 | `editor/tabs.js` | The tab strip DOM (`#editor-tabs`): click, middle-click, double-click to pin, drag to reorder, context menu. |
 | `editor/gutter.js` | Margin decorations: breakpoints and the paused line, git change bars against HEAD, inline blame. |
-| `editor/line-diff.js` *(pure)* | `lineChanges(base, current)`: a Myers line diff → added/modified/deleted ranges for the git bars. |
+| `editor/line-diff.js` *(pure)* | `lineChanges(base, current)`: a Myers line diff → added/modified/deleted ranges for the git bars. Each round's trace keeps only the diagonals backtracking can read (O(D²) memory, not O(D·(N+M))). |
 | `editor/status-bar.js` | `#editor-status`: problems, Ln/Col and selection, indentation, EOL, encoding, language, LSP state, AI toggle. |
 | `editor/breadcrumbs.js` | Renders the folder › file › symbol trail into `#diff-file` (symbols come from LSP `documentSymbol`). |
 | `editor/symbol-path.js` *(pure)* | `symbolPathAt` (the symbols around the caret) and `relativeTime` (for blame). |
@@ -45,6 +45,7 @@ Opening a text file shows it in a **Monaco** editor (the editor component of VS 
   - **Keep mine** keeps your buffer; saving will overwrite the disk.
   - **Reload from disk** discards your edits.
 - **Files edited in the background.** A rename or quick fix can edit files that have no tab. The LSP client loads them through `ensureModel`, and the first time such a document turns dirty it gets a **background tab** (`addBackgroundTab`), so the edit is visible and can be saved.
+- **Untabbed models are swept.** LSP navigation (Cmd+hover, peek, Find References) loads a model per target file through `ensureModel`, and none of them get a tab. `disposeUntabbedDocs()` runs at the end of every `mountDoc` and disposes each clean doc that has no tab and isn't active (disposing sends `didClose`), so those models don't pile up until a folder switch. Dirty background edits are kept (they get a background tab). A file over `MAX_FILE_CHARS` is disposed straight away, since it is never shown.
 - **Folder switch.** `index.js` calls `onEditorRepoChanged(r.repo)`. The new root is applied synchronously, because the LSP client re-checks the root one tick later. Documents from the old root are then closed. If any have unsaved edits, the user is first offered to save them to the old location (`write-text-abs`, which only overwrites existing files).
 
 ## Tabs
@@ -81,7 +82,7 @@ Monaco supplies most of VS Code's bindings: multi-cursor, Cmd/Ctrl+F/H find and 
 
 ## Status bar and Problems
 
-Cursor/selection changes refresh the status bar, JSON bar and breadcrumbs **at most once per animation frame**, and the error/warning totals are cached (`countProblems`), recomputed only when markers or LSP diagnostics change — not on every caret move.
+Cursor/selection changes refresh the status bar, JSON bar and breadcrumbs **at most once per animation frame** (the content listener deliberately doesn't sync the JSON bar too — an edit always moves the cursor — and the JSON bar is off above 1M chars, since it scans the buffer from the top), and the error/warning totals are cached (`countProblems`), recomputed only when markers or LSP diagnostics change — not on every caret move. `onDidChangeMarkers` fires per file per owner, so it is batched to one recount per frame.
 
 - **Problems.** The error and warning counts combine the language servers' diagnostics (`getAllDiagnostics`, covering every file a server reports on) with Monaco's built-in worker markers (JSON/CSS/HTML) for files no server covers. Clicking the counts opens the Problems popover, which jumps to a problem when clicked.
 - **Clickable items.**

@@ -15,7 +15,7 @@ Claude Code reads its whole config — including the login — from `CLAUDE_CONF
 `~/.claude-accounts/<slug>`, and running the CLI with that env var *is* being that
 account. The built-in **default** account is the user's normal setup: no env override.
 
-- **Store**: `~/.claude-accounts/accounts.json` (`{activeId, defaultName, accounts:[{id,name,configDir}], removedDirs}`),
+- **Store**: `~/.claude-accounts/accounts.json` (`{activeId, defaultName, defaultAutoSwitch, accounts:[{id,name,configDir,autoSwitch}], removedDirs}`),
   beside the account folders — **not** in the app's data folder, because the dev build and the installed
   app each get their own (`-dev` suffix, `instance.js`), so a list kept there vanished when the other build
   was opened. Read fresh on every call so all app instances agree on the *list*. Shape logic: `accounts-lib.js`.
@@ -140,9 +140,11 @@ offers "Add account" instead. The prompt also says the 98% auto-switch exists.
 The user leaves sessions running while away, so past `AUTO_SWITCH_THRESHOLD` (98%)
 of **either** window (`autoSwitchKey`, one key per window + reset, stored with the
 asked-keys) `onUsage` switches without asking — only when `pickAutoSwitchTarget`
-finds an account that is signed in, has a fresh usage reading, has **no 7-day
-window** (no weekly limit — a hard rule from the user: never auto-switch to a
-weekly-limited account), and sits below 95% of its 5-hour window. No such account →
+finds an account that the user **allowed for auto-switching** (per-account
+`autoSwitch` flag, default on), is signed in, has a fresh usage reading, and sits
+below 95% of **every** window (5-hour and weekly). Weekly-limited accounts used to
+be excluded outright; that rule was dropped once every account had a weekly limit.
+No such account →
 nothing happens, the 95% prompt still shows, and it retries at most every 5 min.
 It isn't held back by an open prompt. Any switch of the active account (this
 auto-switch, the menu, another device) bumps `accountGeneration` and cancels the
@@ -167,4 +169,8 @@ after a restart move, once `continueOnceResumed` sees the resumed TUI go quiet (
 Markup: `#account-switcher` in `index.html`. Styles: the `.acct-*` block at the end of
 `toolbar.css` (pill = session-bar badge look; the menu is `position: fixed` because
 `#toolbar` clips overflow). Rows (`accountRow`) are shared by the menu and the prompt.
+Each menu row's hover actions include a lightning toggle (`autoSwitchToggle` →
+`accounts-set-auto-switch` → `setAccountAutoSwitch`) that opts the account in or out
+of the 98% auto-switch; manual switching ignores it. An opted-out row shows a
+struck-through lightning mark (`.acct-noauto`) when not hovered.
 The sign-in dialog widens itself with `.dlg.is-wide` (`base.css`). Strings: `accounts.*`.

@@ -9,6 +9,7 @@ const { getRepoPath, getMainRepoPath, setActiveWorktree } = require('./repo');
 const { resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
+const { terminalEnv, PTY_TERM_NAME } = require('./terminal-env');
 const { modelEnv } = require('./agent-models');
 const accounts = require('./accounts');
 const { accountEnv, planAccountMove, shouldMoveAfterState } = require('./accounts-lib');
@@ -28,6 +29,7 @@ const { settleTarget, sameTree } = require('./fs-watch-lib');
 const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
+const { DiskBackedMap, isUnloaded } = require('./disk-backed-map');
 const { isInterruptKey, interruptOutcome, isUsageLimitStop } = require('./hook-events');
 const push = require('./push');
 const { querySessions, idleSessionIds, interruptedSessionIds } = require('./session-query-lib');
@@ -119,6 +121,23 @@ function writeSessionFile(id, s) {
   writeSessionFileAtomic(sessionFilePath(id), data);
   persistedBytes.set(id, Buffer.byteLength(data));
   syncedStamps.set(id, currentFileStamp(id));
+}
+
+// A session with no Claude process here (archived, or restored and not yet resumed)
+// doesn't need its text-edit ops in memory — they are the heavy part of the record
+// and were just written to its file. Swap them for a disk-backed map that keeps the
+// paths (so the tracked-file list and ownership checks stay free) and reads the ops
+// back only if the session is committed, reverted or resumed. The diff stat is
+// computed first so list rows keep their numbers without a reload.
+function offloadEdits(id, s) {
+  if (!s || isLiveHere(s) || isUnloaded(s.edits) || !s.edits.size) return;
+  sessionDiffStat(s);
+  s.edits = new DiskBackedMap(s.edits.keys(), () => readStoredEdits(id));
+}
+
+function readStoredEdits(id) {
+  const obj = readSessionSnapshot(id);
+  return new Map(obj && Array.isArray(obj.edits) ? obj.edits : []);
 }
 
 // One-time migration of the old single-file store into per-session files, so an
@@ -220,6 +239,9 @@ function loadPersistedSessions() {
       if (entry.worktree && !fs.existsSync(path.join(entry.worktree, '.git'))) entry.worktreeState = 'missing';
       entry._seq = obj._seq || 0;
       sessions.set(obj.id, entry);
+      // Restored sessions have no process yet; their ops were just parsed from this
+      // very file, so drop them back to disk until something needs them.
+      offloadEdits(obj.id, entry);
       // No hook has fired for a restored session, so this is the only way its chat
       // knows where its transcript is — and an archived session's conversation is
       // readable without resuming it.
@@ -304,6 +326,7 @@ function persistSession(id) {
   try {
     ensureSessionsDir();
     writeSessionFile(id, s);
+    offloadEdits(id, s);
     evictOverBudget();
   } catch (err) {
     reportSessionError('saving a session', err);
@@ -378,19 +401,23 @@ function syncSessionFile(id) {
   const obj = readSessionSnapshot(id);
   if (!obj) return false;
   syncedStamps.set(id, diskStamp);
-  persistedBytes.delete(id); // rewritten elsewhere: measure afresh on the next budget check
+  // Rewritten elsewhere: take the new size from the file itself. Re-measuring by
+  // serializing would read back the ops offloadEdits parks on disk.
+  try { persistedBytes.set(id, fs.statSync(sessionFilePath(id)).size); } catch { persistedBytes.delete(id); }
   const entry = deserializeSession(obj);
   if (!isSessionPersistable(entry)) return false;
   entry._seq = obj._seq || 0;
   seqCounter = Math.max(seqCounter, entry._seq + 1);
   chat.noteTranscript(id, entry.transcript);
-  if (!local) { sessions.set(id, entry); return true; }
+  if (!local) { sessions.set(id, entry); offloadEdits(id, entry); return true; }
   // The dot keeps this instance's value: what's on disk for a session running
   // elsewhere is its restart state (`working` stored as `interrupted`), not the live one.
   const { state } = local;
   const renamed = entry.name !== local.name;
   Object.assign(local, entry, { state });
   local.diffStatKey = null; // the edits were replaced wholesale
+  local.diffStatMemo = null;
+  offloadEdits(id, local);
   if (renamed) sendToRenderer('session-name', { id, name: local.name });
   sendToRenderer('session-meta', { id, firstPrompt: local.firstPrompt, files: trackedFiles(local) });
   return true;
@@ -540,6 +567,15 @@ function getSessionState(id) {
 // edits plus path-level changes (binary creates, renames/moves, deletes).
 function trackedFiles(s) {
   return [...new Set([...s.edits.keys(), ...s.fileOps.keys()])];
+}
+
+// trackedFiles(s).length without building the list: the session list ships a count
+// per row, since with hundreds of archived sessions the full path lists ran to tens
+// of thousands of strings on every broadcast — and a row only ever shows a number.
+function trackedFileCount(s) {
+  let count = s.edits.size;
+  for (const abs of s.fileOps.keys()) if (!s.edits.has(abs)) count++;
+  return count;
 }
 
 // What a tool call is pointed at, for the tool line on a working row: the file it
@@ -1364,7 +1400,7 @@ async function spawnPty(id, cols, rows, resume) {
     ...(await ollamaRoute(s)),
   };
   const p = pty.spawn(exe, args, {
-    name: 'xterm-color',
+    name: PTY_TERM_NAME,
     cols: cols || 80,
     rows: rows || 24,
     // Home as the last resort: with no project open yet, a null cwd would crash the spawn.
@@ -1374,7 +1410,7 @@ async function spawnPty(id, cols, rows, resume) {
     // (bare name) and adds the base-url/auth for an Ollama session. A Codex spawn
     // needs neither — its model rides on the argv above — so it gets the plain
     // cleaned env.
-    env: family === 'codex' ? cleanEnv(process.env) : { ...sessionEnv(s), ...accountEnvFor(s), ...route },
+    env: terminalEnv(family === 'codex' ? cleanEnv(process.env) : { ...sessionEnv(s), ...accountEnvFor(s), ...route }),
   });
   // A fresh PTY draws its own screen from scratch, so anything retained from a
   // previous run of this session is stale — start the tail empty on every spawn.
@@ -1468,6 +1504,8 @@ function sessionDiffStat(s) {
   // of its tree against the base branch, computed by session-diff-stat and cached
   // here so a row rebuilt from the list still shows the last known numbers.
   if (s.worktree) return s.wtStat || { added: 0, removed: 0 };
+  // Ops parked on disk (offloadEdits) can't have moved since the stat was taken.
+  if (isUnloaded(s.edits) && s.diffStatMemo) return s.diffStatMemo;
   // Memoized on (files, total ops): every list broadcast and phone page poll runs
   // this per row, and only an edit landing or a commit forgetting files moves it.
   let ops = 0;
@@ -1486,7 +1524,7 @@ function sessionDiffStat(s) {
 }
 
 function sessionList() {
-  return [...sessions].map(([id, s]) => ({ ...baseRow(id, s), files: trackedFiles(s) }));
+  return [...sessions].map(([id, s]) => ({ ...baseRow(id, s), fileCount: trackedFileCount(s) }));
 }
 
 // Main owns the session set; every client (the desktop renderer and any paired
@@ -1658,8 +1696,24 @@ function archiveSession(id) {
   if (stopped !== s.state) sendToRenderer('status', { id, state: stopped });
   setSessionState(id, stopped);
   if (s.pty) { try { s.pty.kill(); } catch { /* already gone */ } s.pty = null; }
-  persistSession(id);
+  releaseArchivedMemory(id, s);
+  persistSession(id); // writes the record, then parks its edit ops on disk (offloadEdits)
   return true;
+}
+
+// An archived session should cost disk, not RAM: drop everything only a running
+// session uses. The repo watcher, the turn baselines (snapshots that can hold file
+// text), the PTY scrollback tail and the chat's retained messages are all rebuilt
+// from scratch when the session is resumed. A pending debounced save is folded into
+// the immediate one so it can't fire later and read the ops back in.
+function releaseArchivedMemory(id, s) {
+  releaseRepoWatch(s);
+  s.preStatus = null;
+  s.turnStatus = null;
+  // Emptied rather than nulled: the killed PTY's last output can still flush into it.
+  if (s.scroll) s.scroll = { chunks: [], chars: 0, seq: s.scroll.seq };
+  chat.release(id);
+  if (persistTimers.has(id)) { clearTimeout(persistTimers.get(id)); persistTimers.delete(id); }
 }
 
 bridge.on('suspend-session', guardOn('archiving a session', (_e, { id }) => {

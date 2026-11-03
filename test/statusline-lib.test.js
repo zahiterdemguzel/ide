@@ -25,6 +25,13 @@ test('sumTranscriptTokens: ignores blank lines, non-JSON, and entries with no us
   assert.equal(sumTranscriptTokens(text), 10);
 });
 
+test('sumTranscriptTokens: counts a response split across several lines only once', () => {
+  const usage = { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 1000 };
+  const block = (id) => JSON.stringify({ type: 'assistant', message: { id, usage } });
+  const text = [block('msg_a'), block('msg_a'), block('msg_a'), block('msg_b')].join('\n');
+  assert.equal(sumTranscriptTokens(text), 2 * 1120);
+});
+
 test('sumTranscriptTokens: empty transcript -> 0', () => {
   assert.equal(sumTranscriptTokens(''), 0);
 });

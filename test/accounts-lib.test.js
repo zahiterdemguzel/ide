@@ -28,9 +28,9 @@ test('normalizeAccountStore: keeps valid extra accounts, drops duplicates and fo
     ],
   });
   assert.deepEqual(store.accounts, [
-    { id: 'default', name: 'Personal', configDir: null },
-    { id: 'work', name: 'Work', configDir: '/h/.claude-accounts/work' },
-    { id: 'noname', name: 'noname', configDir: '/h/.claude-accounts/noname' },
+    { id: 'default', name: 'Personal', configDir: null, autoSwitch: true },
+    { id: 'work', name: 'Work', configDir: '/h/.claude-accounts/work', autoSwitch: true },
+    { id: 'noname', name: 'noname', configDir: '/h/.claude-accounts/noname', autoSwitch: true },
   ]);
   assert.equal(store.activeId, 'work');
 });
@@ -40,6 +40,18 @@ test('serializeAccountStore round-trips through normalizeAccountStore', () => {
     activeId: 'b', defaultName: 'Home',
     accounts: [{ id: 'b', name: 'B', configDir: '/b' }],
   });
+  assert.deepEqual(lib.normalizeAccountStore(lib.serializeAccountStore(store)), store);
+});
+
+test('normalizeAccountStore: auto-switch is allowed unless turned off, for the default account too', () => {
+  const store = lib.normalizeAccountStore({
+    defaultAutoSwitch: false,
+    accounts: [
+      { id: 'sparing', name: 'Sparing', configDir: '/s', autoSwitch: false },
+      { id: 'legacy', name: 'Legacy', configDir: '/l' },
+    ],
+  });
+  assert.deepEqual(store.accounts.map((a) => a.autoSwitch), [false, false, true]);
   assert.deepEqual(lib.normalizeAccountStore(lib.serializeAccountStore(store)), store);
 });
 

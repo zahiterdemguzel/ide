@@ -1,4 +1,4 @@
-import { Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
+import { createTerminal, FitAddon, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
 import { hideAllOverlays } from './viewer/center.js';
 import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
@@ -26,7 +26,7 @@ import { promptTypingDelay, promptSubmitDelay, TUI_READY_MS } from './shared/pro
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
 // switching sessions toggles which container is visible, preserving scrollback.
-const sessions = new Map(); // id -> { id, term, fit, container, li, dot, label, state, firstPrompt, name, files, archived }
+const sessions = new Map(); // id -> { id, term, fit, container, li, dot, label, state, firstPrompt, name, fileCount, archived }
 let activeId = null;
 export const getActiveId = () => activeId;
 
@@ -242,7 +242,7 @@ export function selectSession(id) {
   // Catch the terminal up on the output buffered while it was hidden, and
   // re-validate its diff badge (background rows only refresh on their own edits).
   flushPendingOutput(s);
-  if (!s.archived && (s.worktree || s.files.length || (s.diffStat && s.diffStat.files))) refreshDiffStat(id);
+  if (!s.archived && (s.worktree || s.fileCount || (s.diffStat && s.diffStat.files))) refreshDiffStat(id);
   fit(s);
   if (!s.renderer) s.renderer = attachRenderer(s.term);
   // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
@@ -366,7 +366,7 @@ async function setArchived(id, archived) {
   else if (!archived && activeId === id) selectSession(id); // re-fit the rebuilt terminal
   // Unarchiving reveals the badge — its stat was skipped while archived, so pull
   // it now (no-op when it has no tracked work).
-  if (!archived && (s.worktree || s.files.length)) refreshDiffStat(id);
+  if (!archived && (s.worktree || s.fileCount)) refreshDiffStat(id);
 }
 
 // Closing an overlay returns here: show the active session if there is one.
@@ -608,7 +608,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEffor
 // across a session — it re-enables as soon as the session edits again.
 //
 // The count must match what a commit would ACTUALLY commit, not every file the
-// session ever touched: `s.files` (trackedFiles) includes empty-patch files —
+// session ever touched: `s.fileCount` (trackedFiles) includes empty-patch files —
 // ones whose net change vs HEAD is now nothing (already committed elsewhere, or
 // edited-then-reverted) — which commit-session drops. `s.diffStat.files` is that
 // real committable count (same sessionEntries filter the commit uses), so prefer
@@ -623,7 +623,7 @@ function renderCommitButton(s) {
     sessionCommitBtn.textContent = 'Writing commit message…';
     return;
   }
-  const n = s.diffStat ? s.diffStat.files : s.files.length;
+  const n = s.diffStat ? s.diffStat.files : s.fileCount;
   sessionCommitBtn.disabled = n === 0;
   sessionCommitBtn.textContent = n ? `Commit ${n} file${n > 1 ? 's' : ''}` : 'Nothing to commit';
 }
@@ -644,7 +644,7 @@ function renderMergeButton(s) {
     sessionMergeBtn.title = t('worktree.missing');
     return;
   }
-  const n = s.diffStat ? s.diffStat.files : s.files.length;
+  const n = s.diffStat ? s.diffStat.files : s.fileCount;
   sessionMergeBtn.disabled = n === 0;
   sessionMergeLabel.textContent = n
     ? t('worktree.mergeN').replace('{n}', String(n))
@@ -657,7 +657,7 @@ function renderMergeButton(s) {
 // tracked count until the first stat arrives). It also stays disabled while a
 // commit is in flight, since that snapshot is mid-change.
 function renderRevertButton(s) {
-  const n = s.diffStat ? s.diffStat.files : s.files.length;
+  const n = s.diffStat ? s.diffStat.files : s.fileCount;
   sessionRevertBtn.disabled = s.committing || n === 0;
 }
 
@@ -667,7 +667,7 @@ function renderRevertButton(s) {
 // back to the tracked-file count so the button still enables when there is work.
 function renderDiffButton(s) {
   const ds = s.diffStat;
-  const hasChange = ds ? ds.files > 0 : s.files.length > 0;
+  const hasChange = ds ? ds.files > 0 : s.fileCount > 0;
   sessionDiffBtn.disabled = !hasChange;
   if (ds && ds.files > 0) {
     sessionDiffAdd.textContent = '+' + ds.additions;
@@ -739,7 +739,7 @@ export function refreshAllDiffStats() {
   // re-validates against a moved HEAD when it's selected (selectSession).
   const s = sessions.get(activeId);
   if (!s || s.archived) return;
-  if (s.worktree || s.files.length || (s.diffStat && s.diffStat.files)) refreshDiffStat(s.id);
+  if (s.worktree || s.fileCount || (s.diffStat && s.diffStat.files)) refreshDiffStat(s.id);
 }
 
 export function fit(s) {
@@ -779,7 +779,7 @@ function createTermContainer(id) {
 // input/links. Split out from buildTerminal so a suspended session can rebuild
 // its terminal into the same container on restore.
 function attachTerminal(id, container, repo) {
-  const term = new Terminal({ fontSize: 11, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
+  const term = createTerminal();
   trackTermTheme(term);
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
@@ -801,7 +801,7 @@ function buildTerminal(id, repo) {
 
 // Archive a live session: tell main to kill the Claude process (it keeps the
 // session entry and all its uncommitted tracked-file state for a later resume)
-// and dispose the renderer terminal to free its memory. s.files is untouched, so
+// and dispose the renderer terminal to free its memory. s.fileCount is untouched, so
 // the work stays committable and the tracking history survives the archive.
 // `notifyMain: false` when the archive originated elsewhere (a paired phone): main
 // has already killed the PTY, so re-sending suspend-session would be a no-op echo.
@@ -965,7 +965,7 @@ export async function newSession(opts = {}) {
   if (!sessions.has(id)) {
     const { container, term, fit: fitAddon } = buildTerminal(id, repo);
     const { li, dot, label, diffBadge, wtMark, closeBtn } = makeRow(id);
-    sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, wtMark, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model, effort: res.effort || '', worktree: res.worktree || '', branch: res.branch || '', worktreeState: res.worktreeState || '' });
+    sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, wtMark, closeBtn, state: 'idle', firstPrompt: '', name: '', fileCount: 0, archived: false, suspended: false, model, effort: res.effort || '', worktree: res.worktree || '', branch: res.branch || '', worktreeState: res.worktreeState || '' });
   }
   if (opts.select !== false) {
     setTab('active');
@@ -1033,7 +1033,7 @@ export function startVoiceDraft(opts = {}) {
 // the user to resume it, which selectSession does on demand. Its tracked-file list
 // is intact, so the commit button works against it before it's even resumed.
 function restoreSessionRow(meta) {
-  const { id, repo, firstPrompt, name, archived, files, state, model, effort, worktree, branch, worktreeState } = meta;
+  const { id, repo, firstPrompt, name, archived, fileCount, state, model, effort, worktree, branch, worktreeState } = meta;
   const container = createTermContainer(id);
   showSuspendedHint(container, archived
     ? 'Session archived — restore it to continue.'
@@ -1048,7 +1048,7 @@ function restoreSessionRow(meta) {
   const st = state || 'idle';
   dot.className = 'dot ' + st;
   dot.title = STATE_LABEL[st] || st;
-  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, wtMark, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', files: files || [], archived, suspended: true, model: model || '', effort: effort || '', worktree: worktree || '', branch: branch || '', worktreeState: worktreeState || '' });
+  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, wtMark, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', fileCount: fileCount || 0, archived, suspended: true, model: model || '', effort: effort || '', worktree: worktree || '', branch: branch || '', worktreeState: worktreeState || '' });
   renderRowDiff(sessions.get(id));
 }
 
@@ -1090,7 +1090,7 @@ function adoptSession(meta) {
   dot.title = STATE_LABEL[state] || state;
   sessions.set(meta.id, {
     id: meta.id, repo, term, fit, container, li, dot, label, diffBadge, wtMark, closeBtn, state,
-    firstPrompt: meta.firstPrompt || '', name: meta.name || '', files: meta.files || [],
+    firstPrompt: meta.firstPrompt || '', name: meta.name || '', fileCount: meta.fileCount || 0,
     archived: false, suspended: false, model: meta.model || '', effort: meta.effort || '',
     worktree: meta.worktree || '', branch: meta.branch || '', worktreeState: meta.worktreeState || '',
   });
@@ -1720,7 +1720,7 @@ window.api.onSessionMeta(({ id, firstPrompt, files }) => {
   const s = sessions.get(id);
   if (!s) return;
   s.firstPrompt = firstPrompt;
-  s.files = files;
+  s.fileCount = files.length;
   if (id === activeId) updateSessionBar();
   // session-meta fires for background sessions too, so refreshing the diff stat
   // here keeps an out-of-view session's badge current.

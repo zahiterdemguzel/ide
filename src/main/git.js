@@ -4,7 +4,7 @@ const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
 const { runCommitModel } = require('./commit-model');
-const { parseBlamePorcelain, ignorePattern, appendIgnoreLine, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
+const { parseBlamePorcelain, ignorePattern, appendIgnoreLine, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, pullNeedsMerge, pushNeedsMerge, mergeHitConflicts, parseBranches, orderBranchesByUsage, firstUrl } = require('./git-parse');
 const { commitMessagePrompt, cleanCommitMessage } = require('./commit-msg');
 const { validateRepoName, ghCreateArgs } = require('./repo-create');
 const { createLimiter } = require('./concurrency');
@@ -358,9 +358,16 @@ bridge.handle('git-push', async () => {
   if (!r.ok && /no upstream|set-upstream|--set-upstream/i.test(r.stderr)) {
     r = await git(['push', '-u', 'origin', 'HEAD']);
   }
-  // A rejection because the remote moved on (someone pushed first) is fixable by a
-  // pull/merge/push — flag it so the renderer can offer to hand that to a session.
-  return { ...r, needsMerge: !r.ok && pushNeedsMerge(r.stderr) };
+  // The remote moved on (the other machine pushed first): merge it in and push
+  // again, as Sync does in VS Code. Only a conflicting (or refused) merge is
+  // flagged, so the renderer can offer to hand that to a session.
+  if (!r.ok && pushNeedsMerge(r.stderr)) {
+    const pull = await pullFromUpstream();
+    if (!pull.ok) return { ...pull, needsMerge: true };
+    r = await git(['push']);
+    return { ...r, merged: pull.merged, needsMerge: !r.ok && pushNeedsMerge(r.stderr) };
+  }
+  return { ...r, needsMerge: false };
 });
 
 // Overwrite the remote branch with the local one — what a rewritten history (undo,
@@ -572,14 +579,27 @@ bridge.handle('git-stash-pop', (_e, ref) => git(['stash', 'pop', ref]));
 bridge.handle('git-stash-drop', (_e, ref) => git(['stash', 'drop', ref]));
 
 bridge.handle('git-fetch', () => git(['fetch']));
-// Fast-forward only: a plain `git pull` that needs a merge would try to open an
-// editor (no tty â†’ hang) or leave conflicts. --ff-only fails cleanly when the
-// branches diverged, and the user can hand the merge/conflict to a Claude session.
-// On a divergence failure, flag `needsMerge` so the renderer can offer to hand the
-// merge/conflict resolution to a Claude session instead of leaving the user stuck.
-bridge.handle('git-pull', async () => {
-  const r = await git(['pull', '--ff-only']);
-  return { ...r, needsMerge: !r.ok && pullNeedsMerge(r.stderr) };
-});
+// Pull the way VS Code / GitHub Desktop do: fast-forward when possible, otherwise
+// merge the upstream in. Two machines editing different parts of the same file
+// (or different files) merge cleanly, so only a real line-level conflict stops.
+// `pull --ff-only` goes first because it also fetches; when it refuses on a
+// divergence, `merge --no-edit @{u}` finishes the job without opening an editor
+// (there is no tty). A conflicting merge is left in place, exactly like VS Code:
+// the Conflicts section lists the files and the renderer offers a Claude session.
+// Holds repoWrite: the merge moves HEAD, so it must not race a commit/undo.
+function pullFromUpstream() {
+  return repoWrite(async () => {
+    const pull = await git(['pull', '--ff-only']);
+    if (pull.ok || !pullNeedsMerge(pull.stderr)) return { ...pull, needsMerge: false };
+    const merge = await git(['merge', '--no-edit', '@{u}'], { env: { ...process.env, GIT_MERGE_AUTOEDIT: 'no' } });
+    if (merge.ok) return { ...merge, merged: true, needsMerge: false };
+    const conflicted = mergeHitConflicts(merge.stdout + '\n' + merge.stderr);
+    return { ...merge, stderr: merge.stdout.trim() || merge.stderr, conflicted, needsMerge: true };
+  });
+}
+
+// On a divergence failure, `needsMerge` lets the renderer offer to hand the rest
+// (conflict resolution, or a merge git refused to start) to a Claude session.
+bridge.handle('git-pull', () => pullFromUpstream());
 
 module.exports = { git, gitStatus, isRepo, repoWrite };

@@ -30,6 +30,8 @@ import {
 import { showError, showNotice, errorText } from '../components/ErrorDialog';
 import { confirmAction, haptic, showToast } from '../components/feedback';
 import { cliCheckChannel, cliForModel, cliProblem } from '../lib/cli-check';
+import { HOLD_TO_TALK_MS } from '../lib/voice-capture';
+import { finishVoice, startVoice } from '../api/voice';
 import { shortAgo } from '../api/time';
 import {
   MODELS, CODEX_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, getSessionEffort, modelSuffix, modelBadgeName,
@@ -344,6 +346,7 @@ export default function SessionsScreen({ navigation }: any) {
   // One create at a time: the CLI check plus the spawn take a beat, and a second tap
   // in that window would otherwise start a second session.
   const [creating, setCreating] = useState(false);
+  const holdingRef = useRef(false);
   const newSession = async (chosen?: string) => {
     if (!conn || creating) return;
     setCreating(true);
@@ -704,8 +707,14 @@ export default function SessionsScreen({ navigation }: any) {
             styles.new, styles.newMain, !repo && styles.newOff, pressed && repo && styles.newPressed,
           ]}
           onPress={() => newSession()}
+          // Hold to say the task instead, as on the desktop: the listening sheet
+          // opens over the button, and letting go starts the session with it.
+          delayLongPress={HOLD_TO_TALK_MS}
+          onLongPress={() => { holdingRef.current = true; startVoice('hold'); }}
+          onPressOut={() => { if (holdingRef.current) { holdingRef.current = false; finishVoice(); } }}
           disabled={!repo || creating}
           accessibilityRole="button"
+          accessibilityHint="Hold to say the task instead"
           accessibilityLabel={`New session${modelSuffix(model) !== '' ? ` with ${modelBadgeName(model)}` : ''}`}
           accessibilityState={{ disabled: !repo || creating, busy: creating }}
         >

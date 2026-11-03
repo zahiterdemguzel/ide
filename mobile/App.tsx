@@ -8,7 +8,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, Linking, StyleSheet, View } from 'react-native';
 import { color, TAB_BAR_HEIGHT, tint } from './src/theme';
 import { Connection, ConnectionState } from './src/api/connection';
 import { loadCredentials, saveCredentials, clearCredentials, Endpoints, PairInfo } from './src/api/pairing';
@@ -21,6 +21,9 @@ import ErrorDialog, { showNotice } from './src/components/ErrorDialog';
 import { ToastHost } from './src/components/feedback';
 import { AlertFeed } from './src/api/notifications';
 import { registerPush, onNotificationTap } from './src/api/push';
+import { toggleVoice } from './src/api/voice';
+import { isVoiceLink } from './src/lib/voice-capture';
+import VoiceSheet from './src/components/VoiceSheet';
 import WelcomeScreen from './src/screens/WelcomeScreen';
 import PairScreen from './src/screens/PairScreen';
 import SessionsScreen from './src/screens/SessionsScreen';
@@ -228,6 +231,19 @@ export default function App() {
     (navRef.navigate as unknown as (name: string, params?: object) => void)('Chat', { id: pendingSession });
   }, [pendingSession, chosen, state, navReady]);
 
+  // The home-screen widget opens ide://voice-session: a cold start delivers it as the
+  // initial URL, a tap while the app is open as a 'url' event. Either way the sheet
+  // decides what the tap means (start listening, or send what it heard).
+  useEffect(() => {
+    Linking.getInitialURL().then((url) => { if (isVoiceLink(url)) toggleVoice(); }).catch(() => {});
+    const sub = Linking.addEventListener('url', ({ url }) => { if (isVoiceLink(url)) toggleVoice(); });
+    return () => sub.remove();
+  }, []);
+
+  const openSession = useCallback((id: string) => {
+    if (navRef.isReady()) (navRef.navigate as unknown as (name: string, params?: object) => void)('Chat', { id });
+  }, []);
+
   // Reconnect with the stored credential on launch; fall back to the pair screen.
   useEffect(() => {
     (async () => {
@@ -351,6 +367,8 @@ export default function App() {
             )}
           </Stack.Navigator>
         </NavigationContainer>
+        {/* Above navigation, and a View rather than a Modal — see VoiceSheet. */}
+        <VoiceSheet ready={chosen && state === 'ready'} paired={!!creds || !!paired} onSession={openSession} />
         {/* Sits above navigation so any error, on any screen, surfaces here. */}
         <ErrorDialog />
         <ToastHost />

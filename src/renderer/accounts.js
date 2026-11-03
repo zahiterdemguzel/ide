@@ -3,7 +3,7 @@ import { openDialog } from './shared/dialog.js';
 import { promptText } from './shared/prompt.js';
 import { confirmDialog } from './shared/confirm.js';
 import {
-  Terminal, FitAddon, termTheme, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer,
+  createTerminal, FitAddon, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer,
 } from './shared/terminal.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import {
@@ -17,8 +17,8 @@ import {
 // in accounts. Each account is its own Claude Code config folder in main (see
 // src/main/accounts.js), so switching never signs anyone out. When the active
 // account crosses 95% of its 5-hour window, the user is asked whether to switch;
-// at 98% of any window it switches on its own, but only to an account with no
-// weekly limit.
+// at 98% of any window it switches on its own, but only to an account the user
+// left allowed for auto-switching (toggled per account in the menu).
 
 const switcher = document.getElementById('account-switcher');
 const button = document.getElementById('account-btn');
@@ -125,6 +125,8 @@ function iconButton(svgPath, title, onClick) {
 
 const ICON_SIGN_IN = '<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/>';
 const ICON_RENAME = '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>';
+const ICON_AUTO = '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>';
+const ICON_AUTO_OFF = '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/><path d="M2 2l20 20"/>';
 const ICON_REMOVE = '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>';
 
 function renderMenu() {
@@ -147,8 +149,11 @@ function renderMenu() {
     const actions = el('span', 'acct-actions');
     actions.append(iconButton(ICON_SIGN_IN, t('accounts.signIn'), () => signIn(account)));
     actions.append(iconButton(ICON_RENAME, t('accounts.rename'), () => rename(account)));
+    actions.append(autoSwitchToggle(account));
     if (account.id !== 'default') actions.append(iconButton(ICON_REMOVE, t('accounts.remove'), () => remove(account)));
     row.append(actions);
+    // Kept visible outside the hover actions, so an opted-out account reads as such at a glance.
+    if (account.autoSwitch === false) row.insertBefore(autoSwitchOffMark(), actions);
     const pick = () => (account.loggedIn ? switchTo(account.id) : signIn(account));
     row.addEventListener('click', pick);
     row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
@@ -160,6 +165,29 @@ function renderMenu() {
   add.append(el('span', '', t('accounts.add')));
   add.addEventListener('click', () => { closeMenu(); addAccount(); });
   menu.append(el('div', 'acct-menu-sep'), add);
+}
+
+// The per-account "may the 98% auto-switch pick this one" toggle (manual switching
+// is never affected).
+function autoSwitchToggle(account) {
+  const allowed = account.autoSwitch !== false;
+  const b = iconButton(allowed ? ICON_AUTO : ICON_AUTO_OFF,
+    t(allowed ? 'accounts.autoSwitchOnTitle' : 'accounts.autoSwitchOffTitle'),
+    () => setAutoSwitch(account, !allowed));
+  b.setAttribute('aria-pressed', String(allowed));
+  return b;
+}
+
+function autoSwitchOffMark() {
+  const mark = el('span', 'acct-noauto');
+  mark.title = t('accounts.autoSwitchOffTitle');
+  mark.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON_AUTO_OFF}</svg>`;
+  return mark;
+}
+
+async function setAutoSwitch(account, allowed) {
+  state = await window.api.setAccountAutoSwitch(account.id, allowed);
+  if (!menu.hidden) renderMenu();
 }
 
 function openMenu() {
@@ -251,7 +279,7 @@ async function signIn(account) {
     onOpen: ({ dlg, close }) => {
       dlg.classList.add('is-wide');
       login.close = close;
-      const term = new Terminal({ fontSize: 11, fontFamily: 'Consolas, monospace', theme: termTheme(), cursorBlink: true });
+      const term = createTerminal();
       login.term = term;
       trackTermTheme(term);
       const fit = new FitAddon();

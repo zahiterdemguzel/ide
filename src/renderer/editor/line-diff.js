@@ -25,7 +25,10 @@ function myers(a, b) {
   const trace = [];
   for (let d = 0; d <= max; d++) {
     if (d > MAX_EDIT_DISTANCE) return null;
-    trace.push(v.slice());
+    // Round d only reads diagonals -(d+1)..d+1, so keep just that window. Copying the
+    // whole array each round was O(D·(N+M)) memory — hundreds of MB of garbage per
+    // gutter repaint on a heavily rewritten file.
+    trace.push(v.slice(offset - d - 1, offset + d + 2));
     for (let k = -d; k <= d; k += 2) {
       let x = (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1]))
         ? v[offset + k + 1]
@@ -33,21 +36,23 @@ function myers(a, b) {
       let y = x - k;
       while (x < n && y < m && a[x] === b[y]) { x++; y++; }
       v[offset + k] = x;
-      if (x >= n && y >= m) return backtrack(trace, a, b, offset, d);
+      if (x >= n && y >= m) return backtrack(trace, a, b, d);
     }
   }
   return null;
 }
 
-function backtrack(trace, a, b, offset, dEnd) {
+// trace[d] holds diagonals -(d+1)..d+1 of round d, so diagonal k sits at k + d + 1.
+function backtrack(trace, a, b, dEnd) {
   const ops = [];
   let x = a.length;
   let y = b.length;
   for (let d = dEnd; d > 0; d--) {
-    const v = trace[d];
+    const window = trace[d];
+    const at = (k) => window[k + d + 1];
     const k = x - y;
-    const prevK = (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])) ? k + 1 : k - 1;
-    const prevX = v[offset + prevK];
+    const prevK = (k === -d || (k !== d && at(k - 1) < at(k + 1))) ? k + 1 : k - 1;
+    const prevX = at(prevK);
     const prevY = prevX - prevK;
     while (x > prevX && y > prevY) { ops.push('eq'); x--; y--; }
     ops.push(x === prevX ? 'ins' : 'del');

@@ -162,6 +162,14 @@ function pushNeedsMerge(stderr) {
   return /fetch first|updates were rejected|non-fast-forward|behind its remote|tip of your current branch is behind/i.test(stderr || '');
 }
 
+// Decide whether a FAILED `git merge` stopped on content conflicts (it then sits
+// mid-merge with conflict markers for the user to resolve) rather than refusing to
+// start at all (e.g. uncommitted local edits the merge would overwrite). git prints
+// "CONFLICT (content): …" per file and "Automatic merge failed" on stdout.
+function mergeHitConflicts(output) {
+  return /^CONFLICT \(|automatic merge failed/im.test(output || '');
+}
+
 // Build the branch selector's list from two `git for-each-ref` runs: `localOut`
 // over refs/heads and `remoteOut` over refs/remotes. Local branches keep git's
 // order (most-recent commit first); remote-tracking branches whose name has no
@@ -270,4 +278,4 @@ function parseBlamePorcelain(out) {
   };
 }
 
-module.exports = { parseBlamePorcelain, ignorePattern, appendIgnoreLine, CONFLICT, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, parseBranches, orderBranchesByUsage, firstUrl };
+module.exports = { parseBlamePorcelain, ignorePattern, appendIgnoreLine, CONFLICT, parsePorcelain, parseStatusBranch, parseLog, markPushed, markIncoming, filterCommits, pageCommits, parseStashList, sumNumstat, pullNeedsMerge, pushNeedsMerge, mergeHitConflicts, parseBranches, orderBranchesByUsage, firstUrl };

@@ -105,7 +105,7 @@ function addAccount(name) {
   let taken = [];
   try { taken = fs.readdirSync(ACCOUNTS_ROOT); } catch {}
   const configDir = path.join(ACCOUNTS_ROOT, lib.accountFolderName(displayName, taken));
-  const account = { id: crypto.randomUUID(), name: displayName, configDir };
+  const account = { id: crypto.randomUUID(), name: displayName, configDir, autoSwitch: true };
   fs.mkdirSync(configDir, { recursive: true });
   seedClaudeJson(configDir);
   linkSharedConfig(account);
@@ -137,6 +137,15 @@ function renameAccount(id, name) {
   const account = store.accounts.find((a) => a.id === id);
   const trimmed = String(name || '').trim();
   if (account && trimmed) { account.name = trimmed; saveStore(store); }
+  return store;
+}
+
+// Whether the unattended auto-switch may pick this account. Turned off for
+// accounts the user wants to spend sparingly; manual switching is unaffected.
+function setAccountAutoSwitch(id, allowed) {
+  const store = loadStore();
+  const account = store.accounts.find((a) => a.id === id);
+  if (account) { account.autoSwitch = !!allowed; saveStore(store); }
   return store;
 }
 
@@ -219,7 +228,9 @@ async function describeAccounts({ recheck = false } = {}) {
   }));
   return {
     activeId: lib.resolveActiveAccount(store, instanceActiveId).id,
-    accounts: store.accounts.map((a, i) => ({ id: a.id, name: a.name, configDir: a.configDir, ...results[i] })),
+    accounts: store.accounts.map((a, i) => ({
+      id: a.id, name: a.name, configDir: a.configDir, autoSwitch: a.autoSwitch !== false, ...results[i],
+    })),
   };
 }
 
@@ -275,6 +286,7 @@ bridge.handle('accounts-list', (_e, opts) => describeAccounts(opts || {}));
 ipcMain.handle('accounts-add', (_e, name) => addAccount(name));
 ipcMain.handle('accounts-remove', (_e, id) => { removeAccount(id); return describeAccounts(); });
 ipcMain.handle('accounts-rename', (_e, { id, name }) => { renameAccount(id, name); return describeAccounts(); });
+ipcMain.handle('accounts-set-auto-switch', (_e, { id, allowed }) => { setAccountAutoSwitch(id, allowed); return describeAccounts(); });
 bridge.handle('accounts-set-active', (_e, id) => setActiveAccount(id));
 ipcMain.handle('accounts-login-command', (_e, id) => loginCommand(id));
 // Each account's subscription usage, for picking which one to switch to. One
