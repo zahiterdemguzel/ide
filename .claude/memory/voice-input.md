@@ -319,11 +319,30 @@ build-output consoles.
 
 Holding the sidebar's **New session** button for `HOLD_TO_TALK_MS` (400 ms) turns it
 into a microphone; letting go starts a session with the transcript as its first
-message (through `newSessionWithPrompt`, so unlike dictation it **is submitted**), and
+message (unlike dictation it **is submitted**), and
 **Esc**, a window blur or a `pointercancel` drops it. A plain click is untouched. The
 decisions are in `src/renderer/shared/hold-to-talk.js` (tested); the DOM, mic and IPC
-in `voice.js`'s `initHoldToTalk`, wired from `sessions.js`.
+in `voice.js`'s `initHoldToTalk`, wired from `sessions.js`. The optional **Low/Mid/High**
+quick-effort buttons get the same hold: the session starts at that button's effort on
+the caret-menu family's last model (`startVoiceDraft(opts)`). They have no
+`[data-i18n]` label, so their text stays put and only the colour shows the hold state.
 
+- **The mic opens on the press, not at the threshold.** `pointerdown` starts the mic
+  graph (`ensureGraph`, deduped with dictation's arm) and every chunk from then on is
+  kept in `h.pending`; at 400 ms `stt-start` is sent and the pending chunks are flushed
+  to main once it resolves. So neither getUserMedia (200–500 ms), the threshold nor a
+  cold ~2.7 s weight load eats the first word. A press let go before the threshold was
+  a click: its audio is dropped and, with dictation off, the mic closed at once
+  (`releaseMic` — the weights stay loaded) so the OS indicator doesn't linger.
+  The cost: every New session click briefly opens the mic.
+- **The session boots while you talk.** When the press becomes a recording,
+  `startDraft()` (sessions.js `startVoiceDraft`) spawns the session in the background
+  (`newSession({select: false})`). Release *reveals* it at once and `submit(text)`
+  types the transcript as soon as it's decoded — no spawn and no fixed 1 s TUI wait,
+  since `promptTypingDelay` (`shared/prompt-timing.js`, tested) counts from the
+  session's first output. Cancel, Esc or an empty transcript `discard()`s it
+  (`closeSession`). Worktree mode can't pre-spawn — its copy dialog can't open under a
+  held button — so there the session is made on submit, as before.
 - **One engine, one capture.** The hold points main at the sentinel target
   `HOLD_TARGET` via the same `stt-start`, so its phrases come back as `stt-text`
   addressed to it and `onText` collects them instead of typing them anywhere. Starting
@@ -331,10 +350,14 @@ in `voice.js`'s `initHoldToTalk`, wired from `sessions.js`.
 - **Doesn't need dictation switched on.** The held button is the explicit act that
   opens the mic, and it turns red while it's live (neutral while starting, accent while
   the last phrase decodes) — the two guards dictation needs are satisfied by the press.
+- **Stays "Listening" for the whole hold.** Phrases cut at each pause decode in the
+  background while the mic keeps feeding the VAD, so nothing is lost — but the hold
+  ignores `stt-busy`: flashing "Transcribing" at every pause made it feel like the mic
+  had stopped. Only the release paints `transcribing`, while `stt-finish` waits.
   A missing model surfaces as `stt-start`'s error in a warning.
-- **Release waits for the last phrase.** `stt-finish` flushes the VAD and resolves after
-  that decode, so the transcript is complete before the session is made. An empty one
-  shows "Didn't catch any words" rather than opening a blank session.
+- **Release waits only for the last phrase.** `stt-finish` flushes the VAD and resolves
+  after that decode (~1.1 s at 12 threads), so the transcript is complete before it's
+  typed. An empty one shows "Didn't catch any words" and closes the booted session.
 - **A late stop can't cut off the next capture.** `stopCapture()` only clears the
   target it stopped: dictation's stop (sent as the button takes focus) is queued
   behind its last decode, and would otherwise null the hold's target after it armed.

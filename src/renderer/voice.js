@@ -40,6 +40,7 @@ let available = true;
 let stream = null;
 let ctx = null;
 let node = null;
+let graphLoading = null;  // in-flight mic graph build, shared by dictation and the hold
 let starting = null;      // in-flight arm, so a focus change during it can bail out
 let armedSession = null;  // session id currently being dictated into
 let settleTimer = null;
@@ -89,22 +90,40 @@ async function buildGraph() {
   const source = ctx.createMediaStreamSource(stream);
   node = new AudioWorkletNode(ctx, 'pcm-worklet');
   node.port.onmessage = (e) => {
-    if (armedSession || hold) window.api.sttAudio(e.data);
+    if (hold) captureForHold(hold, e.data);
+    else if (armedSession) window.api.sttAudio(e.data);
   };
   // The worklet has no output; connecting to the destination would echo the mic
   // back through the speakers.
   source.connect(node);
 }
 
+// One graph however many callers race for it: a hold pressed while dictation is
+// still arming must not open a second AudioContext and microphone.
+function ensureGraph() {
+  if (node) return Promise.resolve();
+  if (!graphLoading) {
+    graphLoading = buildGraph()
+      .catch((err) => { releaseMic(); throw err; })
+      .finally(() => { graphLoading = null; });
+  }
+  return graphLoading;
+}
+
 function gate(open) {
   if (node) node.port.postMessage({ gate: open });
 }
 
-function releaseStream() {
+// The microphone only — the recognizer's weights stay loaded.
+function releaseMic() {
   gate(false);
   if (stream) { for (const track of stream.getTracks()) track.stop(); stream = null; }
   if (ctx) { ctx.close().catch(() => {}); ctx = null; }
   node = null;
+}
+
+function releaseStream() {
+  releaseMic();
   window.api?.sttRelease?.();
 }
 
@@ -176,7 +195,7 @@ async function armNow(sessionId) {
   // The mic (renderer) and the recognizer (main) load independently, so don't pay
   // for them one after the other on a cold first arm.
   const [, res] = await Promise.all([
-    ctx ? null : buildGraph(),
+    ensureGraph(),
     window.api.sttStart({ sessionId, ...engineOpts() }),
   ]);
   if (res && res.error) throw new Error(res.error);
@@ -271,6 +290,13 @@ function onText(msg) {
 // session with the transcript as its first message, Esc cancels. Same engine and
 // spoken language as dictation, but it doesn't need dictation switched on: the
 // held button is the explicit act that opens the mic, and it lights up while it does.
+//
+// Nothing waits in line. The mic opens on the press itself and every chunk is kept
+// from that instant, so the first word is never lost to getUserMedia, the 400 ms hold
+// threshold or a cold model load — chunks are handed to main once it's ready. When
+// the press becomes a recording the session starts booting in the background
+// (`startDraft`), so letting go only waits for the last phrase to decode. A press
+// released before the threshold was a click: its audio is dropped.
 
 const HOLD_LABEL_KEY = {
   starting: 'voice.starting',
@@ -278,70 +304,107 @@ const HOLD_LABEL_KEY = {
   transcribing: 'voice.transcribing',
 };
 
+// The click that ends a recording must not also make a plain session.
+let swallowNextClick = false;
+
 function paintHold(h, state) {
-  const { button, label, restLabel } = h;
+  const { button, label } = h;
   button.classList.add('voice-hold');
   button.dataset.voiceState = state;
-  if (label) label.textContent = state ? t(HOLD_LABEL_KEY[state]) : restLabel;
+  if (label) label.textContent = t(HOLD_LABEL_KEY[state]);
 }
 
-function endHold() {
-  const h = hold;
+function captureForHold(h, chunk) {
+  if (h.released) return;
+  if (h.engineReady) window.api.sttAudio(chunk);
+  else h.pending.push(chunk);
+}
+
+function endHold(h) {
+  if (hold !== h) return;
   hold = null;
-  if (h) {
-    clearTimeout(h.maxTimer);
-    h.button.classList.remove('voice-hold');
-    delete h.button.dataset.voiceState;
-    if (h.label) h.label.textContent = h.restLabel;
-  }
-  scheduleIdleRelease();
+  clearTimeout(h.pressTimer);
+  clearTimeout(h.maxTimer);
+  gate(false);
+  h.button.classList.remove('voice-hold');
+  delete h.button.dataset.voiceState;
+  if (h.label) h.label.textContent = h.restLabel;
+  // A plain click opened the mic only in case it became a hold: with dictation off,
+  // close it now rather than leave the OS recording indicator lit.
+  if (!h.recording && !isVoiceEnabled()) releaseMic();
+  else scheduleIdleRelease();
   syncToFocus();
 }
 
-async function startHold(button, onTranscript) {
+function failHold(h, err) {
+  if (hold !== h) return;
+  h.released = true;
+  window.api?.sttStop?.();
+  h.draft?.discard();
+  endHold(h);
+  showWarning(err && err.message ? err.message : String(err), t('voice.title'));
+}
+
+// The press itself: open the mic and start keeping audio, before we know whether
+// this is a click or a hold.
+function beginPress(button, startDraft) {
   // Dictation and the hold share one capture in main, so the hold takes it over.
   clearTimeout(settleTimer);
   focusedSession = null;
   disarm();
   clearTimeout(idleTimer);
+  swallowNextClick = false;
   const label = button.querySelector('[data-i18n]');
   const h = {
-    button, label, restLabel: label ? label.textContent : '', onTranscript,
-    transcript: '', ready: false, released: false, cancelled: false, maxTimer: null,
+    button, label, restLabel: label ? label.textContent : '', startDraft,
+    pending: [], transcript: '', recording: false, engineReady: false,
+    released: false, cancelled: false, micError: null, draft: null, pressTimer: null, maxTimer: null,
   };
   hold = h;
-  paintHold(h, 'starting');
+  ensureGraph().then(() => {
+    if (hold !== h || h.released) return;
+    gate(true);
+    if (h.recording) paintHold(h, 'listening');
+  }, (err) => {
+    h.micError = err;
+    if (h.recording) failHold(h, err);
+  });
+  h.pressTimer = setTimeout(() => startRecording(h), HOLD_TO_TALK_MS);
+}
+
+function startRecording(h) {
+  if (hold !== h || h.released) return;
+  if (h.micError) { failHold(h, h.micError); return; }
+  h.recording = true;
+  swallowNextClick = true;
+  paintHold(h, node ? 'listening' : 'starting');
   h.maxTimer = setTimeout(() => releaseHold(false), MAX_HOLD_MS);
-  try {
-    const [, res] = await Promise.all([
-      ctx ? null : buildGraph(),
-      window.api.sttStart({ sessionId: HOLD_TARGET, ...engineOpts() }),
-    ]);
+  h.draft = h.startDraft ? h.startDraft() : null;
+  window.api.sttStart({ sessionId: HOLD_TARGET, ...engineOpts() }).then((res) => {
     if (res && res.error) throw new Error(res.error);
-  } catch (err) {
-    if (hold === h) endHold();
-    showWarning(err && err.message ? err.message : String(err), t('voice.title'));
-    return;
-  }
-  // Cancelled while the mic and weights were loading.
-  if (hold !== h) { window.api?.sttStop?.(); return; }
-  h.ready = true;
-  // Let go before the engine was up: nothing was recorded, which finishHold reports.
-  if (h.released) { finishHold(h); return; }
-  gate(true);
-  paintHold(h, 'listening');
+    if (hold !== h) { window.api?.sttStop?.(); return; } // cancelled while loading
+    h.engineReady = true;
+    for (const chunk of h.pending) window.api.sttAudio(chunk);
+    h.pending = [];
+    if (h.released) finishHold(h);
+  }).catch((err) => failHold(h, err));
 }
 
 function releaseHold(cancelled) {
   const h = hold;
   if (!h || h.released) return;
   h.released = true;
+  gate(false);
+  // Let go before the threshold: a click, which the button's own handler takes.
+  if (!h.recording) { endHold(h); return; }
   h.cancelled = cancelled;
   clearTimeout(h.maxTimer);
-  gate(false);
-  if (cancelled) { window.api?.sttStop?.(); endHold(); return; }
-  // Still starting: startHold picks the finish up once the engine is ready.
-  if (h.ready) finishHold(h);
+  if (cancelled) { window.api?.sttStop?.(); h.draft?.discard(); endHold(h); return; }
+  // Show the session the moment the button is let go; the text follows.
+  h.draft?.reveal();
+  // Still loading: startRecording finishes once main has the audio.
+  if (h.engineReady) finishHold(h);
+  else paintHold(h, 'transcribing');
 }
 
 // Wait for main to decode the phrase still in progress, then act on the transcript.
@@ -349,47 +412,38 @@ async function finishHold(h) {
   paintHold(h, 'transcribing');
   try { await window.api.sttFinish(); } catch { /* act on what arrived */ }
   if (hold !== h) return;
-  endHold();
+  endHold(h);
   const outcome = holdOutcome(h.transcript, h.cancelled);
-  if (outcome === 'create') h.onTranscript(h.transcript);
-  else if (outcome === 'empty') showWarning(t('voice.holdEmpty'), t('voice.title'));
+  if (outcome === 'create') {
+    if (h.draft) h.draft.submit(h.transcript);
+  } else if (outcome === 'empty') {
+    h.draft?.discard();
+    showWarning(t('voice.holdEmpty'), t('voice.title'));
+  }
 }
 
 // Turn `button` into a hold-to-talk control. A plain click keeps doing whatever the
 // button's own click handler does; only a press outlasting HOLD_TO_TALK_MS records.
-export function initHoldToTalk(button, onTranscript) {
+// `startDraft()` is called when it does, and returns the session being prepared:
+// `{ reveal(), submit(text), discard() }` (see sessions.js startVoiceDraft).
+export function initHoldToTalk(button, startDraft) {
   if (!button) return;
-  let pressTimer = null;
-  let endedHold = false; // the click that ends a hold must not also make a plain session
-  button.title = t('voice.holdHint');
-  const cancelPress = () => { clearTimeout(pressTimer); pressTimer = null; };
+  if (!button.title) button.title = t('voice.holdHint');
 
   button.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || button.disabled || hold) return;
-    endedHold = false;
-    cancelPress();
     // Captured, so letting go still ends the hold after the pointer drifts off.
     button.setPointerCapture?.(e.pointerId);
-    pressTimer = setTimeout(() => {
-      pressTimer = null;
-      endedHold = true;
-      startHold(button, onTranscript);
-    }, HOLD_TO_TALK_MS);
+    beginPress(button, startDraft);
   });
-  button.addEventListener('pointerup', () => { cancelPress(); releaseHold(false); });
-  button.addEventListener('pointercancel', () => { cancelPress(); releaseHold(true); });
+  button.addEventListener('pointerup', () => releaseHold(false));
+  button.addEventListener('pointercancel', () => releaseHold(true));
   // Capture phase on the target runs before the button's own onclick.
   button.addEventListener('click', (e) => {
-    if (!endedHold) return;
-    endedHold = false;
+    if (!swallowNextClick) return;
+    swallowNextClick = false;
     e.preventDefault();
     e.stopImmediatePropagation();
-  }, true);
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !hold || hold.released) return;
-    e.preventDefault();
-    e.stopPropagation();
-    releaseHold(true);
   }, true);
 }
 
@@ -500,16 +554,23 @@ export function initVoice() {
   // some other app — and coming back should resume listening.
   // A hold is dropped too: the button can't be released in a window that lost focus.
   window.addEventListener('blur', () => { releaseHold(true); clearTimeout(settleTimer); focusedSession = null; disarm(); });
+  // Esc drops a recording in progress (registered once, not per hold button).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !hold || hold.released || !hold.recording) return;
+    e.preventDefault();
+    e.stopPropagation();
+    releaseHold(true);
+  }, true);
   window.addEventListener('focus', syncToFocus);
 
   window.api?.onSttText?.(onText);
   // Main tells us when a phrase is being decoded, so the pill can say
   // "Transcribing" instead of sitting silent for the ~1s that takes.
   window.api?.onSttBusy?.((msg) => {
-    if (msg && msg.sessionId === HOLD_TARGET) {
-      if (hold && !hold.released) paintHold(hold, msg.busy ? 'transcribing' : 'listening');
-      return;
-    }
+    // A held button keeps saying "Listening": the mic never stops while a phrase
+    // decodes, and flashing "Transcribing" at every pause reads as if it had stopped
+    // hearing. Only the release (finishHold) shows the decode of the last phrase.
+    if (msg && msg.sessionId === HOLD_TARGET) return;
     if (!msg || msg.sessionId !== armedSession) return;
     setHotState(msg.busy ? 'transcribing' : 'listening');
   });

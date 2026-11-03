@@ -22,6 +22,7 @@ import { effortsForFamily, QUICK_EFFORTS } from './shared/effort-levels.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
 import { initHoldToTalk } from './voice.js';
+import { promptTypingDelay, promptSubmitDelay, TUI_READY_MS } from './shared/prompt-timing.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
 // switching sessions toggles which container is visible, preserving scrollback.
@@ -916,7 +917,8 @@ function showSuspendedHint(container, text) {
 
 // `opts.model` / `opts.subagentModel` override the saved settings defaults for
 // this one session (the per-session picker passes them); omitted means use the
-// defaults. The chosen models ride to main, which turns them into the CLI's
+// defaults. `opts.select === false` builds the row without switching to it (a voice
+// hold boots its session in the background). Resolves to the new id, or undefined. The chosen models ride to main, which turns them into the CLI's
 // ANTHROPIC_MODEL / CLAUDE_CODE_SUBAGENT_MODEL env (see src/main/agent-models.js).
 export async function newSession(opts = {}) {
   // Don't spawn a session if the Claude Code CLI is missing — guide the user to
@@ -965,20 +967,65 @@ export async function newSession(opts = {}) {
     const { li, dot, label, diffBadge, wtMark, closeBtn } = makeRow(id);
     sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, wtMark, closeBtn, state: 'idle', firstPrompt: '', name: '', files: [], archived: false, suspended: false, model, effort: res.effort || '', worktree: res.worktree || '', branch: res.branch || '', worktreeState: res.worktreeState || '' });
   }
-  setTab('active');
-  selectSession(id);
+  if (opts.select !== false) {
+    setTab('active');
+    selectSession(id);
+  }
+  return id;
 }
 
 // Spawn a fresh session and pre-type a message into it (e.g. the git pane handing
-// off a merge/conflict resolution). The message is queued per id and typed once the
-// session's terminal shows its first output — Claude's input box isn't ready the
-// instant the PTY spawns, so we wait for it to paint. The text and the Enter are
-// sent in two steps (see onPtyData) so the TUI registers the input before submit.
-const pendingPrompts = new Map();
-export async function newSessionWithPrompt(text) {
-  await newSession();
-  const id = getActiveId();
-  if (id) pendingPrompts.set(id, text);
+// off a merge/conflict resolution). Claude's input box isn't ready the instant the
+// PTY spawns, so the message waits for the TUI (see shared/prompt-timing.js). The
+// text and the Enter are sent in two steps so the TUI registers the input before
+// submit.
+const pendingPrompts = new Map(); // id → text waiting for the session's first output
+const firstOutputAt = new Map();  // id → when the session first printed
+export async function newSessionWithPrompt(text, opts = {}) {
+  const id = await newSession(opts);
+  if (id) submitPromptWhenReady(id, text);
+}
+
+function typePromptAfter(id, text, delay) {
+  setTimeout(() => window.api.sendInput(id, text), delay);
+  setTimeout(() => window.api.sendInput(id, '\r'), delay + promptSubmitDelay(text));
+}
+
+function submitPromptWhenReady(id, text) {
+  const delay = promptTypingDelay(firstOutputAt.get(id), Date.now());
+  if (delay === null) pendingPrompts.set(id, text);
+  else typePromptAfter(id, text, delay);
+}
+
+// A session for a voice hold, booted the moment the hold becomes a recording, so
+// the agent starts up while the user is still talking. Releasing reveals it at once
+// and the transcript is typed in as soon as it's decoded; a cancelled or empty hold
+// closes it. Worktree mode asks what to copy before it builds anything, and that
+// dialog can't come up under a held button, so there the session is made on submit.
+export function startVoiceDraft(opts = {}) {
+  const background = isWorktreeMode() ? null : newSession({ ...opts, select: false }).catch(() => undefined);
+  let discarded = false;
+  return {
+    async reveal() {
+      const id = await background;
+      if (id && !discarded && sessions.has(id)) { setTab('active'); selectSession(id); }
+    },
+    async submit(text) {
+      const id = await background;
+      if (id && sessions.has(id)) {
+        setTab('active');
+        selectSession(id);
+        submitPromptWhenReady(id, text);
+      } else {
+        await newSessionWithPrompt(text, opts);
+      }
+    },
+    async discard() {
+      discarded = true;
+      const id = await background;
+      if (id) closeSession(id);
+    },
+  };
 }
 
 // Rebuild a row for a session restored from disk on startup. It has no live
@@ -1108,6 +1155,8 @@ function removeSessionUI(id) {
   s.container.remove();
   s.li.remove();
   sessions.delete(id);
+  pendingPrompts.delete(id);
+  firstOutputAt.delete(id);
   if (activeId === id) {
     activeId = null;
     selectFirstVisible();
@@ -1444,7 +1493,7 @@ diffModeSplitBtn.onclick = () => setDiffMode('split');
 
 document.getElementById('new-session').onclick = () => newSession();
 // Holding it instead records the task by voice (see voice.js).
-initHoldToTalk(document.getElementById('new-session'), newSessionWithPrompt);
+initHoldToTalk(document.getElementById('new-session'), () => startVoiceDraft());
 
 // New-session caret menu: the split-button caret opens a dropdown of one family's
 // models (Claude unless changed in Settings → Agent models) followed by that family's
@@ -1517,9 +1566,15 @@ for (const level of QUICK_EFFORTS) {
   const btn = document.createElement('button');
   btn.className = 'quick-effort-btn';
   btn.textContent = level.label;
-  btn.onclick = () => newSession({ model: getLastModelOf(getNewSessionMenuFamily()), effort: level.id });
+  // Read at click/hold time, so a family switch in the caret menu is picked up.
+  const quickSessionOpts = () => ({ model: getLastModelOf(getNewSessionMenuFamily()), effort: level.id });
+  btn.onclick = () => newSession(quickSessionOpts());
+  // Holding it records the task by voice, like New session, at this button's effort.
+  initHoldToTalk(btn, () => startVoiceDraft(quickSessionOpts()));
   // Built on hover so the tooltip follows a language change made after startup.
-  btn.onmouseenter = () => { btn.title = t('sessions.newWithEffort').replace('{level}', level.label); };
+  btn.onmouseenter = () => {
+    btn.title = `${t('sessions.newWithEffort').replace('{level}', level.label)} — ${t('voice.holdHint')}`;
+  };
   quickEffortEl.appendChild(btn);
 }
 export function isQuickEffortButtonsEnabled() {
@@ -1649,18 +1704,12 @@ window.api.onPtyData(({ id, data }) => {
     else queueHiddenOutput(s, data);
   }
   // First output means Claude's TUI is painting — give it a beat to ready its
-  // input box, then drop in any queued message (see newSessionWithPrompt). The
-  // Enter is sent as a SEPARATE write after a further delay: bundling "\r" with the
-  // text submits before the TUI has finished ingesting a multi-line paste, so the
-  // prompt fires half-typed. Typing first, then Enter, makes it submit reliably.
-  // The gap scales with the text: a fixed short delay truncates long prompts (the
-  // run-config setup prompt is ~60 lines) because the TUI is still ingesting.
+  // input box, then drop in any queued message (see newSessionWithPrompt).
+  if (!firstOutputAt.has(id)) firstOutputAt.set(id, Date.now());
   if (pendingPrompts.has(id)) {
     const text = pendingPrompts.get(id);
     pendingPrompts.delete(id);
-    const settle = Math.min(3000, 400 + text.length / 4);
-    setTimeout(() => window.api.sendInput(id, text), 1000);
-    setTimeout(() => window.api.sendInput(id, '\r'), 1000 + settle);
+    typePromptAfter(id, text, TUI_READY_MS);
   }
 });
 window.api.onStatus(({ id, state }) => setState(id, state));
