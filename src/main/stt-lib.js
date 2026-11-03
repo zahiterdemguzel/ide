@@ -285,6 +285,95 @@ function shouldEmit(text) {
   return !HALLUCINATIONS.includes(key);
 }
 
+// --- clips recorded on a paired phone ----------------------------------------
+
+// The phone records what it hears while you speak a task and hands the clip to this
+// machine's Whisper, because its own recognizer handles one language per capture and
+// mangles the Turkish + English mix this recognizer is tuned for. Capped so one
+// request stays far under the relay's frame size (3 min of 16 kHz PCM16 ≈ 7.7 MB in
+// base64) and a decode can't hold the queue for minutes.
+const MAX_CLIP_SECONDS = 180;
+
+// Little-endian RIFF/WAVE → mono Float32 samples at SAMPLE_RATE. Android writes PCM16
+// at 16 kHz mono and iOS Float32 at 44.1/48 kHz, so both encodings, any channel
+// count and any rate are accepted: channels are averaged and the rate resampled.
+function wavToSamples(buf) {
+  if (!buf || buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('not a WAV file');
+  }
+  let fmt = null;
+  let data = null;
+  for (let at = 12; at + 8 <= buf.length;) {
+    const id = buf.toString('ascii', at, at + 4);
+    const size = buf.readUInt32LE(at + 4);
+    const body = at + 8;
+    if (id === 'fmt ') {
+      fmt = {
+        format: buf.readUInt16LE(body),
+        channels: buf.readUInt16LE(body + 2),
+        rate: buf.readUInt32LE(body + 4),
+        bits: buf.readUInt16LE(body + 14),
+      };
+    } else if (id === 'data') {
+      // A recorder killed mid-write leaves the size unpatched (0 or 0xFFFFFFFF);
+      // take what is actually there.
+      const end = size === 0 || body + size > buf.length ? buf.length : body + size;
+      data = buf.subarray(body, end);
+    }
+    at = body + size + (size & 1); // chunks are word-aligned
+    if (data && fmt) break;
+  }
+  if (!fmt || !data) throw new Error('WAV file has no audio');
+  const pcm16 = fmt.format === 1 && fmt.bits === 16;
+  const float32 = fmt.format === 3 && fmt.bits === 32;
+  if (!pcm16 && !float32) throw new Error(`unsupported WAV encoding (format ${fmt.format}, ${fmt.bits}-bit)`);
+  const channels = Math.max(1, fmt.channels);
+  const bytesPerFrame = (fmt.bits / 8) * channels;
+  const frames = Math.floor(data.length / bytesPerFrame);
+  const mono = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    let sum = 0;
+    for (let c = 0; c < channels; c++) {
+      const off = i * bytesPerFrame + c * (fmt.bits / 8);
+      sum += pcm16 ? data.readInt16LE(off) / 32768 : data.readFloatLE(off);
+    }
+    mono[i] = sum / channels;
+  }
+  return resampleLinear(mono, fmt.rate, SAMPLE_RATE);
+}
+
+// Linear interpolation is plenty for speech headed into Whisper's 16 kHz front end.
+function resampleLinear(samples, from, to) {
+  if (!from || from === to || !samples.length) return samples;
+  const length = Math.max(1, Math.round(samples.length * to / from));
+  const out = new Float32Array(length);
+  const step = from / to;
+  for (let i = 0; i < length; i++) {
+    const pos = i * step;
+    const left = Math.floor(pos);
+    const right = Math.min(left + 1, samples.length - 1);
+    const frac = pos - left;
+    out[i] = samples[Math.min(left, samples.length - 1)] * (1 - frac) + samples[right] * frac;
+  }
+  return out;
+}
+
+// Several clips (the phone restarts its recognizer at pauses on older Android, and
+// each restart writes a new file) as one stream, in the order they were recorded.
+function concatSamples(parts) {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Float32Array(total);
+  let at = 0;
+  for (const p of parts) { out.set(p, at); at += p.length; }
+  return out;
+}
+
+// The decoded phrases of a clip as one prompt, with hallucinated/empty ones dropped
+// exactly as live dictation drops them.
+function joinClipPhrases(texts) {
+  return texts.map(normalizeTranscript).filter(shouldEmit).join(' ').replace(/\s+/g, ' ').trim();
+}
+
 module.exports = {
   MODELS,
   DEFAULT_MODEL_ID,
@@ -312,4 +401,9 @@ module.exports = {
   modelStates,
   normalizeTranscript,
   shouldEmit,
+  MAX_CLIP_SECONDS,
+  wavToSamples,
+  resampleLinear,
+  concatSamples,
+  joinClipPhrases,
 };

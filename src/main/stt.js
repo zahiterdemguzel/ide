@@ -22,6 +22,7 @@ const {
   normalizeTranscript, shouldEmit, statSize, pickLanguage, whisperLanguage, pinnedRetryLanguage, LANGUAGES,
   SAMPLE_RATE, VAD_CONFIG, VAD_BUFFER_SECONDS, recognizerThreads,
   TAIL_PADDING_SECONDS, withTailPadding,
+  MAX_CLIP_SECONDS, wavToSamples, concatSamples, joinClipPhrases,
 } = require('./stt-lib');
 
 const TAIL_PADDING = Math.round(SAMPLE_RATE * TAIL_PADDING_SECONDS);
@@ -142,20 +143,47 @@ async function decodeSegment(samples, languageId) {
   return retry ? decodeOnce(samples, retry) : first;
 }
 
-function ensureVad() {
-  if (vad) return vad;
+function createVad() {
   const lib = load();
   if (!lib) throw new Error('speech recognition is unavailable on this platform');
   const model = vadPath(root(), path.join);
   if (!statSize(model)) throw new Error('the voice activity model is missing — run "npm run fetch:stt"');
-  vad = new lib.Vad({
+  return new lib.Vad({
     sileroVad: { model, ...VAD_CONFIG },
     sampleRate: SAMPLE_RATE,
     numThreads: 1,
     provider: 'cpu',
     debug: false,
   }, VAD_BUFFER_SECONDS);
+}
+
+function ensureVad() {
+  if (!vad) vad = createVad();
   return vad;
+}
+
+// Copy every finished segment out of `v` (see drain() for why `front(false)`).
+function popSegments(v, into) {
+  while (!v.isEmpty()) {
+    const seg = v.front(false);
+    v.pop();
+    if (seg && seg.samples && seg.samples.length) into.push(seg.samples);
+  }
+}
+
+// A whole recorded clip cut into phrases, with a VAD of its own so a clip from the
+// phone can't disturb a live desktop capture's segmenter mid-phrase.
+function clipSegments(samples) {
+  const v = createVad();
+  const segments = [];
+  const window = VAD_CONFIG.windowSize;
+  for (let at = 0; at < samples.length; at += window) {
+    v.acceptWaveform(samples.subarray(at, at + window));
+    popSegments(v, segments);
+  }
+  v.flush();
+  popSegments(v, segments);
+  return segments;
 }
 
 // Decode every speech segment the VAD has finished and push its text. The pop loop
@@ -202,8 +230,9 @@ function drain() {
 
 // --- IPC ---------------------------------------------------------------------
 // Desktop-only: voice input is driven by this machine's keyboard focus (or a held
-// New session button) and microphone, so none of these channels are exposed to a
-// paired phone.
+// New session button) and microphone, so these channels are not exposed to a
+// paired phone — except `stt-transcribe-clip`, which takes audio the phone recorded
+// itself and arms nothing here.
 
 bridge.handle('stt-status', async () => {
   const dir = root();
@@ -265,6 +294,37 @@ bridge.on('stt-audio', (_e, samples) => {
       audioErrorReported = true;
       sendToRenderer('stt-error', { message: err && err.message ? err.message : String(err) });
     }
+  }
+});
+
+// A clip a paired phone recorded while you spoke a task, transcribed by this
+// machine's Whisper (the phone's own recognizer is only its live preview). `clips`
+// are base64 WAV files in recording order; `language` is one of LANGUAGES' ids, the
+// phone's TR+EN / TR / EN chip. Resolves { text } — possibly '' for silence — or
+// { error } when this machine can't transcribe (no model installed), which the phone
+// answers by falling back to its own transcript.
+bridge.handle('stt-transcribe-clip', async (_e, { clips, language } = {}) => {
+  try {
+    if (!Array.isArray(clips) || !clips.length) return { text: '' };
+    const samples = concatSamples(clips.map((b64) => wavToSamples(Buffer.from(String(b64), 'base64'))));
+    if (samples.length > MAX_CLIP_SECONDS * SAMPLE_RATE) {
+      return { error: `recordings over ${MAX_CLIP_SECONDS / 60} minutes aren't transcribed` };
+    }
+    await ensureRecognizer(pickModelId(recognizerModel));
+    const lang = pickLanguage(language);
+    const segments = clipSegments(samples);
+    const texts = await decodeQueue(async () => {
+      const out = [];
+      for (const seg of segments) {
+        const result = await decodeSegment(seg, lang);
+        out.push(result && result.text);
+      }
+      return out;
+    });
+    return { text: joinClipPhrases(texts) };
+  } catch (err) {
+    console.error('[voice] clip transcription failed:', err && err.message);
+    return { error: err && err.message ? err.message : String(err) };
   }
 });
 

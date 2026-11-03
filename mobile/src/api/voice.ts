@@ -10,8 +10,12 @@ import { knownVoiceLang } from '../lib/voice-capture';
 export type VoiceSource = 'widget' | 'hold';
 // 'toggle' is the widget's tap: start when idle, send when listening — only the
 // sheet knows which, so the deep-link handler just forwards the tap.
+// 'arm' / 'reveal' / 'disarm' are New session's press, hold threshold and early
+// release: the mic opens unseen on the press so the first word isn't lost to the
+// recognizer's start-up, shows itself once it's a hold, and is dropped on a tap.
 export type VoiceRequest =
-  | { kind: 'start'; source: VoiceSource } | { kind: 'toggle' } | { kind: 'finish' } | { kind: 'cancel' };
+  | { kind: 'start'; source: VoiceSource } | { kind: 'toggle' } | { kind: 'finish' } | { kind: 'cancel' }
+  | { kind: 'arm' } | { kind: 'reveal' } | { kind: 'disarm' };
 
 const listeners = new Set<(r: VoiceRequest) => void>();
 
@@ -25,6 +29,9 @@ export const startVoice = (source: VoiceSource) => request({ kind: 'start', sour
 export const toggleVoice = () => request({ kind: 'toggle' });
 export const finishVoice = () => request({ kind: 'finish' });
 export const cancelVoice = () => request({ kind: 'cancel' });
+export const armVoice = () => request({ kind: 'arm' });
+export const revealVoice = () => request({ kind: 'reveal' });
+export const disarmVoice = () => request({ kind: 'disarm' });
 
 const KEY_LANG = storageKey('voiceLang');
 

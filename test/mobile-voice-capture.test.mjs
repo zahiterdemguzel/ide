@@ -3,8 +3,12 @@
 // results and errors fold into one prompt.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
 import {
-  VOICE_LINK, DEFAULT_VOICE_LANG, knownVoiceLang, isVoiceLink, voiceLinkAction,
+  VOICE_LINK, DEFAULT_VOICE_LANG, VOICE_LANGS, knownVoiceLang, voiceLang, isVoiceLink, voiceLinkAction,
+  canArmSilently, pickFinalTranscript, HOLD_TO_TALK_MS,
   emptyTranscript, foldResult, transcriptText, shouldRestartOnEnd,
   recognitionErrorAction, recognitionErrorMessage,
 } from '../mobile/src/lib/voice-capture.js';
@@ -26,10 +30,38 @@ test('voiceLinkAction: first tap starts, second sends, a tap mid-create is ignor
   assert.equal(voiceLinkAction('sending'), 'ignore');
 });
 
-test('knownVoiceLang falls back to the default for an unknown stored value', () => {
-  assert.equal(knownVoiceLang('en-US'), 'en-US');
-  assert.equal(knownVoiceLang('de-DE'), DEFAULT_VOICE_LANG);
-  assert.equal(knownVoiceLang(null), DEFAULT_VOICE_LANG);
+test('knownVoiceLang falls back to TR+EN for an unknown or pre-Whisper stored value', () => {
+  assert.equal(knownVoiceLang('en'), 'en');
+  assert.equal(DEFAULT_VOICE_LANG, 'auto');
+  // The first build stored recognizer locales; those now mean the default.
+  assert.equal(knownVoiceLang('tr-TR'), 'auto');
+  assert.equal(knownVoiceLang(null), 'auto');
+});
+
+test('each language pairs a phone locale with a desktop Whisper language id', () => {
+  const desktop = require('../src/main/stt-lib.js');
+  for (const l of VOICE_LANGS) {
+    assert.ok(desktop.LANGUAGES.some((d) => d.id === l.whisper), `${l.id} → ${l.whisper} is a desktop language`);
+    assert.match(l.recognizer, /^[a-z]{2}-[A-Z]{2}$/);
+  }
+  // TR+EN must be the desktop's fenced Turkish + English auto-detect.
+  assert.equal(voiceLang('auto').whisper, desktop.DEFAULT_LANGUAGE);
+  assert.equal(voiceLang('bogus').id, 'auto');
+});
+
+test('canArmSilently opens the mic on press only with permission and nothing showing', () => {
+  assert.equal(canArmSilently('idle', true), true);
+  assert.equal(canArmSilently('error', true), true);
+  assert.equal(canArmSilently('idle', false), false);
+  assert.equal(canArmSilently('sending', true), false);
+  assert.ok(HOLD_TO_TALK_MS > 0 && HOLD_TO_TALK_MS <= 300);
+});
+
+test('pickFinalTranscript prefers the desktop Whisper text and falls back to the phone', () => {
+  assert.equal(pickFinalTranscript({ text: ' login hatasını fix et ' }, 'login hatası fikset'), 'login hatasını fix et');
+  assert.equal(pickFinalTranscript({ text: '' }, 'phone text'), 'phone text');
+  assert.equal(pickFinalTranscript({ error: 'no model' }, 'phone text'), 'phone text');
+  assert.equal(pickFinalTranscript(null, '  '), '');
 });
 
 test('foldResult: interim replaces the phrase in progress, final appends it', () => {

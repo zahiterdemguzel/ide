@@ -278,3 +278,86 @@ test('shouldEmit keeps real dictation, including phrases containing a stock word
   assert.equal(shouldEmit('okay now open the file'), true);
   assert.equal(shouldEmit('şu dosyayı açar mısın'), true);
 });
+
+// --- clips recorded on a paired phone ----------------------------------------
+
+const {
+  wavToSamples, resampleLinear, concatSamples, joinClipPhrases, SAMPLE_RATE, MAX_CLIP_SECONDS,
+} = require('../src/main/stt-lib');
+
+// A minimal RIFF/WAVE: fmt chunk + data chunk, PCM16 or Float32.
+function wav({ rate = 16000, channels = 1, float = false, frames }) {
+  const bits = float ? 32 : 16;
+  const bytes = bits / 8;
+  const data = Buffer.alloc(frames.length * channels * bytes);
+  frames.forEach((frame, i) => {
+    const values = Array.isArray(frame) ? frame : [frame];
+    values.forEach((v, c) => {
+      const off = (i * channels + c) * bytes;
+      if (float) data.writeFloatLE(v, off); else data.writeInt16LE(Math.round(v * 32767), off);
+    });
+  });
+  const fmt = Buffer.alloc(24);
+  fmt.write('fmt ', 0, 'ascii');
+  fmt.writeUInt32LE(16, 4);
+  fmt.writeUInt16LE(float ? 3 : 1, 8);
+  fmt.writeUInt16LE(channels, 10);
+  fmt.writeUInt32LE(rate, 12);
+  fmt.writeUInt32LE(rate * channels * bytes, 16);
+  fmt.writeUInt16LE(channels * bytes, 20);
+  fmt.writeUInt16LE(bits, 22);
+  const head = Buffer.alloc(12);
+  head.write('RIFF', 0, 'ascii');
+  head.writeUInt32LE(4 + fmt.length + 8 + data.length, 4);
+  head.write('WAVE', 8, 'ascii');
+  const dataHead = Buffer.alloc(8);
+  dataHead.write('data', 0, 'ascii');
+  dataHead.writeUInt32LE(data.length, 4);
+  return Buffer.concat([head, fmt, dataHead, data]);
+}
+
+test('wavToSamples reads Android\'s 16 kHz mono PCM16 as-is', () => {
+  const out = wavToSamples(wav({ frames: [0, 0.5, -0.5, 1] }));
+  assert.strictEqual(out.length, 4);
+  assert.ok(Math.abs(out[1] - 0.5) < 1e-3 && Math.abs(out[2] + 0.5) < 1e-3);
+});
+
+test('wavToSamples downmixes stereo and resamples Float32 48 kHz to 16 kHz', () => {
+  const frames = Array.from({ length: 480 }, () => [0.2, 0.4]);
+  const out = wavToSamples(wav({ rate: 48000, channels: 2, float: true, frames }));
+  assert.strictEqual(out.length, 160);
+  assert.ok(out.every((v) => Math.abs(v - 0.3) < 1e-6));
+});
+
+test('wavToSamples takes what is there when the data size was never patched', () => {
+  const buf = wav({ frames: [0.1, 0.1, 0.1] });
+  buf.writeUInt32LE(0, 40); // data chunk size → 0, as a recorder killed mid-write leaves it
+  assert.strictEqual(wavToSamples(buf).length, 3);
+});
+
+test('wavToSamples rejects non-WAV input and unsupported encodings', () => {
+  assert.throws(() => wavToSamples(Buffer.from('not audio at all')), /not a WAV/);
+  const odd = wav({ frames: [0] });
+  odd.writeUInt16LE(34, 34); // 34-bit samples
+  assert.throws(() => wavToSamples(odd), /unsupported WAV/);
+});
+
+test('resampleLinear leaves matching rates untouched', () => {
+  const s = new Float32Array([1, 2, 3]);
+  assert.strictEqual(resampleLinear(s, SAMPLE_RATE, SAMPLE_RATE), s);
+});
+
+test('concatSamples joins clips in order', () => {
+  assert.deepStrictEqual(Array.from(concatSamples([new Float32Array([1, 2]), new Float32Array([3])])), [1, 2, 3]);
+});
+
+test('joinClipPhrases drops hallucinations and empties like live dictation', () => {
+  assert.strictEqual(joinClipPhrases(['Login hatasını düzelt.', ' Thank you. ', '', 'and add a test']),
+    'Login hatasını düzelt and add a test');
+  assert.strictEqual(joinClipPhrases([]), '');
+});
+
+test('a phone clip cap fits the relay frame in base64', () => {
+  const base64Bytes = MAX_CLIP_SECONDS * SAMPLE_RATE * 2 * 4 / 3;
+  assert.ok(base64Bytes < 12 * 1024 * 1024);
+});

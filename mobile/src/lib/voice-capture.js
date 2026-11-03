@@ -1,30 +1,77 @@
 // Speaking a task to start a new session from the phone: from the home-screen
 // widget (tap to start, tap again to send) or by holding New session in the app
-// (let go to send). The recognizer is the phone's own (Android SpeechRecognizer via
-// expo-speech-recognition); this file holds the decisions around it so they stay
-// testable without a device.
+// (let go to send). Two recognizers take part: the phone's own (Android
+// SpeechRecognizer via expo-speech-recognition) draws the live preview, and the
+// clip it records goes to the paired desktop's Whisper for the transcript that is
+// actually sent — the phone's recognizer handles one language per capture and
+// mangles Turkish + English, which the desktop's is tuned for. This file holds the
+// decisions around both so they stay testable without a device.
 // Plain JS rather than TypeScript so the node:test suite can import it — see
 // test/mobile-voice-capture.test.mjs.
 
 // The deep link the widget opens. The app's scheme is `ide` (app.json).
 export const VOICE_LINK = 'ide://voice-session';
 
-// How long New session must be held before it turns into a microphone — the
-// desktop's HOLD_TO_TALK_MS, so the gesture feels the same on both.
-export const HOLD_TO_TALK_MS = 400;
+// How long New session must be held before the listening sheet shows. Shorter than
+// the desktop's 400 ms because nothing waits on it: the microphone already opened
+// when the finger went down (see canArmSilently), so this only tells a hold from a
+// tap — and a tap is well under 250 ms.
+export const HOLD_TO_TALK_MS = 250;
 
-// Spoken languages offered on the listening sheet. Turkish first: it is the
-// desktop's default spoken language too, and Google's Turkish model still copes
-// with the English technical words a coding task is full of.
+// The spoken-language chip on the listening sheet. `recognizer` is the locale the
+// phone's live preview runs in; `whisper` is the desktop's LANGUAGES id
+// (src/main/stt-lib.js) the recorded clip is transcribed with. TR+EN is the
+// desktop's default fenced auto-detect, so a sentence can switch language midway.
+// Its preview runs in Turkish, biased toward the English words a coding task is
+// full of (CODING_TERMS); the final text comes from Whisper either way.
 export const VOICE_LANGS = [
-  { id: 'tr-TR', label: 'TR' },
-  { id: 'en-US', label: 'EN' },
+  { id: 'auto', label: 'TR+EN', recognizer: 'tr-TR', whisper: 'en-tr' },
+  { id: 'tr', label: 'TR', recognizer: 'tr-TR', whisper: 'tr' },
+  { id: 'en', label: 'EN', recognizer: 'en-US', whisper: 'en' },
 ];
-export const DEFAULT_VOICE_LANG = 'tr-TR';
+export const DEFAULT_VOICE_LANG = 'auto';
 
 /** @param {string | null | undefined} id */
 export function knownVoiceLang(id) {
   return VOICE_LANGS.some((l) => l.id === id) ? /** @type {string} */ (id) : DEFAULT_VOICE_LANG;
+}
+
+/** @param {string | null | undefined} id */
+export function voiceLang(id) {
+  return /** @type {typeof VOICE_LANGS[number]} */ (VOICE_LANGS.find((l) => l.id === knownVoiceLang(id)));
+}
+
+// English words a Turkish-locale preview would otherwise spell phonetically
+// ("komit", "rifaktır"). Android 13+ biases toward them (EXTRA_BIASING_STRINGS).
+export const CODING_TERMS = [
+  'Claude', 'commit', 'push', 'pull request', 'merge', 'branch', 'rebase', 'refactor', 'bug', 'fix',
+  'test', 'unit test', 'lint', 'build', 'deploy', 'API', 'endpoint', 'component', 'function', 'class',
+  'TypeScript', 'JavaScript', 'React', 'Electron', 'Android', 'mobile', 'widget', 'session', 'terminal',
+  'README', 'config', 'database', 'error', 'log', 'debug', 'performance', 'UI', 'login',
+];
+
+/**
+ * May the microphone open the instant New session is pressed, before we know it is
+ * a hold? Only when nothing else is showing and the permission is already granted:
+ * a tap must never pop a permission prompt, so a first-ever hold asks at the
+ * threshold instead.
+ * @param {string} phase
+ * @param {boolean} micGranted
+ */
+export function canArmSilently(phase, micGranted) {
+  return micGranted && (phase === 'idle' || phase === 'error');
+}
+
+/**
+ * The prompt to send: the desktop's Whisper transcript when it produced one, else the
+ * phone's own (an older desktop, no voice model installed, a timeout, Android < 13
+ * with nothing recorded).
+ * @param {{ text?: string, error?: string } | null | undefined} desktop
+ * @param {string} device
+ */
+export function pickFinalTranscript(desktop, device) {
+  const whisper = typeof desktop?.text === 'string' ? desktop.text.trim() : '';
+  return whisper || device.trim();
 }
 
 /** @param {string | null | undefined} url */

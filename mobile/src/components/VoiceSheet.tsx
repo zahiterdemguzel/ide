@@ -7,6 +7,17 @@
 // New session cancels that press — the hold would "release" the instant the sheet
 // appeared. A View on top leaves the Pressable as the touch responder.
 //
+// What gets sent is not the phone's own transcript: its recognizer runs one language
+// per capture and mangles a Turkish + English mix, so it only draws the live preview
+// while the clip it records (Android 13+) goes to the desktop's Whisper —
+// `stt-transcribe-clip`, the same model and TR+EN fence as desktop dictation. The
+// phone's text is the fallback when the desktop can't transcribe.
+//
+// Holding New session opens the mic on the *press*, unseen (`arm`), and only shows
+// the sheet at the hold threshold (`reveal`); a tap drops it (`disarm`). The
+// recognizer takes a few hundred ms to come up, and starting it at the threshold
+// made every hold feel late and cost the first word.
+//
 // The capture can outrun the connection (a cold start from the widget is still
 // dialling the desktop while you talk), so a finished transcript waits for `ready`
 // and then creates the session; while it waits the sheet shrinks to a bottom card so
@@ -15,7 +26,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, BackHandler, Easing, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
+import * as FileSystem from 'expo-file-system';
+import { ExpoSpeechRecognitionModule, supportsRecording, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { alpha, color, radius, space, type } from '../theme';
 import { useConnection } from '../api/context';
 import { getSessionModel } from '../api/models';
@@ -23,8 +35,9 @@ import { newSessionWithPrompt } from '../api/session-prompt';
 import { getVoiceLang, onVoiceRequest, setVoiceLang, type VoiceSource } from '../api/voice';
 import { cliCheckChannel, cliForModel, cliProblem } from '../lib/cli-check';
 import {
-  VOICE_LANGS, emptyTranscript, foldResult, transcriptText, shouldRestartOnEnd,
-  recognitionErrorAction, recognitionErrorMessage, voiceLinkAction,
+  VOICE_LANGS, DEFAULT_VOICE_LANG, CODING_TERMS, voiceLang, emptyTranscript, foldResult, transcriptText,
+  shouldRestartOnEnd, recognitionErrorAction, recognitionErrorMessage, voiceLinkAction, canArmSilently,
+  pickFinalTranscript,
 } from '../lib/voice-capture';
 import { refreshVoiceWidget } from '../widget/task-handler';
 import { Button } from './ui';
@@ -36,6 +49,13 @@ type Phase = 'idle' | 'listening' | 'finishing' | 'sending' | 'error';
 // stop() should be followed by a final result and an 'end' event; if the recognizer
 // never sends them, deliver what we have rather than spinning forever.
 const FINISH_FALLBACK_MS = 1500;
+// Whisper decodes a phrase in ~1–3 s on the desktop; a long task is several phrases.
+const TRANSCRIBE_TIMEOUT_MS = 60_000;
+
+// Recordings are only for the desktop to transcribe; never keep them on the phone.
+const deleteClips = (uris: string[]) => {
+  uris.forEach((uri) => { FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {}); });
+};
 const BUTTON_SIZE = 116;
 
 export default function VoiceSheet(
@@ -46,7 +66,9 @@ export default function VoiceSheet(
   const [phase, setPhaseState] = useState<Phase>('idle');
   const [source, setSourceState] = useState<VoiceSource>('widget');
   const [transcript, setTranscript] = useState(emptyTranscript());
-  const [lang, setLangState] = useState(VOICE_LANGS[0].id);
+  const [lang, setLangState] = useState(DEFAULT_VOICE_LANG);
+  const [hidden, setHiddenState] = useState(false);
+  const [sendStep, setSendStep] = useState<'transcribing' | 'starting'>('transcribing');
   const [problem, setProblem] = useState<{ title: string; message: string } | null>(null);
 
   // Recognizer events and voice requests arrive outside React's render, so the
@@ -58,34 +80,57 @@ export default function VoiceSheet(
   const startingRef = useRef(false);
   const creatingRef = useRef(false);
   const finishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Armed by a press but not yet a hold: listening, with nothing on screen.
+  const hiddenRef = useRef(false);
+  const micGrantedRef = useRef(false);
+  // The capture's recorded clips (one per recognizer run), and whether one is still
+  // being written — a clip is only safe to read after its 'audioend'.
+  const clipsRef = useRef<string[]>([]);
+  const audioOpenRef = useRef(false);
 
+  const setHidden = (h: boolean) => { hiddenRef.current = h; setHiddenState(h); };
   const setPhase = (p: Phase) => {
     phaseRef.current = p;
     setPhaseState(p);
-    refreshVoiceWidget(p === 'listening');
+    if (!hiddenRef.current) refreshVoiceWidget(p === 'listening');
+  };
+  const resetCapture = () => {
+    deleteClips(clipsRef.current);
+    clipsRef.current = [];
+    audioOpenRef.current = false;
+    setHeard(emptyTranscript());
+    setProblem(null);
   };
   const setSource = (s: VoiceSource) => { sourceRef.current = s; setSourceState(s); };
   const setHeard = (t: ReturnType<typeof emptyTranscript>) => { transcriptRef.current = t; setTranscript(t); };
 
   useEffect(() => {
     getVoiceLang().then((l) => { langRef.current = l; setLangState(l); });
+    ExpoSpeechRecognitionModule.getPermissionsAsync()
+      .then((p) => { micGrantedRef.current = p.granted; })
+      .catch(() => {});
     // A widget left saying "Listening" by an app that was killed mid-capture.
     refreshVoiceWidget(false);
   }, []);
 
   const beginRecognition = () => {
     ExpoSpeechRecognitionModule.start({
-      lang: langRef.current,
+      lang: voiceLang(langRef.current).recognizer,
       interimResults: true,
       continuous: true,
       addsPunctuation: true,
+      contextualStrings: CODING_TERMS,
       volumeChangeEventOptions: { enabled: true, intervalMillis: 100 },
+      // 16 kHz mono PCM16 WAV on Android — exactly what Whisper takes.
+      ...(supportsRecording() ? { recordingOptions: { persist: true } } : {}),
     });
   };
 
   const fail = (title: string, message: string) => {
     if (finishTimer.current) clearTimeout(finishTimer.current);
     ExpoSpeechRecognitionModule.abort();
+    // A press that never became a hold has nothing to report.
+    if (hiddenRef.current) { disarm(); return; }
     setProblem({ title, message });
     setPhase('error');
     haptic.error();
@@ -94,11 +139,12 @@ export default function VoiceSheet(
   const start = async (from: VoiceSource) => {
     if (startingRef.current || phaseRef.current === 'listening' || phaseRef.current === 'sending') return;
     startingRef.current = true;
+    setHidden(false);
     setSource(from);
-    setHeard(emptyTranscript());
-    setProblem(null);
+    resetCapture();
     try {
-      const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      const perm = micGrantedRef.current ? { granted: true } : await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      micGrantedRef.current = perm.granted;
       if (!perm.granted) return fail('Microphone is off', recognitionErrorMessage('not-allowed'));
       haptic.tap();
       setPhase('listening');
@@ -110,13 +156,45 @@ export default function VoiceSheet(
     }
   };
 
+  // New session pressed: start listening before we know it's a hold.
+  const arm = () => {
+    if (!canArmSilently(phaseRef.current, micGrantedRef.current) || startingRef.current) return;
+    setHidden(true);
+    setSource('hold');
+    resetCapture();
+    setPhase('listening');
+    try { beginRecognition(); } catch { disarm(); }
+  };
+
+  // The hold threshold: show what is already listening, or — no permission yet, so
+  // nothing was armed — start now, prompting for it.
+  const reveal = () => {
+    if (!hiddenRef.current) { start('hold'); return; }
+    setHidden(false);
+    haptic.tap();
+    refreshVoiceWidget(true);
+  };
+
+  // Released before the threshold: it was a tap, so New session's own press runs.
+  const disarm = () => {
+    if (!hiddenRef.current) return;
+    ExpoSpeechRecognitionModule.abort();
+    setHidden(false);
+    phaseRef.current = 'idle';
+    setPhaseState('idle');
+    resetCapture();
+  };
+
   const deliver = () => {
     if (phaseRef.current !== 'finishing') return;
     if (finishTimer.current) clearTimeout(finishTimer.current);
-    if (!transcriptText(transcriptRef.current)) {
+    // No preview text is fine while there is audio: Whisper often hears what the
+    // phone's single-language recognizer didn't (English said in Turkish mode).
+    if (!transcriptText(transcriptRef.current) && !clipsRef.current.length) {
       fail('Nothing heard', 'No words came through. Hold the phone closer and try again.');
       return;
     }
+    setSendStep('transcribing');
     setPhase('sending');
   };
 
@@ -134,15 +212,20 @@ export default function VoiceSheet(
   const close = () => {
     if (finishTimer.current) clearTimeout(finishTimer.current);
     if (phaseRef.current === 'listening' || phaseRef.current === 'finishing') ExpoSpeechRecognitionModule.abort();
+    setHidden(false);
     setPhase('idle');
+    resetCapture();
   };
 
   // The handlers close over refs only, so one subscription for the sheet's lifetime.
-  const handlers = useRef({ start, finish, close });
-  handlers.current = { start, finish, close };
+  const handlers = useRef({ start, finish, close, arm, reveal, disarm });
+  handlers.current = { start, finish, close, arm, reveal, disarm };
   useEffect(() => onVoiceRequest((r) => {
     const h = handlers.current;
     if (r.kind === 'start') h.start(r.source);
+    else if (r.kind === 'arm') h.arm();
+    else if (r.kind === 'reveal') h.reveal();
+    else if (r.kind === 'disarm') h.disarm();
     else if (r.kind === 'finish') h.finish();
     else if (r.kind === 'cancel') h.close();
     else {
@@ -160,6 +243,14 @@ export default function VoiceSheet(
     if (recognitionErrorAction(e.error, phaseRef.current) === 'fail') {
       fail('Listening stopped', recognitionErrorMessage(e.error));
     }
+  });
+  useSpeechRecognitionEvent('audiostart', () => { audioOpenRef.current = true; });
+  useSpeechRecognitionEvent('audioend', (e) => {
+    audioOpenRef.current = false;
+    if (!e.uri) return;
+    // A clip finishing after the capture was dropped belongs to nobody.
+    if (phaseRef.current === 'idle') deleteClips([e.uri]);
+    else clipsRef.current.push(e.uri);
   });
   useSpeechRecognitionEvent('end', () => {
     if (shouldRestartOnEnd(phaseRef.current)) beginRecognition();
@@ -183,7 +274,24 @@ export default function VoiceSheet(
     return () => loop.stop();
   }, [phase, pulse]);
 
-  // A finished transcript waits here until the desktop is reachable.
+  // The recorded clips through the desktop's Whisper. Null (→ the phone's own text)
+  // when there is nothing complete to send or the desktop can't transcribe: an older
+  // desktop rejects the channel, one without the voice model answers { error }.
+  const transcribeOnDesktop = async (): Promise<{ text?: string } | null> => {
+    const clips = clipsRef.current;
+    if (!conn || !clips.length || audioOpenRef.current) return null;
+    setSendStep('transcribing');
+    try {
+      const data = await Promise.all(clips.map((uri) =>
+        FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })));
+      return await conn.req<{ text?: string }>('stt-transcribe-clip',
+        { clips: data, language: voiceLang(langRef.current).whisper }, { timeoutMs: TRANSCRIBE_TIMEOUT_MS });
+    } catch {
+      return null;
+    }
+  };
+
+  // A finished capture waits here until the desktop is reachable.
   useEffect(() => {
     if (phase !== 'sending' || creatingRef.current) return;
     if (!paired) {
@@ -194,13 +302,19 @@ export default function VoiceSheet(
     creatingRef.current = true;
     (async () => {
       try {
+        const text = pickFinalTranscript(await transcribeOnDesktop(), transcriptText(transcriptRef.current));
+        if (!text) return fail('Nothing heard', 'No words came through. Hold the phone closer and try again.');
+        // Shown on the card, and kept if creating fails so "Send again" sends it.
+        setHeard({ finals: [text], interim: '' });
+        setSendStep('starting');
         const model = await getSessionModel();
         const check = await conn.req<any>(cliCheckChannel(model)).catch(() => null);
         const missing = cliProblem(cliForModel(model), check);
         if (missing) return fail(missing.title, missing.message);
-        const id = await newSessionWithPrompt(conn, transcriptText(transcriptRef.current), { model });
+        const id = await newSessionWithPrompt(conn, text, { model });
         haptic.success();
         setPhase('idle');
+        resetCapture();
         onSession(id);
       } catch (e) {
         fail('Could not create session', errorText(e));
@@ -227,7 +341,7 @@ export default function VoiceSheet(
     if (phaseRef.current === 'listening') ExpoSpeechRecognitionModule.abort();
   };
 
-  if (phase === 'idle') return null;
+  if (phase === 'idle' || hidden) return null;
 
   const heard = transcriptText(transcript);
   const hasText = heard !== '';
@@ -238,8 +352,10 @@ export default function VoiceSheet(
         <View style={[styles.card, { bottom: insets.bottom + space.xl }]}>
           <Ionicons name="mic" size={18} color={color.accent} />
           <View style={styles.cardBody}>
-            <Text style={styles.cardTitle}>{ready ? 'Starting session…' : 'Waiting for your desktop…'}</Text>
-            <Text style={styles.cardText} numberOfLines={2}>{heard}</Text>
+            <Text style={styles.cardTitle}>
+              {!ready ? 'Waiting for your desktop…' : sendStep === 'transcribing' ? 'Transcribing on your desktop…' : 'Starting session…'}
+            </Text>
+            {hasText && <Text style={styles.cardText} numberOfLines={2}>{heard}</Text>}
           </View>
           <Pressable onPress={close} hitSlop={10} accessibilityRole="button" accessibilityLabel="Cancel">
             <Ionicons name="close" size={20} color={color.muted} />

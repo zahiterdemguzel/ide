@@ -31,7 +31,7 @@ import { showError, showNotice, errorText } from '../components/ErrorDialog';
 import { confirmAction, haptic, showToast } from '../components/feedback';
 import { cliCheckChannel, cliForModel, cliProblem } from '../lib/cli-check';
 import { HOLD_TO_TALK_MS } from '../lib/voice-capture';
-import { finishVoice, startVoice } from '../api/voice';
+import { armVoice, disarmVoice, finishVoice, revealVoice } from '../api/voice';
 import { shortAgo } from '../api/time';
 import {
   MODELS, CODEX_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, getSessionEffort, modelSuffix, modelBadgeName,
@@ -707,11 +707,16 @@ export default function SessionsScreen({ navigation }: any) {
             styles.new, styles.newMain, !repo && styles.newOff, pressed && repo && styles.newPressed,
           ]}
           onPress={() => newSession()}
-          // Hold to say the task instead, as on the desktop: the listening sheet
-          // opens over the button, and letting go starts the session with it.
+          // Hold to say the task instead, as on the desktop: the mic opens unseen on
+          // the press (so the first word isn't lost), the listening sheet shows at the
+          // threshold, and letting go starts the session with it. A tap drops the
+          // armed mic and falls through to onPress.
+          onPressIn={armVoice}
           delayLongPress={HOLD_TO_TALK_MS}
-          onLongPress={() => { holdingRef.current = true; startVoice('hold'); }}
-          onPressOut={() => { if (holdingRef.current) { holdingRef.current = false; finishVoice(); } }}
+          onLongPress={() => { holdingRef.current = true; revealVoice(); }}
+          onPressOut={() => {
+            if (holdingRef.current) { holdingRef.current = false; finishVoice(); } else disarmVoice();
+          }}
           disabled={!repo || creating}
           accessibilityRole="button"
           accessibilityHint="Hold to say the task instead"

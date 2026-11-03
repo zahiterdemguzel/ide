@@ -30,6 +30,10 @@ const REMOTE_CHANNELS = {
     'resume-session',
     'check-claude',
     'check-codex',
+    // a task spoken on the phone (widget / held New session), transcribed by this
+    // machine's Whisper — the phone's own recognizer mangles Turkish + English. Only
+    // decodes audio the phone sends; the desktop microphone channels stay off-limits.
+    'stt-transcribe-clip',
     // remaining Claude subscription usage — the thin bar under the phone's header
     'get-usage',
     // the Claude accounts this window can run under, each one's usage, and switching

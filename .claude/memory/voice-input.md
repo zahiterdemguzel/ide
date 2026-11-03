@@ -311,10 +311,13 @@ Probed headlessly under Electron 31.7.7 (Node 20.18, ABI 125) on Windows:
 
 Voice input is driven by this machine's cursor and microphone, so none of the `stt-*`
 channels are in the `server/protocol.js` allowlist. A paired phone can't arm, stop, or
-configure it. (The phone has its own voice path — its own recognizer, sending only the
-transcript as a new session's prompt; see [remote-access.md](remote-access.md#voice-sessions-and-the-home-screen-widget-phone).) Console terminals are deliberately excluded too — only
+configure it — with one exception, below. Console terminals are deliberately excluded too — only
 `.term-container` (the panes where the user talks to Claude) arms the mic, not the
 build-output consoles.
+
+## Transcribing a phone's clip
+
+`stt-transcribe-clip {clips: base64 WAV[], language}` is the one `stt-*` channel in `server/protocol.js`'s allowlist: a paired phone records the task it speaks (widget / held New session, see [remote-access.md](remote-access.md#voice-sessions-and-the-home-screen-widget-phone)) and this machine transcribes it, because the phone's recognizer handles one language per capture and Whisper's `en-tr` fence handles the mix. It arms nothing and never touches this machine's mic. `wavToSamples` (stt-lib, pure) reads PCM16 or Float32, downmixes and resamples to 16 kHz; the clip is cut by a **VAD of its own** (`clipSegments`) so it can't disturb a live desktop capture's segmenter, decoded phrase by phrase through `decodeSegment` on the shared `decodeQueue`, and joined with the live path's hallucination filter (`joinClipPhrases`). Capped at `MAX_CLIP_SECONDS` (3 min) to stay under the relay frame. Failures come back as `{ error }` and the phone falls back to its own text.
 
 ## Hold New session to say the task
 
