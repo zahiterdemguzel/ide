@@ -21,6 +21,7 @@ import {
 import { effortsForFamily, QUICK_EFFORTS } from './shared/effort-levels.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
+import { initHoldToTalk } from './voice.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
 // switching sessions toggles which container is visible, preserving scrollback.
@@ -1442,6 +1443,8 @@ diffModeUnifiedBtn.onclick = () => setDiffMode('unified');
 diffModeSplitBtn.onclick = () => setDiffMode('split');
 
 document.getElementById('new-session').onclick = () => newSession();
+// Holding it instead records the task by voice (see voice.js).
+initHoldToTalk(document.getElementById('new-session'), newSessionWithPrompt);
 
 // New-session caret menu: the split-button caret opens a dropdown of one family's
 // models (Claude unless changed in Settings → Agent models) followed by that family's

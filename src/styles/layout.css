@@ -192,6 +192,11 @@
   background: var(--accent); animation: none;
 }
 @keyframes voice-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+/* New session held as a microphone: recording red, the same signal as the pill's
+   dot. Neutral while the mic and weights load, accent while the last phrase decodes. */
+#new-session.voice-hold { background: var(--danger, #e5534b); color: #fff; }
+#new-session.voice-hold[data-voice-state="starting"] { background: var(--border); color: var(--fg-dim); }
+#new-session.voice-hold[data-voice-state="transcribing"] { background: var(--accent); }
 
 /* Welcome / watermark shown when no session, file, or overlay is open. The
    center is the app's largest blank surface, so it carries the product's

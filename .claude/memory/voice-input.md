@@ -29,7 +29,8 @@ Enter themselves.
    [`sherpa-onnx-node`](https://www.npmjs.com/package/sherpa-onnx-node) (npm dep with
    prebuilt binaries per platform; no compiler, `npmRebuild` stays false). Holds an
    LRU-of-1 `OfflineRecognizer` plus a Silero `Vad`. Channels: `stt-status`,
-   `stt-warm`, `stt-start`, `stt-audio`, `stt-stop`, `stt-release`; pushes `stt-text`,
+   `stt-warm`, `stt-start`, `stt-audio`, `stt-stop`, `stt-finish` (an awaited stop, for the
+   New session hold), `stt-release`; pushes `stt-text`,
    `stt-busy` and `stt-error`. Decodes run one at a time (the addon is not reentrant)
    through `createLimiter(1)` from `concurrency.js`, so a failed decode settles on its
    own promise instead of poisoning the queue for the rest of the session.
@@ -180,12 +181,23 @@ entry can't silently blow it.
 
 ## Spoken language (measured, not assumed)
 
-`LANGUAGES` in stt-lib offers **Auto-detect / English / Turkish**, defaulting to
-**English**. The language is a *load-time* property of the recognizer, so it's part
-of the cache key (`<modelId>:<languageId>`) and switching it reloads, exactly like
-switching model. An English-only model ignores the setting and is pinned to `en`.
+`LANGUAGES` in stt-lib offers **Turkish + English / Auto-detect / English / Turkish**,
+defaulting to **Turkish + English** (`en-tr`). The language is **set per decode**
+(`setWhisperLanguage` → the addon's `setConfig`, measured at 0 ms with the weights
+untouched), so the recognizer is cached by model only and changing language never
+reloads; a capture keeps the language it was started with. An English-only model
+ignores the setting and is pinned to `en`.
 
-Measured with Turkish speech (Piper `tr_TR` TTS, six dictation sentences, decoded
+**Turkish + English = auto-detect, fenced.** Each phrase decodes with `auto`; if
+`result.lang` names a third language (Turkish's neighbours az/uz are the realistic
+misfire) it's decoded again pinned to `tr` (`pinnedRetryLanguage`). The normal path
+costs nothing extra. Measured on the turbo model with macOS `say` clips (Yelda tr_TR,
+Samantha en_US): auto detected `tr`/`en` correctly on all four — "Bu dosyayı açar
+mısın", "Yeni bir pull request oluştur" (mixed), "Kaydet", and an English sentence —
+with text identical to the correctly pinned decode, while a wrong pin invented text
+("Bu dosyayı açar mısın" → "This is the same.").
+
+Earlier, measured with Turkish speech (Piper `tr_TR` TTS, six dictation sentences, decoded
 three ways):
 
 - **Turkish quality is good.** All six came back correct, differing only in
@@ -302,3 +314,37 @@ channels are in the `server/protocol.js` allowlist. A paired phone can't arm, st
 configure it. Console terminals are deliberately excluded too — only
 `.term-container` (the panes where the user talks to Claude) arms the mic, not the
 build-output consoles.
+
+## Hold New session to say the task
+
+Holding the sidebar's **New session** button for `HOLD_TO_TALK_MS` (400 ms) turns it
+into a microphone; letting go starts a session with the transcript as its first
+message (through `newSessionWithPrompt`, so unlike dictation it **is submitted**), and
+**Esc**, a window blur or a `pointercancel` drops it. A plain click is untouched. The
+decisions are in `src/renderer/shared/hold-to-talk.js` (tested); the DOM, mic and IPC
+in `voice.js`'s `initHoldToTalk`, wired from `sessions.js`.
+
+- **One engine, one capture.** The hold points main at the sentinel target
+  `HOLD_TARGET` via the same `stt-start`, so its phrases come back as `stt-text`
+  addressed to it and `onText` collects them instead of typing them anywhere. Starting
+  a hold disarms dictation, and `syncToFocus` stands down until `endHold()` re-syncs.
+- **Doesn't need dictation switched on.** The held button is the explicit act that
+  opens the mic, and it turns red while it's live (neutral while starting, accent while
+  the last phrase decodes) — the two guards dictation needs are satisfied by the press.
+  A missing model surfaces as `stt-start`'s error in a warning.
+- **Release waits for the last phrase.** `stt-finish` flushes the VAD and resolves after
+  that decode, so the transcript is complete before the session is made. An empty one
+  shows "Didn't catch any words" rather than opening a blank session.
+- **A late stop can't cut off the next capture.** `stopCapture()` only clears the
+  target it stopped: dictation's stop (sent as the button takes focus) is queued
+  behind its last decode, and would otherwise null the hold's target after it armed.
+- `MAX_HOLD_MS` (2 min) ends a hold whose pointerup never arrived.
+
+## Dev wrapper reads models from `vendor/stt`
+
+`modelsRoot` doesn't trust `app.isPackaged` alone: Electron derives it from the
+executable's *name*, and the macOS Dock-icon wrapper (`Claude Session Editor (Dev).app`,
+whose `Electron` shell script execs a renamed `Electron-real` on the repo) reports
+packaged. That sent the lookup to the bundle's `Resources/stt`, which doesn't exist,
+and voice failed with "the voice model is missing" although `vendor/stt` was full. A
+build is only treated as packaged when its app path is inside `resourcesPath`.

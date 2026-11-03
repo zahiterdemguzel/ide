@@ -47,18 +47,24 @@ const DEFAULT_MODEL_ID = 'turbo';
 // though the audio was fine, so pinning a language is the fix for "it transcribes
 // nonsense sometimes", and it skips the detection pass as a bonus.
 //
-// Deliberately three options rather than all 99 Whisper knows: this is a dictation
-// box, not a translation tool. `labelKey` is an i18n key — these are UI words, not
-// product names. Removing a language is deleting one entry here.
+// `en-tr` is auto-detect fenced to Turkish and English — one mode for a speaker who
+// uses both, mid-sentence even. Each phrase is detected; a phrase Whisper calls some
+// third language (Turkish's neighbours az/uz are the realistic misfire) is decoded
+// again pinned to `fallback`. A clean detection, the normal case, costs nothing extra.
+//
+// Deliberately a handful of options rather than all 99 Whisper knows: this is a
+// dictation box, not a translation tool. `labelKey` is an i18n key — these are UI
+// words, not product names. Removing a language is deleting one entry here.
 const LANGUAGES = [
+  { id: 'en-tr', whisper: '', labelKey: 'voice.langEnTr', fence: ['en', 'tr'], fallback: 'tr' },
   { id: 'auto', whisper: '', labelKey: 'voice.langAuto' },
   { id: 'en', whisper: 'en', labelKey: 'voice.langEnglish' },
   { id: 'tr', whisper: 'tr', labelKey: 'voice.langTurkish' },
 ];
 
-// English rather than auto: auto's per-segment misdetection is the bigger practical
-// risk, and a pinned language is always at least as accurate for that language.
-const DEFAULT_LANGUAGE = 'en';
+// Turkish + English rather than open auto: the fence turns auto's per-segment
+// misdetection into a retry, while still taking either language without a setting.
+const DEFAULT_LANGUAGE = 'en-tr';
 
 function findLanguage(id) {
   return LANGUAGES.find((l) => l.id === id) || null;
@@ -74,6 +80,15 @@ function pickLanguage(id) {
 // What Whisper's `language` config field should be for a chosen language id.
 function whisperLanguage(id) {
   return (findLanguage(id) || findLanguage(DEFAULT_LANGUAGE)).whisper;
+}
+
+// After a decode in `id`'s mode: the Whisper code to decode the phrase again with, or
+// null to keep the result. Only a fenced mode retries, and only when the detected
+// language (`result.lang`) falls outside its fence.
+function pinnedRetryLanguage(id, detected) {
+  const lang = findLanguage(id);
+  if (!lang || !lang.fence || !detected) return null;
+  return lang.fence.includes(detected) ? null : lang.fallback;
 }
 
 // Silero VAD — segments the mic stream on natural pauses so each phrase is
@@ -107,8 +122,17 @@ function pickModelId(id) {
 // Where the model tree lives. Packaged builds get it from extraResources
 // (`<resources>/stt`); in dev it's the gitignored `vendor/stt` the fetch script
 // writes. Kept pure (the caller passes Electron's paths) so it's testable.
+// `isPackaged` alone can't tell: Electron derives it from the executable's name, so a
+// dev tree run through a renamed Electron binary (the Dock-icon wrapper's
+// `Electron-real`) reports packaged. A real build's app sits inside its resources.
 function modelsRoot({ isPackaged, resourcesPath, appPath }, join) {
-  return isPackaged ? join(resourcesPath, 'stt') : join(appPath, 'vendor', 'stt');
+  const builtApp = isPackaged && !!resourcesPath && isInside(appPath, resourcesPath);
+  return builtApp ? join(resourcesPath, 'stt') : join(appPath, 'vendor', 'stt');
+}
+
+function isInside(child, parent) {
+  const norm = (p) => String(p).replace(/\\/g, '/').replace(/\/+$/, '');
+  return norm(child).startsWith(`${norm(parent)}/`);
 }
 
 function modelFiles(root, id, join) {
@@ -269,6 +293,7 @@ module.exports = {
   findLanguage,
   pickLanguage,
   whisperLanguage,
+  pinnedRetryLanguage,
   VAD_ASSET,
   VAD_CONFIG,
   VAD_BUFFER_SECONDS,

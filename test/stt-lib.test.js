@@ -6,7 +6,7 @@ const {
   MODELS, DEFAULT_MODEL_ID, VAD_ASSET, assetUrl, findModel, pickModelId,
   modelsRoot, modelFiles, vadPath, modelReady, modelStates,
   normalizeTranscript, shouldEmit, recognizerThreads,
-  LANGUAGES, DEFAULT_LANGUAGE, pickLanguage, whisperLanguage,
+  LANGUAGES, DEFAULT_LANGUAGE, pickLanguage, whisperLanguage, pinnedRetryLanguage,
   withTailPadding, TAIL_PADDING_SECONDS,
 } = require('../src/main/stt-lib');
 
@@ -62,6 +62,32 @@ test('packaged builds read the models from extraResources, dev from vendor/', ()
     path.posix.join,
   );
   assert.equal(dev, '/repo/vendor/stt');
+});
+
+test('a dev tree run through a renamed Electron binary still reads vendor/', () => {
+  // Electron reports isPackaged from the executable's name, so the Dock-icon wrapper
+  // (`Electron-real` running the repo) claims to be packaged. Its app isn't inside
+  // the bundle's resources, though — that's what decides.
+  const wrapped = modelsRoot(
+    { isPackaged: true, resourcesPath: '/Applications/IDE (Dev).app/Contents/Resources', appPath: '/Users/me/ide' },
+    path.posix.join,
+  );
+  assert.equal(wrapped, '/Users/me/ide/vendor/stt');
+  // An unpacked (asar: false) build keeps its app in resources too.
+  const unpacked = modelsRoot(
+    { isPackaged: true, resourcesPath: '/app/Resources', appPath: '/app/Resources/app' },
+    path.posix.join,
+  );
+  assert.equal(unpacked, '/app/Resources/stt');
+  // Windows separators, and a sibling folder that merely shares the prefix.
+  assert.equal(
+    modelsRoot({ isPackaged: true, resourcesPath: 'C:\\IDE\\resources', appPath: 'C:\\IDE\\resources\\app.asar' }, path.posix.join),
+    'C:\\IDE\\resources/stt',
+  );
+  assert.equal(
+    modelsRoot({ isPackaged: true, resourcesPath: '/x/Resources', appPath: '/x/Resources-dev' }, path.posix.join),
+    '/x/Resources-dev/vendor/stt',
+  );
 });
 
 test('model files use the normalized names the fetch script writes', () => {
@@ -148,12 +174,29 @@ test('auto-detect is the empty string Whisper expects, not a code', () => {
   assert.equal(whisperLanguage('tr'), 'tr');
 });
 
-test('the default is a pinned language, not auto', () => {
-  // Auto-detect runs per segment, and segments here are often under a second —
-  // short clips are exactly where Whisper's language ID misfires and returns a
-  // confidently wrong transcript. Pinning is the safer default.
+test('the default takes Turkish and English, fenced rather than open auto', () => {
+  // Open auto-detect runs per segment, and short clips are where Whisper's language
+  // ID misfires into a confidently wrong transcript. The default detects, but only
+  // keeps an English or Turkish result — anything else is decoded again pinned.
   assert.notEqual(DEFAULT_LANGUAGE, 'auto');
-  assert.equal(whisperLanguage(DEFAULT_LANGUAGE), DEFAULT_LANGUAGE);
+  const lang = LANGUAGES.find((l) => l.id === DEFAULT_LANGUAGE);
+  assert.deepEqual([...lang.fence].sort(), ['en', 'tr']);
+  assert.equal(whisperLanguage(DEFAULT_LANGUAGE), '');
+});
+
+test('pinnedRetryLanguage re-decodes only a fenced phrase detected outside the fence', () => {
+  assert.equal(pinnedRetryLanguage('en-tr', 'tr'), null);
+  assert.equal(pinnedRetryLanguage('en-tr', 'en'), null);
+  assert.equal(pinnedRetryLanguage('en-tr', 'az'), 'tr'); // Turkish's realistic misfire
+  assert.equal(pinnedRetryLanguage('en-tr', 'uz'), 'tr');
+  assert.equal(pinnedRetryLanguage('en-tr', ''), null); // nothing detected: keep it
+  // Open auto and pinned languages never retry.
+  assert.equal(pinnedRetryLanguage('auto', 'az'), null);
+  assert.equal(pinnedRetryLanguage('en', 'tr'), null);
+  assert.equal(pinnedRetryLanguage('kl', 'az'), null);
+  for (const l of LANGUAGES.filter((x) => x.fence)) {
+    assert.ok(l.fence.includes(l.fallback), `${l.id}'s fallback must be inside its fence`);
+  }
 });
 
 test('pickLanguage falls back to the default for unknown or missing values', () => {

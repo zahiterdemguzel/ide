@@ -19,7 +19,7 @@ const { sendToRenderer } = require('./window');
 const { createLimiter } = require('./concurrency');
 const {
   pickModelId, findModel, modelsRoot, modelFiles, vadPath, modelReady, modelStates,
-  normalizeTranscript, shouldEmit, statSize, pickLanguage, whisperLanguage, LANGUAGES,
+  normalizeTranscript, shouldEmit, statSize, pickLanguage, whisperLanguage, pinnedRetryLanguage, LANGUAGES,
   SAMPLE_RATE, VAD_CONFIG, VAD_BUFFER_SECONDS, recognizerThreads,
   TAIL_PADDING_SECONDS, withTailPadding,
 } = require('./stt-lib');
@@ -29,10 +29,12 @@ const TAIL_PADDING = Math.round(SAMPLE_RATE * TAIL_PADDING_SECONDS);
 let sherpa = null;      // the native module, loaded on first use
 let loadError = null;   // why it couldn't load (reported as unavailable, not thrown)
 let recognizer = null;  // LRU-of-1: loading Whisper weights is the expensive step
-let recognizerKey = null; // `<modelId>:<languageId>` — language is baked in at load
+let recognizerModel = null; // the model id the loaded recognizer holds
+let recognizerConfig = null; // its full config — setConfig() must be handed it whole
 let loading = null;     // in-flight load, so warm + first arm share one
 let vad = null;
 let target = null;      // the session id the current capture is dictating into
+let targetLanguage = null; // the spoken-language setting that capture was started with
 let audioErrorReported = false; // report a broken audio path once, not per chunk
 
 // The addon is not reentrant, so decodes run strictly one at a time. A limiter
@@ -66,20 +68,20 @@ function load() {
 // the recognizer, and without sharing the in-flight promise they would each load
 // ~1 GB of weights concurrently — double the memory and slower than either alone,
 // which showed up as an indicator stuck on "Starting…".
-// The language is a load-time property of the recognizer, so it's part of the key:
-// switching language reloads, exactly like switching model.
-function ensureRecognizer(modelId, languageId) {
-  const key = `${modelId}:${languageId}`;
-  if (recognizer && recognizerKey === key) return Promise.resolve(recognizer);
-  if (loading && loading.key === key) return loading.promise;
-  const promise = loadRecognizer(modelId, languageId).finally(() => {
-    if (loading && loading.key === key) loading = null;
+// Keyed by model only: the spoken language is swapped per decode with setConfig(),
+// which costs nothing (measured: 0 ms, the weights untouched) — so changing language
+// never reloads, and the Turkish + English mode can re-decode a phrase pinned.
+function ensureRecognizer(modelId) {
+  if (recognizer && recognizerModel === modelId) return Promise.resolve(recognizer);
+  if (loading && loading.key === modelId) return loading.promise;
+  const promise = loadRecognizer(modelId).finally(() => {
+    if (loading && loading.key === modelId) loading = null;
   });
-  loading = { key, promise };
+  loading = { key: modelId, promise };
   return promise;
 }
 
-async function loadRecognizer(modelId, languageId) {
+async function loadRecognizer(modelId) {
   const lib = load();
   if (!lib) throw new Error(`speech recognition is unavailable on this platform: ${loadError}`);
   const dir = root();
@@ -87,17 +89,12 @@ async function loadRecognizer(modelId, languageId) {
   if (!modelReady(dir, modelId, statSize, path.join)) {
     throw new Error('the voice model is missing — run "npm run fetch:stt" to download it');
   }
-  // An English-only model is always pinned to `en` — letting one of those guess
-  // produces garbage. A multilingual model takes the user's choice, where '' means
-  // detect per segment.
-  const multilingual = !!(findModel(modelId) || {}).multilingual;
-  const language = multilingual ? whisperLanguage(languageId) : 'en';
-  recognizer = await lib.OfflineRecognizer.createAsync({
+  const config = {
     modelConfig: {
       whisper: {
         encoder: files.encoder,
         decoder: files.decoder,
-        language,
+        language: 'en', // replaced per decode, see setWhisperLanguage
         // Never 'translate' — the user must get back what they actually said.
         task: 'transcribe',
       },
@@ -107,9 +104,42 @@ async function loadRecognizer(modelId, languageId) {
       debug: false,
     },
     decodingMethod: 'greedy_search',
-  });
-  recognizerKey = `${modelId}:${languageId}`;
+  };
+  recognizer = await lib.OfflineRecognizer.createAsync(config);
+  recognizerModel = modelId;
+  recognizerConfig = config;
   return recognizer;
+}
+
+// Point the recognizer at a Whisper language code ('' = detect) before a decode.
+// Only ever called inside decodeQueue, so it can't change under a running decode.
+function setWhisperLanguage(language) {
+  const whisper = recognizerConfig.modelConfig.whisper;
+  if (whisper.language === language) return;
+  const next = { ...recognizerConfig, modelConfig: { ...recognizerConfig.modelConfig, whisper: { ...whisper, language } } };
+  recognizer.setConfig(next);
+  recognizerConfig = next;
+}
+
+async function decodeOnce(samples, language) {
+  setWhisperLanguage(language);
+  const stream = recognizer.createStream();
+  // Padded: a segment whose audio stops on the final phoneme loses that syllable
+  // ("kaydet" -> "kay"). See TAIL_PADDING_SECONDS.
+  stream.acceptWaveform({ samples: withTailPadding(samples, TAIL_PADDING), sampleRate: SAMPLE_RATE });
+  const result = await recognizer.decodeAsync(stream);
+  return { text: (result && result.text) || '', lang: (result && result.lang) || '' };
+}
+
+// One phrase in the capture's language setting. An English-only model is always
+// pinned to `en` — letting one of those guess produces garbage. In the Turkish +
+// English mode a phrase detected as anything else is decoded again pinned.
+async function decodeSegment(samples, languageId) {
+  const multilingual = !!(findModel(recognizerModel) || {}).multilingual;
+  if (!multilingual) return decodeOnce(samples, 'en');
+  const first = await decodeOnce(samples, whisperLanguage(languageId));
+  const retry = pinnedRetryLanguage(languageId, first.lang);
+  return retry ? decodeOnce(samples, retry) : first;
 }
 
 function ensureVad() {
@@ -146,6 +176,7 @@ function drain() {
   }
   if (!segments.length) return;
   const forSession = target;
+  const language = targetLanguage;
   decodeQueue(async () => {
     // Decoding a phrase takes ~1s, which reads as "nothing happened" unless the
     // indicator says otherwise — so the renderer is told when we're working.
@@ -154,11 +185,7 @@ function drain() {
       for (const samples of segments) {
         // A stop mid-decode means the user has moved on; drop the rest.
         if (target !== forSession) return;
-        const stream = recognizer.createStream();
-        // Padded: a segment whose audio stops on the final phoneme loses that
-        // syllable ("kaydet" -> "kay"). See TAIL_PADDING_SECONDS.
-        stream.acceptWaveform({ samples: withTailPadding(samples, TAIL_PADDING), sampleRate: SAMPLE_RATE });
-        const result = await recognizer.decodeAsync(stream);
+        const result = await decodeSegment(samples, language);
         // Filter here rather than in the renderer so a silence hallucination never
         // crosses the IPC boundary at all; the renderer only decides spacing.
         const text = normalizeTranscript(result && result.text);
@@ -174,8 +201,9 @@ function drain() {
 }
 
 // --- IPC ---------------------------------------------------------------------
-// Desktop-only: voice input is driven by this machine's mouse cursor and
-// microphone, so none of these channels are exposed to a paired phone.
+// Desktop-only: voice input is driven by this machine's keyboard focus (or a held
+// New session button) and microphone, so none of these channels are exposed to a
+// paired phone.
 
 bridge.handle('stt-status', async () => {
   const dir = root();
@@ -193,9 +221,9 @@ bridge.handle('stt-status', async () => {
 // Load the weights without arming anything. Called when the user switches voice
 // input on, so the ~2.7s model load happens then rather than inside the first
 // hover, where it would swallow the opening words of the first phrase.
-bridge.handle('stt-warm', async (_e, { modelId, language } = {}) => {
+bridge.handle('stt-warm', async (_e, { modelId } = {}) => {
   try {
-    await ensureRecognizer(pickModelId(modelId), pickLanguage(language));
+    await ensureRecognizer(pickModelId(modelId));
     ensureVad();
     return { ok: true };
   } catch (err) {
@@ -210,11 +238,12 @@ bridge.handle('stt-start', async (_e, { sessionId, modelId, language } = {}) => 
   try {
     const id = pickModelId(modelId);
     const lang = pickLanguage(language);
-    await ensureRecognizer(id, lang);
+    await ensureRecognizer(id);
     ensureVad();
     vad.reset();
     audioErrorReported = false;
     target = sessionId || null;
+    targetLanguage = lang;
     return { ok: true, modelId: id, language: lang };
   } catch (err) {
     console.error('[voice] start failed:', err && err.message);
@@ -240,13 +269,25 @@ bridge.on('stt-audio', (_e, samples) => {
 });
 
 // Flushing on stop transcribes the phrase in progress instead of discarding it —
-// the user stopped hovering mid-sentence, but they still said the words.
-bridge.on('stt-stop', () => {
-  if (!vad) { target = null; return; }
+// the user stopped hovering mid-sentence, but they still said the words. Resolves
+// once that last phrase has been decoded and its `stt-text` sent.
+function stopCapture() {
+  const stopping = target;
+  if (!vad) { target = null; return Promise.resolve(); }
   try { vad.flush(); drain(); } catch (err) { console.error('[voice] flush failed:', err && err.message); }
   // Queued behind the flushed phrase's decode, so it still sees the session it was
-  // captured for; the limiter runs tasks FIFO.
-  decodeQueue(() => { target = null; });
+  // captured for; the limiter runs tasks FIFO. Only clears the target it stopped:
+  // a capture armed meanwhile (dictation handing over to the New session hold)
+  // must not be cut off by the previous one's late stop.
+  return decodeQueue(() => { if (target === stopping) target = null; });
+}
+bridge.on('stt-stop', () => { stopCapture(); });
+
+// The New session hold's release: the same stop, awaited, so the renderer knows
+// every phrase of the clip has arrived before it creates the session.
+bridge.handle('stt-finish', async () => {
+  await stopCapture();
+  return { ok: true };
 });
 
 // Free the weights (hundreds of MB of RAM) when voice input is switched off, and
@@ -255,7 +296,8 @@ function stopStt() {
   target = null;
   vad = null;
   recognizer = null;
-  recognizerKey = null;
+  recognizerModel = null;
+  recognizerConfig = null;
   loading = null;
 }
 bridge.on('stt-release', () => stopStt());
