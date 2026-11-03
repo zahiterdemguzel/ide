@@ -293,14 +293,32 @@ async function signIn(account) {
 
 // One account question at a time: the switch prompt, the re-login prompt, or a sign-in.
 let promptOpen = false;
+// Bumped on every switch of the active account. The 95% prompt is about the account
+// that was active when it was asked, so a switch makes it stale (see offerSwitch).
+let accountGeneration = 0;
+// Cancels the 95% prompt while it is on screen; null otherwise.
+let closeSwitchPrompt = null;
+
+let lastSwitchedTo = null;
+
+function onActiveAccountSwitched(activeId) {
+  if (activeId === lastSwitchedTo) return; // the auto-switch and main's confirmation both report it
+  lastSwitchedTo = activeId;
+  accountGeneration++;
+  closeSwitchPrompt?.();
+}
 
 async function offerSwitch(key) {
   if (promptOpen) return;
   promptOpen = true;
   rememberPrompted(key);
+  const askedGeneration = accountGeneration;
+  const trackPrompt = ({ close }) => { closeSwitchPrompt = () => close(null); };
   try {
     await refreshAccounts();
     try { usageById = (await window.api.accountsUsage()) || {}; } catch {}
+    // The 98% auto-switch (or the user) may have switched while usage was read.
+    if (accountGeneration !== askedGeneration) return;
     const current = activeAccount();
     const pct = Math.round((fiveHourUtilization(usageById[current.id]) ?? 0.95) * 100);
     const targets = rankSwitchTargets(state.accounts, usageById, state.activeId).filter((r) => r.account.loggedIn);
@@ -309,7 +327,7 @@ async function offerSwitch(key) {
 
     if (!targets.length) {
       const add = await openDialog({
-        title, body: `${intro}\n\n${t('accounts.limitNoOther')}`, singleton: 'account-switch',
+        title, body: `${intro}\n\n${t('accounts.limitNoOther')}`, singleton: 'account-switch', onOpen: trackPrompt,
         buttons: [
           { label: t('accounts.notNow'), value: false, variant: 'secondary' },
           { label: t('accounts.add'), value: true, variant: 'primary' },
@@ -336,7 +354,7 @@ async function offerSwitch(key) {
     });
 
     const pick = await openDialog({
-      title, body: `${intro}\n\n${t('accounts.switchBody')}`, content: list, singleton: 'account-switch',
+      title, body: `${intro}\n\n${t('accounts.switchBody')}`, content: list, singleton: 'account-switch', onOpen: trackPrompt,
       buttons: [
         { label: t('accounts.notNow'), value: null, variant: 'secondary' },
         { label: t('accounts.switch'), value: () => chosen, variant: 'primary' },
@@ -346,6 +364,7 @@ async function offerSwitch(key) {
     if (pick) await switchTo(pick);
   } finally {
     promptOpen = false;
+    closeSwitchPrompt = null;
   }
   askToRenewExpiredLogin(); // held back while this prompt was open
 }
@@ -373,8 +392,9 @@ async function autoSwitch(key) {
     const from = activeAccount();
     rememberPrompted(key);
     await switchTo(target.id);
+    onActiveAccountSwitched(target.id); // closes the 95% prompt, even before main confirms the switch
     lastAutoSwitchAttempt = 0; // the new account may need its own switch later
-    // Replaces the 95% prompt if it's still open, and tells whoever comes back what happened.
+    // Tells whoever comes back what happened.
     openDialog({
       title: t('accounts.autoSwitchedTitle'),
       body: t('accounts.autoSwitchedBody').replace('{from}', from ? displayName(from) : '').replace('{to}', displayName(target)),
@@ -454,7 +474,8 @@ export function initAccounts() {
   window.addEventListener('usage-updated', (e) => onUsage(e.detail));
   // Main confirms every switch (ours, or another window's): repaint, and let the
   // usage meter re-read the new account's limits.
-  window.api.onAccountChanged(async () => {
+  window.api.onAccountChanged(async ({ activeId } = {}) => {
+    if (activeId && activeId !== state.activeId) onActiveAccountSwitched(activeId);
     await refreshAccounts();
     window.dispatchEvent(new CustomEvent('account-changed'));
   });

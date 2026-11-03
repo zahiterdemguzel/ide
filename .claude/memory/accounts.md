@@ -144,8 +144,11 @@ finds an account that is signed in, has a fresh usage reading, has **no 7-day
 window** (no weekly limit — a hard rule from the user: never auto-switch to a
 weekly-limited account), and sits below 95% of its 5-hour window. No such account →
 nothing happens, the 95% prompt still shows, and it retries at most every 5 min.
-It isn't held back by an open prompt: the notice it shows (singleton
-`account-switch`) replaces a still-open 95% question. For this to work while the
+It isn't held back by an open prompt. Any switch of the active account (this
+auto-switch, the menu, another device) bumps `accountGeneration` and cancels the
+95% prompt through the close handle it registered (`closeSwitchPrompt`); a prompt
+still reading usage when the switch lands sees the generation changed and never
+opens. The auto-switch then shows its own notice (singleton `account-switch`). For this to work while the
 window is unfocused, `initUsageMeter({ pollInBackground })` keeps the 30s poll
 running in the background whenever `wantsBackgroundUsage()` (more than one
 signed-in account).

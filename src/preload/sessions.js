@@ -16,6 +16,7 @@ module.exports = {
   suspendSession: (id) => ipcRenderer.send('suspend-session', { id }),
   archiveIdleSessions: () => ipcRenderer.invoke('archive-idle-sessions'),
   continueInterruptedSessions: () => ipcRenderer.invoke('continue-interrupted-sessions'),
+  sendPromptToSessions: (ids, text) => ipcRenderer.invoke('send-prompt-to-sessions', { ids, text }),
   resumeSession: (id, { cols, rows }) => ipcRenderer.invoke('resume-session', { id, cols, rows }),
   killSession: (id) => ipcRenderer.send('kill-session', { id }),
   // Worktree sessions: closing one decides the fate of its checkout, so unlike

@@ -12,8 +12,14 @@
 // Esc and ::backdrop with it.
 
 // One dialog per key may be open (`singleton`): a burst of errors replaces the
-// open one instead of stacking a wall of dialogs.
+// open one instead of stacking a wall of dialogs. Maps the key to the open
+// dialog's `finish`, so a replaced dialog settles (with its cancelValue) at once.
 const openByKey = new Map();
+
+// Closes the open dialog under this singleton key, if any, as if it were cancelled.
+export function closeDialog(singleton) {
+  openByKey.get(singleton)?.();
+}
 
 // A spec is:
 //   title, tone ('error' reddens the title), body, mono (monospace body, for
@@ -37,7 +43,7 @@ export function openDialog(spec = {}) {
     content, dismissible = true, onOpen,
   } = spec;
 
-  if (singleton) openByKey.get(singleton)?.close();
+  if (singleton) closeDialog(singleton);
 
   const dlg = document.createElement('dialog');
   dlg.className = tone === 'error' ? 'dlg is-error' : 'dlg';
@@ -80,7 +86,7 @@ export function openDialog(spec = {}) {
     const finish = (value) => {
       if (settled) return;
       settled = true;
-      if (singleton) openByKey.delete(singleton);
+      if (singleton && openByKey.get(singleton) === finish) openByKey.delete(singleton);
       dlg.onclose = null;
       dlg.close();
       dlg.remove();
@@ -124,7 +130,7 @@ export function openDialog(spec = {}) {
     }
 
     document.body.append(dlg);
-    if (singleton) openByKey.set(singleton, dlg);
+    if (singleton) openByKey.set(singleton, finish);
     dlg.showModal();
     onOpen?.({ dlg, close: finish });
     inputEl?.focus();

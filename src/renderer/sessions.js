@@ -12,6 +12,7 @@ import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
 import { reconcileArchived } from './shared/session-archive.js';
+import { BROADCAST_KINDS, DEFAULT_BROADCAST_KINDS, countByKind, broadcastTargetIds } from './shared/session-broadcast.js';
 import {
   getSessionModel, getSubagentModel, setSessionModel, getSessionEffort, setSessionEffort,
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
@@ -167,7 +168,7 @@ function setState(id, state) {
   // A session that was working has just finished — pull the user's eye back with a
   // one-shot row/dot animation and a chime, since the result is likely off-screen.
   if (isCompletionTransition(prev, state)) celebrateFinish(s);
-  if (prev === 'interrupted' || state === 'interrupted') updateContinueButton();
+  if (affectsHeadButtons(prev, state)) updateSessionHeadButtons();
   // A worktree session's badge can't ride on session-meta: it has no tracked-file
   // list, because its filesystem tracking is off (the tree IS the attribution).
   // Its status dot moving is the reliable "it did something" signal, and the stat
@@ -299,7 +300,7 @@ function applyTabFilter() {
   const inOrder = rows.length === listEl.children.length
     && rows.every((s, i) => listEl.children[i] === s.li);
   if (!inOrder) for (const s of rows) listEl.appendChild(s.li);
-  updateContinueButton();
+  updateSessionHeadButtons();
 }
 
 // When the selected session leaves the current tab (archived/restored/closed),
@@ -1261,29 +1262,109 @@ sessionArchiveBtn.onclick = () => { if (activeId) setArchived(activeId, true); }
 // handler the phone's clean button calls, so both clean the same set) and pushes
 // the list once; syncSessions mirrors the archive and re-selects a visible row.
 // Nothing is archived optimistically here — main checks for background work first.
-async function clearIdleSessions() {
+document.getElementById('sessions-clear').onclick = async (e) => {
+  e.currentTarget.disabled = true;
   await window.api.archiveIdleSessions().catch(() => null);
-}
-document.getElementById('sessions-clear').onclick = clearIdleSessions;
+  updateSessionHeadButtons();
+};
 
 // Sidebar "continue": main types "continue" into every interrupted (red) session
-// of the open project, resuming the ones restored from disk first. Enabled only
-// while there is at least one such session.
-// Looked up on use: applyTabFilter can run before this part of the module has.
-function updateContinueButton() {
-  const btn = document.getElementById('sessions-continue');
-  let any = false;
-  for (const [, s] of sessions) {
-    if (s.state === 'interrupted' && !s.archived && (currentRepo === undefined || s.repo === currentRepo)) { any = true; break; }
-  }
-  btn.disabled = !any;
-}
-
+// of the open project, resuming the ones restored from disk first.
 document.getElementById('sessions-continue').onclick = async (e) => {
   e.currentTarget.disabled = true;
   await window.api.continueInterruptedSessions().catch(() => null);
-  updateContinueButton();
+  updateSessionHeadButtons();
 };
+
+// Sidebar "send": one prompt typed into every active session of the open project
+// whose state group is ticked. The text field holds focus throughout (ticking a box
+// hands it back), so typing and Enter alone send it. The ticks persist per app run.
+let broadcastKinds = DEFAULT_BROADCAST_KINDS;
+
+function sessionRows() {
+  return [...sessions].map(([id, s]) => ({ id, repo: s.repo, archived: s.archived, state: s.state }));
+}
+
+document.getElementById('sessions-broadcast').onclick = async () => {
+  const counts = countByKind(sessionRows(), currentRepo);
+  const list = document.createElement('div');
+  list.className = 'broadcast-list';
+  const boxes = BROADCAST_KINDS.map((kind) => {
+    const row = document.createElement('label');
+    row.className = 'broadcast-row';
+    row.classList.toggle('is-empty', !counts[kind]);
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = broadcastKinds.includes(kind);
+    box.dataset.kind = kind;
+    const name = document.createElement('span');
+    name.className = 'broadcast-name';
+    name.textContent = t(`sessions.broadcastKind.${kind}`);
+    const count = document.createElement('span');
+    count.className = 'broadcast-count';
+    count.textContent = String(counts[kind]);
+    row.append(box, name, count);
+    list.append(row);
+    return box;
+  });
+  const tickedKinds = () => boxes.filter((b) => b.checked).map((b) => b.dataset.kind);
+
+  const text = await openDialog({
+    title: t('sessions.broadcastTitle'),
+    content: list,
+    input: { placeholder: t('sessions.broadcastPlaceholder') },
+    buttons: [
+      { label: t('sessions.cancel'), value: null },
+      { label: t('sessions.broadcastSend'), value: (typed) => typed, variant: 'primary' },
+    ],
+    onOpen: ({ dlg }) => {
+      const input = dlg.querySelector('.dlg-input');
+      const send = dlg.querySelector('.dlg-btn-primary');
+      // The Send button names how many sessions it reaches, and is off while that
+      // is none or nothing is typed (Enter clicks it, so Enter is off too).
+      const refresh = () => {
+        const n = broadcastTargetIds(sessionRows(), currentRepo, tickedKinds()).length;
+        send.textContent = t('sessions.broadcastSendN').replace('{n}', String(n));
+        send.disabled = !n || !input.value.trim();
+      };
+      input.addEventListener('input', refresh);
+      for (const box of boxes) box.addEventListener('change', () => { refresh(); input.focus(); });
+      refresh();
+    },
+  });
+  broadcastKinds = tickedKinds();
+  if (!text) return;
+  const ids = broadcastTargetIds(sessionRows(), currentRepo, broadcastKinds);
+  if (ids.length) await window.api.sendPromptToSessions(ids, text).catch(() => null);
+};
+
+// Mirrors main's BUSY_STATES (session-query-lib.js): sessions a bulk clean leaves alone.
+const CLEAN_SKIPS_STATES = new Set(['working', 'bg-agents', 'needs-input']);
+
+// Only a move into/out of a busy or interrupted state can change either button.
+function affectsHeadButtons(prev, state) {
+  return CLEAN_SKIPS_STATES.has(prev) !== CLEAN_SKIPS_STATES.has(state)
+    || (prev === 'interrupted') !== (state === 'interrupted');
+}
+
+// "send" is enabled while the open project has any active session, "clear" while
+// it has one that isn't busy (main may still skip one with background work), and
+// "continue" while it has an interrupted one. Looked up on use: applyTabFilter can
+// run before this part of the module has.
+function updateSessionHeadButtons() {
+  let anyActive = false;
+  let anyIdle = false;
+  let anyInterrupted = false;
+  for (const [, s] of sessions) {
+    if (s.archived || (currentRepo !== undefined && s.repo !== currentRepo)) continue;
+    anyActive = true;
+    if (!CLEAN_SKIPS_STATES.has(s.state)) anyIdle = true;
+    if (s.state === 'interrupted') anyInterrupted = true;
+  }
+  document.getElementById('sessions-broadcast').disabled = !anyActive;
+  document.getElementById('sessions-clear').disabled = !anyIdle;
+  document.getElementById('sessions-continue').disabled = !anyInterrupted;
+}
 
 // --- per-session Diff dialog: floats over the live terminal (kept alive behind
 // it, so the user doesn't lose track of which session it is). Closes on the ×, on

@@ -42,7 +42,8 @@ Buttons: `{label, value, variant: 'primary'|'secondary'|'danger', keepOpen, onCl
 — `value` may be a function of the input's trimmed text (that's how `promptText`
 maps blank → `null`). `keepOpen` is for Copy, which must not dismiss the text it
 just copied. `singleton: 'warn'` means a burst of errors replaces the open dialog
-instead of stacking a pile of them.
+instead of stacking a pile of them; the replaced dialog settles at once with its
+`cancelValue`, and `closeDialog(key)` cancels the one open under a key.
 
 ## The pickString picker
 

@@ -1708,7 +1708,27 @@ bridge.handle('continue-interrupted-sessions', guard('continuing interrupted ses
   return { continued: results.filter(Boolean).length };
 }, { continued: 0 }));
 
-async function continueInterruptedSession(id) {
+function continueInterruptedSession(id) {
+  return typePromptIntoSession(id, CONTINUE_INTERRUPTED_PROMPT);
+}
+
+// The sidebar's "send to sessions" button: type the same prompt into each chosen
+// session. The renderer picks the ids from its filter; archived ones are skipped
+// here so a stale pick can't silently un-archive a session.
+bridge.handle('send-prompt-to-sessions', guard('sending a prompt to sessions', async (_e, { ids, text } = {}) => {
+  const prompt = typeof text === 'string' ? text.trim() : '';
+  if (!prompt || !Array.isArray(ids)) return { sent: 0 };
+  const targets = ids.filter((id) => sessions.has(id) && !sessions.get(id).archived);
+  const results = await Promise.all(targets.map((id) => typePromptIntoSession(id, prompt).catch((err) => {
+    reportSessionError('sending a prompt to a session', err);
+    return false;
+  })));
+  return { sent: results.filter(Boolean).length };
+}, { sent: 0 }));
+
+// Type `text` + a delayed Enter into a session. One restored from disk has no PTY
+// yet, so it is resumed first and the prompt waits for the resumed TUI to settle.
+async function typePromptIntoSession(id, text) {
   const s = sessions.get(id);
   if (!s) return false;
   if (!s.pty) {
@@ -1721,7 +1741,7 @@ async function continueInterruptedSession(id) {
     await waitForTui(s);
   }
   if (!s.pty) return false;
-  s.pty.write(CONTINUE_INTERRUPTED_PROMPT);
+  s.pty.write(text);
   await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
   if (!s.pty) return false;
   s.pty.write('\r');

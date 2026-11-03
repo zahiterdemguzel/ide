@@ -362,13 +362,13 @@
 }
 /* Right-hand column of the header: icon-only actions, pushed to the edge. */
 .sessions-head-actions { display: flex; justify-content: flex-end; }
-#sessions-continue, #sessions-clear {
+#sessions-broadcast, #sessions-continue, #sessions-clear {
   background: none; border: none; color: var(--fg-dim); cursor: pointer;
   display: inline-flex; align-items: center; padding: 4px; border-radius: 4px;
   transition: background .1s ease, color .1s ease;
 }
-#sessions-continue:not(:disabled):hover, #sessions-clear:hover { color: var(--fg); background: var(--bg-3); }
-#sessions-continue:disabled { opacity: .35; cursor: default; }
+#sessions-broadcast:not(:disabled):hover, #sessions-continue:not(:disabled):hover, #sessions-clear:not(:disabled):hover { color: var(--fg); background: var(--bg-3); }
+#sessions-broadcast:disabled, #sessions-continue:disabled, #sessions-clear:disabled { opacity: .35; cursor: default; }
 /* Same segmented control as the git pane's Changes/History tabs, one size down:
    it picks which tree the NEXT session runs in, so naming both states beats a
    switch whose off-position has to be guessed. */
@@ -405,12 +405,15 @@
   max-height: 220px; overflow-y: auto; margin-bottom: 16px;
   border: 1px solid var(--border); border-radius: 6px;
 }
-.wt-scan-row {
+.wt-scan-row,
+.broadcast-row {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 10px; font-size: 12px; cursor: pointer;
 }
-.wt-scan-row + .wt-scan-row { border-top: 1px solid var(--border); }
-.wt-scan-row:hover { background: var(--bg-3); }
+.wt-scan-row + .wt-scan-row,
+.broadcast-row + .broadcast-row { border-top: 1px solid var(--border); }
+.wt-scan-row:hover,
+.broadcast-row:hover { background: var(--bg-3); }
 .wt-scan-path {
   flex: 1; min-width: 0; color: var(--fg);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -476,3 +479,16 @@ body.on-worktree #toolbar { box-shadow: inset 0 -2px 0 var(--accent); }
 }
 #tree-scope .tree-scope-x { opacity: .6; }
 #tree-scope:hover .tree-scope-x { opacity: 1; }
+
+/* "Send to sessions": the state filters, styled like the pre-scan list above.
+   A group with no sessions stays listed but dims, so the layout doesn't jump. */
+.broadcast-list {
+  margin-bottom: 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.broadcast-row.is-empty { opacity: .5; }
+.broadcast-name { flex: 1; color: var(--fg); }
+.broadcast-count {
+  flex: none; color: var(--fg-dim);
+  font-family: Consolas, monospace; font-variant-numeric: tabular-nums;
+}
