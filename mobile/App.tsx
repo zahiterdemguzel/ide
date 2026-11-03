@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppState, StyleSheet, View } from 'react-native';
-import { color, TAB_BAR_HEIGHT } from './src/theme';
+import { color, TAB_BAR_HEIGHT, tint } from './src/theme';
 import { Connection, ConnectionState } from './src/api/connection';
 import { loadCredentials, saveCredentials, clearCredentials, Endpoints, PairInfo } from './src/api/pairing';
 import { Instance, instanceEndpoints } from './src/api/instances';
@@ -18,6 +18,7 @@ import ProjectDrawer from './src/components/ProjectDrawer';
 import RunDrawer from './src/components/RunDrawer';
 import { ChromeContext } from './src/components/ScreenHeader';
 import ErrorDialog, { showNotice } from './src/components/ErrorDialog';
+import { ToastHost } from './src/components/feedback';
 import { AlertFeed } from './src/api/notifications';
 import { registerPush, onNotificationTap } from './src/api/push';
 import WelcomeScreen from './src/screens/WelcomeScreen';
@@ -31,6 +32,8 @@ import PortsScreen from './src/screens/PortsScreen';
 import BrowserScreen from './src/screens/BrowserScreen';
 import ControlScreen from './src/screens/ControlScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
+import FileScreen from './src/screens/FileScreen';
+import FileViewerScreen from './src/screens/FileViewerScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -336,6 +339,11 @@ export default function App() {
                     (a dev server's log), which is a terminal by nature. */}
                 <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Console" component={ConsoleTerminal} options={{ headerShown: false }} />
+                {/* A file a chat link opened — stacked so back returns to the chat. */}
+                <Stack.Screen name="File" component={FileScreen} options={{ headerShown: false }} />
+                {/* The Files tab's viewer/editor, pushed so it gets native swipe-back and
+                    hides the tab bar while a file is open. */}
+                <Stack.Screen name="FileViewer" component={FileViewerScreen} options={{ headerShown: false }} />
                 {/* Pushed from the bell in any tab's header, not a tab of its own:
                     it's a log you visit, not a place you work. */}
                 <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
@@ -345,6 +353,7 @@ export default function App() {
         </NavigationContainer>
         {/* Sits above navigation so any error, on any screen, surfaces here. */}
         <ErrorDialog />
+        <ToastHost />
       </SafeAreaProvider>
     </ConnectionContext.Provider>
   );
@@ -352,5 +361,5 @@ export default function App() {
 
 const styles = StyleSheet.create({
   tabIcon: { paddingHorizontal: 16, paddingVertical: 3, borderRadius: 999 },
-  tabIconOn: { backgroundColor: 'rgba(31, 111, 235, 0.18)' },
+  tabIconOn: { backgroundColor: tint.fillStrong(color.accentDim) },
 });

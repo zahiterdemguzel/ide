@@ -43,6 +43,13 @@ module.exports = [
   },
 
   {
+    // The phone's pure helpers: ESM (mobile/src/lib/package.json says so) so node:test
+    // can import them, and environment-free so the same file runs under Metro.
+    files: ['mobile/src/lib/**/*.js'],
+    languageOptions: { sourceType: 'module', ecmaVersion: 'latest' },
+  },
+
+  {
     files: ['test/**/*.js'],
     languageOptions: { sourceType: 'commonjs', globals: { ...globals.node } },
   },

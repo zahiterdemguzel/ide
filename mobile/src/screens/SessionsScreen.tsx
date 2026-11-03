@@ -15,8 +15,8 @@
 // lens on what you've scrolled to), not a sync bug.
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, SectionList, Pressable, Alert, ActivityIndicator, Modal,
-  Animated, Easing, StyleSheet,
+  View, Text, TextInput, SectionList, Pressable, ActivityIndicator, Modal, ScrollView,
+  Animated, Easing, StyleSheet, RefreshControl, useWindowDimensions, type LayoutRectangle,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,14 +24,20 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useConnection } from '../api/context';
 import StateDot from '../components/StateDot';
 import ScreenHeader, { ChromeContext, NoProject } from '../components/ScreenHeader';
-import { Card, CategoryLabel, Pill, IconButton } from '../components/ui';
-import { showError } from '../components/ErrorDialog';
+import {
+  Card, CategoryLabel, Pill, IconButton, EmptyState, LoadingState, ErrorState,
+} from '../components/ui';
+import { showError, showNotice, errorText } from '../components/ErrorDialog';
+import { confirmAction, haptic, showToast } from '../components/feedback';
+import { cliCheckChannel, cliForModel, cliProblem } from '../lib/cli-check';
 import { shortAgo } from '../api/time';
 import {
   MODELS, CODEX_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, getSessionEffort, modelSuffix, modelBadgeName,
   OllamaModel,
 } from '../api/models';
-import { color, radius, font, type, motion, shadow, tint, TAB_BAR_HEIGHT } from '../theme';
+import {
+  color, radius, font, type, motion, shadow, tint, TAB_BAR_HEIGHT, MODAL_TOP_SHIFT,
+} from '../theme';
 
 const PAGE = 30;
 // Safety net behind the sessions-changed push: a dropped socket or a missed event
@@ -79,22 +85,35 @@ const GROUPS: { key: string; label: string; hue: string; is: (s: Session) => boo
 // How collapsed the model menu starts, matching the desktop's `scaleY(0.85)`.
 const MENU_SCALE = 0.85;
 
-// The split button's own height (13px padding either side of a 20px icon) plus the
-// gap under it, so the menu can be parked just above the button it grows out of.
-const NEW_BUTTON_HEIGHT = 46;
-const NEW_BUTTON_GAP = 12;
+// Space between the split button's top edge and the menu that grows out of it.
 const MENU_GAP = 8;
+// The menu never covers more than this share of the screen, however many models the
+// desktop has installed — past it, the list scrolls.
+const MENU_MAX_SHARE = 0.6;
+// Before the split button has been measured (first frame), park the menu where the
+// button's usual height would put it.
+const FALLBACK_BUTTON_SPAN = 58;
 
 export default function SessionsScreen({ navigation }: any) {
   const { conn } = useConnection();
   const { project } = useContext(ChromeContext);
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [items, setItems] = useState<Session[]>([]);
   const [total, setTotal] = useState(0);
   const [counts, setCounts] = useState<Counts>(NO_COUNTS);
   const [repo, setRepo] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('active');
   const [loadingMore, setLoadingMore] = useState(false);
+  // Whether the current tab/query has answered at least once. Before that the list is
+  // *unknown*, not empty, so it shows a spinner rather than "No sessions yet".
+  const [hasLoaded, setHasLoaded] = useState(false);
+  // The last fetch failure, shown in place of the list only when there's nothing
+  // loaded to fall back on.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // A pull-to-refresh in flight — the only refresh that shows the spinner; polls and
+  // pushes refresh silently.
+  const [pulling, setPulling] = useState(false);
 
   // The model a new session spawns with: the last one picked from the caret menu,
   // shown on the button so it's clear what a plain tap will use.
@@ -132,8 +151,19 @@ export default function SessionsScreen({ navigation }: any) {
 
   // The menu lives in a Modal, which covers the tab bar — so where it sits is
   // measured from the window's bottom, not the screen's: clear the gesture inset,
-  // then the tab bar, then the button it belongs to.
-  const menuLift = insets.bottom + TAB_BAR_HEIGHT + NEW_BUTTON_GAP + NEW_BUTTON_HEIGHT + MENU_GAP;
+  // then the tab bar, then everything from the split button's top edge down to the
+  // bottom of this screen (measured, so a font-scale change can't misplace it).
+  const [screenHeight, setScreenHeight] = useState(0);
+  const [buttonLayout, setButtonLayout] = useState<LayoutRectangle | null>(null);
+  const buttonSpan = buttonLayout && screenHeight
+    ? screenHeight - buttonLayout.y
+    : FALLBACK_BUTTON_SPAN;
+  const menuLift = insets.bottom + TAB_BAR_HEIGHT + buttonSpan + MENU_GAP;
+  // Room above the menu: the window less the lift, the status bar and a margin.
+  const menuMaxHeight = Math.max(
+    160,
+    Math.min(windowHeight * MENU_MAX_SHARE, windowHeight - menuLift - insets.top - MODAL_TOP_SHIFT - 24),
+  );
 
   const openMenu = () => { setMenuOpen(true); slide(1); };
   // Unmount only once the menu has finished collapsing, the way the desktop waits
@@ -187,8 +217,12 @@ export default function SessionsScreen({ navigation }: any) {
       setItems(page.items);
       setTotal(page.total);
       setCounts(page.counts);
-    } catch {
-      // Socket dropped mid-request; the reconnect's 'ready' re-runs this.
+      setHasLoaded(true);
+      setLoadError(null);
+    } catch (e: any) {
+      // Usually a socket dropped mid-request, and the reconnect's 'ready' re-runs
+      // this. Kept so an empty list can say it failed instead of claiming "empty".
+      setLoadError(errorText(e));
     } finally {
       busy.current = false;
     }
@@ -198,6 +232,11 @@ export default function SessionsScreen({ navigation }: any) {
     () => refetch(Math.max(PAGE, loaded.current)),
     [refetch],
   );
+
+  const pullToRefresh = useCallback(async () => {
+    setPulling(true);
+    try { await refresh(); } finally { setPulling(false); }
+  }, [refresh]);
 
   const loadMore = useCallback(async () => {
     const offset = loaded.current;
@@ -224,6 +263,8 @@ export default function SessionsScreen({ navigation }: any) {
   useEffect(() => {
     setItems([]);
     setTotal(0);
+    setHasLoaded(false);
+    setLoadError(null);
     refetch(PAGE);
   }, [refetch]);
 
@@ -237,6 +278,14 @@ export default function SessionsScreen({ navigation }: any) {
       // deleted / evicted), from whichever client made it. It carries no payload for
       // remote clients — the list is paged, so it's purely a "refetch" signal.
       conn?.on('sessions-changed', () => refresh()),
+      // Main dropped sessions from memory (its cap on live sessions). Take them off
+      // the list at once, then refetch for the authoritative page.
+      conn?.on('session-evicted', ({ ids }: any) => {
+        if (Array.isArray(ids) && ids.length) {
+          setItems((prev) => prev.filter((s) => !ids.includes(s.id)));
+        }
+        refresh();
+      }),
       // Switching project (here or on the desktop) re-scopes the list.
       conn?.on('folder-changed', () => refresh()),
       // Reconnecting means any change made while the socket was down was missed.
@@ -292,21 +341,39 @@ export default function SessionsScreen({ navigation }: any) {
     if (t !== 'archived') setSearch('');
   };
 
+  // One create at a time: the CLI check plus the spawn take a beat, and a second tap
+  // in that window would otherwise start a second session.
+  const [creating, setCreating] = useState(false);
   const newSession = async (chosen?: string) => {
+    if (!conn || creating) return;
+    setCreating(true);
+    haptic.tap();
     const model = chosen ?? (await getSessionModel());
     if (chosen) await setSessionModel(chosen);
     setModel(model);
     try {
-      const r: any = await conn?.req('new-session', { cols: 80, rows: 30, model, effort: await getSessionEffort() });
+      // Is the CLI this model runs on installed on the desktop? A missing one would
+      // otherwise fail deep in the spawn with an error that doesn't say what to do.
+      // A check that can't be answered (older desktop) doesn't block the create.
+      const check = await conn.req<any>(cliCheckChannel(model)).catch(() => null);
+      const problem = cliProblem(cliForModel(model), check);
+      if (problem) {
+        haptic.warning();
+        showNotice(problem.title, problem.message);
+        return;
+      }
+      const r: any = await conn.req('new-session', { cols: 80, rows: 30, model, effort: await getSessionEffort() });
       // The desktop wraps handler failures in { error } instead of rejecting.
       if (r?.error || !r?.id) {
         showError('Could not create session', r?.error ?? 'Unknown error');
         return;
       }
+      haptic.success();
       navigation.navigate('Chat', { id: r.id });
     } catch (e: any) {
       showError('Could not create session', e);
     } finally {
+      setCreating(false);
       refresh();
     }
   };
@@ -320,14 +387,43 @@ export default function SessionsScreen({ navigation }: any) {
   // the exception: resuming un-archives it, so opening one just to read it would pull
   // it back into Active everywhere. It opens read-only and resumes when you send it a
   // message (see ChatScreen's send), or via its Restore button.
+  //
+  // Resuming spawns a process, which takes a moment — the row shows a spinner and
+  // ignores further taps until it's done. A resume the desktop refused (`ok: false`:
+  // the session is gone, or the spawn failed) still opens the chat, read-only, so the
+  // conversation can be read; only a request that never got an answer stays put.
+  const [resumingId, setResumingId] = useState<string | null>(null);
   const open = async (s: Session) => {
-    if (!s.live && !s.archived) await conn?.req('resume-session', { id: s.id, cols: 80, rows: 30 });
-    navigation.navigate('Chat', { id: s.id, name: title(s) });
+    if (resumingId) return;
+    if (s.live || s.archived) {
+      navigation.navigate('Chat', { id: s.id, name: title(s) });
+      return;
+    }
+    setResumingId(s.id);
+    try {
+      const r = await conn?.req<{ ok?: boolean } | undefined>('resume-session', { id: s.id, cols: 80, rows: 30 });
+      if (!r?.ok) {
+        showError('Could not resume session', `“${title(s)}” couldn't be restarted on the desktop, so it opens read-only.`);
+      }
+      navigation.navigate('Chat', { id: s.id, name: title(s) });
+    } catch (e: any) {
+      showError('Could not open session', e);
+    } finally {
+      setResumingId(null);
+    }
   };
 
+  // Archiving is reversible, so it asks nothing — the toast offers Undo instead.
   const archive = (s: Session) => {
     conn?.send('suspend-session', { id: s.id });
     setItems((prev) => prev.map((x) => (x.id === s.id ? { ...x, archived: true } : x)));
+    haptic.tap();
+    showToast({
+      message: `Archived “${title(s)}”`,
+      tone: 'info',
+      actionLabel: 'Undo',
+      onAction: () => { unarchive(s); },
+    });
     refresh();
   };
 
@@ -349,9 +445,19 @@ export default function SessionsScreen({ navigation }: any) {
     }
   };
 
+  // Restoring resumes the session, which un-archives it everywhere.
   const unarchive = async (s: Session) => {
-    await conn?.req('resume-session', { id: s.id, cols: 80, rows: 30 });
-    refresh();
+    if (resumingId) return;
+    setResumingId(s.id);
+    try {
+      const r = await conn?.req<{ ok?: boolean } | undefined>('resume-session', { id: s.id, cols: 80, rows: 30 });
+      if (!r?.ok) showError('Could not restore session', `“${title(s)}” couldn't be restored on the desktop.`);
+    } catch (e: any) {
+      showError('Could not restore session', e);
+    } finally {
+      setResumingId(null);
+      refresh();
+    }
   };
 
   // Per-row commit, keyed by id: a Set rather than a boolean because two settled
@@ -359,13 +465,24 @@ export default function SessionsScreen({ navigation }: any) {
   const [committing, setCommitting] = useState<Set<string>>(new Set());
   const commit = async (s: Session) => {
     if (!conn || committing.has(s.id)) return;
+    // One tap commits *and pushes* — it leaves the machine, so it asks first.
+    const ok = await confirmAction({
+      title: 'Commit and push?',
+      message: `Commits the changes from “${title(s)}” (+${s.added} −${s.removed}) and pushes them to the remote.`,
+      confirmLabel: 'Commit & push',
+      destructive: false,
+    });
+    if (!ok) return;
     setCommitting((prev) => new Set(prev).add(s.id));
     try {
       const r = await conn.req<{ ok: boolean; stderr?: string }>('commit-session', s.id);
       if (!r?.ok) showError('Commit failed', r?.stderr || 'Commit failed');
-      // Main marks the session 'pushed' and pushes sessions-changed; refresh so the
-      // diff pill collapses to "pushed" without waiting for the next poll tick.
-      else refresh();
+      else {
+        showToast({ message: 'Committed and pushed', tone: 'success' });
+        // Main marks the session 'pushed' and pushes sessions-changed; refresh so the
+        // diff pill collapses to "pushed" without waiting for the next poll tick.
+        refresh();
+      }
     } catch (e: any) {
       showError('Commit failed', e);
     } finally {
@@ -377,23 +494,16 @@ export default function SessionsScreen({ navigation }: any) {
     }
   };
 
-  const remove = (s: Session) => {
-    Alert.alert(
-      'Delete session?',
-      `“${title(s)}” will be permanently deleted. Its conversation cannot be restored.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            conn?.send('kill-session', { id: s.id });
-            setItems((prev) => prev.filter((x) => x.id !== s.id));
-            refresh();
-          },
-        },
-      ],
-    );
+  const remove = async (s: Session) => {
+    const ok = await confirmAction({
+      title: 'Delete session?',
+      message: `“${title(s)}” will be permanently deleted. Its conversation cannot be restored.`,
+      confirmLabel: 'Delete',
+    });
+    if (!ok) return;
+    conn?.send('kill-session', { id: s.id });
+    setItems((prev) => prev.filter((x) => x.id !== s.id));
+    refresh();
   };
 
   // The All tab mixes live and archived sessions, so its useful split is that one —
@@ -414,15 +524,33 @@ export default function SessionsScreen({ navigation }: any) {
     })).filter((g) => g.data.length > 0);
   }, [items, tab]);
 
-  const emptyText = useMemo(() => {
-    if (!repo) return 'Open a project first.';
-    if (tab === 'archived') {
-      return query ? `No archived sessions match “${query}”.` : 'No archived sessions.';
+  const listEmpty = () => {
+    if (!hasLoaded) {
+      return loadError
+        ? <ErrorState title="Couldn't load sessions" message={loadError} onRetry={refresh} />
+        : <LoadingState label="Loading sessions…" />;
     }
-    return 'No sessions yet — tap New session.';
-  }, [repo, tab, query]);
+    if (!repo) {
+      return <EmptyState icon="folder-open-outline" title="No project open" message="Open a project first." />;
+    }
+    if (tab === 'archived') {
+      return query
+        ? <EmptyState icon="search" title="No matches" message={`No archived sessions match “${query}”.`} />
+        : <EmptyState icon="archive-outline" title="No archived sessions" message="Sessions you archive land here." />;
+    }
+    return (
+      <EmptyState
+        icon="chatbubbles-outline"
+        title="No sessions yet"
+        message="Start one with New session below — it runs on the desktop and shows up there too."
+      />
+    );
+  };
 
-  const actions = (s: Session) => (s.archived ? (
+  // While a row is resuming, its actions give way to a spinner of the same footprint.
+  const actions = (s: Session) => (resumingId === s.id ? (
+    <ActivityIndicator size="small" color={color.muted} style={styles.commitSpin} />
+  ) : s.archived ? (
     <>
       <IconButton icon="arrow-up-circle-outline" label="Restore" onPress={() => unarchive(s)} />
       <IconButton icon="trash-outline" label="Delete" hue={color.fileRed} onPress={() => remove(s)} />
@@ -458,17 +586,21 @@ export default function SessionsScreen({ navigation }: any) {
   }
 
   return (
-    <View style={styles.fill}>
+    <View style={styles.fill} onLayout={(e) => setScreenHeight(e.nativeEvent.layout.height)}>
       <ScreenHeader title="Sessions">
         <View style={styles.segmentRow}>
-          <View style={styles.segments}>
+          <View style={styles.segments} accessibilityRole="tablist">
             {TABS.map((t) => {
               const on = t.key === tab;
               return (
                 <Pressable
                   key={t.key}
                   style={[styles.segment, on && styles.segmentOn]}
-                  onPress={() => selectTab(t.key)}
+                  onPress={() => { if (!on) haptic.tap(); selectTab(t.key); }}
+                  hitSlop={{ top: 6, bottom: 6 }}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`${t.label}, ${counts[t.key]} sessions`}
                 >
                   <Text style={[styles.segmentLabel, on && styles.segmentLabelOn]}>
                     {t.label} <Text style={styles.segmentCount}>{counts[t.key]}</Text>
@@ -502,9 +634,15 @@ export default function SessionsScreen({ navigation }: any) {
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="search"
+              accessibilityLabel="Search archived sessions"
             />
             {search.length > 0 && (
-              <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel="Clear search">
+              <Pressable
+                onPress={() => setSearch('')}
+                hitSlop={14}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
                 <Ionicons name="close-circle" size={16} color={color.faint} />
               </Pressable>
             )}
@@ -515,8 +653,15 @@ export default function SessionsScreen({ navigation }: any) {
       <SectionList
         sections={sections}
         keyExtractor={(s) => s.id}
-        refreshing={false}
-        onRefresh={refresh}
+        refreshControl={(
+          <RefreshControl
+            refreshing={pulling}
+            onRefresh={pullToRefresh}
+            tintColor={color.muted}
+            colors={[color.accent]}
+            progressBackgroundColor={color.raised}
+          />
+        )}
         onEndReached={loadMore}
         onEndReachedThreshold={0.5}
         keyboardShouldPersistTaps="handled"
@@ -538,11 +683,12 @@ export default function SessionsScreen({ navigation }: any) {
             // while filed under Active.
             group={tab === 'all' ? GROUPS.find((g) => g.is(item))!.key : section.key}
             justFinished={justFinished.has(item.id)}
+            busy={resumingId === item.id}
             onPress={() => open(item)}
             actions={actions(item)}
           />
         )}
-        ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
+        ListEmptyComponent={listEmpty()}
         ListFooterComponent={
           loadingMore ? <ActivityIndicator style={styles.more} color={color.muted} /> : null
         }
@@ -552,15 +698,20 @@ export default function SessionsScreen({ navigation }: any) {
           half opens the picker — the desktop's #new-session / caret pair, and the
           shape this app has always used. Docked rather than a floating FAB, and a
           pill rather than a rounded rectangle, so it reads as one control. */}
-      <View style={styles.newWrap}>
+      <View style={styles.newWrap} onLayout={(e) => setButtonLayout(e.nativeEvent.layout)}>
         <Pressable
           style={({ pressed }) => [
             styles.new, styles.newMain, !repo && styles.newOff, pressed && repo && styles.newPressed,
           ]}
           onPress={() => newSession()}
-          disabled={!repo}
+          disabled={!repo || creating}
+          accessibilityRole="button"
+          accessibilityLabel={`New session${modelSuffix(model) !== '' ? ` with ${modelBadgeName(model)}` : ''}`}
+          accessibilityState={{ disabled: !repo || creating, busy: creating }}
         >
-          <Ionicons name="add" size={20} color={repo ? '#fff' : color.muted} />
+          {creating
+            ? <ActivityIndicator size="small" color="#fff" style={styles.newSpin} />
+            : <Ionicons name="add" size={20} color={repo ? '#fff' : color.muted} />}
           <Text style={[styles.newLabel, !repo && styles.newLabelOff]} numberOfLines={1}>
             New session
           </Text>
@@ -577,8 +728,10 @@ export default function SessionsScreen({ navigation }: any) {
             styles.new, styles.newCaret, !repo && styles.newOff, pressed && repo && styles.newPressed,
           ]}
           onPress={openMenu}
-          disabled={!repo}
-          accessibilityLabel="Choose model"
+          disabled={!repo || creating}
+          accessibilityRole="button"
+          accessibilityLabel="Choose model for a new session"
+          accessibilityState={{ disabled: !repo || creating }}
         >
           <Ionicons name="chevron-up" size={18} color={repo ? '#fff' : color.muted} />
         </Pressable>
@@ -592,27 +745,31 @@ export default function SessionsScreen({ navigation }: any) {
         <Animated.View style={[styles.backdrop, { opacity: anim }]}>
           <Pressable style={styles.fill} onPress={() => closeMenu()} />
           <Animated.View
-            style={[styles.menu, { marginBottom: menuLift }, menuStyle]}
+            style={[styles.menu, { marginBottom: menuLift, maxHeight: menuMaxHeight }, menuStyle]}
             onLayout={(e) => setMenuHeight(e.nativeEvent.layout.height)}
           >
             <Text style={styles.menuHeading}>New session with</Text>
-            {MODELS.filter((m) => m.id !== DEFAULT_MODEL).map((m) => (
-              <MenuItem key={m.id} label={m.name} on={m.id === model} onPress={() => closeMenu(() => newSession(m.id))} />
-            ))}
-            <View style={styles.menuDivider} />
-            {CODEX_MODELS.map((m) => (
-              <MenuItem key={m.id} label={m.name} on={m.id === model} onPress={() => closeMenu(() => newSession(m.id))} />
-            ))}
-            {ollamaModels.length > 0 && <View style={styles.menuDivider} />}
-            {ollamaModels.map((m) => (
-              <MenuItem
-                key={m.id}
-                label={m.name}
-                icon="hardware-chip-outline"
-                on={m.id === model}
-                onPress={() => closeMenu(() => newSession(m.id))}
-              />
-            ))}
+            {/* A desktop with many Ollama models would push the menu off the top of
+                the screen, so past its cap the list scrolls under the heading. */}
+            <ScrollView style={styles.menuScroll} bounces={false}>
+              {MODELS.filter((m) => m.id !== DEFAULT_MODEL).map((m) => (
+                <MenuItem key={m.id} label={m.name} on={m.id === model} onPress={() => closeMenu(() => newSession(m.id))} />
+              ))}
+              <View style={styles.menuDivider} />
+              {CODEX_MODELS.map((m) => (
+                <MenuItem key={m.id} label={m.name} on={m.id === model} onPress={() => closeMenu(() => newSession(m.id))} />
+              ))}
+              {ollamaModels.length > 0 && <View style={styles.menuDivider} />}
+              {ollamaModels.map((m) => (
+                <MenuItem
+                  key={m.id}
+                  label={m.name}
+                  icon="hardware-chip-outline"
+                  on={m.id === model}
+                  onPress={() => closeMenu(() => newSession(m.id))}
+                />
+              ))}
+            </ScrollView>
           </Animated.View>
         </Animated.View>
       </Modal>
@@ -624,13 +781,20 @@ export default function SessionsScreen({ navigation }: any) {
 // orbiting edge; a settled one collapses to a row, because a card each would give a
 // finished session the same weight as one that wants an answer.
 function SessionRow(
-  { session: s, group, justFinished, onPress, actions }:
+  { session: s, group, justFinished, busy, onPress, actions }:
   {
-    session: Session; group: string; justFinished: boolean;
+    session: Session; group: string; justFinished: boolean; busy: boolean;
     onPress: () => void; actions: React.ReactNode;
   },
 ) {
   const time = shortAgo(s.lastActiveAt || s.startedAt);
+  // Read as one control by a screen reader: the name, then what it's doing.
+  const a11y = {
+    accessibilityRole: 'button' as const,
+    accessibilityLabel: `${title(s)}, ${stateLabel(s.state)}${s.archived ? ', archived' : ''}`,
+    accessibilityHint: 'Opens the session',
+    accessibilityState: { busy },
+  };
 
   if (group === 'settled') {
     return (
@@ -638,6 +802,8 @@ function SessionRow(
         <Pressable
           style={({ pressed }) => [styles.settled, pressed && styles.rowPressed]}
           onPress={onPress}
+          disabled={busy}
+          {...a11y}
         >
           <StateDot state={s.state} size={8} celebrate={justFinished} />
           <Text style={[styles.settledName, s.archived && styles.nameArchived]} numberOfLines={1}>
@@ -659,6 +825,8 @@ function SessionRow(
       <Pressable
         style={({ pressed }) => [styles.cardBody, pressed && styles.rowPressed]}
         onPress={onPress}
+        disabled={busy}
+        {...a11y}
       >
         {/* The actions sit outside the text column rather than on the title row, so the
             archive button centres against the card's full height instead of riding the
@@ -736,7 +904,13 @@ function MenuItem(
   { label: string; on: boolean; icon?: any; onPress: () => void },
 ) {
   return (
-    <Pressable style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed, on && styles.menuItemOn]} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.menuItem, pressed && styles.menuItemPressed, on && styles.menuItemOn]}
+      onPress={onPress}
+      accessibilityRole="menuitem"
+      accessibilityLabel={`New session with ${label}`}
+      accessibilityState={{ selected: on }}
+    >
       {icon && <Ionicons name={icon} size={14} color={color.muted} />}
       <Text style={[styles.menuLabel, on && styles.menuLabelOn]}>{label}</Text>
       {on && <Ionicons name="checkmark" size={15} color={color.accent} />}
@@ -748,6 +922,20 @@ function title(s: Session) {
   return s.name || s.firstPrompt || 'Unnamed session';
 }
 
+// A session state as words, for screen readers (sighted users get the dot's colour).
+const STATE_LABEL: Record<string, string> = {
+  idle: 'idle',
+  working: 'working',
+  'bg-agents': 'background agents running',
+  'needs-input': 'waiting for you',
+  completed: 'done',
+  interrupted: 'interrupted',
+  pushed: 'pushed',
+};
+function stateLabel(state: string): string {
+  return STATE_LABEL[state] ?? state;
+}
+
 const styles = StyleSheet.create({
   // The page colour is spelled out because the navigator's DarkTheme would otherwise
   // show through — its background is rgb(1,1,1), a black that belongs to no token and
@@ -757,11 +945,11 @@ const styles = StyleSheet.create({
 
   segmentRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   segments: {
-    flex: 1, flexDirection: 'row', backgroundColor: color.bg, borderRadius: 9, padding: 2,
+    flex: 1, flexDirection: 'row', backgroundColor: color.bg, borderRadius: radius.md, padding: 2,
   },
   cleanSpin: { width: 32, height: 32 },
   cleanOff: { opacity: 0.5 },
-  segment: { flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: 7 },
+  segment: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 32, borderRadius: radius.md - 2 },
   segmentOn: { backgroundColor: color.raisedHi, ...shadow.thumb },
   segmentLabel: { color: color.muted, fontSize: 13, fontWeight: '600' },
   segmentLabelOn: { color: color.text },
@@ -805,7 +993,6 @@ const styles = StyleSheet.create({
   // Same footprint as the IconButton it replaces, so the row doesn't shift mid-commit.
   commitSpin: { width: 31, height: 31 },
 
-  empty: { color: color.muted, textAlign: 'center', marginTop: 48, paddingHorizontal: 24 },
   more: { paddingVertical: 16 },
 
   newWrap: {
@@ -818,7 +1005,9 @@ const styles = StyleSheet.create({
   },
   newMain: { flex: 1, borderTopLeftRadius: radius.pill, borderBottomLeftRadius: radius.pill },
   newCaret: { paddingHorizontal: 18, borderTopRightRadius: radius.pill, borderBottomRightRadius: radius.pill },
-  newPressed: { backgroundColor: '#2ea043' },
+  newPressed: { backgroundColor: color.green },
+  // The add icon's footprint, so the label doesn't shift while a create is in flight.
+  newSpin: { width: 20, height: 20 },
   newOff: { backgroundColor: color.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: color.border },
   newLabel: { color: '#fff', fontSize: font.size.md, fontWeight: '600' },
   newLabelOff: { color: color.muted },
@@ -837,9 +1026,12 @@ const styles = StyleSheet.create({
     ...shadow.menu,
   },
   menuHeading: { ...type.fieldLabel, paddingHorizontal: 10, paddingTop: 5, paddingBottom: 6 },
+  // Shrinks below its content once the menu hits its max height, which is what lets
+  // it scroll (a ScrollView doesn't shrink by default).
+  menuScroll: { flexShrink: 1, flexGrow: 0 },
   menuItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8,
+    flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 44,
+    paddingVertical: 9, paddingHorizontal: 10, borderRadius: radius.sm + 2,
   },
   menuItemPressed: { backgroundColor: color.raised },
   menuItemOn: { backgroundColor: tint.fill(color.accentDim) },

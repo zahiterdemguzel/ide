@@ -54,6 +54,7 @@ export default {
     'sessions.tab.all': 'Todas',
     'sessions.search': 'Buscar en archivadas…',
     'sessions.clearIdle': 'Archivar sesiones que no están trabajando',
+    'sessions.continueInterrupted': 'Continuar sesiones interrumpidas',
     'sessions.new': 'Nueva sesión',
     'sessions.newWithModel': 'Nueva sesión con un modelo elegido',
     'sessions.newWithEffort': 'Nueva sesión con esfuerzo {level}',

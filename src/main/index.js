@@ -22,6 +22,7 @@ require('./project-settings'); // per-project flags (worktree mode) main reads a
 require('./git');
 require('./sessions');
 require('./chat'); // the chat view of a session (transcript, prompts, attachments)
+require('./chat-links'); // which file paths in a session's chat the phone can open
 require('./session-commit');
 require('./worktrees'); // per-session git worktrees (create/seed/list/remove)
 require('./session-merge'); // a worktree session's Merge button

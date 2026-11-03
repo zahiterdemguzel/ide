@@ -5,11 +5,13 @@
 // page. Tool calls are neither — they're what the assistant *did*, so they read as
 // compact activity rows you can open, not as speech.
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Markdown from './Markdown';
-import { Block, Diff, Message, messageText, splitAttachments } from '../../api/chat';
-import { color, font, radius, space } from '../../theme';
+import { LinkedText } from './links';
+import { Block, Diff, Message, messageText, sentPhotoUri, splitAttachments } from '../../api/chat';
+import { DIFF_PAGE_LINES, DIFF_PREVIEW_LINES, capLines, moreLinesLabel } from '../../lib/chat-view';
+import { alpha, color, font, radius, space, tint } from '../../theme';
 
 const TOOL_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
   Read: 'document-text-outline',
@@ -31,10 +33,16 @@ const TOOL_ICON: Record<string, keyof typeof Ionicons.glyphMap> = {
 // An edit's diff is the card's payload, shown open the way the design's chat mock
 // (4a) draws it: each row is `<n>  <sign> <code>` on a red/green wash, the number
 // faint and inline rather than a ruled gutter, the sign part of the text.
+//
+// Only the first DIFF_PREVIEW_LINES rows are drawn; the rest wait behind an expander
+// that adds a page per tap. A Write's diff is the whole file, and these rows are
+// plain Views inside the chat's own list — a few thousand of them froze the JS thread.
 function DiffView({ diff }: { diff: Diff }) {
+  const [limit, setLimit] = useState(DIFF_PREVIEW_LINES);
+  const { shown, hidden } = capLines(diff.lines, limit);
   return (
     <View style={styles.diff}>
-      {diff.lines.map((l, i) => (
+      {shown.map((l, i) => (
         <View key={i} style={[styles.diffRow, l.sign === '+' && styles.diffAdd, l.sign === '-' && styles.diffDel]}>
           <Text
             style={[styles.diffText, l.sign === '+' && styles.diffTextAdd, l.sign === '-' && styles.diffTextDel]}
@@ -45,6 +53,16 @@ function DiffView({ diff }: { diff: Diff }) {
           </Text>
         </View>
       ))}
+      {hidden > 0 && (
+        <Pressable
+          onPress={() => setLimit((n) => n + DIFF_PAGE_LINES)}
+          style={({ pressed }) => [styles.diffMore, pressed && styles.pressed]}
+          accessibilityRole="button"
+        >
+          <Ionicons name="chevron-down" size={13} color={color.accent} />
+          <Text style={styles.diffMoreText}>{moreLinesLabel(hidden, diff.lines.length)}</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -94,13 +112,17 @@ function ToolCard({ block }: { block: Extract<Block, { t: 'tool' }> }) {
 
 // Thinking is collapsed by default: it's context, not the answer, and unfolding it is
 // the reader's choice — the same call the desktop TUI makes.
+//
+// The label is a plain "Thinking" rather than a duration: the transcript stamps each
+// entry when it was *written*, not when thinking started, so any number derived from
+// it would be a guess dressed up as a measurement.
 function ThinkingCard({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   return (
     <View style={styles.thinking}>
       <Pressable style={styles.toolHead} onPress={() => setOpen((o) => !o)}>
         <Ionicons name="bulb-outline" size={14} color={color.purple} />
-        <Text style={styles.thinkingLabel}>Thought for a moment</Text>
+        <Text style={styles.thinkingLabel}>Thinking</Text>
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color={color.faint} />
       </Pressable>
       {open && <Text style={styles.thinkingText} selectable>{text}</Text>}
@@ -113,31 +135,70 @@ function AssistantBlock({ block }: { block: Block }) {
     case 'text': return <Markdown text={block.text} />;
     case 'thinking': return <ThinkingCard text={block.text} />;
     case 'tool': return <ToolCard block={block} />;
-    case 'image': return <Text style={styles.imageNote}>🖼 image</Text>;
+    case 'image': return <ImageThumb uri={block.uri} />;
     default: return null;
   }
 }
 
+// An image in the conversation. The transcript records that an image was there but
+// not its bytes, so only a photo this phone sent (still on the phone) can be drawn;
+// anything else is a labelled placeholder of the same footprint.
+function ImageThumb({ uri, onBubble }: { uri?: string; onBubble?: boolean }) {
+  if (uri) {
+    return (
+      <Image
+        source={{ uri }}
+        style={styles.thumb}
+        accessible
+        accessibilityRole="image"
+        accessibilityLabel="Attached image"
+      />
+    );
+  }
+  return (
+    <View
+      style={[styles.chip, onBubble ? styles.chipOnBubble : styles.chipOnPage]}
+      accessible
+      accessibilityLabel="Image"
+    >
+      <Ionicons name="image-outline" size={13} color={onBubble ? color.text : color.accent} />
+      <Text style={[styles.chipText, !onBubble && styles.chipTextOnPage]}>Image</Text>
+    </View>
+  );
+}
+
 // What the user said. Attached images arrive as a path on its own line (that is how
-// Claude is handed a photo — see chat.js), so they're shown as an attachment chip
-// rather than as a wall of C:\Users\… noise.
+// Claude is handed a photo — see chat.js); a photo this phone sent is shown as its
+// thumbnail, any other as an attachment chip — never as a wall of C:\Users\… noise.
 //
 // A message that hasn't reached the desktop yet is drawn the same, just dimmed: it is
 // on screen the instant you tap send, and the only thing still missing is the receipt.
 function UserMessage({ message, pending }: { message: Message; pending?: boolean }) {
-  const { said, files } = splitAttachments(messageText(message));
-  const images = files + message.blocks.filter((b) => b.t === 'image').length;
+  const { said, paths } = splitAttachments(messageText(message));
+  const imageUris: (string | undefined)[] = [
+    ...paths.map(sentPhotoUri),
+    ...message.blocks.flatMap((b) => (b.t === 'image' ? [b.uri] : [])),
+  ];
+  const thumbs = imageUris.filter((u): u is string => !!u);
+  const unknown = imageUris.length - thumbs.length;
   return (
     <View style={styles.userRow}>
-      <View style={[styles.bubble, pending && styles.bubblePending]}>
-        {images > 0 && (
-          <View style={styles.chip}>
-            <Ionicons name="image-outline" size={13} color={color.accent} />
-            <Text style={styles.chipText}>{images === 1 ? 'Image' : `${images} images`}</Text>
-          </View>
-        )}
-        {!!said && <Text style={styles.userText} selectable>{said}</Text>}
-      </View>
+      {thumbs.length > 0 && (
+        <View style={[styles.thumbRow, pending && styles.bubblePending]}>
+          {thumbs.map((uri, i) => <ImageThumb key={uri + i} uri={uri} />)}
+        </View>
+      )}
+      {(unknown > 0 || !!said) && (
+        <View style={[styles.bubble, pending && styles.bubblePending]}>
+          {unknown > 0 && (
+            <View style={[styles.chip, styles.chipOnBubble]} accessible accessibilityLabel={unknown === 1 ? 'Image' : `${unknown} images`}>
+              <Ionicons name="image-outline" size={13} color={color.text} />
+              <Text style={styles.chipText}>{unknown === 1 ? 'Image' : `${unknown} images`}</Text>
+            </View>
+          )}
+          {!!said && <Text style={styles.userText} selectable><LinkedText text={said} linkStyle={styles.userLink} /></Text>}
+        </View>
+      )}
     </View>
   );
 }
@@ -169,13 +230,29 @@ const styles = StyleSheet.create({
   },
   bubblePending: { opacity: 0.55 },
   userText: { color: '#fff', fontSize: font.size.md, lineHeight: 21 },
+  // The bubble is already accent blue, so a link in it is told apart by its underline.
+  userLink: { color: '#fff', textDecorationLine: 'underline' },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: space.xs,
     alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)', borderRadius: radius.sm,
+    borderRadius: radius.sm,
     paddingHorizontal: space.sm, paddingVertical: 3,
   },
+  // A white wash over the blue bubble, the same tint formula the rest of the system uses.
+  chipOnBubble: { backgroundColor: tint.fillStrong('#ffffff') },
+  chipOnPage: {
+    backgroundColor: tint.fill(color.accent), borderWidth: 1, borderColor: tint.line(color.accent),
+    marginBottom: space.sm,
+  },
   chipText: { color: '#fff', fontSize: font.size.xs, fontWeight: '600' },
+  chipTextOnPage: { color: color.accent },
+  // Your own photos sit above the bubble, right-aligned with it, as every chat app
+  // draws a sent picture — on the page rather than squeezed inside the blue.
+  thumbRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space.xs, marginBottom: space.xs, maxWidth: '86%' },
+  thumb: {
+    width: 120, height: 120, borderRadius: radius.md,
+    backgroundColor: color.raised, borderWidth: StyleSheet.hairlineWidth, borderColor: color.border,
+  },
 
   tool: {
     backgroundColor: color.surface,
@@ -184,7 +261,7 @@ const styles = StyleSheet.create({
     marginVertical: 3,
     overflow: 'hidden',
   },
-  toolError: { borderColor: '#f8514955' },
+  toolError: { borderColor: tint.line(color.red) },
   toolHead: {
     flexDirection: 'row', alignItems: 'center', gap: space.sm,
     paddingHorizontal: space.md, paddingVertical: space.sm,
@@ -209,12 +286,19 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
   },
   diffRow: { paddingHorizontal: 13 },
-  diffAdd: { backgroundColor: 'rgba(63, 185, 80, 0.1)' },
-  diffDel: { backgroundColor: 'rgba(248, 81, 73, 0.1)' },
+  diffAdd: { backgroundColor: alpha(color.green, 0.1) },
+  diffDel: { backgroundColor: alpha(color.red, 0.1) },
   diffNum: { color: color.faint },
   diffText: { color: color.muted, fontSize: 11.5, fontFamily: font.mono, lineHeight: 18 },
   diffTextAdd: { color: color.greenSoft },
   diffTextDel: { color: color.redSoft },
+  diffMore: {
+    flexDirection: 'row', alignItems: 'center', gap: space.xs,
+    minHeight: 44, paddingHorizontal: 13,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.borderSoft,
+    marginTop: space.xs,
+  },
+  diffMoreText: { color: color.accent, fontSize: font.size.xs, fontWeight: '600' },
 
   thinking: {
     backgroundColor: color.surface,
@@ -227,5 +311,4 @@ const styles = StyleSheet.create({
     color: color.muted, fontSize: font.size.sm, lineHeight: 20,
     paddingHorizontal: space.md, paddingBottom: space.md,
   },
-  imageNote: { color: color.muted, fontSize: font.size.sm, marginBottom: space.sm },
 });

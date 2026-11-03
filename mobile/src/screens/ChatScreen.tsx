@@ -12,16 +12,23 @@
 // look idle forever.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform,
+  ActivityIndicator, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform,
   Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import MessageView from '../components/chat/MessageView';
 import Composer, { Draft } from '../components/chat/Composer';
 import BadgeMenu from '../components/chat/BadgeMenu';
+import {
+  ChatLinks, ChatLinksContext, FileTarget, PathResolver, isDesktopLocalUrl, openUrlFallback,
+} from '../components/chat/links';
 import StateDot from '../components/StateDot';
-import { showError } from '../components/ErrorDialog';
+import { showError, errorText } from '../components/ErrorDialog';
+import { ConnectionBanner, confirmAction, haptic, showToast } from '../components/feedback';
+import { Button, ErrorState, LoadingState } from '../components/ui';
+import DiffView from '../components/DiffView';
+import { allAnswered, conflictPrompt, mergeOutcome, worktreeMode } from '../lib/chat-view';
 import { useConnection } from '../api/context';
 import {
   Answer, Ask, AskQuestion, Message, Pending, SlashCommand, Transcript,
@@ -30,9 +37,19 @@ import {
 import {
   DEFAULT_EFFORT, DEFAULT_MODEL, MODELS, CODEX_MODELS, switchableModels, effortsFor, effortName, setSessionEffort, modelBadgeName,
 } from '../api/models';
-import { color, font, radius, space, shadow, tint, type } from '../theme';
+import { color, font, inset, radius, space, shadow, tint, type, MODAL_TOP_SHIFT } from '../theme';
 
 type DiffStat = { additions: number; deletions: number; files: number };
+// Where a worktree session runs and merges back to (from the session row). Empty
+// `worktree` is an ordinary session, which commits and reverts in the project tree.
+type WorktreeInfo = { worktree: string; branch: string; worktreeState: string };
+// An error main reported while this chat was open. `session-error` carries no session
+// id (main raises it from whichever session handler threw), so it is shown as "the
+// desktop reported", not pinned on this session.
+type DesktopError = { key: number; context: string; message: string };
+
+// How many reported errors the chat keeps on screen; older ones are dropped.
+const MAX_DESKTOP_ERRORS = 3;
 
 // How long a sent message may stay unconfirmed before we stop showing it. Claude writes
 // the transcript entry as soon as the TUI takes the prompt, so this only ever expires
@@ -49,9 +66,25 @@ const BOTTOM_SLACK = 80;
 // confirming second one.
 const ARM_MS = 3000;
 
+// Whether the software keyboard is up. iOS announces it before it animates (`Will`),
+// Android only once it has landed (`Did` — it has no `Will` events).
+function useKeyboardVisible(): boolean {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const shown = Keyboard.addListener(showEvent, () => setVisible(true));
+    const hidden = Keyboard.addListener(hideEvent, () => setVisible(false));
+    return () => { shown.remove(); hidden.remove(); };
+  }, []);
+  return visible;
+}
+
 export default function ChatScreen({ route, navigation }: any) {
   const { id, name } = route.params as { id: string; name?: string };
   const { conn } = useConnection();
+  const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
   const list = useRef<FlatList<Message>>(null);
   // Pushes that raced the snapshot fetch. Every push carries the counter the snapshot
   // reports, so an older copy of a message can't land on top of a newer one.
@@ -72,6 +105,17 @@ export default function ChatScreen({ route, navigation }: any) {
   const [title, setTitle] = useState(name || 'Session');
   const [state, setState] = useState<string>('idle');
   const [loading, setLoading] = useState(true);
+  // The snapshot fetch failed and nothing has arrived to show instead. Distinct from
+  // an empty conversation: "Start the conversation" over a failed fetch is a lie.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const reload = useRef<(() => void) | null>(null);
+  const [desktopErrors, setDesktopErrors] = useState<DesktopError[]>([]);
+  // The desktop dropped this session to stay under its session limit. Nothing is
+  // behind the chat any more, so the composer goes away with it.
+  const [evicted, setEvicted] = useState(false);
+  const [worktreeInfo, setWorktreeInfo] = useState<WorktreeInfo>({ worktree: '', branch: '', worktreeState: '' });
+  const [merging, setMerging] = useState(false);
+  const [diffOpen, setDiffOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [stat, setStat] = useState<DiffStat | null>(null);
   const [committing, setCommitting] = useState(false);
@@ -83,6 +127,26 @@ export default function ChatScreen({ route, navigation }: any) {
   // `/effort` typed into its terminal) — main pushes either change, so the badges follow.
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [effort, setEffort] = useState(DEFAULT_EFFORT);
+
+  // Tappable paths and links in the messages. Paths are checked against the desktop
+  // (only real files in the open folder become links) and open stacked over the chat.
+  const links = useMemo<ChatLinks | null>(() => {
+    if (!conn) return null;
+    const resolver = new PathResolver(async (paths) => {
+      const r = await conn.req<{ resolved?: Record<string, FileTarget> }>('resolve-chat-paths', { id, paths });
+      return r?.resolved ?? {};
+    });
+    return {
+      resolver,
+      openFile: (target) => navigation.navigate('File', target),
+      openUrl: (url) => {
+        if (isDesktopLocalUrl(url)) navigation.navigate('Main', { screen: 'Browser', params: { url } });
+        else openUrlFallback(url);
+      },
+    };
+  }, [conn, id, navigation]);
+
+  useEffect(() => conn?.on('folder-changed', () => links?.resolver.reset()), [conn, links]);
 
   const refreshStat = useCallback(async () => {
     if (!conn) return;
@@ -128,12 +192,18 @@ export default function ChatScreen({ route, navigation }: any) {
           if (b.seq > seq) { absorb(b.messages); seq = b.seq; }
         }
         lastSeq.current = seq;
-      } catch { /* offline: live pushes alone still beat a dead screen */ }
+        if (!dropped) setLoadError(null);
+      } catch (e: any) {
+        // Live pushes alone still beat a dead screen, so this only becomes an error
+        // state if nothing has arrived to show instead (see the render).
+        if (!dropped) setLoadError(errorText(e) || 'The desktop did not answer.');
+      }
       buffered.current = [];
       ready.current = true;
       if (!dropped) setLoading(false);
     };
     load();
+    reload.current = () => { setLoadError(null); setLoading(true); load(); };
 
     // The list gives us a name but never the state, and the Stop button needs it
     // before the first status push lands. It's also where the session's model and effort
@@ -142,6 +212,7 @@ export default function ChatScreen({ route, navigation }: any) {
       const s = all.find((x) => x.id === id);
       if (!s || dropped) return;
       setState(s.state);
+      setWorktreeInfo(worktreeOf(s));
       setModel(s.model || DEFAULT_MODEL);
       setEffort(s.effort || DEFAULT_EFFORT);
       if (!name) setTitle(s.name || s.firstPrompt || 'Session');
@@ -168,8 +239,24 @@ export default function ChatScreen({ route, navigation }: any) {
       conn.on('session-meta', (p: any) => { if (p.id === id) refreshStat(); }),
       conn.on('session-model', (p: any) => { if (p.id === id) setModel(p.model || DEFAULT_MODEL); }),
       conn.on('session-effort', (p: any) => { if (p.id === id) setEffort(p.effort || DEFAULT_EFFORT); }),
+      // The whole list, after any change to its shape — including this session's
+      // worktree finishing its copy, or going missing.
+      conn.on('sessions-changed', (all: any) => {
+        const s = Array.isArray(all) ? all.find((x: any) => x?.id === id) : null;
+        if (s) setWorktreeInfo(worktreeOf(s));
+      }),
+      conn.on('session-error', (p: any) => {
+        haptic.error();
+        setDesktopErrors((prev) => [
+          ...prev,
+          { key: Date.now() + Math.random(), context: String(p?.context || ''), message: String(p?.message || '') },
+        ].slice(-MAX_DESKTOP_ERRORS));
+      }),
+      conn.on('session-evicted', (p: any) => {
+        if (Array.isArray(p?.ids) && p.ids.includes(id)) { setEvicted(true); setAsk(null); }
+      }),
     ];
-    return () => { dropped = true; unwatch(); offs.forEach((off) => off?.()); };
+    return () => { dropped = true; reload.current = null; unwatch(); offs.forEach((off) => off?.()); };
   }, [absorb, conn, id, name, refreshStat]);
 
   const drop = useCallback((uuid: string) => {
@@ -191,20 +278,21 @@ export default function ChatScreen({ route, navigation }: any) {
   // disappear into nothing. If the send fails, the bubble goes away with the alert.
   const send = async (text: string, images: Draft[]) => {
     if (!conn) return;
-    const mine = pendingMessage(text, images.length);
+    const mine = pendingMessage(text, images.map((img) => img.uri));
     setPending((p) => [...p, mine]);
     expire.current.push(setTimeout(() => drop(mine.uuid), PENDING_TTL_MS));
     atBottom.current = true;
     setSending(true);
     try {
       const paths = [];
-      for (const img of images) paths.push(await uploadImage(conn, img.name, img.base64));
+      for (const img of images) paths.push(await uploadImage(conn, img.name, img.base64, img.uri));
       // An archived session opens read-only (nothing runs behind it); writing to it is
       // what brings it back. A no-op when the session is already running.
       await conn.req('resume-session', { id, cols: 80, rows: 30 });
       await sendPrompt(conn, id, text, paths);
     } catch (e: any) {
       drop(mine.uuid);
+      haptic.error();
       showError('Could not send', e);
     } finally {
       setSending(false);
@@ -243,7 +331,7 @@ export default function ChatScreen({ route, navigation }: any) {
   };
 
   const working = state === 'working';
-  const stop = () => conn?.send('pty-input', { id, data: '\x1b' });
+  const stop = () => { haptic.tap(); conn?.send('pty-input', { id, data: '\x1b' }); };
 
   // The badge moves on the tap, not on the round trip: main is what actually applies the
   // switch (and pushes it back to every client), but a picker that sat unchanged until
@@ -254,15 +342,31 @@ export default function ChatScreen({ route, navigation }: any) {
   const pickEffort = (e: string) => { setEffort(e); setSessionEffort(e); conn?.send('set-session-effort', { id, effort: e }); };
 
   const files = stat ? stat.files : 0;
+  const filesLabel = `${files} file${files === 1 ? '' : 's'}`;
+  // A worktree session owns its whole checkout, so "commit only this session's hunks"
+  // and "revert this session's edits" mean nothing there — Merge replaces both, as it
+  // does on the desktop's session bar.
+  const wtMode = worktreeMode(worktreeInfo);
+  const busyWithGit = committing || reverting || merging;
+
   const commit = async () => {
-    if (committing || !conn || !files) return;
-    if (working && !(await confirmWorking())) return;
+    if (busyWithGit || !conn || !files) return;
+    if (working && !(await confirmAction({
+      title: 'Commit while running?',
+      message: 'This session is still running. Its files may still be changing. Commit now anyway?',
+      confirmLabel: 'Commit',
+      destructive: false,
+    }))) return;
     setCommitting(true);
     try {
       const r = await conn.req<{ ok: boolean; stderr?: string }>('commit-session', id);
-      if (!r?.ok) showError('Commit failed', r?.stderr || 'Commit failed');
-      else refreshStat();
+      if (!r?.ok) { haptic.error(); showError('Commit failed', r?.stderr || 'Commit failed'); }
+      else {
+        showToast({ message: `Committed ${filesLabel}`, tone: 'success' });
+        refreshStat();
+      }
     } catch (e: any) {
+      haptic.error();
       showError('Commit failed', e);
     } finally {
       setCommitting(false);
@@ -271,10 +375,12 @@ export default function ChatScreen({ route, navigation }: any) {
 
   // Revert throws work away, so it takes two taps: the first arms the button and
   // relabels it, the second fires. The arming lapses on its own so a stray tap
-  // can't leave a live trigger sitting under the user's thumb.
-  const revert = async () => {
-    if (reverting || !conn || !files) return;
-    if (!armed) {
+  // can't leave a live trigger sitting under the user's thumb. `confirmed` skips
+  // the arming for a caller that already asked (the diff sheet's own confirm).
+  const revert = async (confirmed = false) => {
+    if (busyWithGit || !conn || !files) return;
+    if (!armed && !confirmed) {
+      haptic.warning();
       setArmed(true);
       clearTimeout(disarm.current);
       disarm.current = setTimeout(() => setArmed(false), ARM_MS);
@@ -285,147 +391,287 @@ export default function ChatScreen({ route, navigation }: any) {
     setReverting(true);
     try {
       const r = await conn.req<{ ok: boolean; stderr?: string; skipped?: string[] }>('revert-session', id);
-      if (!r?.ok) showError('Revert failed', r?.stderr || 'Revert failed');
+      if (!r?.ok) { haptic.error(); showError('Revert failed', r?.stderr || 'Revert failed'); }
       else {
         // A skip isn't a failure — another live session owns those files, and
         // saying nothing would read as "reverted" for changes still on disk.
         if (r.skipped?.length) showError('Some files kept', `Still changed by another session:\n${r.skipped.join('\n')}`);
+        else showToast({ message: 'Reverted this session\'s changes', tone: 'success' });
         refreshStat();
       }
     } catch (e: any) {
+      haptic.error();
       showError('Revert failed', e);
     } finally {
       setReverting(false);
     }
   };
 
+  // Merge lands commits on the project's branch, so it always asks first (the
+  // desktop arms its button for the same reason). A conflict is handed to this
+  // session's own agent, which wrote the code — the desktop's hand-off, same prompt.
+  const merge = async () => {
+    if (busyWithGit || !conn || wtMode !== 'ready') return;
+    const running = working || state === 'bg-agents';
+    if (!(await confirmAction({
+      title: running ? 'Merge while running?' : 'Merge this session?',
+      message: (running ? 'This session is still running. Its files may still be changing.\n\n' : '')
+        + `Commits the worktree and merges ${worktreeInfo.branch || 'its branch'} into the branch the project has checked out.`,
+      confirmLabel: 'Merge',
+      destructive: false,
+    }))) return;
+    setMerging(true);
+    let r: any;
+    try {
+      r = await conn.req('merge-session', id);
+    } catch (e: any) {
+      r = { ok: false, stderr: errorText(e) };
+    } finally {
+      setMerging(false);
+    }
+    const outcome = mergeOutcome(r);
+    if (outcome.kind === 'merged') {
+      showToast({ message: outcome.message, tone: 'success' });
+      setState('pushed');
+    } else if (outcome.kind === 'noop') {
+      showToast({ message: outcome.message, tone: 'info' });
+    } else if (outcome.kind === 'conflict') {
+      haptic.error();
+      const handOff = await confirmAction({
+        title: 'Merge conflict',
+        message: `${outcome.message} Let this session resolve it?`,
+        confirmLabel: 'Let Claude handle it',
+        destructive: false,
+      });
+      if (handOff) send(conflictPrompt(r), []);
+    } else {
+      haptic.error();
+      showError('Merge failed', outcome.message);
+    }
+    refreshStat();
+  };
+
+  const openDiff = () => { haptic.tap(); setDiffOpen(true); };
+
   return (
-    <SafeAreaView style={styles.fill} edges={['top']}>
-      <View style={styles.bar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.back}>
-          <Ionicons name="chevron-back" size={22} color={color.text} />
-        </Pressable>
-        <View style={styles.titleWrap}>
-          <Text style={styles.title} numberOfLines={1}>{title}</Text>
-          <View style={styles.status}>
-            <View style={styles.dotSlot}>
-              <StateDot state={state} />
+    <ChatLinksContext.Provider value={links}>
+      <SafeAreaView style={styles.fill} edges={['top']}>
+        <View style={styles.bar}>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            hitSlop={10}
+            style={styles.back}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <Ionicons name="chevron-back" size={22} color={color.text} />
+          </Pressable>
+          <View style={styles.titleWrap}>
+            <Text style={styles.title} numberOfLines={1}>{title}</Text>
+            <View style={styles.status}>
+              <View style={styles.dotSlot}>
+                <StateDot state={state} />
+              </View>
+              <Text style={styles.statusText} numberOfLines={1}>{STATE_LABEL[state] || state}</Text>
+              {/* What the session is running, and where you change it. The desktop keeps
+                  the same two badges in the same place. The effort badge always names a
+                  real level — there is no "Auto" — so what it says is what the session is
+                  actually reasoning at. */}
+              {/* Only same-family switches are offered (a local model offers none) —
+                  main enforces the same lock, this just keeps the menu honest. */}
+              <BadgeMenu
+                label={modelBadgeName(model)}
+                items={switchableModels(model, MODELS.concat(CODEX_MODELS)).filter((m) => m.id !== DEFAULT_MODEL)}
+                current={model}
+                onPick={pickModel}
+                accessibilityLabel="Model"
+              />
+              <BadgeMenu
+                label={effortName(effort, model)}
+                items={effortsFor(model)}
+                current={effort || DEFAULT_EFFORT}
+                onPick={pickEffort}
+                accessibilityLabel="Reasoning effort"
+              />
             </View>
-            <Text style={styles.statusText} numberOfLines={1}>{STATE_LABEL[state] || state}</Text>
-            {/* What the session is running, and where you change it. The desktop keeps
-                the same two badges in the same place. The effort badge always names a
-                real level — there is no "Auto" — so what it says is what the session is
-                actually reasoning at. */}
-            {/* Only same-family switches are offered (a local model offers none) —
-                main enforces the same lock, this just keeps the menu honest. */}
-            <BadgeMenu
-              label={modelBadgeName(model)}
-              items={switchableModels(model, MODELS.concat(CODEX_MODELS)).filter((m) => m.id !== DEFAULT_MODEL)}
-              current={model}
-              onPick={pickModel}
-              accessibilityLabel="Model"
-            />
-            <BadgeMenu
-              label={effortName(effort, model)}
-              items={effortsFor(model)}
-              current={effort || DEFAULT_EFFORT}
-              onPick={pickEffort}
-              accessibilityLabel="Reasoning effort"
-            />
           </View>
-        </View>
-        <Pressable
-          onPress={stop}
-          disabled={!working}
-          hitSlop={10}
-          style={({ pressed }) => [styles.stop, !working && styles.stopOff, pressed && working && styles.stopPressed]}
-        >
-          <Ionicons name="stop" size={14} color={working ? color.redSoft : color.faint} />
-        </Pressable>
-      </View>
-
-      {files > 0 && (
-        <View style={styles.actions}>
           <Pressable
-            onPress={commit}
-            disabled={committing || reverting}
-            style={({ pressed }) => [styles.commit, pressed && !committing && styles.commitPressed]}
+            onPress={stop}
+            disabled={!working}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Stop Claude"
+            accessibilityHint="Interrupts the current turn"
+            accessibilityState={{ disabled: !working }}
+            style={({ pressed }) => [styles.stop, !working && styles.stopOff, pressed && working && styles.stopPressed]}
           >
-            {committing && <ActivityIndicator size="small" color="#fff" />}
-            <Ionicons name="git-commit-outline" size={15} color="#fff" />
-            <Text style={styles.commitText}>
-              {committing ? 'Writing commit message…' : `Commit ${files} file${files > 1 ? 's' : ''}`}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={revert}
-            disabled={committing || reverting}
-            accessibilityLabel={armed ? 'Confirm revert' : 'Revert session changes'}
-            style={({ pressed }) => [styles.revert, armed && styles.revertArmed, pressed && !reverting && styles.revertPressed]}
-          >
-            <View style={styles.revertIcon}>
-              {reverting
-                ? <ActivityIndicator size="small" color={color.redSoft} />
-                : <Ionicons name="arrow-undo-outline" size={15} color={color.redSoft} />}
-            </View>
-            <Text style={styles.revertText}>{armed ? 'Sure?' : 'Revert'}</Text>
+            <Ionicons name="stop" size={14} color={working ? color.redSoft : color.faint} />
           </Pressable>
         </View>
-      )}
 
-      <KeyboardAvoidingView
-        style={styles.fill}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
-      >
-        {loading ? (
-          <View style={styles.center}><ActivityIndicator color={color.muted} /></View>
-        ) : (
-          <FlatList
-            ref={list}
-            data={rows}
-            keyExtractor={(m) => m.uuid}
-            renderItem={({ item }) => <MessageView message={item} pending={(item as Pending).pending} />}
-            contentContainerStyle={styles.listBody}
-            // The ask card lives in the footer, so its buttons must survive an open
-            // keyboard (answering right after typing a custom reply).
-            keyboardShouldPersistTaps="handled"
-            // Both are "the conversation grew or the room for it shrank": a new message
-            // (or the ask card growing the footer), and the keyboard taking the bottom
-            // of the screen. Either one leaves the last message above the fold unless
-            // we follow it down.
-            onContentSizeChange={scrollToEnd}
-            onLayout={scrollToEnd}
-            onScroll={(e) => {
-              const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-              atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - BOTTOM_SLACK;
-            }}
-            // The flag decides whether the *next* message yanks the view; reading it a
-            // fifth of a second late is how a reader who just scrolled up gets pulled
-            // back down anyway. Track the scroll as it happens.
-            scrollEventThrottle={16}
-            keyboardDismissMode="interactive"
-            ListEmptyComponent={<Empty />}
-            // The ask card scrolls *with* the conversation: it grows to whatever the
-            // question needs, and a reader gets back to earlier messages by scrolling
-            // the one list — a pinned card would wall them off behind it.
-            ListFooterComponent={
-              <>
-                {working && <Working />}
-                {ask && <AskCard ask={ask} onAnswer={answer} onSkip={skip} />}
-              </>
-            }
-          />
+        <ConnectionBanner />
+
+        {files > 0 && (
+          <View style={styles.actions}>
+            {wtMode ? (
+              <Pressable
+                onPress={merge}
+                disabled={busyWithGit || wtMode !== 'ready'}
+                accessibilityRole="button"
+                accessibilityLabel={worktreeInfo.branch ? `Merge ${worktreeInfo.branch} back into the project` : 'Merge'}
+                accessibilityState={{ disabled: busyWithGit || wtMode !== 'ready', busy: merging }}
+                style={({ pressed }) => [
+                  styles.commit, wtMode !== 'ready' && styles.commitOff, pressed && !merging && styles.commitPressed,
+                ]}
+              >
+                {merging && <ActivityIndicator size="small" color="#fff" />}
+                <Ionicons name="git-merge-outline" size={15} color="#fff" />
+                <Text style={styles.commitText} numberOfLines={1}>
+                  {merging ? 'Merging…'
+                    : wtMode === 'missing' ? 'Worktree missing'
+                      : wtMode === 'pending' ? 'Worktree not ready'
+                        : `Merge ${filesLabel}`}
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={commit}
+                disabled={busyWithGit}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: busyWithGit, busy: committing }}
+                style={({ pressed }) => [styles.commit, pressed && !committing && styles.commitPressed]}
+              >
+                {committing && <ActivityIndicator size="small" color="#fff" />}
+                <Ionicons name="git-commit-outline" size={15} color="#fff" />
+                <Text style={styles.commitText} numberOfLines={1}>
+                  {committing ? 'Writing commit message…' : `Commit ${filesLabel}`}
+                </Text>
+              </Pressable>
+            )}
+            {/* The diff behind the button: reading what you are about to commit
+                shouldn't need the desktop. The counts double as its label. */}
+            <Pressable
+              onPress={openDiff}
+              accessibilityRole="button"
+              accessibilityLabel={`Review changes: ${stat?.additions ?? 0} added, ${stat?.deletions ?? 0} removed`}
+              style={({ pressed }) => [styles.review, pressed && styles.revertPressed]}
+            >
+              <Ionicons name="document-text-outline" size={15} color={color.muted} />
+              <Text style={styles.reviewAdd}>+{stat?.additions ?? 0}</Text>
+              <Text style={styles.reviewDel}>−{stat?.deletions ?? 0}</Text>
+            </Pressable>
+            {!wtMode && (
+              <Pressable
+                onPress={() => revert()}
+                disabled={busyWithGit}
+                accessibilityRole="button"
+                accessibilityLabel={armed ? 'Confirm revert' : 'Revert session changes'}
+                style={({ pressed }) => [styles.revert, armed && styles.revertArmed, pressed && !reverting && styles.revertPressed]}
+              >
+                <View style={styles.revertIcon}>
+                  {reverting
+                    ? <ActivityIndicator size="small" color={color.redSoft} />
+                    : <Ionicons name="arrow-undo-outline" size={15} color={color.redSoft} />}
+                </View>
+                <Text style={styles.revertText}>{armed ? 'Sure?' : 'Revert'}</Text>
+              </Pressable>
+            )}
+          </View>
         )}
 
-        <Composer
-          commands={commands}
-          busy={sending}
-          placeholder={working ? 'Claude is working — send anyway…' : 'Message Claude…'}
-          onSend={send}
+        <SessionDiffSheet
+          visible={diffOpen}
+          sessionId={id}
+          onClose={() => setDiffOpen(false)}
+          primaryLabel={wtMode ? (wtMode === 'ready' ? `Merge ${filesLabel}` : '') : `Commit ${filesLabel}`}
+          primaryIcon={wtMode ? 'git-merge-outline' : 'git-commit-outline'}
+          onPrimary={files > 0 && !busyWithGit ? () => { setDiffOpen(false); if (wtMode) merge(); else commit(); } : undefined}
+          onRevert={!wtMode && files > 0 && !busyWithGit ? async () => {
+            const sure = await confirmAction({
+              title: 'Revert this session?',
+              message: `Undoes this session's edits to ${filesLabel}. This can't be undone.`,
+              confirmLabel: 'Revert',
+            });
+            if (!sure) return;
+            setDiffOpen(false);
+            revert(true);
+          } : undefined}
         />
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+        <KeyboardAvoidingView
+          style={styles.fill}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}
+        >
+          {loading && !rows.length ? (
+            <LoadingState label="Loading the conversation…" style={styles.fill} />
+          ) : loadError && !rows.length ? (
+            <ErrorState
+              title="Couldn't load this conversation"
+              message={loadError}
+              onRetry={() => reload.current?.()}
+              style={styles.fill}
+            />
+          ) : (
+            <FlatList
+              ref={list}
+              data={rows}
+              keyExtractor={(m) => m.uuid}
+              renderItem={({ item }) => <MessageView message={item} pending={(item as Pending).pending} />}
+              contentContainerStyle={styles.listBody}
+              // The ask card lives in the footer, so its buttons must survive an open
+              // keyboard (answering right after typing a custom reply).
+              keyboardShouldPersistTaps="handled"
+              // Both are "the conversation grew or the room for it shrank": a new message
+              // (or the ask card growing the footer), and the keyboard taking the bottom
+              // of the screen. Either one leaves the last message above the fold unless
+              // we follow it down.
+              onContentSizeChange={scrollToEnd}
+              onLayout={scrollToEnd}
+              onScroll={(e) => {
+                const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - BOTTOM_SLACK;
+              }}
+              // The flag decides whether the *next* message yanks the view; reading it a
+              // fifth of a second late is how a reader who just scrolled up gets pulled
+              // back down anyway. Track the scroll as it happens.
+              scrollEventThrottle={16}
+              keyboardDismissMode="interactive"
+              ListEmptyComponent={<Empty />}
+              // The ask card scrolls *with* the conversation: it grows to whatever the
+              // question needs, and a reader gets back to earlier messages by scrolling
+              // the one list — a pinned card would wall them off behind it.
+              ListFooterComponent={
+                <>
+                  {working && <Working />}
+                  {desktopErrors.map((err) => (
+                    <DesktopErrorCard
+                      key={err.key}
+                      error={err}
+                      onDismiss={() => setDesktopErrors((prev) => prev.filter((x) => x.key !== err.key))}
+                    />
+                  ))}
+                  {evicted && <EvictedCard />}
+                  {ask && <AskCard ask={ask} onAnswer={answer} onSkip={skip} />}
+                </>
+              }
+            />
+          )}
+
+          <Composer
+            commands={commands}
+            busy={sending}
+            disabled={evicted}
+            placeholder={evicted ? 'This session was closed on the desktop'
+              : working ? 'Claude is working — send anyway…' : 'Message Claude…'}
+            // The screen's SafeAreaView only pads the top; the composer clears the
+            // home indicator itself — except while the keyboard covers that strip.
+            bottomInset={keyboardVisible ? 0 : insets.bottom}
+            onSend={send}
+          />
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </ChatLinksContext.Provider>
   );
 }
 
@@ -458,18 +704,11 @@ function AskCard({ ask, onAnswer, onSkip }: {
   useEffect(() => { setAnswers([]); }, [ask]);
 
   const set = (i: number, a: Answer) => {
-    const next = ask.questions.map((_, j) => (j === i ? a : answers[j]));
-    setAnswers(next);
-    // A single question with nothing else to fill in is answered by the tap itself:
-    // making the user then press Send would be a button for its own sake.
-    if (ask.questions.length === 1) onAnswer(next);
+    setAnswers(ask.questions.map((_, j) => (j === i ? a : answers[j])));
   };
 
-  const answered = (i: number) => {
-    const a = answers[i];
-    return Boolean(a && (a.key || a.text || a.keys?.length));
-  };
-  const ready = ask.questions.every((_, i) => answered(i));
+  const single = ask.questions.length === 1;
+  const ready = allAnswered(ask.questions.length, answers);
 
   const label = (i: number) => {
     const a = answers[i];
@@ -497,6 +736,9 @@ function AskCard({ ask, onAnswer, onSkip }: {
           chosen={answers[i]}
           chosenLabel={label(i)}
           onPick={(a) => set(i, a)}
+          // A lone question sends from inside itself, so its Send sits right under
+          // the option you just picked.
+          onSubmit={single ? (a) => onAnswer([a]) : undefined}
         />
       ))}
       {ask.questions.length > 1 && (
@@ -548,15 +790,26 @@ function AskCardHeader({ icon, label }: { icon: any; label: string }) {
 // Writing your own answer happens *inside* the question rather than on a card-wide view:
 // with several questions on the card, taking the card over would unmount the siblings and
 // throw away their toggles and their drafts.
-function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick }: {
+//
+// Nothing is ever pre-selected, and nothing is sent by tapping an option. A tap
+// *selects* (the row tints, its radio fills) and a Send button under the options
+// commits — so the screen never shows an answer you didn't give, and a mis-tap on a
+// permission prompt's "Yes" can't grant anything by itself. On a card with several
+// questions a tap still collapses that question to its answer, and "Send answers"
+// commits the lot.
+function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick, onSubmit }: {
   q: AskQuestion;
   index: number;
   total: number;
   chosen?: Answer;
   chosenLabel: string;
   onPick: (a: Answer) => void;
+  // Set for a card with one question: its own Send answers the whole card.
+  onSubmit?: (a: Answer) => void;
 }) {
   const [open, setOpen] = useState(true);
+  // The single-select option a lone question has selected but not yet sent.
+  const [selected, setSelected] = useState<string | null>(null);
   // A multiSelect question can't commit on a tap: the tap is a toggle, and only the
   // reader knows when the set is complete.
   const [picked, setPicked] = useState<string[]>([]);
@@ -565,6 +818,11 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick }: {
   const [writing, setWriting] = useState(false);
   const [draft, setDraft] = useState('');
   const done = Boolean(chosen && (chosen.key || chosen.text || chosen.keys?.length));
+  // A new question in the same slot starts unanswered. Keyed on content, not object
+  // identity: a snapshot refetch re-sends the same question as a new object, and that
+  // must not wipe a choice the reader is halfway through making.
+  const questionKey = `${q.question}|${q.options.map((o) => o.key).join(',')}`;
+  useEffect(() => { setSelected(null); setPicked([]); }, [questionKey]);
 
   if (done && !open) {
     return (
@@ -583,6 +841,13 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick }: {
   }
 
   const pick = (a: Answer) => { setOpen(false); setWriting(false); onPick(a); };
+  // Commit this question's answer: straight to the desktop on a lone question, or
+  // onto the card (collapsing to the answer) when siblings still need theirs.
+  const commit = (a: Answer) => {
+    haptic.tap();
+    if (onSubmit) onSubmit(a); else pick(a);
+  };
+  const selectedLabel = q.options.find((o) => o.key === selected)?.label;
 
   return (
     <View style={styles.askGroup}>
@@ -610,14 +875,14 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick }: {
             </Pressable>
             <Pressable
               disabled={!draft.trim()}
-              onPress={() => pick({ text: draft.trim() })}
+              onPress={() => commit({ text: draft.trim() })}
               style={({ pressed }) => [
                 styles.askBtn, styles.askBtnPrimary, styles.askBtnGrow, styles.askBtnCenter,
                 !draft.trim() && styles.askBtnDim, pressed && styles.askBtnPressed,
               ]}
             >
               <Text style={[styles.askBtnText, styles.askBtnTextPrimary]}>
-                {total > 1 ? 'Use this answer' : 'Send answer'}
+                {onSubmit ? 'Send answer' : 'Use this answer'}
               </Text>
             </Pressable>
           </View>
@@ -625,16 +890,28 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick }: {
       ) : (
       <View style={styles.askOptions}>
         {q.options.map((o, i) => {
-          // Single-select highlights the first option, which is the one Claude leads with.
-          // Multi-select highlights what *you* have toggled on — a standing "recommended"
-          // tint would be indistinguishable from a row you had already chosen.
-          const on = q.multiSelect ? picked.includes(o.key) : i === 0;
+          // Only what *you* chose is ever tinted — a standing tint on Claude's leading
+          // option read as an answer already given.
+          const on = q.multiSelect
+            ? picked.includes(o.key)
+            : onSubmit ? selected === o.key : false;
+          const tap = () => {
+            if (q.multiSelect) {
+              haptic.tap();
+              setPicked((p) => (p.includes(o.key) ? p.filter((k) => k !== o.key) : [...p, o.key]));
+            } else if (onSubmit) {
+              haptic.tap();
+              setSelected((cur) => (cur === o.key ? null : o.key));
+            } else {
+              commit({ key: o.key });
+            }
+          };
           return (
             <Pressable
               key={o.key}
-              onPress={() => (q.multiSelect
-                ? setPicked((p) => (p.includes(o.key) ? p.filter((k) => k !== o.key) : [...p, o.key]))
-                : pick({ key: o.key }))}
+              onPress={tap}
+              accessibilityRole={q.multiSelect ? 'checkbox' : 'radio'}
+              accessibilityState={q.multiSelect ? { checked: on } : { selected: on }}
               style={({ pressed }) => [
                 styles.askBtn,
                 on && styles.askBtnOn,
@@ -642,9 +919,11 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick }: {
               ]}
             >
               <View style={styles.askBtnRow}>
-                {q.multiSelect && (
+                {(q.multiSelect || onSubmit) && (
                   <Ionicons
-                    name={on ? 'checkbox' : 'square-outline'}
+                    name={q.multiSelect
+                      ? (on ? 'checkbox' : 'square-outline')
+                      : (on ? 'radio-button-on' : 'radio-button-off')}
                     size={16}
                     color={on ? color.green : color.muted}
                   />
@@ -664,14 +943,33 @@ function AskQuestionView({ q, index, total, chosen, chosenLabel, onPick }: {
         {q.multiSelect && (
           <Pressable
             disabled={!picked.length}
-            onPress={() => pick({ keys: picked })}
+            onPress={() => commit({ keys: picked })}
+            accessibilityRole="button"
             style={({ pressed }) => [
               styles.askBtn, styles.askBtnCenter,
+              !!onSubmit && styles.askBtnPrimary,
               !picked.length && styles.askBtnDim, pressed && styles.askBtnPressed,
             ]}
           >
-            <Text style={styles.askBtnText}>
-              {picked.length ? `Choose ${picked.length} selected` : 'Select one or more'}
+            <Text style={[styles.askBtnText, !!onSubmit && styles.askBtnTextPrimary]}>
+              {!picked.length ? 'Select one or more'
+                : onSubmit ? `Send ${picked.length} selected` : `Choose ${picked.length} selected`}
+            </Text>
+          </Pressable>
+        )}
+        {!q.multiSelect && !!onSubmit && (
+          <Pressable
+            disabled={!selected}
+            onPress={() => selected && commit({ key: selected })}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !selected }}
+            style={({ pressed }) => [
+              styles.askBtn, styles.askBtnPrimary, styles.askBtnCenter,
+              !selected && styles.askBtnDim, pressed && styles.askBtnPressed,
+            ]}
+          >
+            <Text style={[styles.askBtnText, styles.askBtnTextPrimary]} numberOfLines={1}>
+              {selectedLabel ? `Send: ${selectedLabel}` : 'Pick an answer'}
             </Text>
           </Pressable>
         )}
@@ -713,18 +1011,133 @@ function Empty() {
   );
 }
 
-function confirmWorking(): Promise<boolean> {
-  return new Promise((resolve) => {
-    Alert.alert(
-      'Commit while running?',
-      'This session is still running. Its files may still be changing. Commit now anyway?',
-      [
-        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-        { text: 'Commit', onPress: () => resolve(true) },
-      ],
-      { cancelable: true, onDismiss: () => resolve(false) },
-    );
-  });
+// The worktree fields of a session row (get-sessions / sessions-changed).
+function worktreeOf(s: any): WorktreeInfo {
+  return { worktree: s?.worktree || '', branch: s?.branch || '', worktreeState: s?.worktreeState || '' };
+}
+
+// An error the desktop reported while the chat was open — the session failing to
+// spawn, save, commit… Without it a failure on the desktop leaves the chat looking
+// merely idle. The full text (often a stack) opens in the copyable error dialog.
+function DesktopErrorCard({ error, onDismiss }: { error: DesktopError; onDismiss: () => void }) {
+  const firstLine = error.message.split('\n')[0] || 'Unknown error';
+  const title = error.context ? `Error ${error.context}` : 'The desktop reported an error';
+  return (
+    <View style={styles.notice} accessibilityRole="alert">
+      <Ionicons name="alert-circle" size={18} color={color.red} />
+      <Pressable
+        style={styles.noticeBody}
+        onPress={() => showError(title, error.message)}
+        accessibilityRole="button"
+        accessibilityHint="Shows the full error, which you can copy"
+      >
+        <Text style={styles.noticeTitle}>{title}</Text>
+        <Text style={styles.noticeText} numberOfLines={2}>{firstLine}</Text>
+        <Text style={styles.noticeLink}>Show details</Text>
+      </Pressable>
+      <Pressable onPress={onDismiss} hitSlop={12} accessibilityRole="button" accessibilityLabel="Dismiss error">
+        <Ionicons name="close" size={16} color={color.muted} />
+      </Pressable>
+    </View>
+  );
+}
+
+function EvictedCard() {
+  return (
+    <View style={styles.notice} accessibilityRole="alert">
+      <Ionicons name="archive-outline" size={18} color={color.red} />
+      <View style={styles.noticeBody}>
+        <Text style={styles.noticeTitle}>This session was closed on the desktop</Text>
+        <Text style={styles.noticeText}>
+          The desktop removed it to stay under its session limit. Start a new session to keep going.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// The session's whole diff — what Commit (or Merge) is about to land — full screen,
+// with the action at the bottom so you can read and then commit in one place.
+function SessionDiffSheet({
+  visible, sessionId, onClose, primaryLabel, primaryIcon, onPrimary, onRevert,
+}: {
+  visible: boolean;
+  sessionId: string;
+  onClose: () => void;
+  primaryLabel: string;
+  primaryIcon: any;
+  onPrimary?: () => void;
+  onRevert?: () => void;
+}) {
+  const { conn } = useConnection();
+  const insets = useSafeAreaInsets();
+  const [patch, setPatch] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [totals, setTotals] = useState<DiffStat | null>(null);
+
+  const fetchDiff = useCallback(async () => {
+    if (!conn) return;
+    setPatch(null);
+    setError(null);
+    try {
+      const r = await conn.req<{ ok: boolean; patch: string } & DiffStat>('session-diff', sessionId);
+      if (!r?.ok) { setError('The desktop could not read this session\'s changes.'); return; }
+      setPatch(r.patch || '');
+      setTotals({ additions: r.additions, deletions: r.deletions, files: r.files });
+    } catch (e: any) {
+      setError(errorText(e) || 'The desktop did not answer.');
+    }
+  }, [conn, sessionId]);
+
+  // Read fresh on every open: the session may have edited more since the last look.
+  useEffect(() => { if (visible) fetchDiff(); }, [visible, fetchDiff]);
+
+  return (
+    <Modal visible={visible} animationType="slide" statusBarTranslucent onRequestClose={onClose}>
+      <View style={[styles.sheet, { paddingTop: Math.max(insets.top, inset.minTop) + MODAL_TOP_SHIFT }]}>
+        <View style={styles.sheetBar}>
+          <View style={styles.titleWrap}>
+            <Text style={styles.title}>Session changes</Text>
+            {totals && (
+              <Text style={styles.statusText}>
+                {totals.files} file{totals.files === 1 ? '' : 's'}
+                {'  '}<Text style={styles.reviewAdd}>+{totals.additions}</Text>
+                {' '}<Text style={styles.reviewDel}>−{totals.deletions}</Text>
+              </Text>
+            )}
+          </View>
+          <Pressable
+            onPress={onClose}
+            hitSlop={10}
+            style={styles.sheetClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close changes"
+          >
+            <Ionicons name="close" size={20} color={color.text} />
+          </Pressable>
+        </View>
+        <View style={styles.fill}>
+          {error ? (
+            <ErrorState title="Couldn't load the changes" message={error} onRetry={fetchDiff} />
+          ) : patch === null ? (
+            <LoadingState label="Reading the diff…" />
+          ) : (
+            <DiffView patch={patch} emptyLabel="This session has no uncommitted changes" />
+          )}
+        </View>
+        {(onPrimary || onRevert) && (
+          <View style={[styles.sheetFooter, { paddingBottom: insets.bottom + space.sm }]}>
+            {onRevert && (
+              <Button label="Revert" icon="arrow-undo-outline" tone="secondary" onPress={onRevert} />
+            )}
+            {onPrimary && !!primaryLabel && (
+              <Button label={primaryLabel} icon={primaryIcon} onPress={onPrimary} style={styles.fill} />
+            )}
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -767,6 +1180,7 @@ const styles = StyleSheet.create({
     ...shadow.button,
   },
   commitPressed: { backgroundColor: color.green },
+  commitOff: { opacity: 0.55 },
   commitText: { color: '#fff', fontSize: font.size.sm, fontWeight: '700' },
 
   // Outlined, not filled: reverting is the destructive twin of commit, and it
@@ -776,6 +1190,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md, paddingVertical: 11, borderRadius: 12,
     backgroundColor: color.raised, borderWidth: 1, borderColor: tint.line(color.red),
   },
+  // The diff button: its +/− counts are its label, as on the desktop's Diff badge.
+  review: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    paddingHorizontal: 10, minHeight: 44, borderRadius: 12,
+    backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
+  },
+  reviewAdd: { color: color.green, fontSize: font.size.xs, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  reviewDel: { color: color.red, fontSize: font.size.xs, fontWeight: '700', fontVariant: ['tabular-nums'] },
   revertArmed: { backgroundColor: tint.line(color.red), borderColor: color.red },
   revertPressed: { backgroundColor: color.raisedHi },
   // Fixed slots, both of them: this button flexes with its content and Commit takes
@@ -796,6 +1218,37 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.sm },
   emptyTitle: { color: color.text, fontSize: font.size.lg, fontWeight: '700' },
   emptyText: { color: color.muted, fontSize: font.size.sm, textAlign: 'center', lineHeight: 20 },
+
+  // A desktop error or an evicted session: the system's red tint trio, inline in the
+  // conversation where the reader is already looking.
+  notice: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: space.sm,
+    marginHorizontal: space.md, marginVertical: space.xs,
+    padding: space.md, borderRadius: 12,
+    backgroundColor: tint.fill(color.red), borderWidth: 1, borderColor: tint.line(color.red),
+  },
+  noticeBody: { flex: 1, gap: 2 },
+  noticeTitle: { color: color.redSoft, fontSize: font.size.sm, fontWeight: '700', lineHeight: 18 },
+  noticeText: { color: color.body, fontSize: font.size.xs, lineHeight: 16, fontFamily: font.mono },
+  noticeLink: { color: color.accent, fontSize: font.size.xs, fontWeight: '600', marginTop: 2 },
+
+  sheet: { flex: 1, backgroundColor: color.bg },
+  sheetBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: space.lg, paddingVertical: 10,
+    backgroundColor: color.surfaceDeep,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: color.borderSoft,
+  },
+  sheetClose: {
+    width: 36, height: 36, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: color.raised,
+  },
+  sheetFooter: {
+    flexDirection: 'row', gap: space.sm,
+    paddingHorizontal: space.md, paddingTop: space.sm,
+    backgroundColor: color.surface,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.border,
+  },
 
   // The one card in the app that glows: a blocked session is the only thing here
   // that is actively waiting on you. It lives at the tail of the transcript and takes

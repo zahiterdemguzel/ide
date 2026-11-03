@@ -7,6 +7,10 @@
 // so the two ends can't drift. A launch config counts as "running" for as long as
 // its terminal is open — the same definition the desktop toolbar uses — which is
 // why the state here is derived from the live terminal list.
+//
+// The terminals list also opens a fresh shell (`term-create`), and each terminal
+// row can be restarted or killed — see lib/terminals.js for why a config terminal
+// restarts through `run-config-start` rather than `term-restart`.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -25,10 +29,15 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useConnection } from '../api/context';
 import { showError } from './ErrorDialog';
+import { confirmAction, haptic, showToast } from './feedback';
+import { ActionSheet, type SheetAction } from './PromptDialog';
+import { forgetTerminal, gridFor, markPhoneOwned, restartPlan } from '../lib/terminals';
+import { alpha, color, radius, tint, type as typeRole } from '../theme';
 
 type LaunchConfig = { name: string; compound?: boolean; members?: string[] };
 type RunConfigs = { launch: LaunchConfig[]; tasks: { name: string }[] };
 type TerminalInfo = { id: string; name: string; kind: string };
+type Shell = { name: string; path: string };
 
 type Props = { visible: boolean; onClose: () => void };
 
@@ -43,6 +52,8 @@ export default function RunDrawer({ visible, onClose }: Props) {
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shellMenu, setShellMenu] = useState<SheetAction[] | null>(null);
+  const [creating, setCreating] = useState(false);
 
   // The two halves of this panel are fetched *independently*. They used to be one
   // `Promise.all` inside one silent `catch {}`, which failed in the worst possible way:
@@ -113,7 +124,12 @@ export default function RunDrawer({ visible, onClose }: Props) {
 
   const stop = async (name: string) => {
     if (!conn) return;
-    try { await conn.req('run-config-stop', { name }); } catch { /* it's already gone */ }
+    try {
+      const r = await conn.req<{ ok?: boolean; error?: string } | undefined>('run-config-stop', { name });
+      if (r && r.ok === false) showError(`Stop ${name}`, r.error || 'Could not stop this config.');
+    } catch (e: any) {
+      showError(`Stop ${name}`, e);
+    }
   };
 
   // Deliberately no onClose() here: the panel stays logically open so it's still
@@ -123,19 +139,86 @@ export default function RunDrawer({ visible, onClose }: Props) {
     navigation.navigate('Console', { id: t.id, name: t.name });
   };
 
+  // New terminal: the desktop's own "+" — one shell opens straight away, several
+  // ask which. The shell has no desktop tab (the renderer only shows terminals it
+  // created), so it's marked phone-owned and Console sizes it to the phone.
+  const createShell = async (shell: Shell) => {
+    if (!conn) return;
+    setCreating(true);
+    try {
+      const r = await conn.req<{ id?: string }>('term-create', { shell: shell.path, name: shell.name, kind: 'shell' });
+      if (!r?.id) { showError('New terminal', 'The desktop did not open a terminal.'); return; }
+      markPhoneOwned(r.id);
+      haptic.success();
+      openTerminal({ id: r.id, name: shell.name, kind: 'shell' });
+    } catch (e: any) {
+      showError('New terminal', e);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const newTerminal = async () => {
+    if (!conn || creating) return;
+    let shells: Shell[] = [];
+    try {
+      shells = (await conn.req<Shell[]>('term-shells')) ?? [];
+    } catch (e: any) {
+      showError('New terminal', e);
+      return;
+    }
+    if (shells.length <= 1) { createShell(shells[0] ?? { name: 'shell', path: '' }); return; }
+    setShellMenu(shells.map((sh) => ({
+      label: sh.name,
+      icon: 'terminal-outline',
+      onPress: () => createShell(sh),
+    })));
+  };
+
+  const restart = async (t: TerminalInfo) => {
+    if (!conn) return;
+    const plan = restartPlan(t, configs, gridFor(t.id));
+    if (!plan) return;
+    try {
+      const r = await conn.req<{ ok?: boolean; error?: string }>(plan.via, plan.args);
+      if (r && r.ok === false) { showError(`Restart ${t.name}`, r.error || 'Could not restart this terminal.'); return; }
+      showToast({ message: `Restarted ${t.name}`, tone: 'success' });
+    } catch (e: any) {
+      showError(`Restart ${t.name}`, e);
+    }
+  };
+
+  const kill = async (t: TerminalInfo) => {
+    if (!conn) return;
+    const ok = await confirmAction({
+      title: `Kill ${t.name}?`,
+      message: 'The process stops and its terminal closes — on the desktop too.',
+      confirmLabel: 'Kill',
+    });
+    if (!ok) return;
+    // A send, not a req: main confirms by pushing terminals-changed / term-exit.
+    conn.send('term-kill', { id: t.id });
+    forgetTerminal(t.id);
+  };
+
   const empty = !configs.launch.length && !configs.tasks.length;
 
   return (
     <Modal visible={visible} transparent statusBarTranslucent animationType="none" onRequestClose={onClose}>
       <Animated.View style={[styles.scrim, { opacity: fade }]}>
-        <Pressable style={styles.fill} onPress={onClose} />
+        <Pressable style={styles.fill} onPress={onClose} accessibilityLabel="Close run panel" />
       </Animated.View>
       <Animated.View style={[styles.panel, { width: panelWidth, transform: [{ translateX: slide }] }]}>
         <SafeAreaView style={styles.fill} edges={['top', 'bottom', 'right']}>
           <View style={styles.header}>
-            <Text style={styles.headerTitle}>Run</Text>
-            <Pressable hitSlop={10} onPress={onClose}>
-              <Ionicons name="close" size={22} color="#7d8590" />
+            <Text style={styles.headerTitle} accessibilityRole="header">Run</Text>
+            <Pressable
+              onPress={onClose}
+              style={({ pressed }) => [styles.closeBtn, pressed && styles.actionPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Close run panel"
+            >
+              <Ionicons name="close" size={22} color={color.muted} />
             </Pressable>
           </View>
 
@@ -159,7 +242,7 @@ export default function RunDrawer({ visible, onClose }: Props) {
                   <Ionicons
                     name={c.compound ? 'layers-outline' : 'rocket-outline'}
                     size={16}
-                    color={live ? '#3fb950' : '#7d8590'}
+                    color={live ? color.green : color.muted}
                   />
                   <Text style={[styles.rowName, live && styles.rowNameLive]} numberOfLines={1}>
                     {c.name}
@@ -168,10 +251,11 @@ export default function RunDrawer({ visible, onClose }: Props) {
                   {live && (
                     <Pressable
                       onPress={() => stop(c.name)}
-                      hitSlop={8}
                       style={({ pressed }) => [styles.action, styles.stop, pressed && styles.actionPressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Stop ${c.name}`}
                     >
-                      <Ionicons name="stop" size={13} color="#ffa198" />
+                      <Ionicons name="stop" size={14} color={color.redSoft} />
                     </Pressable>
                   )}
 
@@ -180,12 +264,14 @@ export default function RunDrawer({ visible, onClose }: Props) {
                   <Pressable
                     onPress={() => start('launch', c.name)}
                     disabled={pending}
-                    hitSlop={8}
                     style={({ pressed }) => [styles.action, styles.play, pressed && styles.actionPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={live ? `Restart ${c.name}` : `Run ${c.name}`}
+                    accessibilityState={{ busy: pending }}
                   >
                     {pending
-                      ? <ActivityIndicator size="small" color="#3fb950" />
-                      : <Ionicons name={live ? 'refresh' : 'play'} size={14} color="#3fb950" />}
+                      ? <ActivityIndicator size="small" color={color.green} />
+                      : <Ionicons name={live ? 'refresh' : 'play'} size={15} color={color.green} />}
                   </Pressable>
                 </View>
               );
@@ -196,94 +282,154 @@ export default function RunDrawer({ visible, onClose }: Props) {
               const pending = busy === t.name;
               return (
                 <View key={t.name} style={styles.row}>
-                  <Ionicons name="construct-outline" size={16} color="#7d8590" />
+                  <Ionicons name="construct-outline" size={16} color={color.muted} />
                   <Text style={styles.rowName} numberOfLines={1}>{t.name}</Text>
                   <Pressable
                     onPress={() => start('task', t.name)}
                     disabled={pending}
-                    hitSlop={8}
                     style={({ pressed }) => [styles.action, styles.play, pressed && styles.actionPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Run ${t.name}`}
+                    accessibilityState={{ busy: pending }}
                   >
                     {pending
-                      ? <ActivityIndicator size="small" color="#3fb950" />
-                      : <Ionicons name="play" size={14} color="#3fb950" />}
+                      ? <ActivityIndicator size="small" color={color.green} />
+                      : <Ionicons name="play" size={15} color={color.green} />}
                   </Pressable>
                 </View>
               );
             })}
 
-            <Text style={styles.section}>TERMINALS</Text>
-            {terminals.length === 0 && <Text style={styles.empty}>No terminals open.</Text>}
-            {terminals.map((t) => (
+            <View style={styles.sectionRow}>
+              <Text style={[styles.section, styles.sectionInRow]}>TERMINALS</Text>
               <Pressable
-                key={t.id}
-                onPress={() => openTerminal(t)}
-                style={({ pressed }) => [styles.row, styles.termRow, pressed && styles.rowPressed]}
+                onPress={newTerminal}
+                disabled={creating}
+                style={({ pressed }) => [styles.newTerm, pressed && styles.actionPressed]}
+                accessibilityRole="button"
+                accessibilityLabel="New terminal"
+                accessibilityState={{ busy: creating }}
               >
-                <Ionicons
-                  name={t.kind === 'config' ? 'terminal' : 'terminal-outline'}
-                  size={16}
-                  color={t.kind === 'config' ? '#3fb950' : '#7d8590'}
-                />
-                <Text style={styles.rowName} numberOfLines={1}>{t.name}</Text>
-                <Ionicons name="chevron-forward" size={16} color="#7d8590" />
+                {creating
+                  ? <ActivityIndicator size="small" color={color.accent} />
+                  : <Ionicons name="add" size={18} color={color.accent} />}
+                <Text style={styles.newTermLabel}>New</Text>
               </Pressable>
-            ))}
+            </View>
+            {terminals.length === 0 && <Text style={styles.empty}>No terminals open.</Text>}
+            {terminals.map((t) => {
+              const canRestart = !!restartPlan(t, configs);
+              return (
+                <View key={t.id} style={[styles.termRow]}>
+                  <Pressable
+                    onPress={() => openTerminal(t)}
+                    style={({ pressed }) => [styles.termOpen, pressed && styles.rowPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open terminal ${t.name}`}
+                  >
+                    <Ionicons
+                      name={t.kind === 'config' ? 'terminal' : 'terminal-outline'}
+                      size={16}
+                      color={t.kind === 'config' ? color.green : color.muted}
+                    />
+                    <Text style={styles.rowName} numberOfLines={1}>{t.name}</Text>
+                  </Pressable>
+                  {canRestart && (
+                    <Pressable
+                      onPress={() => restart(t)}
+                      style={({ pressed }) => [styles.action, styles.neutral, pressed && styles.actionPressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restart ${t.name}`}
+                    >
+                      <Ionicons name="refresh" size={15} color={color.muted} />
+                    </Pressable>
+                  )}
+                  <Pressable
+                    onPress={() => kill(t)}
+                    style={({ pressed }) => [styles.action, styles.stop, pressed && styles.actionPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Kill ${t.name}`}
+                  >
+                    <Ionicons name="close" size={16} color={color.redSoft} />
+                  </Pressable>
+                </View>
+              );
+            })}
           </ScrollView>
         </SafeAreaView>
       </Animated.View>
+      {/* Rendered inside this Modal so it stacks above the panel on both platforms. */}
+      <ActionSheet title="New terminal" actions={shellMenu} onClose={() => setShellMenu(null)} />
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(1,4,9,0.6)' },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: alpha(color.bg, 0.6) },
   panel: {
     position: 'absolute',
     top: 0,
     bottom: 0,
     right: 0,
-    backgroundColor: '#161b22',
-    borderLeftColor: '#30363d',
+    backgroundColor: color.surface,
+    borderLeftColor: color.border,
     borderLeftWidth: StyleSheet.hairlineWidth,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomColor: '#30363d',
+    paddingLeft: 16,
+    paddingRight: 6,
+    paddingVertical: 4,
+    borderBottomColor: color.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { color: '#e6edf3', fontSize: 16, fontWeight: '700' },
+  headerTitle: { color: color.text, fontSize: 16, fontWeight: '700' },
+  closeBtn: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   body: { paddingBottom: 24 },
   section: {
-    color: '#7d8590', fontSize: 10, fontWeight: '700', letterSpacing: 0.8,
+    ...typeRole.category, color: color.muted, fontSize: 10, letterSpacing: 0.8,
     paddingHorizontal: 16, paddingTop: 18, paddingBottom: 6,
   },
+  sectionRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingRight: 8 },
+  sectionInRow: { paddingBottom: 12 },
+  newTerm: {
+    flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44,
+    paddingHorizontal: 10, borderRadius: radius.md,
+  },
+  newTermLabel: { color: color.accent, fontSize: 13, fontWeight: '600' },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: 16, paddingVertical: 10,
+    paddingHorizontal: 16, paddingVertical: 4, minHeight: 52,
   },
-  termRow: { borderTopColor: '#21262d', borderTopWidth: StyleSheet.hairlineWidth },
-  rowPressed: { backgroundColor: '#21262d' },
-  rowName: { flex: 1, color: '#e6edf3', fontSize: 14, fontWeight: '600' },
-  rowNameLive: { color: '#3fb950' },
+  termRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, paddingRight: 12, minHeight: 52,
+    borderTopColor: color.borderSoft, borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  termOpen: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'stretch',
+    paddingLeft: 16, paddingRight: 6,
+  },
+  rowPressed: { backgroundColor: color.raised },
+  rowName: { flex: 1, color: color.text, fontSize: 14, fontWeight: '600' },
+  rowNameLive: { color: color.green },
+  // 44pt targets: a play/stop beside a row is the whole point of the panel.
   action: {
-    width: 30, height: 30, borderRadius: 6,
+    width: 44, height: 44, borderRadius: radius.md,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1,
   },
-  actionPressed: { backgroundColor: '#30363d' },
-  play: { backgroundColor: '#21262d', borderColor: '#3fb95033' },
-  stop: { backgroundColor: '#21262d', borderColor: '#f8514933' },
-  empty: { color: '#7d8590', fontSize: 13, paddingHorizontal: 16, paddingVertical: 8 },
+  actionPressed: { backgroundColor: color.raisedHi },
+  play: { backgroundColor: color.raised, borderColor: alpha(color.green, 0.2) },
+  stop: { backgroundColor: color.raised, borderColor: alpha(color.red, 0.2) },
+  neutral: { backgroundColor: color.raised, borderColor: color.border },
+  empty: { color: color.muted, fontSize: 13, paddingHorizontal: 16, paddingVertical: 8 },
   error: {
-    color: '#ffa198', fontSize: 12, lineHeight: 17,
+    color: color.redSoft, fontSize: 12, lineHeight: 17,
     marginHorizontal: 16, marginTop: 12, padding: 10,
-    backgroundColor: '#f8514915', borderRadius: 6,
-    borderWidth: 1, borderColor: '#f8514933',
+    backgroundColor: tint.fill(color.red), borderRadius: radius.sm,
+    borderWidth: 1, borderColor: alpha(color.red, 0.2),
   },
 });

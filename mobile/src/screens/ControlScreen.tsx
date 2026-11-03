@@ -13,18 +13,35 @@
 //   move drags, two fingers scroll or pinch.
 // The key bar adds what a touch keyboard hasn't got — arrows, Esc/Tab, and
 // sticky Ctrl/Alt/Shift/Meta so combos like Ctrl+C work.
+//
+// None of the gestures are discoverable by looking, so a card explaining them
+// appears on first use (remembered in SecureStore) and the action bar's "?"
+// brings it back.
+//
+// The soft keyboard must not disturb the picture: while it is up, a frame area
+// that only got shorter is a transient layout (lib/frame-layout.js) — zoom is kept
+// and the desktop capture isn't re-opened. On iOS, where the keyboard overlays the
+// window instead of resizing it, the screen pads itself above the keyboard so the
+// key bar and action bar stay reachable.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, Image, Pressable, PanResponder, ActivityIndicator, ScrollView, StyleSheet, PixelRatio,
-  Animated,
+  Animated, Keyboard, Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Mouse, Pointer, Volume2, VolumeX } from 'lucide-react-native';
 import { WebView } from 'react-native-webview';
+import * as SecureStore from 'expo-secure-store';
 import { useConnection } from '../api/context';
-import { color, font, radius, space } from '../theme';
+import { storageKey } from '../api/storage';
+import ScreenHeader from '../components/ScreenHeader';
+import { ErrorState } from '../components/ui';
+import { showToast } from '../components/feedback';
+import { useRemoteTyping, type TypedEdit } from '../components/useRemoteTyping';
+import { classifyLayoutChange } from '../lib/frame-layout';
+import { color, font, radius, space, shadow } from '../theme';
 
 type DisplayInfo = { id: string; label: string; primary: boolean };
 type OpenResult = {
@@ -71,6 +88,12 @@ const MOVE_THROTTLE_MS = 60; // live cursor-move sends while a finger drags
 const CURSOR_SIZE = 12; // on-screen px, held constant regardless of zoom
 const SCROLL_FLUSH_MS = 50;
 const SCROLL_GAIN = 1.4; // finger px → wheel notches; a screen drag should scroll more than 1:1
+// A frame-area layout is acted on only once it has held this long: Android reports
+// the keyboard's resize and the keyboard itself in either order, so deciding on
+// the first layout alone would mistake a keyboard for a real resize.
+const LAYOUT_SETTLE_MS = 250;
+// Set once the gesture card has been dismissed.
+const KEY_GESTURE_HINT_SEEN = storageKey('controlGestureHintSeen');
 
 type Mod = 'ctrl' | 'alt' | 'shift' | 'meta';
 const MOD_ORDER: Mod[] = ['ctrl', 'alt', 'shift', 'meta'];
@@ -108,7 +131,7 @@ window.pushChunk = function (b64) {
 </script>`;
 
 export default function ControlScreen() {
-  const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const { conn, state } = useConnection();
   const [info, setInfo] = useState<OpenResult | null>(null);
   const [frame, setFrame] = useState<Frame | null>(null);
@@ -122,6 +145,12 @@ export default function ControlScreen() {
   const [sound, setSound] = useState(false);
   const [audioWarn, setAudioWarn] = useState<string | null>(null);
   const audioView = useRef<WebView>(null);
+  // Why the last control-open failed, shown with a retry while there's no picture.
+  const [openError, setOpenError] = useState<string | null>(null);
+  // iOS only: how far the keyboard reaches above the tab bar — the screen pads its
+  // bottom by this so the key bar and action bar ride above the keyboard.
+  const [keyboardInset, setKeyboardInset] = useState(0);
+  const [hintOpen, setHintOpen] = useState(false);
 
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -232,6 +261,12 @@ export default function ControlScreen() {
   const pageOffset = useRef({ x: 0, y: 0 });
   const lastSeq = useRef(0);
   const keyInput = useRef<TextInput>(null);
+  // Whether a control-open is in flight or succeeded for this focus.
+  const opened = useRef(false);
+  // The frame-area size last acted on (zoom clamp, capture size); see settleLayout.
+  const stableSize = useRef<{ w: number; h: number } | null>(null);
+  const keyboardVisible = useRef(false);
+  const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const applyInfo = useCallback((r: OpenResult) => {
     displayRef.current = r.display;
@@ -258,28 +293,99 @@ export default function ControlScreen() {
     return pickCapture(w, h);
   }, []);
 
+  // (Re)start the desktop capture at the current frame-area size. A failure with
+  // no picture yet replaces the spinner with an error + retry; with a picture
+  // already up (a display switch, a rotation) the stream carries on and a toast
+  // says the change didn't take.
   const openControl = useCallback(() => {
     const size = captureSize();
-    if (!conn || conn.state !== 'ready' || !size) return;
-    conn.req<OpenResult>('control-open', { ...size, display: displayRef.current }).then(applyInfo).catch(() => {});
-  }, [conn, captureSize, applyInfo]);
+    const c = connRef.current;
+    if (!c || c.state !== 'ready' || !size) return;
+    opened.current = true;
+    setOpenError(null);
+    c.req<OpenResult>('control-open', { ...size, display: displayRef.current }).then(applyInfo).catch((err: unknown) => {
+      const message = err instanceof Error && err.message ? err.message : 'The desktop did not answer.';
+      if (frameRef.current) {
+        showToast({ message: `Couldn't update the desktop stream: ${message}`, tone: 'error' });
+      } else {
+        opened.current = false;
+        setOpenError(message);
+      }
+    });
+  }, [captureSize, applyInfo]);
 
   // Switch which desktop monitor streams; the desktop re-points capture and
   // injection at it and echoes back the new geometry.
   const chooseDisplay = useCallback((id: string) => {
-    const size = captureSize();
-    if (!conn || conn.state !== 'ready' || !size) return;
     displayRef.current = id;
     setShown(null); // don't underlay the old display's last frame
     applyZoom(1, 0, 0); // zoom (and its streamed region) is per-display
-    conn.req<OpenResult>('control-open', { ...size, display: id }).then(applyInfo).catch(() => {});
-  }, [conn, captureSize, applyInfo, applyZoom]);
+    openControl();
+  }, [openControl, applyZoom]);
+
+  // Act on the frame area's size once it has settled. A keyboard-driven change
+  // (height only, keyboard up) is ignored: the zoom stays and the capture keeps
+  // its keyboard-free size. A real resize (first layout, rotation) re-fits the
+  // zoom and re-opens the capture at the new size.
+  const settleLayout = useCallback(() => {
+    layoutTimer.current = null;
+    const { w, h } = viewRef.current;
+    if (!w || !h) return;
+    const change = classifyLayoutChange(stableSize.current, { w, h }, keyboardVisible.current);
+    if (change === 'keyboard') return;
+    if (change === 'resize') {
+      const firstLayout = !stableSize.current;
+      stableSize.current = { w, h };
+      if (!firstLayout) applyZoom(1, 0, 0); // a resized viewport invalidates the pan clamp
+      openControl();
+    } else if (!opened.current) {
+      openControl();
+    }
+  }, [applyZoom, openControl]);
+
+  const scheduleLayoutSettle = useCallback(() => {
+    if (layoutTimer.current) clearTimeout(layoutTimer.current);
+    layoutTimer.current = setTimeout(settleLayout, LAYOUT_SETTLE_MS);
+  }, [settleLayout]);
+
+  // Track the keyboard so the layouts it causes are known to be transient. iOS's
+  // "will" events land before the layout they cause; Android only has "did",
+  // which can trail the resize — the settle delay covers that. Hiding re-settles
+  // (in case the size changed for real meanwhile) and blurs the key catcher:
+  // dismissing the keyboard with the system back gesture doesn't blur it, which
+  // would leave the Type button stuck on.
+  useEffect(() => {
+    const ios = Platform.OS === 'ios';
+    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', (e) => {
+      keyboardVisible.current = true;
+      if (ios) setKeyboardInset(Math.max(0, e.endCoordinates.height - tabBarHeight));
+    });
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => {
+      keyboardVisible.current = false;
+      if (ios) setKeyboardInset(0);
+      keyInput.current?.blur();
+      scheduleLayoutSettle();
+    });
+    return () => { show.remove(); hide.remove(); };
+  }, [tabBarHeight, scheduleLayoutSettle]);
+
+  // First use: explain the gestures once. A storage failure just shows it again.
+  useEffect(() => {
+    SecureStore.getItemAsync(KEY_GESTURE_HINT_SEEN)
+      .then((seen) => { if (seen !== '1') setHintOpen(true); })
+      .catch(() => setHintOpen(true));
+  }, []);
+  const dismissHint = () => {
+    setHintOpen(false);
+    SecureStore.setItemAsync(KEY_GESTURE_HINT_SEEN, '1').catch(() => {});
+  };
 
   // Focused + connected: start the desktop capture and watch its frames.
   // Blurred: stop watching and tell the desktop to stop capturing.
   useFocusEffect(useCallback(() => {
     if (!conn || state !== 'ready') return undefined;
     lastSeq.current = 0;
+    opened.current = false;
     openControl();
     const unwatch = conn.watch('screen-frame', 'main');
     const offFrame = conn.on('screen-frame', (f: Frame) => {
@@ -296,6 +402,8 @@ export default function ControlScreen() {
     });
     return () => {
       if (regionTimer.current) { clearTimeout(regionTimer.current); regionTimer.current = null; }
+      if (layoutTimer.current) { clearTimeout(layoutTimer.current); layoutTimer.current = null; }
+      opened.current = false;
       offFrame();
       unwatch();
       conn.send('control-close');
@@ -411,9 +519,11 @@ export default function ControlScreen() {
     if (gesture.current.longTimer) { clearTimeout(gesture.current.longTimer); gesture.current.longTimer = null; }
   };
 
+  // Only while there's a picture: without one the area holds the loading/error
+  // state, whose retry button must get its own taps.
   const pan = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponder: () => !!frameRef.current,
+    onMoveShouldSetPanResponder: () => !!frameRef.current,
     onPanResponderGrant: (evt) => {
       const g = gesture.current;
       // Self-calibrate the window→frameArea offset from this very touch: it
@@ -587,12 +697,18 @@ export default function ControlScreen() {
     if (n) send([{ k: 'tap', x: n.x, y: n.y, button: 'left', double: true, mods: activeMods() }]);
   };
 
+  // Sticky-once: a modifier chorded into a key press releases after it fires. The
+  // ref is cleared too, so the rest of a multi-key burst (one keyboard change can
+  // carry several edits) doesn't chord with it as well.
+  const releaseMods = () => {
+    if (!modsRef.current.size) return;
+    modsRef.current = new Set();
+    setMods(new Set());
+  };
+
   const pressKey = (key: string) => {
     send([{ k: 'key', key, mods: activeMods() }]);
-    // Sticky-once: a modifier chorded into a key press releases after it fires,
-    // unless the user has it locked (double-tapped — tracked as always-on here by
-    // staying in the set only via explicit toggle). We clear non-locked mods.
-    if (modsRef.current.size) setMods(new Set());
+    releaseMods();
   };
 
   // First tap arms a modifier for the next key (a chord like Ctrl+C). A second
@@ -608,33 +724,32 @@ export default function ControlScreen() {
     }
   };
 
+  // The live layout always drives the letterbox math (touches must land where the
+  // picture is drawn now); what the size change *means* is decided once it settles.
   const onFrameLayout = (e: any) => {
     const { width, height, x, y } = e.nativeEvent.layout;
-    const changed = Math.abs(width - viewRef.current.w) > 2 || Math.abs(height - viewRef.current.h) > 2;
-    setView({ w: width, h: height, x, y });
+    const next = { w: width, h: height, x, y };
+    viewRef.current = next; // settleLayout may run before the re-render
+    setView(next);
     frameAreaEl.current?.measureInWindow((px, py) => { pageOffset.current = { x: px, y: py }; });
-    if (changed) applyZoom(1, 0, 0); // a resized viewport invalidates the pan clamp
     syncLocalCursor(); // the letterbox rect moved with the viewport
-    const cap = pickCapture(width, height);
-    if (changed && conn?.state === 'ready' && cap) {
-      conn.req<OpenResult>('control-open', { ...cap, display: displayRef.current }).then(applyInfo).catch(() => {});
-    } else if (!frame) {
-      openControl();
-    }
+    scheduleLayoutSettle();
   };
 
-  // Free typing: the hidden input turns the soft keyboard into keystrokes. Each
-  // char is forwarded and the field kept empty, so there is nothing to diff.
-  const onKeyPress = (e: any) => {
-    const key = e.nativeEvent.key as string;
-    if (key === 'Backspace') pressKey('backspace');
-    else if (key === 'Enter') pressKey('enter');
-    else if (key === ' ') pressKey('space');
-    else if (key.length === 1) {
-      send([{ k: 'text', text: key, mods: activeMods() }]);
-      if (modsRef.current.size) setMods(new Set());
+  // Free typing: the hidden input turns the soft keyboard into keystrokes. Its
+  // changes are diffed (see useRemoteTyping) rather than read from onKeyPress,
+  // which many Android keyboards never fire per character.
+  const typingInput = useRemoteTyping((edits: TypedEdit[]) => {
+    for (const edit of edits) {
+      if (edit.kind === 'backspace') pressKey('backspace');
+      else if (edit.kind === 'enter') pressKey('enter');
+      else if (edit.text === ' ') pressKey('space');
+      else {
+        send([{ k: 'text', text: edit.text, mods: activeMods() }]);
+        releaseMods();
+      }
     }
-  };
+  });
 
   const displayList = info?.displays ?? [];
 
@@ -654,7 +769,9 @@ export default function ControlScreen() {
   const shownRect = shown && shown !== frame ? rectFor(shown) : null;
 
   return (
-    <View style={[styles.fill, { paddingTop: insets.top }]}>
+    <View style={[styles.fill, { paddingBottom: keyboardInset }]}>
+      <ScreenHeader title="Control" compact />
+
       {displayList.length > 1 ? (
         <View style={styles.displayBar}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.displayRow}>
@@ -665,6 +782,10 @@ export default function ControlScreen() {
                   key={d.id}
                   style={[styles.displayChip, on && styles.displayChipOn]}
                   onPress={() => chooseDisplay(d.id)}
+                  hitSlop={{ top: 7, bottom: 7 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Show display ${d.label}`}
+                  accessibilityState={{ selected: on }}
                 >
                   <Ionicons name="desktop-outline" size={13} color={on ? '#fff' : color.muted} />
                   <Text style={[styles.displayChipText, on && styles.displayChipTextOn]}>{d.label}</Text>
@@ -683,6 +804,7 @@ export default function ControlScreen() {
         </View>
       ) : null}
 
+      <View style={styles.frameWrap}>
       <View ref={frameAreaEl} style={styles.frameArea} onLayout={onFrameLayout} {...pan.panHandlers}>
         {frame ? (
           <View
@@ -727,6 +849,12 @@ export default function ControlScreen() {
               <Cursor cx={frame.cursor.cx} cy={frame.cursor.cy} frame={frame} view={view} zoom={zoom.scale} />
             ) : null}
           </View>
+        ) : openError && state === 'ready' ? (
+          <ErrorState
+            title="Couldn't start the desktop capture"
+            message={openError}
+            onRetry={openControl}
+          />
         ) : (
           <View pointerEvents="none" style={styles.empty}>
             {state === 'ready' ? <ActivityIndicator color={color.muted} /> : null}
@@ -736,25 +864,32 @@ export default function ControlScreen() {
           </View>
         )}
       </View>
+      {hintOpen && <GestureHint mode={mode} onDismiss={dismissHint} />}
+      </View>
 
       {/* Key bar: the keys a touch keyboard hasn't got, plus sticky modifiers. */}
       <View style={styles.keyBar}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.keyRow}>
-          <ModKey label="Ctrl" on={mods.has('ctrl')} onPress={() => toggleMod('ctrl')} />
-          <ModKey label="Alt" on={mods.has('alt')} onPress={() => toggleMod('alt')} />
-          <ModKey label="Shift" on={mods.has('shift')} onPress={() => toggleMod('shift')} />
-          <ModKey label={metaKey === 'meta' ? 'Cmd' : 'Win'} on={mods.has('meta')} onPress={() => toggleMod('meta')} />
+          <ModKey label="Ctrl" a11y="Control" on={mods.has('ctrl')} onPress={() => toggleMod('ctrl')} />
+          <ModKey label="Alt" a11y="Alt" on={mods.has('alt')} onPress={() => toggleMod('alt')} />
+          <ModKey label="Shift" a11y="Shift" on={mods.has('shift')} onPress={() => toggleMod('shift')} />
+          <ModKey
+            label={metaKey === 'meta' ? 'Cmd' : 'Win'}
+            a11y={metaKey === 'meta' ? 'Command' : 'Windows'}
+            on={mods.has('meta')}
+            onPress={() => toggleMod('meta')}
+          />
           <Sep />
-          <Key icon="arrow-up" onPress={() => pressKey('up')} />
-          <Key icon="arrow-down" onPress={() => pressKey('down')} />
-          <Key icon="arrow-back" onPress={() => pressKey('left')} />
-          <Key icon="arrow-forward" onPress={() => pressKey('right')} />
+          <Key icon="arrow-up" a11y="Up arrow" onPress={() => pressKey('up')} />
+          <Key icon="arrow-down" a11y="Down arrow" onPress={() => pressKey('down')} />
+          <Key icon="arrow-back" a11y="Left arrow" onPress={() => pressKey('left')} />
+          <Key icon="arrow-forward" a11y="Right arrow" onPress={() => pressKey('right')} />
           <Sep />
-          <Key label="Esc" onPress={() => pressKey('escape')} />
-          <Key label="Tab" onPress={() => pressKey('tab')} />
-          <Key label="↵" onPress={() => pressKey('enter')} />
-          <Key label="⌫" onPress={() => pressKey('backspace')} />
-          <Key label="Space" wide onPress={() => pressKey('space')} />
+          <Key label="Esc" a11y="Escape" onPress={() => pressKey('escape')} />
+          <Key label="Tab" a11y="Tab" onPress={() => pressKey('tab')} />
+          <Key label="↵" a11y="Enter" onPress={() => pressKey('enter')} />
+          <Key label="⌫" a11y="Backspace" onPress={() => pressKey('backspace')} />
+          <Key label="Space" a11y="Space" wide onPress={() => pressKey('space')} />
         </ScrollView>
       </View>
 
@@ -763,6 +898,10 @@ export default function ControlScreen() {
         <Pressable
           style={({ pressed }) => [styles.action, styles.modeBtn, pressed && styles.keyPressed]}
           onPress={() => { syncLocalCursor(); setMode((m) => (m === 'touch' ? 'trackpad' : 'touch')); }}
+          accessibilityRole="button"
+          accessibilityLabel={mode === 'touch'
+            ? 'Pointer mode: touch. Switch to trackpad mode'
+            : 'Pointer mode: trackpad. Switch to touch mode'}
         >
           {mode === 'touch'
             ? <Pointer size={18} color={color.text} />
@@ -773,10 +912,21 @@ export default function ControlScreen() {
             styles.action, styles.modeBtn, sound && styles.actionOn, pressed && styles.keyPressed,
           ]}
           onPress={() => { setAudioWarn(null); setSound((v) => !v); }}
+          accessibilityRole="switch"
+          accessibilityLabel="Desktop sound"
+          accessibilityState={{ checked: sound }}
         >
           {sound
             ? <Volume2 size={18} color={color.accent} />
             : <VolumeX size={18} color={color.text} />}
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.action, styles.modeBtn, hintOpen && styles.actionOn, pressed && styles.keyPressed]}
+          onPress={() => setHintOpen((open) => !open)}
+          accessibilityRole="button"
+          accessibilityLabel="Gesture help"
+        >
+          <Ionicons name="help-circle-outline" size={19} color={hintOpen ? color.accent : color.text} />
         </Pressable>
         <Action icon="repeat" label="Double-click" onPress={doubleClick} />
         <Action
@@ -805,13 +955,18 @@ export default function ControlScreen() {
       <TextInput
         ref={keyInput}
         style={styles.keyCatcher}
-        value=""
-        onKeyPress={onKeyPress}
-        onFocus={() => setTyping(true)}
+        value={typingInput.value}
+        onChangeText={typingInput.onChangeText}
+        onFocus={() => { typingInput.reset(); setTyping(true); }}
         onBlur={() => setTyping(false)}
         autoCapitalize="none"
         autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        importantForAutofill="no"
         multiline
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       />
     </View>
   );
@@ -842,14 +997,81 @@ function Cursor(
   );
 }
 
+// What each pointer mode's gestures do. None of them can be seen on the screen,
+// so this card is the only way to learn them; the current mode's list comes first.
+const GESTURES: Record<PointerMode, { title: string; items: Array<[string, string]> }> = {
+  touch: {
+    title: 'Touch mode',
+    items: [
+      ['Tap', 'Click where you touch'],
+      ['Drag', 'Move the pointer'],
+      ['Long-press', 'Right-click'],
+      ['Long-press, then drag', 'Drag (hold the left button)'],
+      ['Two fingers', 'Scroll, or pinch to zoom'],
+    ],
+  },
+  trackpad: {
+    title: 'Trackpad mode',
+    items: [
+      ['Drag', 'Move the pointer like a laptop trackpad'],
+      ['Tap', 'Click at the pointer'],
+      ['Two-finger tap', 'Right-click'],
+      ['Long-press, then drag', 'Drag (hold the left button)'],
+      ['Two fingers', 'Scroll, or pinch to zoom'],
+    ],
+  },
+};
+
+function GestureHint({ mode, onDismiss }: { mode: PointerMode; onDismiss: () => void }) {
+  const order: PointerMode[] = mode === 'touch' ? ['touch', 'trackpad'] : ['trackpad', 'touch'];
+  return (
+    <View style={styles.hintScrim}>
+      <View style={styles.hintCard} accessibilityViewIsModal>
+        <ScrollView contentContainerStyle={styles.hintBody}>
+          <Text style={styles.hintTitle} accessibilityRole="header">Controlling the desktop</Text>
+          {order.map((m) => (
+            <View key={m} style={styles.hintSection}>
+              <Text style={[styles.hintSectionTitle, m === mode && { color: color.accent }]}>
+                {GESTURES[m].title}{m === mode ? ' (current)' : ''}
+              </Text>
+              {GESTURES[m].items.map(([gesture, effect]) => (
+                <View key={gesture} style={styles.hintRow}>
+                  <Text style={styles.hintGesture}>{gesture}</Text>
+                  <Text style={styles.hintEffect}>{effect}</Text>
+                </View>
+              ))}
+            </View>
+          ))}
+          <Text style={styles.hintNote}>
+            The first button below switches between the two modes. Type opens the keyboard;
+            the key bar has the keys it lacks, and Ctrl/Alt/Shift stay held for the next key.
+          </Text>
+        </ScrollView>
+        <Pressable
+          style={({ pressed }) => [styles.hintButton, pressed && { opacity: 0.85 }]}
+          onPress={onDismiss}
+          accessibilityRole="button"
+        >
+          <Text style={styles.hintButtonText}>Got it</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function Key(
-  { icon, label, wide, onPress }:
-  { icon?: keyof typeof Ionicons.glyphMap; label?: string; wide?: boolean; onPress: () => void },
+  { icon, label, a11y, wide, onPress }:
+  {
+    icon?: keyof typeof Ionicons.glyphMap; label?: string; a11y: string;
+    wide?: boolean; onPress: () => void;
+  },
 ) {
   return (
     <Pressable
       style={({ pressed }) => [styles.key, wide && styles.keyWide, pressed && styles.keyPressed]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={a11y}
     >
       {icon ? <Ionicons name={icon} size={18} color={color.text} />
         : <Text style={styles.keyLabel}>{label}</Text>}
@@ -857,9 +1079,18 @@ function Key(
   );
 }
 
-function ModKey({ label, on, onPress }: { label: string; on: boolean; onPress: () => void }) {
+function ModKey(
+  { label, a11y, on, onPress }:
+  { label: string; a11y: string; on: boolean; onPress: () => void },
+) {
   return (
-    <Pressable style={[styles.key, styles.modKey, on && styles.modKeyOn]} onPress={onPress}>
+    <Pressable
+      style={[styles.key, styles.modKey, on && styles.modKeyOn]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={on ? `${a11y}, held for the next key. Tap again to press it alone` : `Hold ${a11y} for the next key`}
+      accessibilityState={{ selected: on }}
+    >
       <Text style={[styles.keyLabel, on && styles.modKeyOnText]}>{label}</Text>
     </Pressable>
   );
@@ -875,6 +1106,9 @@ function Action(
     <Pressable
       style={({ pressed }) => [styles.action, active && styles.actionOn, pressed && styles.keyPressed]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: !!active }}
     >
       <Ionicons name={icon} size={16} color={active ? color.accent : color.text} />
       <Text style={[styles.actionLabel, active && { color: color.accent }]}>{label}</Text>
@@ -901,7 +1135,30 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: color.yellow,
   },
   warnText: { color: color.yellow, fontSize: font.size.sm },
+  frameWrap: { flex: 1 },
   frameArea: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
+  hintScrim: {
+    ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(1,4,9,0.6)',
+    alignItems: 'center', justifyContent: 'center', padding: 16,
+  },
+  hintCard: {
+    width: '100%', maxWidth: 420, maxHeight: '100%',
+    backgroundColor: color.surface, borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: color.border, overflow: 'hidden', ...shadow.menu,
+  },
+  hintBody: { padding: 16, gap: 12 },
+  hintTitle: { color: color.text, fontSize: 17, fontWeight: '700' },
+  hintSection: { gap: 6 },
+  hintSectionTitle: { color: color.muted, fontSize: 12, fontWeight: '700', letterSpacing: 0.4 },
+  hintRow: { flexDirection: 'row', gap: 10 },
+  hintGesture: { width: 130, color: color.text, fontSize: font.size.sm, fontWeight: '600' },
+  hintEffect: { flex: 1, color: color.muted, fontSize: font.size.sm },
+  hintNote: { color: color.faint, fontSize: 12, lineHeight: 17 },
+  hintButton: {
+    margin: 16, marginTop: 0, minHeight: 44, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: color.accentDim,
+  },
+  hintButtonText: { color: '#fff', fontSize: font.size.sm, fontWeight: '700' },
   zoomWrap: { flex: 1 },
   frame: { flex: 1 },
   frameRegion: { position: 'absolute' },

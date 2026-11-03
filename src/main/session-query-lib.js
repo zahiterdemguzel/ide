@@ -81,4 +81,10 @@ function idleSessionIds(rows, repo) {
   return rows.filter((s) => !s.archived && !isSessionBusy(s.state) && s.repo === repo).map((s) => s.id);
 }
 
-module.exports = { compileQuery, matchesTerms, sessionHaystack, querySessions, isSessionBusy, idleSessionIds, DEFAULT_LIMIT, MAX_LIMIT };
+// The sessions the "continue" button nudges: active sessions of the open project
+// whose last turn was cut off (the red dot).
+function interruptedSessionIds(rows, repo) {
+  return rows.filter((s) => !s.archived && s.state === 'interrupted' && s.repo === repo).map((s) => s.id);
+}
+
+module.exports = { compileQuery, matchesTerms, sessionHaystack, querySessions, isSessionBusy, idleSessionIds, interruptedSessionIds, DEFAULT_LIMIT, MAX_LIMIT };

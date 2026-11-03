@@ -30,11 +30,11 @@ const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
 const { isInterruptKey, interruptOutcome, isUsageLimitStop } = require('./hook-events');
 const push = require('./push');
-const { querySessions, idleSessionIds } = require('./session-query-lib');
+const { querySessions, idleSessionIds, interruptedSessionIds } = require('./session-query-lib');
 const { fileStamp, planFileChange, idsToWriteOnQuit } = require('./session-sync-lib');
 const { getProjectSettings } = require('./project-settings');
 const { createWorktree, cancelCreate, emitProgress, worktreeStatus, removeWorktree, renameSessionBranch } = require('./worktrees');
-const { createCoalescer } = require('./concurrency');
+const { createCoalescer, createLimiter } = require('./concurrency');
 const { createPtyBatcher } = require('./pty-batch');
 const { processListCommand, parseProcessList, hasBackgroundWork } = require('./background-work-lib');
 // Runtime-only seam: hooksSettings()/getHookPort() are called when spawning a
@@ -1687,6 +1687,75 @@ bridge.handle('archive-idle-sessions', guard('archiving idle sessions', async ()
   if (archived) broadcastSessions();
   return { archived };
 }, { archived: 0 }));
+
+// The "continue" button: type "continue" into every interrupted session of the open
+// project. A session restored from disk has no PTY yet, so it is resumed first and
+// the prompt waits for the resumed CLI to finish repainting (as after an account move).
+const CONTINUE_INTERRUPTED_PROMPT = 'continue';
+// Each resume boots a whole CLI process; after a restart there can be a dozen red
+// sessions, and starting them all at once stalls main and the machine alike.
+const continueResumeLimiter = createLimiter(3);
+
+bridge.handle('continue-interrupted-sessions', guard('continuing interrupted sessions', async () => {
+  const repo = getMainRepoPath();
+  if (!repo) return { continued: 0 };
+  const rows = [...sessions].map(([id, s]) => ({ id, repo: s.repo, archived: s.archived, state: s.state }));
+  const ids = interruptedSessionIds(rows, repo);
+  const results = await Promise.all(ids.map((id) => continueInterruptedSession(id).catch((err) => {
+    reportSessionError('continuing an interrupted session', err);
+    return false;
+  })));
+  return { continued: results.filter(Boolean).length };
+}, { continued: 0 }));
+
+async function continueInterruptedSession(id) {
+  const s = sessions.get(id);
+  if (!s) return false;
+  if (!s.pty) {
+    const resumedAt = Date.now();
+    const ready = await continueResumeLimiter(async () => (
+      await resumeStoppedSession(id) && waitUntilResumed(id, resumedAt)
+    ));
+    if (!ready) return false;
+  } else {
+    await waitForTui(s);
+  }
+  if (!s.pty) return false;
+  s.pty.write(CONTINUE_INTERRUPTED_PROMPT);
+  await new Promise((r) => setTimeout(r, ENTER_DELAY_MS));
+  if (!s.pty) return false;
+  s.pty.write('\r');
+  return true;
+}
+
+// Spawn the PTY of a session that has none (restored from disk), sharing an in-flight
+// spawn the same way resume-session does. Its terminal is sized later by the renderer.
+async function resumeStoppedSession(id) {
+  const s = sessions.get(id);
+  if (!s) return false;
+  if (s.spawning) { await s.spawning; return !!s.pty; }
+  s.suspended = false;
+  s.archived = false;
+  s.spawning = spawnPty(id, undefined, undefined, true);
+  try {
+    s.pty = await s.spawning;
+  } finally {
+    s.spawning = null;
+  }
+  persistSession(id);
+  broadcastSessions();
+  return !!s.pty;
+}
+
+async function waitUntilResumed(id, resumedAt) {
+  const deadline = Date.now() + RESUME_READY_TIMEOUT_MS;
+  for (;;) {
+    const cur = sessions.get(id);
+    if (!cur || !cur.pty || cur.suspended || Date.now() > deadline) return false;
+    if (cur.lastDataAt > resumedAt && Date.now() - cur.lastDataAt >= RESUME_QUIET_MS) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
 
 // Restore: respawn the PTY (resuming the same Claude conversation) for an entry
 // that was suspended; its edits/fileOps continue accumulating against the same id.

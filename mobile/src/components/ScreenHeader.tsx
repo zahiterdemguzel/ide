@@ -7,9 +7,11 @@
 // live in MainTabs, which owns the drawers — the screens reach them through
 // ChromeContext rather than each re-implementing a drawer of its own.
 //
-// `title`, `subtitle` and `children` are all optional. Pass none and the frame is
-// the toolbar alone — which is what Git wants, its branch chip being a better
-// answer to "where am I" than a heading repeating the tab bar.
+// `title` is required — every tab is titled, and the frame is a heading rather than a
+// toolbar. `compact` is for the remote screens (Browser, Control), where every
+// vertical pixel belongs to the streamed picture: the title shrinks into the top row
+// instead of sitting under it as a large title. `subtitle` and `children` are
+// optional.
 
 import React, { createContext, useContext, useId, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
@@ -19,13 +21,22 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { color, radius, type, inset } from '../theme';
 import { useUsage, windowUtil, windowResetIn, rampColor } from '../api/usage';
+import { useSwitchSuggestion } from '../api/accounts';
 import { useUnreadCount } from '../api/notifications';
 import { UsageRing, EmptyState } from './ui';
 import UsagePanel from './UsagePanel';
+import { ConnectionBanner } from './feedback';
 import { basename } from './ProjectDrawer';
 
 // The gutter the header's content sits in, before any display cutout is added.
 const GUTTER = 16;
+// On a tablet the header's content stops widening here and centres, so the title
+// and the action row don't drift to opposite edges of a 13" screen. UsagePanel is
+// handed it to stay anchored under the ring.
+const HEADER_MAX_WIDTH = 960;
+// The visual sizes are the design's; these pad the touch targets out to 44pt.
+const ICON_HIT_SLOP = 5; // 34pt icon buttons
+const PILL_HIT_SLOP = { top: 10, bottom: 10, left: 4, right: 4 }; // ~24pt project pill
 
 type Chrome = { project: string | null; openProjects: () => void; openRun: () => void };
 
@@ -36,8 +47,8 @@ export const ChromeContext = createContext<Chrome>({
 });
 
 export default function ScreenHeader(
-  { title, subtitle, children }:
-  { title?: string; subtitle?: string; children?: React.ReactNode },
+  { title, subtitle, compact, children }:
+  { title: string; subtitle?: string; compact?: boolean; children?: React.ReactNode },
 ) {
   const { project, openProjects, openRun } = useContext(ChromeContext);
   const navigation = useNavigation<any>();
@@ -49,6 +60,9 @@ export default function ScreenHeader(
   const resetIn = windowResetIn(usage, '5h');
   const [usageOpen, setUsageOpen] = useState(false);
   const unread = useUnreadCount();
+  // Another signed-in account has room while this one is nearly out: the ring gets a
+  // dot, and the panel it opens highlights that account.
+  const switchSuggestion = useSwitchSuggestion(usage);
 
   // Every mounted header would otherwise declare the same `id="hdr"`, and the tab
   // navigator keeps all four alive at once — react-native-svg resolves `url(#id)`
@@ -92,65 +106,92 @@ export default function ScreenHeader(
           },
         ]}
       >
-        <View style={styles.top}>
-        <Pressable
-          style={({ pressed }) => [styles.projectPill, pressed && styles.pillPressed]}
-          onPress={openProjects}
-          accessibilityLabel="Switch project"
-        >
-          <Ionicons name="folder-open-outline" size={14} color={color.accent} />
-          <Text style={styles.projectName} numberOfLines={1}>
-            {project ? basename(project) : 'Select project'}
-          </Text>
-          <Ionicons name="chevron-down" size={11} color={color.muted} />
-        </Pressable>
-
-        <View style={styles.actions}>
-          {util !== null && (
+        <View style={styles.maxWidth}>
+          <View style={styles.top}>
+            {compact && (
+              <Text style={styles.compactTitle} numberOfLines={1} accessibilityRole="header">{title}</Text>
+            )}
             <Pressable
-              onPress={() => setUsageOpen(true)}
-              hitSlop={8}
-              accessibilityLabel={
-                `Usage, ${Math.round(util * 100)} percent of the 5-hour limit used`
-                + (resetIn ? `, resets in ${resetIn}` : '')
-              }
+              style={({ pressed }) => [styles.projectPill, compact && styles.projectPillCompact, pressed && styles.pillPressed]}
+              onPress={openProjects}
+              hitSlop={PILL_HIT_SLOP}
+              accessibilityRole="button"
+              accessibilityLabel={project ? `Project ${basename(project)}. Switch project` : 'Select project'}
             >
-              <UsageRing util={util} hue={rampColor(util)} label={resetIn} />
+              <Ionicons name="folder-open-outline" size={14} color={color.accent} />
+              <Text style={styles.projectName} numberOfLines={1}>
+                {project ? basename(project) : 'Select project'}
+              </Text>
+              <Ionicons name="chevron-down" size={11} color={color.muted} />
             </Pressable>
+
+            <View style={styles.actions}>
+              {util !== null && (
+                <Pressable
+                  onPress={() => setUsageOpen(true)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    `Usage, ${Math.round(util * 100)} percent of the 5-hour limit used`
+                    + (resetIn ? `, resets in ${resetIn}` : '')
+                    + (switchSuggestion ? `. Switching to ${switchSuggestion.target.name} is suggested` : '')
+                  }
+                >
+                  <UsageRing util={util} hue={rampColor(util)} label={resetIn} />
+                  {!!switchSuggestion && <View style={[styles.badge, styles.ringBadge]} />}
+                </Pressable>
+              )}
+              {/* The alerts screen has no entry point in the design — it's drawn with a
+                  back chevron, so it's pushed from somewhere, and the tab bar it draws
+                  has no fifth tab. This bell is that somewhere. */}
+              <Pressable
+                style={({ pressed }) => [styles.iconBtn, pressed && styles.pillPressed]}
+                onPress={() => navigation.navigate('Notifications')}
+                hitSlop={ICON_HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel={unread ? `Notifications, ${unread} unread` : 'Notifications'}
+              >
+                <Ionicons name={unread ? 'notifications' : 'notifications-outline'} size={16} color={unread ? color.accent : color.muted} />
+                {unread > 0 && <View style={styles.badge} />}
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.iconBtn, pressed && styles.pillPressed]}
+                onPress={openRun}
+                hitSlop={ICON_HIT_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel="Run and tasks"
+              >
+                <Ionicons name="play" size={16} color={color.green} />
+              </Pressable>
+            </View>
+          </View>
+
+          {/* Compact frames (Browser, Control) carry the title in the row above, so
+              the streamed picture keeps the large title's ~50pt. */}
+          {compact ? (
+            <View style={styles.compactGap} />
+          ) : (
+            <Text
+              style={[styles.title, subtitle ? styles.titleTight : null]}
+              numberOfLines={1}
+              accessibilityRole="header"
+            >
+              {title}
+            </Text>
           )}
-          {/* The alerts screen has no entry point in the design — it's drawn with a
-              back chevron, so it's pushed from somewhere, and the tab bar it draws
-              has no fifth tab. This bell is that somewhere. */}
-          <Pressable
-            style={({ pressed }) => [styles.iconBtn, pressed && styles.pillPressed]}
-            onPress={() => navigation.navigate('Notifications')}
-            accessibilityLabel={unread ? `Notifications, ${unread} unread` : 'Notifications'}
-          >
-            <Ionicons name={unread ? 'notifications' : 'notifications-outline'} size={16} color={unread ? color.accent : color.muted} />
-            {unread > 0 && <View style={styles.badge} />}
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.iconBtn, pressed && styles.pillPressed]}
-            onPress={openRun}
-            accessibilityLabel="Run and tasks"
-          >
-            <Ionicons name="play" size={16} color={color.green} />
-          </Pressable>
+          {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
+          {children}
         </View>
       </View>
 
-        {/* Most tabs are titled; Browser passes none — every vertical pixel there
-            belongs to the streamed page, and its URL bar already says where you are. */}
-        {title ? (
-          <Text style={[styles.title, subtitle ? styles.titleTight : null]} numberOfLines={1}>{title}</Text>
-        ) : (
-          <View style={styles.untitledGap} />
-        )}
-        {!!subtitle && <Text style={styles.subtitle}>{subtitle}</Text>}
-        {children}
-      </View>
-
-      <UsagePanel visible={usageOpen} view={usage} onClose={() => setUsageOpen(false)} />
+      <ConnectionBanner />
+      <UsagePanel
+        visible={usageOpen}
+        view={usage}
+        suggestedAccountId={switchSuggestion?.target.id}
+        headerMaxWidth={HEADER_MAX_WIDTH}
+        onClose={() => setUsageOpen(false)}
+      />
     </View>
   );
 }
@@ -184,13 +225,17 @@ const styles = StyleSheet.create({
   },
   // The gutter lives here so the gradient above can run edge to edge under it.
   content: { paddingBottom: 0 },
-  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 40 },
+  maxWidth: { width: '100%', maxWidth: HEADER_MAX_WIDTH, alignSelf: 'center' },
+  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 40, gap: 10 },
+  compactTitle: { color: color.text, fontSize: 17, fontWeight: '700', flexShrink: 0 },
   projectPill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: color.raised, borderRadius: radius.pill,
     paddingLeft: 8, paddingRight: 10, paddingVertical: 5,
     maxWidth: 200,
   },
+  // Beside a compact title the pill gives way first, so the actions never wrap.
+  projectPillCompact: { flexShrink: 1, marginRight: 'auto' },
   pillPressed: { backgroundColor: color.raisedHi },
   projectName: { color: color.text, fontSize: 13, fontWeight: '600', flexShrink: 1 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -206,10 +251,12 @@ const styles = StyleSheet.create({
     backgroundColor: color.green,
     borderWidth: 1.5, borderColor: color.surfaceDeep,
   },
+  // On the ring's top-right, where the bell's unread dot sits on the bell.
+  ringBadge: { top: -1, right: -1, backgroundColor: color.accent },
   title: { ...type.largeTitle, paddingTop: 10, paddingBottom: 12 },
-  // No title: keep a sliver of air under the chrome row so it doesn't sit flush
-  // on whatever the screen puts next.
-  untitledGap: { height: 8 },
+  // Compact: a sliver of air under the chrome row so it doesn't sit flush on
+  // whatever the screen puts next.
+  compactGap: { height: 6 },
   // A subtitle takes over the gap under the title, so the two read as one block.
   titleTight: { paddingBottom: 4 },
   subtitle: { color: color.muted, fontSize: 13, lineHeight: 19, paddingBottom: 14 },

@@ -6,7 +6,8 @@
 // none of that, so the header is the 5-hour window's ring alone — the window users
 // actually hit — and tapping it opens UsagePanel with everything the desktop shows.
 //
-// Same data (`get-usage`, null whenever there's no OAuth token), same 30s poll.
+// Same data (`get-usage`, null whenever there's no OAuth token), same 30s poll —
+// plus an immediate re-read when the desktop switches account (`account-changed`).
 import { useEffect, useState } from 'react';
 import { useConnection } from './context';
 import { color } from '../theme';
@@ -71,7 +72,10 @@ export function useUsage(): UsageView {
     };
     refresh();
     const timer = setInterval(refresh, POLL_MS);
-    return () => { dropped = true; clearInterval(timer); };
+    // A switched account is a different meter — re-read now rather than showing
+    // the old account's numbers for up to a poll period.
+    const offAccount = conn.on('account-changed', refresh);
+    return () => { dropped = true; clearInterval(timer); offAccount(); };
   }, [conn, state]);
 
   return view;

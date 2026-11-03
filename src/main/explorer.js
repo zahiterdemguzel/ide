@@ -304,6 +304,9 @@ bridge.handle('clear-web-data', async () => {
 
 // Rename a file or folder within the repo.
 bridge.handle('rename-file', (_e, oldRel, newRel) => {
+  // A remote (phone) call carries one argument, so it sends { from, to }; the desktop
+  // renderer passes the two paths positionally.
+  if (oldRel && typeof oldRel === 'object') ({ from: oldRel, to: newRel } = oldRel);
   try {
     const repoPath = getRepoPath();
     const oldAbs = path.join(repoPath, oldRel);

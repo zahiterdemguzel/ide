@@ -116,11 +116,21 @@ are load-bearing:
   `backgroundColor: color.surface` under the Svg is a floor: if the gradient ever fails
   to paint, the frame reads as its own colour rather than as a hole.
 
+**`compact`** puts the title (17pt) in the top row instead of the 28pt large title — Browser and Control use it, because every vertical pixel there belongs to the streamed screen. They used to skip the header entirely, which left them as the only tabs with no way to reach Run, Notifications or the project switcher. Header content stops widening at 960pt on tablets. The header's icon buttons are 34pt with `hitSlop` to 44pt.
+
 **`title` is required** — every tab is titled, and the frame is a heading rather than a
 toolbar. Git briefly went title-less on the argument that its branch chip already said
 where you were; it didn't hold up, because the chip names the *branch*, not the screen,
 and one untitled frame among four read as the screen that had lost its title.
 `subtitle` and `children` stay optional.
+
+## Feedback, states and targets
+
+- **Loading → error → empty, in that order.** A list shows `LoadingState` until its first answer, `ErrorState` (with retry) if that fails, and `EmptyState` only for data it has actually seen. No plain `Text` empty states.
+- **`feedback.tsx`** owns haptics, `confirmAction`, toasts (`ToastHost`, floats above the tab bar) and `ConnectionBanner` (the yellow/red tinted strip under a header while the desktop is unreachable). Destructive actions confirm; reversible ones (archive) act at once and offer Undo in the toast.
+- **Touch targets are ≥44pt**, by size or `hitSlop`; every icon-only control carries an `accessibilityLabel`, segmented controls are `tablist`/`tab` with selected state, expanders report `expanded`. The one exception is the Control key bar (38pt keys 6pt apart — slop would overlap neighbours).
+- **Bottom sheets** (`GitSheets.tsx`'s `Sheet`, `PromptDialog.tsx`) clear `insets.bottom` and the keyboard. Pushed screens with a bottom bar (Chat composer, Console input) add `insets.bottom` themselves, dropped to 0 while the keyboard is up so the two never stack.
+- **Menus** (BadgeMenu, the Sessions model menu) are measured, height-capped and scroll — never placed from fixed pixel constants, which broke under large text and long Ollama model lists.
 
 ## Darkening the screen
 

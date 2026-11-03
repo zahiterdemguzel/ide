@@ -7,12 +7,13 @@
 // text, and a "/" mid-sentence must not pop a menu at the reader.
 import React, { useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, Image, Keyboard, Pressable, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, FlatList, Image, Keyboard, Linking, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { SlashCommand } from '../../api/chat';
 import { showError } from '../ErrorDialog';
+import { haptic } from '../feedback';
 import { color, font, radius, space } from '../../theme';
 
 export type Draft = { uri: string; base64: string; name: string };
@@ -29,13 +30,30 @@ const PICK = {
   allowsMultipleSelection: false as const,
 };
 
+// A denied permission can't be re-asked from inside the app once the user has said
+// no (iOS asks exactly once), so the only way forward is the system's own settings.
+function explainDenied(fromCamera: boolean) {
+  Alert.alert(
+    fromCamera ? 'Camera access is off' : 'Photo access is off',
+    `Allow ${fromCamera ? 'camera' : 'photo library'} access in Settings to attach a photo.`,
+    [
+      { text: 'Not now', style: 'cancel' },
+      { text: 'Open Settings', onPress: () => { Linking.openSettings().catch(() => {}); } },
+    ],
+  );
+}
+
 export default function Composer({
-  commands, busy, disabled, placeholder, onSend,
+  commands, busy, disabled, placeholder, bottomInset = 0, onSend,
 }: {
   commands: SlashCommand[];
   busy: boolean;
   disabled?: boolean;
   placeholder?: string;
+  // The home indicator's strip under the bar. The screen passes 0 while the keyboard
+  // is up — the keyboard already covers that strip, and padding it too would float
+  // the bar a gesture-bar's height above the keys.
+  bottomInset?: number;
   onSend: (text: string, images: Draft[]) => void;
 }) {
   const [text, setText] = useState('');
@@ -54,7 +72,7 @@ export default function Composer({
       const perm = fromCamera
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) return Alert.alert('Permission needed', 'Allow access to attach a photo.');
+      if (!perm.granted) return explainDenied(fromCamera);
       const r = fromCamera
         ? await ImagePicker.launchCameraAsync(PICK)
         : await ImagePicker.launchImageLibraryAsync(PICK);
@@ -79,13 +97,14 @@ export default function Composer({
   const empty = !text.trim() && !images.length;
   const send = () => {
     if (empty || busy || disabled) return;
+    haptic.tap();
     onSend(text.trim(), images);
     setText('');
     setImages([]);
   };
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, { paddingBottom: bottomInset }]}>
       {matches.length > 0 && (
         <View style={styles.menu}>
           <FlatList
@@ -111,10 +130,14 @@ export default function Composer({
           {images.map((img, i) => (
             <View key={img.uri + i} style={styles.thumbWrap}>
               <Image source={{ uri: img.uri }} style={styles.thumb} />
+              {/* The badge is 20pt; the slop grows its target to 44pt without
+                  growing the drawing over the photo. */}
               <Pressable
                 style={styles.remove}
-                hitSlop={8}
+                hitSlop={12}
                 onPress={() => setImages((prev) => prev.filter((_, j) => j !== i))}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove attached photo ${i + 1}`}
               >
                 <Ionicons name="close" size={12} color={color.text} />
               </Pressable>
@@ -129,6 +152,9 @@ export default function Composer({
           onPress={attach}
           disabled={disabled}
           hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Attach a photo"
+          accessibilityState={{ disabled: !!disabled }}
         >
           <Ionicons name="add" size={22} color={disabled ? color.faint : color.muted} />
         </Pressable>
@@ -148,6 +174,10 @@ export default function Composer({
           style={({ pressed }) => [styles.send, empty && styles.sendOff, pressed && !empty && styles.sendPressed]}
           onPress={send}
           disabled={empty || busy || disabled}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel={busy ? 'Sending' : 'Send message'}
+          accessibilityState={{ disabled: empty || busy || !!disabled, busy }}
         >
           {busy
             ? <ActivityIndicator size="small" color="#fff" />

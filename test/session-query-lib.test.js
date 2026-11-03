@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { compileQuery, matchesTerms, querySessions, isSessionBusy, idleSessionIds, DEFAULT_LIMIT, MAX_LIMIT } = require('../src/main/session-query-lib');
+const { compileQuery, matchesTerms, querySessions, isSessionBusy, idleSessionIds, interruptedSessionIds, DEFAULT_LIMIT, MAX_LIMIT } = require('../src/main/session-query-lib');
 
 // Sessions in creation order, the shape `query-sessions` builds them in.
 function rows(...specs) {
@@ -117,4 +117,16 @@ test('clean: only active, non-busy sessions of the open project are archivable',
   ];
   assert.deepEqual(idleSessionIds(list, '/r'), ['done', 'restored']);
   assert.deepEqual(idleSessionIds(list, '/none'), []);
+});
+
+test('continue: only active, interrupted sessions of the open project are nudged', () => {
+  const list = [
+    { id: 'cut', repo: '/r', archived: false, state: 'interrupted' },
+    { id: 'done', repo: '/r', archived: false, state: 'completed' },
+    { id: 'running', repo: '/r', archived: false, state: 'working' },
+    { id: 'shelved', repo: '/r', archived: true, state: 'interrupted' },
+    { id: 'elsewhere', repo: '/other', archived: false, state: 'interrupted' },
+  ];
+  assert.deepEqual(interruptedSessionIds(list, '/r'), ['cut']);
+  assert.deepEqual(interruptedSessionIds(list, '/none'), []);
 });

@@ -16,6 +16,18 @@ const SPIN_MS = 700;   // sess-dot-spin
 const POP_MS = 500;    // sess-finish-pop
 const RING_MS = 600;   // sess-finish-ring
 
+// What the colour means, for a screen reader — the dot is otherwise the only place
+// a session's state is shown.
+const STATE_LABEL: Record<string, string> = {
+  idle: 'Idle',
+  working: 'Working',
+  'needs-input': 'Needs your input',
+  completed: 'Finished',
+  'bg-agents': 'Background agents running',
+  interrupted: 'Interrupted',
+  pushed: 'Pushed',
+};
+
 // `celebrate` is for lists that remount the dot across the very transition it
 // celebrates: a session going working -> completed moves between sections, so the dot
 // arrives already 'completed' and its own prev-state tracking sees nothing happen.
@@ -83,7 +95,12 @@ export default function StateDot(
   const box = { width: WORKING * scale, height: WORKING * scale };
 
   return (
-    <Animated.View style={[styles.box, box, { transform: [{ scale: popScale }] }]}>
+    <Animated.View
+      style={[styles.box, box, { transform: [{ scale: popScale }] }]}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={`Status: ${STATE_LABEL[state] ?? state}`}
+    >
       {working ? (
         <Animated.View
           style={[

@@ -223,6 +223,11 @@ function toBase64(s: string): string {
   return global.btoa ? global.btoa(bytes) : Buffer.from(bytes, 'binary').toString('base64');
 }
 
+// xterm's page colour. The terminal is its own surface (like CodeView's editor
+// grey), not a theme token; ConsoleTerminal borrows it so the native chrome that
+// borders the terminal matches the WebView's page instead of flashing a seam.
+export const TERMINAL_BG = '#1e1e1e';
+
 // A single injectJavaScript call carries the whole payload as one string literal;
 // slice the replay so a long scrollback doesn't become one enormous eval.
 const WRITE_CHUNK = 60_000;
@@ -297,5 +302,5 @@ export default forwardRef<XtermHandle, Props>(function XtermWebView(
 });
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#1e1e1e' },
+  fill: { flex: 1, backgroundColor: TERMINAL_BG },
 });

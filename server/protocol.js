@@ -32,6 +32,12 @@ const REMOTE_CHANNELS = {
     'check-codex',
     // remaining Claude subscription usage — the thin bar under the phone's header
     'get-usage',
+    // the Claude accounts this window can run under, each one's usage, and switching
+    // between them — the phone's version of the toolbar pill. Adding, removing and
+    // signing in stay desktop-only (sign-in needs an embedded terminal).
+    'accounts-list',
+    'accounts-usage',
+    'accounts-set-active',
     // retained PTY output, so a phone reopening a session sees its scrollback
     'session-scrollback',
     // the session as a *conversation* — what the phone renders instead of a terminal:
@@ -44,6 +50,8 @@ const REMOTE_CHANNELS = {
     'answer-ask',
     'list-slash-commands',
     'save-attachment',
+    // which path-looking tokens in the chat are real files the phone's viewer can open
+    'resolve-chat-paths',
     // git
     'git-is-repo',
     'git-status',
@@ -86,6 +94,10 @@ const REMOTE_CHANNELS = {
     'session-diff-stat',
     'commit-session',
     'revert-session',
+    // worktree sessions: merge the session's branch back into its base, and the
+    // worktree's own state (dirty/ahead) so the phone knows when Merge makes sense
+    'merge-session',
+    'worktree-status',
     // files
     'list-dir',
     'list-files',
@@ -189,6 +201,8 @@ const REMOTE_EVENTS = new Set([
   'terminals-changed',
   'run-configs-changed',
   'session-evicted',
+  // the window switched Claude account — phones refresh their usage and account list
+  'account-changed',
   'session-model',
   'session-effort',
   'tree-changed',

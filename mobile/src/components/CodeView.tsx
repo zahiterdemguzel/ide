@@ -1,4 +1,5 @@
-// Read-only source view with syntax highlighting, for the Files tab.
+// Read-only source view with syntax highlighting, for the Files tab and the file a
+// chat link opens (which can also ask for one line to be scrolled to and marked).
 //
 // Same highlighting as the desktop file viewer: highlight.js 11.11.1 with the
 // vs2015 theme (index.html pins both), the same EXT_LANG → grammar mapping via
@@ -14,6 +15,12 @@ import { Platform, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 const HLJS = 'https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.11.1';
+
+// vs2015's own page and text colours. Deliberately not theme tokens: the Files
+// editor swaps in place with this view and borrows them, so a file looks the same
+// highlighted or being edited (see mobile-design.md, "Deviations from the mock").
+export const CODE_SURFACE = '#1e1e1e';
+export const CODE_TEXT = '#d4d4d4';
 
 // Beyond this, highlighting a file costs more than it's worth on a phone — hljs is
 // O(n) but the DOM it builds is not free. Render it as plain text instead.
@@ -40,6 +47,7 @@ const HTML = `<!doctype html><html><head>
   }
   .src{padding-right:16px;white-space:pre;user-select:text;-webkit-user-select:text}
   #empty{padding:16px;color:#6e7681;font:13px system-ui}
+  .row.hit .src,.row.hit .ln{background:#2b3a4d}
 </style>
 </head><body><div id="code"></div><script>
   const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -71,8 +79,9 @@ const HTML = `<!doctype html><html><head>
 
   const host = document.getElementById('code');
 
-  // RN calls this with base64 (survives quoting) + the language id, or '' for none.
-  window.__render = (b64, lang, plain) => {
+  // RN calls this with base64 (survives quoting) + the language id, or '' for none,
+  // and the 1-based line to bring into view and mark (0 for none).
+  window.__render = (b64, lang, plain, line) => {
     const code = decodeURIComponent(escape(atob(b64)));
     if (!code) { host.innerHTML = '<div id="empty">This file is empty.</div>'; return; }
     const lines = (plain ? null : hlLines(code, lang)) || code.split('\\n').map(esc);
@@ -81,6 +90,8 @@ const HTML = `<!doctype html><html><head>
       .map((h, i) => '<div class="row"><div class="ln" style="min-width:' + width + 'ch">'
         + (i + 1) + '</div><div class="src">' + (h || ' ') + '</div></div>')
       .join('');
+    const hit = line > 0 && host.children[line - 1];
+    if (hit) { hit.classList.add('hit'); hit.scrollIntoView({ block: 'center' }); }
   };
 </script></body></html>`;
 
@@ -90,7 +101,7 @@ function toBase64(s: string): string {
   return global.btoa ? global.btoa(bytes) : Buffer.from(bytes, 'binary').toString('base64');
 }
 
-export default function CodeView({ code, lang }: { code: string; lang: string | null }) {
+export default function CodeView({ code, lang, line = 0 }: { code: string; lang: string | null; line?: number }) {
   const web = useRef<WebView>(null);
 
   // The page is static; the content is injected once it exists. Re-running on
@@ -99,9 +110,9 @@ export default function CodeView({ code, lang }: { code: string; lang: string | 
     const plain = code.length > MAX_HIGHLIGHT;
     const b64 = toBase64(code);
     web.current?.injectJavaScript(
-      `window.__render("${b64}", ${JSON.stringify(lang ?? '')}, ${plain}); true;`,
+      `window.__render("${b64}", ${JSON.stringify(lang ?? '')}, ${plain}, ${Number(line) || 0}); true;`,
     );
-  }, [code, lang]);
+  }, [code, lang, line]);
 
   // Re-inject when the text changes under a live page (e.g. back from the editor
   // after a save). Before the page loads this is a no-op, and onLoadEnd covers it.
@@ -119,5 +130,5 @@ export default function CodeView({ code, lang }: { code: string; lang: string | 
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#1e1e1e' },
+  fill: { flex: 1, backgroundColor: CODE_SURFACE },
 });

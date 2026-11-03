@@ -44,6 +44,15 @@ test('allowlist gates channels', () => {
   // `run-config` only resolves specs for the caller to run — a phone can't open a
   // terminal tab, so it goes through run-config-start (which routes to the desktop).
   assert.equal(proto.canCall('req', 'run-config'), false);
+  // A phone can merge a worktree session back and switch accounts, but signing an
+  // account in or adding/removing one needs the desktop.
+  assert.equal(proto.canCall('req', 'merge-session'), true);
+  assert.equal(proto.canCall('req', 'worktree-status'), true);
+  assert.equal(proto.canCall('req', 'accounts-list'), true);
+  assert.equal(proto.canCall('req', 'accounts-set-active'), true);
+  assert.equal(proto.canCall('req', 'accounts-add'), false);
+  assert.equal(proto.canCall('req', 'accounts-login-command'), false);
+  assert.equal(proto.isRemoteEvent('account-changed'), true);
   assert.equal(proto.canCall('send', 'get-repo-path'), false); // wrong kind
   assert.equal(proto.canCall('bogus', 'get-repo-path'), false);
 });

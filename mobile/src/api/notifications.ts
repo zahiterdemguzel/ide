@@ -1,7 +1,8 @@
 // Session alerts — the things that happened while you weren't looking at the phone.
 //
 // Alerts are derived on the phone from what the connection already pushes: a session
-// flipping to `needs-input` or `interrupted` (the `status` push), and the 5-hour
+// flipping to `needs-input` or `interrupted` (the `status` push), a session failing in
+// main (the `session-error` push — saving, loading, committing…), and the 5-hour
 // usage window filling past its thresholds (the same `get-usage` the header ring
 // polls). Nothing routine lands here — a run finishing or a push landing is already
 // visible on the sessions list, and good news would drown the things that actually
@@ -14,11 +15,12 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { useConnection } from './context';
 import { color } from '../theme';
+import { showToast } from '../components/feedback';
 import type { UsageView } from './usage';
 
 export type AlertKind =
   | 'input'      // a session stopped and is waiting on you
-  | 'error'      // a session was interrupted — the run died or was cut short
+  | 'error'      // a session was interrupted or failed in main, or an operation failed
   | 'usage';     // the 5h window is filling up
 
 export type Alert = {
@@ -40,8 +42,6 @@ export const ALERT_STYLE: Record<AlertKind, { icon: any; hue: string }> = {
   usage: { icon: 'hourglass-outline', hue: color.yellow },
 };
 
-const MIN = 60000;
-const HOUR = 60 * MIN;
 const CAP = 50;
 
 // A store rather than screen state: the bell in every header shows the unread count,
@@ -94,6 +94,8 @@ function pushAlert(a: Omit<Alert, 'unread' | 'at'> & { at?: number }) {
 // findable under the bell. Sequential ids: unlike session alerts these don't dedupe,
 // each failure is its own entry.
 let opErrorSeq = 0;
+// Session failures pushed by main don't dedupe either: two failed saves are two events.
+let sessionErrorSeq = 0;
 export function reportError(title: string, detail: string) {
   opErrorSeq += 1;
   pushAlert({ id: `op-error:${opErrorSeq}`, kind: 'error', title, detail, sessionId: null });
@@ -131,6 +133,29 @@ export function AlertFeed(): null {
     const label = (id: string) => names.current.get(id) ?? 'A session';
 
     const offs = [
+      // Main's reportSessionError: a session failed to save/load/commit/spawn. The
+      // desktop shows it as a warning dialog; the phone files it under the bell and
+      // flashes a toast, since a modal over whatever screen is open would be a lot for
+      // something that usually isn't about the session you're looking at. The payload
+      // carries no session id today; `id` is honoured if main ever adds one, so the
+      // alert can open that session.
+      conn.on('session-error', (payload: any) => {
+        const context = typeof payload?.context === 'string' ? payload.context : '';
+        const message = typeof payload?.message === 'string' ? payload.message : '';
+        const sessionId = typeof payload?.id === 'string' ? payload.id : null;
+        sessionErrorSeq += 1;
+        pushAlert({
+          id: `session-error:${sessionErrorSeq}`,
+          kind: 'error',
+          title: context ? `Session error (${context})` : 'Session error',
+          detail: message || 'The desktop reported a session failure with no details.',
+          sessionId,
+        });
+        showToast({
+          tone: 'error',
+          message: context ? `Session error while ${context}` : 'A session failed on the desktop',
+        });
+      }),
       conn.on('session-name', ({ id, name }: any) => {
         if (id && name) names.current.set(id, name);
       }),
@@ -195,21 +220,4 @@ export function AlertFeed(): null {
   }, [conn, state]);
 
   return null;
-}
-
-// Alerts split by how recent they are, in the design's two buckets. An alert older
-// than today falls into a third rather than being dropped — an interrupted session
-// from yesterday is still worth seeing.
-export function groupAlerts(list: Alert[], at: number = Date.now()) {
-  const midnight = new Date(at).setHours(0, 0, 0, 0);
-  const buckets: { key: string; label: string; data: Alert[] }[] = [
-    { key: 'now', label: 'Just now', data: [] },
-    { key: 'today', label: 'Earlier today', data: [] },
-    { key: 'older', label: 'Older', data: [] },
-  ];
-  for (const a of [...list].sort((x, y) => y.at - x.at)) {
-    const bucket = at - a.at < HOUR ? 0 : a.at >= midnight ? 1 : 2;
-    buckets[bucket].data.push(a);
-  }
-  return buckets.filter((b) => b.data.length > 0);
 }

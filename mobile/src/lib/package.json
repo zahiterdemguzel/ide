@@ -1,0 +1,4 @@
+{
+  "//": "Marks this folder's plain .js helpers as ES modules so the repo's node:test suite can import them directly. Metro ignores this file.",
+  "type": "module"
+}

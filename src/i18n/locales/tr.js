@@ -54,6 +54,7 @@ export default {
     'sessions.tab.all': 'Tümü',
     'sessions.search': 'Arşivde ara…',
     'sessions.clearIdle': 'Çalışmayan oturumları arşivle',
+    'sessions.continueInterrupted': 'Kesintiye uğrayan oturumlara devam et',
     'sessions.new': 'Yeni oturum',
     'sessions.newWithModel': 'Seçili modelle yeni oturum',
     'sessions.newWithEffort': '{level} eforla yeni oturum',

@@ -9,7 +9,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Pressable, Animated, Easing, StyleSheet,
+  View, Text, Pressable, Animated, Easing, StyleSheet, ActivityIndicator,
   type ViewStyle, type StyleProp,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -190,6 +190,37 @@ export function EmptyState(
   );
 }
 
+// What a list shows before its first answer arrives. Without it a screen falls
+// straight to its empty state ("Working tree clean", "No sessions yet") while the
+// request is still in flight — a claim about the data it hasn't seen yet.
+export function LoadingState({ label, style }: { label?: string; style?: StyleProp<ViewStyle> }) {
+  return (
+    <View style={[styles.emptyState, style]} accessibilityRole="progressbar" accessibilityLabel={label ?? 'Loading'}>
+      <ActivityIndicator color={color.muted} />
+      {!!label && <Text style={styles.emptyMessage}>{label}</Text>}
+    </View>
+  );
+}
+
+// What a list shows when fetching it failed — distinct from empty, with a way to try
+// again. A failed fetch that renders as "nothing here" is a lie the user acts on.
+export function ErrorState(
+  { title = "Couldn't load this", message, onRetry, style }:
+  { title?: string; message?: string; onRetry?: () => void; style?: StyleProp<ViewStyle> },
+) {
+  return (
+    <EmptyState
+      icon="cloud-offline-outline"
+      title={title}
+      message={message}
+      actionLabel={onRetry ? 'Try again' : undefined}
+      actionIcon="refresh"
+      onAction={onRetry}
+      style={style}
+    />
+  );
+}
+
 // The system's filled button. `hue` defaults to the green every create/commit
 // action uses; `tone="secondary"` is the raised grey one.
 export function Button(
@@ -212,6 +243,8 @@ export function Button(
       ]}
       onPress={onPress}
       disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
     >
       {icon && <Ionicons name={icon} size={18} color={fg} />}
       <Text style={[styles.buttonLabel, { color: fg }]} numberOfLines={1}>{label}</Text>
@@ -237,6 +270,7 @@ export function IconButton(
       ]}
       onPress={onPress}
       hitSlop={6}
+      accessibilityRole="button"
       accessibilityLabel={label}
     >
       <Ionicons name={icon} size={size} color={hue} />

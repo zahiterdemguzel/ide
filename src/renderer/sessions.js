@@ -167,6 +167,7 @@ function setState(id, state) {
   // A session that was working has just finished — pull the user's eye back with a
   // one-shot row/dot animation and a chime, since the result is likely off-screen.
   if (isCompletionTransition(prev, state)) celebrateFinish(s);
+  if (prev === 'interrupted' || state === 'interrupted') updateContinueButton();
   // A worktree session's badge can't ride on session-meta: it has no tracked-file
   // list, because its filesystem tracking is off (the tree IS the attribution).
   // Its status dot moving is the reliable "it did something" signal, and the stat
@@ -298,6 +299,7 @@ function applyTabFilter() {
   const inOrder = rows.length === listEl.children.length
     && rows.every((s, i) => listEl.children[i] === s.li);
   if (!inOrder) for (const s of rows) listEl.appendChild(s.li);
+  updateContinueButton();
 }
 
 // When the selected session leaves the current tab (archived/restored/closed),
@@ -1263,6 +1265,25 @@ async function clearIdleSessions() {
   await window.api.archiveIdleSessions().catch(() => null);
 }
 document.getElementById('sessions-clear').onclick = clearIdleSessions;
+
+// Sidebar "continue": main types "continue" into every interrupted (red) session
+// of the open project, resuming the ones restored from disk first. Enabled only
+// while there is at least one such session.
+// Looked up on use: applyTabFilter can run before this part of the module has.
+function updateContinueButton() {
+  const btn = document.getElementById('sessions-continue');
+  let any = false;
+  for (const [, s] of sessions) {
+    if (s.state === 'interrupted' && !s.archived && (currentRepo === undefined || s.repo === currentRepo)) { any = true; break; }
+  }
+  btn.disabled = !any;
+}
+
+document.getElementById('sessions-continue').onclick = async (e) => {
+  e.currentTarget.disabled = true;
+  await window.api.continueInterruptedSessions().catch(() => null);
+  updateContinueButton();
+};
 
 // --- per-session Diff dialog: floats over the live terminal (kept alive behind
 // it, so the user doesn't lose track of which session it is). Closes on the ×, on

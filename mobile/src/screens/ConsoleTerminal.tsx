@@ -3,27 +3,35 @@
 // both and anything typed here lands in the same shell.
 //
 // Two things this deliberately does NOT do:
-//   - resize the PTY. This terminal is also open in a desktop tab, sized for the
-//     desktop; resizing it to phone width would reflow the view under the person
-//     sitting at the machine. Instead we leave the PTY's dimensions alone and let
-//     xterm soft-wrap the long lines to the phone's width. TUI output looks a bit
-//     loose; log output — which is what a launch config produces — reads fine.
+//   - resize a desktop terminal's PTY. It is also open in a desktop tab, sized for
+//     the desktop; resizing it to phone width would reflow the view under the
+//     person sitting at the machine. Instead the phone pins its xterm to the PTY's
+//     grid (see attach) and shrinks the font to fit. The one exception is a shell
+//     the phone itself opened (the Run panel's New terminal — see lib/terminals.js):
+//     no desktop tab shows it, so nothing can fight over its size, and it is sized
+//     once to the phone's own fitted grid — readable text instead of 80 columns
+//     squeezed across a phone.
 //   - own the terminal. Unlike a Claude session (which the phone claims so two
 //     people can't type into one PTY), a run terminal is a shared shell; both ends
 //     stay live, exactly as two panes onto one tmux window would.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
-import XtermWebView, { XtermHandle } from '../components/XtermWebView';
+import XtermWebView, { TERMINAL_BG, XtermHandle } from '../components/XtermWebView';
+import { ConnectionBanner } from '../components/feedback';
 import { useConnection } from '../api/context';
+import { isPhoneOwned, rememberGrid } from '../lib/terminals';
+import { alpha, color, font, inset, radius } from '../theme';
 
 type Snapshot = { data: string; seq: number; cols?: number; rows?: number };
 
 export default function ConsoleTerminal({ route, navigation }: any) {
   const { id, name } = route.params as { id: string; name?: string };
   const { conn } = useConnection();
+  const insets = useSafeAreaInsets();
+  const sizedToPhone = useRef(false);
   const term = useRef<XtermHandle>(null);
   const buffered = useRef<{ seq: number; data: string }[]>([]);
   const ready = useRef(false);
@@ -96,6 +104,16 @@ export default function ConsoleTerminal({ route, navigation }: any) {
     term.current?.setSelect(on);
   };
 
+  // xterm reports its phone-fitted grid first, before onReady starts the attach;
+  // for a phone-owned shell that's the size to give the PTY. Sent ahead of the
+  // scrollback request on the same socket, so the snapshot already carries it.
+  const onResize = (cols: number, rows: number) => {
+    if (!isPhoneOwned(id) || sizedToPhone.current || !cols || !rows) return;
+    sizedToPhone.current = true;
+    rememberGrid(id, cols, rows);
+    conn?.send('term-resize', { id, cols, rows });
+  };
+
   const onCopy = async (text: string) => {
     await Clipboard.setStringAsync(text);
     setCopied(true);
@@ -103,10 +121,15 @@ export default function ConsoleTerminal({ route, navigation }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.fill} edges={['top']}>
-      <View style={styles.bar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.iconBtn}>
-          <Ionicons name="chevron-back" size={20} color="#e6edf3" />
+    <View style={styles.fill}>
+      <View style={[styles.bar, { paddingTop: Math.max(insets.top, inset.minTop) }]}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          style={({ pressed }) => [styles.iconBtn, pressed && styles.chipPressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+        >
+          <Ionicons name="chevron-back" size={22} color={color.text} />
         </Pressable>
         <View style={styles.titleWrap}>
           <Text style={styles.title} numberOfLines={1}>{name || 'Terminal'}</Text>
@@ -119,22 +142,28 @@ export default function ConsoleTerminal({ route, navigation }: any) {
             competing with the scroll. */}
         <Pressable
           onPress={toggleSelect}
-          hitSlop={8}
+          hitSlop={{ top: 6, bottom: 6 }}
           style={({ pressed }) => [styles.chip, selecting && styles.chipOn, pressed && styles.chipPressed]}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: selecting }}
+          accessibilityLabel="Select text"
         >
-          <Ionicons name="text-outline" size={14} color={selecting ? '#4da3ff' : '#7d8590'} />
+          <Ionicons name="text-outline" size={14} color={selecting ? color.accent : color.muted} />
           <Text style={[styles.chipText, selecting && styles.chipTextOn]}>Select</Text>
         </Pressable>
 
         <Pressable
           onPress={() => term.current?.copy()}
-          hitSlop={8}
+          hitSlop={{ top: 6, bottom: 6 }}
           style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+          accessibilityRole="button"
+          accessibilityLabel={selecting ? 'Copy selection' : 'Copy terminal output'}
         >
-          <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={14} color={copied ? '#3fb950' : '#7d8590'} />
+          <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={14} color={copied ? color.green : color.muted} />
           <Text style={[styles.chipText, copied && styles.chipTextDone]}>{copied ? 'Copied' : 'Copy'}</Text>
         </Pressable>
       </View>
+      <ConnectionBanner />
 
       {selecting && (
         <Text style={styles.hint}>
@@ -147,6 +176,7 @@ export default function ConsoleTerminal({ route, navigation }: any) {
         <XtermWebView
           ref={term}
           onInput={(data) => conn?.send('term-input', { id, data })}
+          onResize={onResize}
           onReady={attach}
           onCopy={onCopy}
         />
@@ -156,8 +186,10 @@ export default function ConsoleTerminal({ route, navigation }: any) {
                 stopping the running command without killing the whole terminal. */}
             <Pressable
               onPress={() => conn?.send('term-input', { id, data: '\x03' })}
-              hitSlop={8}
               style={({ pressed }) => [styles.ctrlBtn, pressed && styles.chipPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Send Control-C"
+              accessibilityHint="Interrupts the running command"
             >
               <Text style={styles.ctrlText}>^C</Text>
             </Pressable>
@@ -167,69 +199,78 @@ export default function ConsoleTerminal({ route, navigation }: any) {
               onChangeText={setInput}
               onSubmitEditing={sendLine}
               placeholder="Type a command…"
-              placeholderTextColor="#7d8590"
+              placeholderTextColor={color.muted}
               autoCapitalize="none"
               autoCorrect={false}
               blurOnSubmit={false}
               returnKeyType="send"
+              accessibilityLabel="Command"
             />
-            <Pressable onPress={sendLine} hitSlop={8} style={({ pressed }) => [styles.sendBtn, pressed && styles.chipPressed]}>
-              <Ionicons name="arrow-up" size={16} color="#e6edf3" />
+            <Pressable
+              onPress={sendLine}
+              style={({ pressed }) => [styles.sendBtn, pressed && styles.sendPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Send command"
+            >
+              <Ionicons name="arrow-up" size={18} color={color.text} />
             </Pressable>
           </View>
         )}
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      {/* A pushed screen clears the home indicator itself. Outside the keyboard
+          view, so the keyboard's own overlap isn't counted twice. */}
+      <View style={{ height: insets.bottom, backgroundColor: exited ? TERMINAL_BG : color.surface }} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#1e1e1e' },
+  fill: { flex: 1, backgroundColor: TERMINAL_BG },
   bar: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 8, paddingVertical: 8,
-    backgroundColor: '#161b22', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#30363d',
+    paddingHorizontal: 4, paddingBottom: 4,
+    backgroundColor: color.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: color.border,
   },
-  iconBtn: { padding: 4 },
+  iconBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md },
   titleWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  title: { color: '#e6edf3', fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  title: { color: color.text, fontSize: 15, fontWeight: '600', flexShrink: 1 },
   exited: {
-    color: '#7d8590', fontSize: 10, fontWeight: '700',
-    backgroundColor: '#21262d', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
+    color: color.muted, fontSize: 10, fontWeight: '700',
+    backgroundColor: color.raised, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
     overflow: 'hidden',
   },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 9, paddingVertical: 6, borderRadius: 6,
-    backgroundColor: '#21262d', borderWidth: 1, borderColor: '#30363d',
+    paddingHorizontal: 10, height: 34, borderRadius: radius.sm,
+    backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
   },
-  chipOn: { borderColor: '#4da3ff66', backgroundColor: '#1f6feb22' },
-  chipPressed: { backgroundColor: '#30363d' },
-  chipText: { color: '#7d8590', fontSize: 12, fontWeight: '600' },
-  chipTextOn: { color: '#4da3ff' },
-  chipTextDone: { color: '#3fb950' },
+  chipOn: { borderColor: alpha(color.accent, 0.4), backgroundColor: alpha(color.accentDim, 0.13) },
+  chipPressed: { backgroundColor: color.raisedHi },
+  chipText: { color: color.muted, fontSize: 12, fontWeight: '600' },
+  chipTextOn: { color: color.accent },
+  chipTextDone: { color: color.green },
   hint: {
-    color: '#7d8590', fontSize: 11, paddingHorizontal: 12, paddingVertical: 6,
-    backgroundColor: '#161b22', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#30363d',
+    color: color.muted, fontSize: 11, paddingHorizontal: 12, paddingVertical: 6,
+    backgroundColor: color.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: color.border,
   },
   inputBar: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 8, paddingVertical: 6,
-    backgroundColor: '#161b22', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#30363d',
+    backgroundColor: color.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: color.border,
   },
   ctrlBtn: {
-    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 6,
-    backgroundColor: '#21262d', borderWidth: 1, borderColor: '#30363d',
+    minWidth: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.sm,
+    backgroundColor: color.raised, borderWidth: 1, borderColor: color.border,
   },
-  ctrlText: { color: '#7d8590', fontSize: 12, fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  ctrlText: { color: color.muted, fontSize: 13, fontWeight: '700', fontFamily: font.mono },
   input: {
-    flex: 1, color: '#e6edf3', fontSize: 13,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    backgroundColor: '#0d1117', borderWidth: 1, borderColor: '#30363d', borderRadius: 6,
+    flex: 1, color: color.text, fontSize: 13, fontFamily: font.mono, minHeight: 44,
+    backgroundColor: color.bg, borderWidth: 1, borderColor: color.border, borderRadius: radius.sm,
     paddingHorizontal: 10, paddingVertical: 7,
   },
   sendBtn: {
-    padding: 8, borderRadius: 6,
-    backgroundColor: '#1f6feb', alignItems: 'center', justifyContent: 'center',
+    width: 44, height: 44, borderRadius: radius.sm,
+    backgroundColor: color.accentDim, alignItems: 'center', justifyContent: 'center',
   },
+  sendPressed: { opacity: 0.85 },
 });

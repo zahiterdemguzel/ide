@@ -362,12 +362,13 @@
 }
 /* Right-hand column of the header: icon-only actions, pushed to the edge. */
 .sessions-head-actions { display: flex; justify-content: flex-end; }
-#sessions-clear {
+#sessions-continue, #sessions-clear {
   background: none; border: none; color: var(--fg-dim); cursor: pointer;
   display: inline-flex; align-items: center; padding: 4px; border-radius: 4px;
   transition: background .1s ease, color .1s ease;
 }
-#sessions-clear:hover { color: var(--fg); background: var(--bg-3); }
+#sessions-continue:not(:disabled):hover, #sessions-clear:hover { color: var(--fg); background: var(--bg-3); }
+#sessions-continue:disabled { opacity: .35; cursor: default; }
 /* Same segmented control as the git pane's Changes/History tabs, one size down:
    it picks which tree the NEXT session runs in, so naming both states beats a
    switch whose off-position has to be guessed. */

@@ -11,6 +11,7 @@
 // ipcMain directly rather than the remote bridge.
 
 const { ipcMain } = require('electron');
+const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -270,15 +271,15 @@ function restoreAccounts() {
 try { restoreAccounts(); } catch (err) { console.warn('[accounts] could not restore accounts:', err.message); }
 instanceActiveId = loadStore().activeId;
 
-ipcMain.handle('accounts-list', (_e, opts) => describeAccounts(opts || {}));
+bridge.handle('accounts-list', (_e, opts) => describeAccounts(opts || {}));
 ipcMain.handle('accounts-add', (_e, name) => addAccount(name));
 ipcMain.handle('accounts-remove', (_e, id) => { removeAccount(id); return describeAccounts(); });
 ipcMain.handle('accounts-rename', (_e, { id, name }) => { renameAccount(id, name); return describeAccounts(); });
-ipcMain.handle('accounts-set-active', (_e, id) => setActiveAccount(id));
+bridge.handle('accounts-set-active', (_e, id) => setActiveAccount(id));
 ipcMain.handle('accounts-login-command', (_e, id) => loginCommand(id));
 // Each account's subscription usage, for picking which one to switch to. One
 // 1-token Messages call per signed-in account, so it's fetched only on demand.
-ipcMain.handle('accounts-usage', async () => {
+bridge.handle('accounts-usage', async () => {
   const store = loadStore();
   const usages = await Promise.all(store.accounts.map((a) => readUsage(a.configDir).catch(() => null)));
   return Object.fromEntries(store.accounts.map((a, i) => [a.id, usages[i]]));

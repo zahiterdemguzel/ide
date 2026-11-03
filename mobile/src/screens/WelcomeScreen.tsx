@@ -6,18 +6,31 @@
 // "which desktop am I about to drive?" — and because the machine only tells you how
 // many windows it has *after* you have connected to it, so the pair prompt and the
 // chooser cannot be separate destinations you navigate between.
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useConnection } from '../api/context';
 import { Instance, uptime } from '../api/instances';
 import { basename } from '../components/ProjectDrawer';
+import { confirmAction } from '../components/feedback';
+import { Button } from '../components/ui';
 import { color, radius } from '../theme';
 
 // The desktop mark: three status-coloured dots — the product is many parallel
-// sessions, so it is a cluster rather than a single glyph.
-const DOTS = ['#3fb950', '#d29922', '#a371f7'];
+// sessions, so it is a cluster rather than a single glyph. The hues are the session
+// states' own (done, working, pushed).
+const DOTS = [color.green, color.yellow, color.purple];
+
+// How long "Connecting…" may spin before the screen stops just waiting and starts
+// suggesting why it might not be getting through.
+const SLOW_CONNECT_MS = 15000;
+
+const TROUBLESHOOTING = [
+  'Is the IDE open on the computer? Closing it (or the window you drove) drops the link.',
+  'Is Remote access still on in its Settings? Turning it off, or re-pairing another phone, ends this pairing.',
+  "The phone and computer don't need to share a network — it goes through the relay when it has to — but the computer does need internet access.",
+];
 
 const STEPS = [
   'Open the desktop IDE on the machine you want to drive.',
@@ -33,8 +46,10 @@ function InstanceRow({ inst, onPress }: { inst: Instance; onPress: () => void })
     <Pressable
       style={({ pressed }) => [styles.instance, pressed && styles.instancePressed]}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityHint="Drives this desktop window"
     >
-      <Ionicons name="desktop-outline" size={20} color="#4da3ff" />
+      <Ionicons name="desktop-outline" size={20} color={color.accent} />
       <View style={styles.instanceText}>
         <Text style={styles.instanceName} numberOfLines={1}>
           {inst.project ? basename(inst.project) : 'No project open'}
@@ -44,7 +59,7 @@ function InstanceRow({ inst, onPress }: { inst: Instance; onPress: () => void })
         </Text>
         <Text style={styles.instanceMeta}>Opened {uptime(inst.startedAt)}</Text>
       </View>
-      <Ionicons name="chevron-forward" size={18} color="#7d8590" />
+      <Ionicons name="chevron-forward" size={18} color={color.muted} />
     </Pressable>
   );
 }
@@ -55,6 +70,36 @@ export default function WelcomeScreen({ navigation }: any) {
 
   const choosing = !!instances && instances.length > 0;
   const connecting = !choosing && !!conn && state !== 'error';
+
+  // Flip to the troubleshooting view once a connect has run long. Re-armed whenever
+  // the screen leaves the connecting state, and by Retry.
+  const [slow, setSlow] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    setSlow(false);
+    if (!connecting) return undefined;
+    const timer = setTimeout(() => setSlow(true), SLOW_CONNECT_MS);
+    return () => clearTimeout(timer);
+  }, [connecting, attempt]);
+
+  // Dial again now, with the backoff reset. suspend() closes the socket in flight
+  // (its late close is ignored once a new one replaces it) and resume() dials fresh —
+  // the same pair the app uses on background/foreground.
+  const retry = () => {
+    if (!conn) return;
+    conn.suspend();
+    conn.resume();
+    setAttempt((n) => n + 1);
+  };
+
+  const confirmUnpair = async () => {
+    const ok = await confirmAction({
+      title: 'Unpair this phone?',
+      message: 'You will need to scan a new QR code from the desktop to connect again.',
+      confirmLabel: 'Unpair',
+    });
+    if (ok) unpair();
+  };
 
   return (
     <ScrollView
@@ -88,14 +133,34 @@ export default function WelcomeScreen({ navigation }: any) {
         </>
       ) : connecting ? (
         <>
-          <Text style={styles.tagline}>Connecting to your desktop…</Text>
-          <ActivityIndicator style={styles.spinner} color="#4da3ff" />
-          <Text style={styles.explainer}>
-            The IDE has to be running with remote access on. This phone tries the local
-            network first, then the relay.
+          <Text style={styles.tagline} accessibilityLiveRegion="polite">
+            {slow ? 'Still trying to reach your desktop…' : 'Connecting to your desktop…'}
           </Text>
-          <Pressable style={styles.unpair} onPress={unpair}>
-            <Ionicons name="log-out-outline" size={18} color="#f85149" />
+          <ActivityIndicator style={styles.spinner} color={color.accent} />
+          {slow ? (
+            <>
+              <Text style={styles.eyebrow}>Not connecting?</Text>
+              {TROUBLESHOOTING.map((hint) => (
+                <View key={hint} style={styles.step}>
+                  <Ionicons name="help-circle-outline" size={18} color={color.muted} />
+                  <Text style={styles.stepText}>{hint}</Text>
+                </View>
+              ))}
+              <Button label="Try again" icon="refresh" onPress={retry} style={styles.retry} />
+            </>
+          ) : (
+            <Text style={styles.explainer}>
+              The IDE has to be running with remote access on. This phone tries the local
+              network first, then the relay.
+            </Text>
+          )}
+          <Pressable
+            style={styles.unpair}
+            onPress={confirmUnpair}
+            accessibilityRole="button"
+            accessibilityLabel="Unpair this phone"
+          >
+            <Ionicons name="log-out-outline" size={18} color={color.red} />
             <Text style={styles.unpairText}>Unpair</Text>
           </Pressable>
         </>
@@ -110,6 +175,7 @@ export default function WelcomeScreen({ navigation }: any) {
           <Pressable
             style={({ pressed }) => [styles.action, styles.actionPrimary, pressed && styles.actionPrimaryPressed]}
             onPress={() => navigation.navigate('Pair')}
+            accessibilityRole="button"
           >
             <Ionicons name="qr-code-outline" size={18} color="#fff" />
             <Text style={[styles.actionLabel, styles.actionLabelPrimary]}>Scan QR code</Text>
@@ -156,12 +222,10 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 10, paddingVertical: 14, borderRadius: radius.md,
   },
-  // The one off-system colour left in the app: the desktop welcome page's own button
-  // blue, which is VS Code's rather than GitHub-dark's. Kept because this screen is a
-  // deliberate echo of that page — the design's turn 1 flagged it as off-system too.
-  // If it ever migrates, `color.accentDim` is the token it should become.
-  actionPrimary: { backgroundColor: '#0e639c' },
-  actionPrimaryPressed: { backgroundColor: '#1177bb' },
+  // Once VS Code's welcome blue (#0e639c), the last off-system colour in the app; now
+  // the system's own button blue, brightening to the accent when pressed.
+  actionPrimary: { backgroundColor: color.accentDim },
+  actionPrimaryPressed: { backgroundColor: color.accent },
   actionLabel: { fontSize: 15, fontWeight: '600', color: color.text },
   actionLabelPrimary: { color: '#fff' },
 
@@ -185,6 +249,7 @@ const styles = StyleSheet.create({
 
   note: { color: color.muted, fontSize: 12, lineHeight: 18, marginTop: 24, textAlign: 'center' },
 
-  unpair: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 28, paddingVertical: 10 },
+  retry: { alignSelf: 'stretch', marginTop: 16 },
+  unpair: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 28, paddingVertical: 12, minHeight: 44 },
   unpairText: { color: color.red, fontSize: 14, fontWeight: '600' },
 });

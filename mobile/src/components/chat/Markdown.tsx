@@ -7,8 +7,9 @@
 // It is hand-written rather than pulled from a library because the phone renders code
 // blocks with the desktop's own look and nothing off the shelf reads the same.
 import React, { useMemo } from 'react';
-import { Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { color, font, radius, space } from '../../theme';
+import { LinkedText, PathLink, UrlLink, looksLikePath } from './links';
 
 type Block =
   | { t: 'p' | 'h1' | 'h2' | 'h3' | 'quote'; text: string }
@@ -80,7 +81,14 @@ function Inline({ text, style }: { text: string; style?: any }) {
     <Text style={style}>
       {parts.map((p, i) => {
         if (p.startsWith('`') && p.endsWith('`')) {
-          return <Text key={i} style={[styles.codeSpan, span]}>{p.slice(1, -1)}</Text>;
+          const code = p.slice(1, -1);
+          // Claude names files in backticks far more often than in prose.
+          if (looksLikePath(code)) {
+            return (
+              <PathLink key={i} token={code} style={[styles.codeSpan, styles.codeLink, span]} plainStyle={[styles.codeSpan, span]} />
+            );
+          }
+          return <Text key={i} style={[styles.codeSpan, span]}>{code}</Text>;
         }
         if (p.startsWith('**') && p.endsWith('**')) {
           return <Text key={i} style={styles.bold}>{p.slice(2, -2)}</Text>;
@@ -90,13 +98,13 @@ function Inline({ text, style }: { text: string; style?: any }) {
         }
         const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(p);
         if (link) {
-          return (
-            <Text key={i} style={styles.link} onPress={() => Linking.openURL(link[2]).catch(() => {})}>
-              {link[1]}
-            </Text>
-          );
+          const [, label, href] = link;
+          // `[chat.js](src/main/chat.js:12)` is how Claude links a file; anything with
+          // a scheme is a web (or app) link.
+          if (/^[a-z][\w+.-]*:/i.test(href)) return <UrlLink key={i} url={href} style={styles.link}>{label}</UrlLink>;
+          return <PathLink key={i} token={href} style={styles.link}>{label}</PathLink>;
         }
-        return <Text key={i}>{p}</Text>;
+        return <LinkedText key={i} text={p} linkStyle={styles.link} />;
       })}
     </Text>
   );
@@ -161,6 +169,7 @@ const styles = StyleSheet.create({
   bold: { fontWeight: '700' },
   italic: { fontStyle: 'italic' },
   link: { color: color.accent, textDecorationLine: 'underline' },
+  codeLink: { color: color.accent, textDecorationLine: 'underline' },
   codeSpan: {
     fontFamily: font.mono, fontSize: font.size.sm,
     color: color.redSoft, backgroundColor: color.raised,

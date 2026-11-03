@@ -5,6 +5,7 @@
 // transcript, and a message is *upserted by uuid* rather than appended — a tool's
 // result lands in a later push than its call, and patches the message it belongs to.
 import { Connection } from './connection';
+import { splitAttachments as splitAttachmentLines } from '../lib/chat-view';
 
 export type ToolStatus = 'running' | 'ok' | 'error';
 
@@ -18,7 +19,9 @@ export type Diff = { added: number; removed: number; lines: DiffLine[] };
 export type Block =
   | { t: 'text'; text: string }
   | { t: 'thinking'; text: string }
-  | { t: 'image' }
+  // `uri` is only ever set on the phone's own copy of a photo it sent (a pending
+  // message): the transcript says an image was there, never what it looked like.
+  | { t: 'image'; uri?: string }
   | { t: 'tool'; id: string; name: string; title: string; status: ToolStatus; output: string; diff?: Diff };
 
 export type Message = { uuid: string; role: 'user' | 'assistant'; ts: string; blocks: Block[] };
@@ -62,20 +65,29 @@ export function upsert(list: Message[], incoming: Message[]): Message[] {
 
 // An attached image is handed to Claude as a path on a line of its own (see chat.js),
 // so a user message's *text* and its *attachments* are the same string until we split
-// them apart.
-const PATH_LINE = /^"?([a-zA-Z]:[\\/]|\/)[^\n]*\.(png|jpe?g|gif|webp|heic)"?$/i;
-
+// them apart (the parsing lives in lib/chat-view.js, where it is tested).
 export function messageText(m: Message): string {
   return m.blocks.filter((b) => b.t === 'text').map((b) => (b as { text: string }).text).join('\n');
 }
 
-export function splitAttachments(text: string): { said: string; files: number } {
-  const lines = text.split('\n');
-  const isPath = (l: string) => PATH_LINE.test(l.trim());
-  return {
-    said: lines.filter((l) => !isPath(l)).join('\n').trim(),
-    files: lines.filter(isPath).length,
-  };
+export function splitAttachments(text: string): { said: string; files: number; paths: string[] } {
+  return splitAttachmentLines(text);
+}
+
+// The photos this phone sent, by the desktop path `save-attachment` wrote each to.
+// The transcript only ever carries that path back, so this is how your own photo
+// comes back as a thumbnail instead of an "Image" chip. In memory only: after an app
+// restart the local file URI may be gone anyway, and the chip is the honest fallback.
+const sentPhotos = new Map<string, string>();
+const MAX_REMEMBERED_PHOTOS = 200;
+
+export function rememberSentPhoto(desktopPath: string, localUri: string) {
+  sentPhotos.set(desktopPath, localUri);
+  if (sentPhotos.size > MAX_REMEMBERED_PHOTOS) sentPhotos.delete(sentPhotos.keys().next().value as string);
+}
+
+export function sentPhotoUri(desktopPath: string): string | undefined {
+  return sentPhotos.get(desktopPath);
 }
 
 // A message the phone shows the moment you hit send, before the desktop has echoed it
@@ -86,10 +98,11 @@ export type Pending = Message & { pending: true };
 
 let n = 0;
 
-export function pendingMessage(text: string, images: number, now = new Date()): Pending {
+export function pendingMessage(text: string, images: number | string[], now = new Date()): Pending {
   n += 1;
   const blocks: Block[] = [];
-  for (let i = 0; i < images; i += 1) blocks.push({ t: 'image' });
+  const uris = typeof images === 'number' ? new Array<string | undefined>(images).fill(undefined) : images;
+  for (const uri of uris) blocks.push(uri ? { t: 'image', uri } : { t: 'image' });
   if (text) blocks.push({ t: 'text', text });
   return { uuid: `pending:${n}`, role: 'user', ts: now.toISOString(), blocks, pending: true };
 }
@@ -106,8 +119,11 @@ export function settle(pending: Pending[], incoming: Message[]): Pending[] {
 
 // Hand the desktop an image and get back the path it wrote it to. Claude reads an
 // image file exactly as it reads a source file, so a path is all a prompt needs.
-export async function uploadImage(conn: Connection, name: string, base64: string): Promise<string> {
+// `localUri` (the picked photo on this phone) is remembered against that path so the
+// message can show it as a thumbnail once the transcript echoes it back.
+export async function uploadImage(conn: Connection, name: string, base64: string, localUri?: string): Promise<string> {
   const r = await conn.req<{ path: string }>('save-attachment', { name, data: base64 });
+  if (localUri && r?.path) rememberSentPhoto(r.path, localUri);
   return r.path;
 }
 

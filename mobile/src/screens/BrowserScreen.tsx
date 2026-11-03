@@ -26,6 +26,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as SecureStore from 'expo-secure-store';
 import { useConnection } from '../api/context';
 import ScreenHeader from '../components/ScreenHeader';
+import { ErrorState } from '../components/ui';
+import { useRemoteTyping, type TypedEdit } from '../components/useRemoteTyping';
 import { storageKey } from '../api/storage';
 import { color, radius, font } from '../theme';
 
@@ -75,7 +77,7 @@ function saveRecents(list: string[]) {
   SecureStore.setItemAsync(KEY_RECENTS, JSON.stringify(list)).catch(() => {});
 }
 
-export default function BrowserScreen() {
+export default function BrowserScreen({ route, navigation }: any) {
   const { conn, state } = useConnection();
   const [urlText, setUrlText] = useState('');
   const [page, setPage] = useState<BrowserState | null>(null);
@@ -90,6 +92,9 @@ export default function BrowserScreen() {
   const [keys, setKeys] = useState(false); // remote-typing mode (hidden input focused)
   const [recents, setRecents] = useState<string[]>([]);
   const [urlFocused, setUrlFocused] = useState(false);
+  // Why the last browser-open failed, if it did — the frame area shows it with a
+  // retry instead of a spinner that would never stop.
+  const [openError, setOpenError] = useState<string | null>(null);
   // Soft keyboard up: pin the frame to its keyboard-free height so the keyboard
   // overlays the page's bottom instead of resizing the frame area with it.
   const [kbShown, setKbShown] = useState(false);
@@ -107,6 +112,10 @@ export default function BrowserScreen() {
   modeRef.current = mode;
   const connRef = useRef(conn);
   connRef.current = conn;
+  // Read at focus time rather than as an effect dependency: clearing the param once
+  // it has been used must not tear the desktop window down and reopen it.
+  const routeRef = useRef(route);
+  routeRef.current = route;
   // The capture size last sent to the desktop — a layout landing on the same
   // size (keyboard closing, tab refocus) must not re-send a resize.
   const lastCapture = useRef<{ width: number; height: number } | null>(null);
@@ -162,11 +171,16 @@ export default function BrowserScreen() {
     // even against an older desktop whose seq restarts per window.
     lastSeq.current = 0;
     opened.current = true;
+    setOpenError(null);
     c.req<BrowserState & { id: string }>('browser-open', {
       url: lastUrl.current, mode: modeRef.current, maxFps: 15, ...size,
     })
       .then((res) => { if (!editingUrl.current) setUrlText(res.url); })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        // Not opened after all: the next layout/focus (or the retry) may try again.
+        opened.current = false;
+        setOpenError(err instanceof Error && err.message ? err.message : 'The desktop did not answer.');
+      });
   }, [captureSize]);
 
   // Push the current capture size to the desktop only if it actually changed —
@@ -202,6 +216,14 @@ export default function BrowserScreen() {
   // Blurred: stop watching and tear the desktop window down.
   useFocusEffect(useCallback(() => {
     if (!conn || state !== 'ready' || !recentsLoaded) return;
+    // A localhost link tapped in a session's chat lands here with the page to open.
+    const requested: string | undefined = routeRef.current?.params?.url;
+    if (requested) {
+      lastUrl.current = requested;
+      setUrlText(requested);
+      recordRecent(requested);
+      navigation.setParams({ url: undefined });
+    }
     lastSeq.current = 0;
     lastCapture.current = null;
     opened.current = false;
@@ -231,7 +253,7 @@ export default function BrowserScreen() {
     // recentsLoaded must be a dep: it flips true asynchronously, and if focus +
     // ready happen first the early return above would otherwise be final —
     // browser-open never sent, spinner forever.
-  }, [conn, state, openBrowser, recentsLoaded]));
+  }, [conn, state, openBrowser, recentsLoaded, recordRecent, navigation]));
 
   const navigate = (to?: string) => {
     const url = (to ?? urlText).trim();
@@ -289,9 +311,11 @@ export default function BrowserScreen() {
   // The previous move's gesture offset, so each move contributes only its delta.
   // The PanResponder is created once — everything it touches lives in refs.
   const lastDrag = useRef({ dx: 0, dy: 0 });
+  // Only while there's a picture to touch: with no frame the area holds the
+  // loading/error state, whose retry button must get its own taps.
   const pan = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponder: () => !!frameRef.current,
+    onMoveShouldSetPanResponder: () => !!frameRef.current,
     onPanResponderGrant: () => { lastDrag.current = { dx: 0, dy: 0 }; },
     onPanResponderMove: (evt, g) => {
       const at = toFrameNorm(evt.nativeEvent.locationX, evt.nativeEvent.locationY, true);
@@ -330,58 +354,87 @@ export default function BrowserScreen() {
     syncSize();
   };
 
-  // The hidden input turns the soft keyboard into remote keystrokes: each key
-  // press is forwarded and the field stays empty, so there is nothing to diff.
-  const onKeyPress = (e: any) => {
-    const key = e.nativeEvent.key as string;
-    if (!conn) return;
-    if (key === 'Backspace' || key === 'Enter') {
-      conn.send('browser-input', { events: [{ k: 'key', key }] });
-    } else if (key.length === 1) {
-      conn.send('browser-input', { events: [{ k: 'text', text: key }] });
-    }
-  };
+  // The hidden input turns the soft keyboard into remote keystrokes. Its changes
+  // are diffed (see useRemoteTyping) rather than read from onKeyPress, which many
+  // Android keyboards never fire per character.
+  const typing = useRemoteTyping((edits: TypedEdit[]) => {
+    const events = edits.map((e) => (
+      e.kind === 'text' ? { k: 'text', text: e.text }
+        : { k: 'key', key: e.kind === 'enter' ? 'Enter' : 'Backspace' }
+    ));
+    connRef.current?.send('browser-input', { events });
+  });
+
+  const loading = !!page?.loading;
+  const hasPicture = !!(shown || frame);
 
   return (
     <View style={styles.fill}>
-      <ScreenHeader />
+      <ScreenHeader title="Browser" compact />
 
+      {/* While the address is being edited it takes the whole row; otherwise the
+          row is back/forward, the address (with the site-mode switch and
+          reload/stop inside it, like a phone browser's), and the typing toggle.
+          Every target is at least 44pt. */}
       <View style={styles.toolbar}>
-        <NavBtn icon="chevron-back" disabled={!page?.canGoBack} onPress={() => nav('back')} />
-        <NavBtn icon="chevron-forward" disabled={!page?.canGoForward} onPress={() => nav('forward')} />
-        <TextInput
-          style={styles.urlInput}
-          value={urlText}
-          onChangeText={setUrlText}
-          onFocus={() => {
-            editingUrl.current = true;
-            if (blurTimer.current) { clearTimeout(blurTimer.current); blurTimer.current = null; }
-            setUrlFocused(true);
-          }}
-          onBlur={() => {
-            editingUrl.current = false;
-            blurTimer.current = setTimeout(() => { blurTimer.current = null; setUrlFocused(false); }, 150);
-          }}
-          onSubmitEditing={() => navigate()}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="url"
-          returnKeyType="go"
-          placeholder="Enter address"
-          placeholderTextColor={color.faint}
-        />
-        <NavBtn icon={page?.loading ? 'close' : 'refresh'} onPress={() => nav(page?.loading ? 'stop' : 'reload')} />
-        <NavBtn
-          icon={mode === 'mobile' ? 'phone-portrait-outline' : 'desktop-outline'}
-          onPress={toggleMode}
-        />
-        <NavBtn
-          icon="text-outline"
-          active={keys}
-          onPress={() => {
-            if (keys) keyInput.current?.blur(); else keyInput.current?.focus();
-          }}
-        />
+        {!urlFocused && (
+          <>
+            <NavBtn icon="chevron-back" label="Back" disabled={!page?.canGoBack} onPress={() => nav('back')} />
+            <NavBtn icon="chevron-forward" label="Forward" disabled={!page?.canGoForward} onPress={() => nav('forward')} />
+          </>
+        )}
+        <View style={[styles.urlField, urlFocused && styles.urlFieldFocused]}>
+          {!urlFocused && (
+            <FieldBtn
+              icon={mode === 'mobile' ? 'phone-portrait-outline' : 'desktop-outline'}
+              label={mode === 'mobile' ? 'Showing the mobile site. Switch to desktop site' : 'Showing the desktop site. Switch to mobile site'}
+              onPress={toggleMode}
+            />
+          )}
+          <TextInput
+            style={styles.urlInput}
+            accessibilityLabel="Address"
+            value={urlText}
+            onChangeText={setUrlText}
+            onFocus={() => {
+              editingUrl.current = true;
+              if (blurTimer.current) { clearTimeout(blurTimer.current); blurTimer.current = null; }
+              setUrlFocused(true);
+            }}
+            onBlur={() => {
+              editingUrl.current = false;
+              blurTimer.current = setTimeout(() => { blurTimer.current = null; setUrlFocused(false); }, 150);
+            }}
+            onSubmitEditing={() => navigate()}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            returnKeyType="go"
+            placeholder="Enter address"
+            placeholderTextColor={color.faint}
+            selectTextOnFocus
+            clearButtonMode="never"
+          />
+          {urlFocused ? (
+            urlText ? <FieldBtn icon="close-circle" label="Clear address" onPress={() => setUrlText('')} /> : null
+          ) : (
+            <FieldBtn
+              icon={loading ? 'close' : 'refresh'}
+              label={loading ? 'Stop loading' : 'Reload'}
+              onPress={() => nav(loading ? 'stop' : 'reload')}
+            />
+          )}
+        </View>
+        {!urlFocused && (
+          <NavBtn
+            icon="keypad-outline"
+            label={keys ? 'Stop typing on the page' : 'Type on the page'}
+            active={keys}
+            onPress={() => {
+              if (keys) keyInput.current?.blur(); else keyInput.current?.focus();
+            }}
+          />
+        )}
       </View>
 
       {/* An emptied address field offers the latest typed addresses, one tap each.
@@ -409,7 +462,7 @@ export default function BrowserScreen() {
         onLayout={onFrameLayout}
         {...pan.panHandlers}
       >
-        {(shown || frame) ? (
+        {hasPicture ? (
           <>
             {/* The last decoded frame stays painted underneath… */}
             {shown && (
@@ -432,6 +485,12 @@ export default function BrowserScreen() {
               />
             )}
           </>
+        ) : openError && state === 'ready' ? (
+          <ErrorState
+            title="Couldn't start the desktop browser"
+            message={openError}
+            onRetry={() => { lastCapture.current = null; openBrowser(); }}
+          />
         ) : (
           <View style={styles.empty}>
             {state === 'ready' ? <ActivityIndicator color={color.muted} /> : null}
@@ -440,36 +499,67 @@ export default function BrowserScreen() {
             </Text>
           </View>
         )}
-        {page?.loading && (shown || frame) ? <ActivityIndicator style={styles.spinner} color={color.accent} /> : null}
+        {loading && hasPicture ? <ActivityIndicator style={styles.spinner} color={color.accent} /> : null}
       </View>
 
       {/* Off-screen, not display:none — a hidden input can't hold the keyboard. */}
       <TextInput
         ref={keyInput}
         style={styles.keyCatcher}
-        value=""
-        onKeyPress={onKeyPress}
-        onFocus={() => setKeys(true)}
+        value={typing.value}
+        onChangeText={typing.onChangeText}
+        onFocus={() => { typing.reset(); setKeys(true); }}
         onBlur={() => setKeys(false)}
         autoCapitalize="none"
         autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        importantForAutofill="no"
         multiline
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
       />
     </View>
   );
 }
 
 function NavBtn(
-  { icon, disabled, active, onPress }:
-  { icon: keyof typeof Ionicons.glyphMap; disabled?: boolean; active?: boolean; onPress: () => void },
+  { icon, label, disabled, active, onPress }:
+  {
+    icon: keyof typeof Ionicons.glyphMap; label: string;
+    disabled?: boolean; active?: boolean; onPress: () => void;
+  },
 ) {
   return (
     <Pressable
       style={({ pressed }) => [styles.navBtn, active && styles.navBtnActive, pressed && styles.navBtnPressed]}
       disabled={disabled}
       onPress={onPress}
+      hitSlop={2}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled, selected: active }}
     >
-      <Ionicons name={icon} size={18} color={disabled ? color.faint : active ? color.accent : color.text} />
+      <Ionicons name={icon} size={19} color={disabled ? color.faint : active ? color.accent : color.text} />
+    </Pressable>
+  );
+}
+
+// A button living inside the address field, the way a phone browser puts reload
+// there — it saves a toolbar slot and still gives a 44pt target with the slop.
+function FieldBtn(
+  { icon, label, onPress }:
+  { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void },
+) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.fieldBtn, pressed && styles.navBtnPressed]}
+      onPress={onPress}
+      hitSlop={{ top: 2, bottom: 2 }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+    >
+      <Ionicons name={icon} size={17} color={color.muted} />
     </Pressable>
   );
 }
@@ -478,17 +568,22 @@ const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: color.bg },
   toolbar: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, paddingBottom: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
   },
   navBtn: {
-    width: 34, height: 34, borderRadius: 9, alignItems: 'center', justifyContent: 'center',
+    width: 42, height: 42, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center',
     backgroundColor: color.surface, borderWidth: 1, borderColor: color.border,
   },
   navBtnActive: { borderColor: color.accent },
   navBtnPressed: { backgroundColor: color.raisedHi },
+  urlField: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', height: 42, borderRadius: radius.md,
+    backgroundColor: color.surface, borderWidth: 1, borderColor: color.border, overflow: 'hidden',
+  },
+  urlFieldFocused: { borderColor: color.accent },
+  fieldBtn: { width: 38, height: 40, alignItems: 'center', justifyContent: 'center' },
   urlInput: {
-    flex: 1, height: 36, paddingHorizontal: 10, borderRadius: 9,
-    backgroundColor: color.bg, borderWidth: 1, borderColor: color.border,
+    flex: 1, height: 40, paddingHorizontal: 8,
     color: color.text, fontSize: font.size.sm, fontFamily: font.mono,
     // A fixed-height TextInput clips and scrolls vertically unless the platform's
     // own padding and font padding are zeroed out and the text is centered.
