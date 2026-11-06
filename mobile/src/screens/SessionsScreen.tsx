@@ -30,8 +30,8 @@ import {
 import { showError, showNotice, errorText } from '../components/ErrorDialog';
 import { confirmAction, haptic, showToast } from '../components/feedback';
 import { cliCheckChannel, cliForModel, cliProblem } from '../lib/cli-check';
-import { HOLD_TO_TALK_MS } from '../lib/voice-capture';
-import { armVoice, disarmVoice, finishVoice, revealVoice } from '../api/voice';
+import { HOLD_TO_TALK_MS, shouldCancelSlide } from '../lib/voice-capture';
+import { armVoice, cancelVoice, disarmVoice, finishVoice, revealVoice, slideVoice } from '../api/voice';
 import { shortAgo } from '../api/time';
 import {
   MODELS, CODEX_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, getSessionEffort, modelSuffix, modelBadgeName,
@@ -347,6 +347,19 @@ export default function SessionsScreen({ navigation }: any) {
   // in that window would otherwise start a second session.
   const [creating, setCreating] = useState(false);
   const holdingRef = useRef(false);
+  const pressXRef = useRef(0);
+  // While a hold is listening, the finger sliding left cancels it (the sheet's Cancel
+  // button is out of reach of a finger that's holding).
+  const onHoldMove = (pageX: number) => {
+    if (!holdingRef.current) return;
+    const dx = pageX - pressXRef.current;
+    slideVoice(dx);
+    if (shouldCancelSlide(dx)) {
+      holdingRef.current = false;
+      haptic.warning();
+      cancelVoice();
+    }
+  };
   const newSession = async (chosen?: string) => {
     if (!conn || creating) return;
     setCreating(true);
@@ -710,8 +723,12 @@ export default function SessionsScreen({ navigation }: any) {
           // Hold to say the task instead, as on the desktop: the mic opens unseen on
           // the press (so the first word isn't lost), the listening sheet shows at the
           // threshold, and letting go starts the session with it. A tap drops the
-          // armed mic and falls through to onPress.
-          onPressIn={armVoice}
+          // armed mic and falls through to onPress. Sliding left mid-hold cancels.
+          onPressIn={(e) => { pressXRef.current = e.nativeEvent.pageX; armVoice(); }}
+          onTouchMove={(e) => onHoldMove(e.nativeEvent.pageX)}
+          // Keep the press alive however far the finger slides: leaving the default
+          // retention area would fire onPressOut, which *sends* the hold.
+          pressRetentionOffset={HOLD_RETENTION}
           delayLongPress={HOLD_TO_TALK_MS}
           onLongPress={() => { holdingRef.current = true; revealVoice(); }}
           onPressOut={() => {
@@ -949,6 +966,8 @@ const STATE_LABEL: Record<string, string> = {
 function stateLabel(state: string): string {
   return STATE_LABEL[state] ?? state;
 }
+
+const HOLD_RETENTION = { top: 2000, bottom: 2000, left: 2000, right: 2000 };
 
 const styles = StyleSheet.create({
   // The page colour is spelled out because the navigator's DarkTheme would otherwise

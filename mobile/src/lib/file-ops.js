@@ -106,3 +106,65 @@ export function createLatestQueue(run) {
     get busy() { return running; },
   };
 }
+
+// --- Text vs binary ------------------------------------------------------------
+//
+// The desktop's `read-text` decodes *any* file as UTF-8 and answers ok, so a PNG or
+// a zip comes back as mojibake rather than as an error. The phone has to tell the
+// two apart itself — by extension first (no point shipping a 10MB image over the
+// socket just to discard it), then by the null byte the desktop editor also keys on.
+
+// Media types for formats the phone hands to another app. The type is what lets
+// Android's "Open with" offer a fitting app (a gallery for a PNG, a PDF reader…).
+const BINARY_MIME = {
+  apk: 'application/vnd.android.package-archive',
+  aab: 'application/octet-stream',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon', heic: 'image/heic',
+  tif: 'image/tiff', tiff: 'image/tiff', psd: 'image/vnd.adobe.photoshop',
+  pdf: 'application/pdf',
+  zip: 'application/zip', gz: 'application/gzip', tgz: 'application/gzip',
+  '7z': 'application/x-7z-compressed', rar: 'application/vnd.rar', tar: 'application/x-tar',
+  jar: 'application/java-archive', ipa: 'application/octet-stream',
+  mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', flac: 'audio/flac',
+  mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', mkv: 'video/x-matroska',
+  doc: 'application/msword', xls: 'application/vnd.ms-excel', ppt: 'application/vnd.ms-powerpoint',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2',
+  glb: 'model/gltf-binary', fbx: 'application/octet-stream', blend: 'application/octet-stream',
+  exe: 'application/octet-stream', dll: 'application/octet-stream', so: 'application/octet-stream',
+  bin: 'application/octet-stream', wasm: 'application/wasm', db: 'application/octet-stream',
+  sqlite: 'application/octet-stream', pck: 'application/octet-stream',
+};
+
+/** Lower-cased extension of a file name, without the dot ('' when none). @param {string} name */
+export function extensionOf(name) {
+  const base = baseName(name);
+  const dot = base.lastIndexOf('.');
+  return dot > 0 ? base.slice(dot + 1).toLowerCase() : '';
+}
+
+/** True for formats that are never text, so the viewer is skipped outright. @param {string} name */
+export function isKnownBinaryName(name) {
+  return Object.prototype.hasOwnProperty.call(BINARY_MIME, extensionOf(name));
+}
+
+/** The media type to open a downloaded file with; generic bytes when unknown. @param {string} name */
+export function mimeForName(name) {
+  const ext = extensionOf(name);
+  return Object.prototype.hasOwnProperty.call(BINARY_MIME, ext) ? BINARY_MIME[ext] : 'application/octet-stream';
+}
+
+/**
+ * The text of a `read-text` reply, or null when it isn't viewable text — a failed
+ * read, or bytes containing a null (the desktop decoded a binary as UTF-8).
+ *
+ * @param {{ ok?: boolean, text?: string } | null | undefined} reply
+ * @returns {string | null}
+ */
+export function textFromReadReply(reply) {
+  if (!reply?.ok || typeof reply.text !== 'string') return null;
+  return reply.text.includes('\u0000') ? null : reply.text;
+}

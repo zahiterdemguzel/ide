@@ -7,8 +7,9 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 import {
-  VOICE_LINK, DEFAULT_VOICE_LANG, VOICE_LANGS, knownVoiceLang, voiceLang, isVoiceLink, voiceLinkAction,
+  VOICE_LINK, WHISPER_LANGUAGE, PREVIEW_LOCALE, isVoiceLink, voiceLinkAction,
   canArmSilently, pickFinalTranscript, HOLD_TO_TALK_MS,
+  SLIDE_CANCEL_PX, slideCancelProgress, shouldCancelSlide,
   emptyTranscript, foldResult, transcriptText, shouldRestartOnEnd,
   recognitionErrorAction, recognitionErrorMessage,
 } from '../mobile/src/lib/voice-capture.js';
@@ -30,23 +31,12 @@ test('voiceLinkAction: first tap starts, second sends, a tap mid-create is ignor
   assert.equal(voiceLinkAction('sending'), 'ignore');
 });
 
-test('knownVoiceLang falls back to TR+EN for an unknown or pre-Whisper stored value', () => {
-  assert.equal(knownVoiceLang('en'), 'en');
-  assert.equal(DEFAULT_VOICE_LANG, 'auto');
-  // The first build stored recognizer locales; those now mean the default.
-  assert.equal(knownVoiceLang('tr-TR'), 'auto');
-  assert.equal(knownVoiceLang(null), 'auto');
-});
-
-test('each language pairs a phone locale with a desktop Whisper language id', () => {
+test('every capture is transcribed in the desktop\'s Turkish + English mode — no language switch', () => {
   const desktop = require('../src/main/stt-lib.js');
-  for (const l of VOICE_LANGS) {
-    assert.ok(desktop.LANGUAGES.some((d) => d.id === l.whisper), `${l.id} → ${l.whisper} is a desktop language`);
-    assert.match(l.recognizer, /^[a-z]{2}-[A-Z]{2}$/);
-  }
-  // TR+EN must be the desktop's fenced Turkish + English auto-detect.
-  assert.equal(voiceLang('auto').whisper, desktop.DEFAULT_LANGUAGE);
-  assert.equal(voiceLang('bogus').id, 'auto');
+  const mode = desktop.findLanguage(WHISPER_LANGUAGE);
+  assert.ok(mode, 'a language the desktop knows');
+  assert.deepEqual([...mode.fence].sort(), ['en', 'tr'], 'detects per phrase, fenced to Turkish and English');
+  assert.equal(PREVIEW_LOCALE, 'tr-TR');
 });
 
 test('canArmSilently opens the mic on press only with permission and nothing showing', () => {
@@ -104,4 +94,14 @@ test('recognitionErrorAction: silence keeps listening, real errors fail, post-st
 test('recognitionErrorMessage explains permission problems and has a fallback', () => {
   assert.match(recognitionErrorMessage('not-allowed'), /Microphone access/);
   assert.match(recognitionErrorMessage('something-new'), /Try again/);
+});
+
+test('slide to cancel: only leftward travel counts, and it cancels at the threshold', () => {
+  assert.equal(slideCancelProgress(0), 0);
+  assert.equal(slideCancelProgress(40), 0, 'drifting right is nothing');
+  assert.equal(slideCancelProgress(-SLIDE_CANCEL_PX / 2), 0.5);
+  assert.equal(slideCancelProgress(-SLIDE_CANCEL_PX * 3), 1, 'clamped');
+  assert.equal(slideCancelProgress(NaN), 0);
+  assert.equal(shouldCancelSlide(-SLIDE_CANCEL_PX + 1), false);
+  assert.equal(shouldCancelSlide(-SLIDE_CANCEL_PX), true);
 });

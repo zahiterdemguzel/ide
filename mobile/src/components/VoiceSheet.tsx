@@ -32,12 +32,12 @@ import { alpha, color, radius, space, type } from '../theme';
 import { useConnection } from '../api/context';
 import { getSessionModel } from '../api/models';
 import { newSessionWithPrompt } from '../api/session-prompt';
-import { getVoiceLang, onVoiceRequest, setVoiceLang, type VoiceSource } from '../api/voice';
+import { onVoiceRequest, type VoiceSource } from '../api/voice';
 import { cliCheckChannel, cliForModel, cliProblem } from '../lib/cli-check';
 import {
-  VOICE_LANGS, DEFAULT_VOICE_LANG, CODING_TERMS, voiceLang, emptyTranscript, foldResult, transcriptText,
+  WHISPER_LANGUAGE, PREVIEW_LOCALE, CODING_TERMS, emptyTranscript, foldResult, transcriptText,
   shouldRestartOnEnd, recognitionErrorAction, recognitionErrorMessage, voiceLinkAction, canArmSilently,
-  pickFinalTranscript,
+  pickFinalTranscript, slideCancelProgress, SLIDE_CANCEL_PX,
 } from '../lib/voice-capture';
 import { refreshVoiceWidget } from '../widget/task-handler';
 import { Button } from './ui';
@@ -66,7 +66,6 @@ export default function VoiceSheet(
   const [phase, setPhaseState] = useState<Phase>('idle');
   const [source, setSourceState] = useState<VoiceSource>('widget');
   const [transcript, setTranscript] = useState(emptyTranscript());
-  const [lang, setLangState] = useState(DEFAULT_VOICE_LANG);
   const [hidden, setHiddenState] = useState(false);
   const [sendStep, setSendStep] = useState<'transcribing' | 'starting'>('transcribing');
   const [problem, setProblem] = useState<{ title: string; message: string } | null>(null);
@@ -76,7 +75,6 @@ export default function VoiceSheet(
   const phaseRef = useRef<Phase>('idle');
   const sourceRef = useRef<VoiceSource>('widget');
   const transcriptRef = useRef(emptyTranscript());
-  const langRef = useRef(lang);
   const startingRef = useRef(false);
   const creatingRef = useRef(false);
   const finishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,7 +103,6 @@ export default function VoiceSheet(
   const setHeard = (t: ReturnType<typeof emptyTranscript>) => { transcriptRef.current = t; setTranscript(t); };
 
   useEffect(() => {
-    getVoiceLang().then((l) => { langRef.current = l; setLangState(l); });
     ExpoSpeechRecognitionModule.getPermissionsAsync()
       .then((p) => { micGrantedRef.current = p.granted; })
       .catch(() => {});
@@ -115,7 +112,7 @@ export default function VoiceSheet(
 
   const beginRecognition = () => {
     ExpoSpeechRecognitionModule.start({
-      lang: voiceLang(langRef.current).recognizer,
+      lang: PREVIEW_LOCALE,
       interimResults: true,
       continuous: true,
       addsPunctuation: true,
@@ -220,12 +217,18 @@ export default function VoiceSheet(
   // The handlers close over refs only, so one subscription for the sheet's lifetime.
   const handlers = useRef({ start, finish, close, arm, reveal, disarm });
   handlers.current = { start, finish, close, arm, reveal, disarm };
+  // The held finger's leftward travel (−SLIDE_CANCEL_PX..0), reset per capture.
+  const slideX = useRef(new Animated.Value(0)).current;
+  useEffect(() => { if (phase !== 'listening') slideX.setValue(0); }, [phase, slideX]);
+
   useEffect(() => onVoiceRequest((r) => {
     const h = handlers.current;
     if (r.kind === 'start') h.start(r.source);
     else if (r.kind === 'arm') h.arm();
     else if (r.kind === 'reveal') h.reveal();
     else if (r.kind === 'disarm') h.disarm();
+    // Straight onto the Animated value: ~60 moves a second must not re-render.
+    else if (r.kind === 'slide') slideX.setValue(Math.max(-SLIDE_CANCEL_PX, Math.min(0, r.dx)));
     else if (r.kind === 'finish') h.finish();
     else if (r.kind === 'cancel') h.close();
     else {
@@ -285,7 +288,7 @@ export default function VoiceSheet(
       const data = await Promise.all(clips.map((uri) =>
         FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })));
       return await conn.req<{ text?: string }>('stt-transcribe-clip',
-        { clips: data, language: voiceLang(langRef.current).whisper }, { timeoutMs: TRANSCRIBE_TIMEOUT_MS });
+        { clips: data, language: WHISPER_LANGUAGE }, { timeoutMs: TRANSCRIBE_TIMEOUT_MS });
     } catch {
       return null;
     }
@@ -330,20 +333,11 @@ export default function VoiceSheet(
     return () => sub.remove();
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pickLang = (id: string) => {
-    if (id === langRef.current) return;
-    haptic.tap();
-    langRef.current = id;
-    setLangState(id);
-    setVoiceLang(id);
-    // Abort rather than stop: the 'end' that follows restarts in the new language,
-    // and what was already heard is kept.
-    if (phaseRef.current === 'listening') ExpoSpeechRecognitionModule.abort();
-  };
-
   if (phase === 'idle' || hidden) return null;
 
   const heard = transcriptText(transcript);
+  // Below Android 13 nothing is recorded, so the preview *is* what gets sent.
+  const recording = supportsRecording();
   const hasText = heard !== '';
 
   if (phase === 'sending') {
@@ -377,25 +371,23 @@ export default function VoiceSheet(
   };
   const title = phase === 'error' ? problem?.title ?? 'Something went wrong'
     : listening ? 'Listening…' : 'Finishing…';
+  const holding = listening && source === 'hold';
   const hint = listening
-    ? (source === 'hold' ? 'Release to start the session' : 'Tap the button to start the session')
+    ? (holding ? 'Release to start the session' : 'Tap the button to start the session')
     : '';
+  // The slide hint follows the finger and reddens toward the cancel point.
+  const slideProgress = slideX.interpolate({ inputRange: [-SLIDE_CANCEL_PX, 0], outputRange: [1, 0] });
+  const slideStyle = { transform: [{ translateX: slideX }] };
+  const slideRed = { opacity: slideProgress };
 
   return (
     <View style={[styles.sheet, { paddingTop: insets.top + space.md, paddingBottom: insets.bottom + space.xl }]}>
       <View style={styles.top}>
+        {/* Not a switch — both languages are always on. It says so, because the
+            preview under the button can only run one of them. */}
         <View style={styles.langs}>
-          {VOICE_LANGS.map((l) => (
-            <Pressable
-              key={l.id}
-              onPress={() => pickLang(l.id)}
-              style={[styles.lang, l.id === lang && styles.langOn]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: l.id === lang }}
-            >
-              <Text style={[styles.langText, l.id === lang && styles.langTextOn]}>{l.label}</Text>
-            </Pressable>
-          ))}
+          <Ionicons name="language-outline" size={14} color={color.muted} />
+          <Text style={styles.langText}>Türkçe + English</Text>
         </View>
         <Pressable onPress={close} hitSlop={12} style={styles.closeBtn} accessibilityRole="button" accessibilityLabel="Cancel">
           <Ionicons name="close" size={22} color={color.muted} />
@@ -423,9 +415,20 @@ export default function VoiceSheet(
           <Text style={[styles.transcript, !hasText && styles.placeholder]}>
             {hasText ? heard : listening ? 'Say what Claude should do…' : ''}
           </Text>
+          {listening && hasText && recording && (
+            <Text style={styles.previewNote}>Preview · your desktop writes the final text</Text>
+          )}
         </ScrollView>
       </View>
 
+      {holding ? (
+        <Animated.View style={[styles.slide, slideStyle]} accessibilityLabel="Slide left to cancel">
+          <Animated.View style={[StyleSheet.absoluteFill, styles.slideRed, slideRed]} />
+          <Ionicons name="chevron-back" size={18} color={color.muted} />
+          <Ionicons name="chevron-back" size={18} color={color.faint} style={styles.slideChevron} />
+          <Text style={styles.slideText}>Slide left to cancel</Text>
+        </Animated.View>
+      ) : (
       <View style={styles.actions}>
         <Button label="Cancel" tone="secondary" onPress={close} style={styles.action} />
         {listening && (
@@ -435,6 +438,7 @@ export default function VoiceSheet(
           <Button label="Send again" icon="arrow-up" hue={color.accentDim} onPress={() => setPhase('sending')} style={styles.action} />
         )}
       </View>
+      )}
     </View>
   );
 }
@@ -442,11 +446,12 @@ export default function VoiceSheet(
 const styles = StyleSheet.create({
   sheet: { ...StyleSheet.absoluteFillObject, backgroundColor: alpha(color.bg, 0.97), paddingHorizontal: space.lg },
   top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  langs: { flexDirection: 'row', backgroundColor: color.surface, borderRadius: radius.pill, padding: 3, borderWidth: 1, borderColor: color.borderSoft },
-  lang: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: radius.pill },
-  langOn: { backgroundColor: color.raisedHi },
-  langText: { color: color.muted, fontSize: 13, fontWeight: '600', letterSpacing: 0.4 },
-  langTextOn: { color: color.text },
+  langs: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 7,
+    backgroundColor: color.surface, borderRadius: radius.pill, borderWidth: 1, borderColor: color.borderSoft,
+  },
+  langText: { color: color.muted, fontSize: 13, fontWeight: '600' },
+  previewNote: { ...type.meta, color: color.faint, textAlign: 'center', marginTop: space.sm },
   closeBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: color.surface },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   kicker: { ...type.category, color: color.faint, marginBottom: space.xl },
@@ -465,6 +470,14 @@ const styles = StyleSheet.create({
   transcript: { fontSize: 19, lineHeight: 27, color: color.text, textAlign: 'center' },
   placeholder: { color: color.faint },
   actions: { flexDirection: 'row', gap: space.md },
+  slide: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', overflow: 'hidden',
+    height: 48, paddingHorizontal: space.xl, borderRadius: radius.pill,
+    backgroundColor: color.surface, borderWidth: 1, borderColor: color.border,
+  },
+  slideRed: { backgroundColor: alpha(color.red, 0.28) },
+  slideChevron: { marginLeft: -10, marginRight: space.sm },
+  slideText: { color: color.body, fontSize: 15, fontWeight: '600' },
   action: { flex: 1 },
   card: {
     position: 'absolute', left: space.lg, right: space.lg, flexDirection: 'row', alignItems: 'center', gap: space.md,

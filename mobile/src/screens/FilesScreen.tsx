@@ -22,7 +22,8 @@ import { ActionSheet, PromptDialog, type PromptRequest, type SheetAction } from 
 import { FileViewer, primeFileText, type FileViewerParams } from './FileViewerScreen';
 import { isApk, installApk, openBinaryFile } from '../api/installApk';
 import {
-  baseName, createLatestQueue, joinPath, parentPath, renamedPath, validateEntryName,
+  baseName, createLatestQueue, isKnownBinaryName, joinPath, parentPath, renamedPath,
+  textFromReadReply, validateEntryName,
 } from '../lib/file-ops';
 import { alpha, color, radius, font } from '../theme';
 
@@ -125,16 +126,18 @@ export default function FilesScreen() {
         });
         return;
       }
-      const r: any = await conn.req('read-text', rel);
-      if (!r?.ok) {
-        // Not text (an image, a zip, some unknown binary): pull the file down the
-        // same pipe the APK uses and let the user pick an app via the share sheet.
+      // Not text (an image, a zip, some unknown binary): pull the file down the
+      // same pipe the APK uses and hand it to an app on the phone that opens it.
+      // A known binary extension skips read-text, which would ship the whole file
+      // over the socket only to be thrown away.
+      const text = isKnownBinaryName(name) ? null : textFromReadReply(await conn.req('read-text', rel));
+      if (text === null) {
         await openBinaryFile(installConn, rel, name).catch((err) => {
           showError('Files', `Could not open ${name}.\n\n${errorText(err)}`);
         });
         return;
       }
-      primeFileText(rel, r.text);
+      primeFileText(rel, text);
       showViewer({ path: rel, line });
     } catch (err) {
       showError('Files', `Could not open ${name}.\n\n${errorText(err)}`);

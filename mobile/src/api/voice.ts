@@ -2,9 +2,6 @@
 // it: the home-screen widget's deep link, holding New session, and the listening
 // sheet's own buttons. The sheet (components/VoiceSheet.tsx) owns the recognizer and
 // reacts to these requests; callers only ask.
-import * as SecureStore from 'expo-secure-store';
-import { storageKey } from './storage';
-import { knownVoiceLang } from '../lib/voice-capture';
 
 // 'widget' captures run until tapped again; 'hold' ones until the finger lifts.
 export type VoiceSource = 'widget' | 'hold';
@@ -15,7 +12,9 @@ export type VoiceSource = 'widget' | 'hold';
 // recognizer's start-up, shows itself once it's a hold, and is dropped on a tap.
 export type VoiceRequest =
   | { kind: 'start'; source: VoiceSource } | { kind: 'toggle' } | { kind: 'finish' } | { kind: 'cancel' }
-  | { kind: 'arm' } | { kind: 'reveal' } | { kind: 'disarm' };
+  | { kind: 'arm' } | { kind: 'reveal' } | { kind: 'disarm' }
+  // The held finger's horizontal travel since the press, for the slide-to-cancel hint.
+  | { kind: 'slide'; dx: number };
 
 const listeners = new Set<(r: VoiceRequest) => void>();
 
@@ -32,21 +31,4 @@ export const cancelVoice = () => request({ kind: 'cancel' });
 export const armVoice = () => request({ kind: 'arm' });
 export const revealVoice = () => request({ kind: 'reveal' });
 export const disarmVoice = () => request({ kind: 'disarm' });
-
-const KEY_LANG = storageKey('voiceLang');
-
-export async function getVoiceLang(): Promise<string> {
-  try {
-    return knownVoiceLang(await SecureStore.getItemAsync(KEY_LANG));
-  } catch {
-    return knownVoiceLang(null);
-  }
-}
-
-export async function setVoiceLang(id: string): Promise<void> {
-  try {
-    await SecureStore.setItemAsync(KEY_LANG, knownVoiceLang(id));
-  } catch {
-    // Only the sticky choice is lost; the capture itself still uses `id`.
-  }
-}
+export const slideVoice = (dx: number) => request({ kind: 'slide', dx });

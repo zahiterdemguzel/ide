@@ -18,28 +18,14 @@ export const VOICE_LINK = 'ide://voice-session';
 // tap — and a tap is well under 250 ms.
 export const HOLD_TO_TALK_MS = 250;
 
-// The spoken-language chip on the listening sheet. `recognizer` is the locale the
-// phone's live preview runs in; `whisper` is the desktop's LANGUAGES id
-// (src/main/stt-lib.js) the recorded clip is transcribed with. TR+EN is the
-// desktop's default fenced auto-detect, so a sentence can switch language midway.
-// Its preview runs in Turkish, biased toward the English words a coding task is
-// full of (CODING_TERMS); the final text comes from Whisper either way.
-export const VOICE_LANGS = [
-  { id: 'auto', label: 'TR+EN', recognizer: 'tr-TR', whisper: 'en-tr' },
-  { id: 'tr', label: 'TR', recognizer: 'tr-TR', whisper: 'tr' },
-  { id: 'en', label: 'EN', recognizer: 'en-US', whisper: 'en' },
-];
-export const DEFAULT_VOICE_LANG = 'auto';
-
-/** @param {string | null | undefined} id */
-export function knownVoiceLang(id) {
-  return VOICE_LANGS.some((l) => l.id === id) ? /** @type {string} */ (id) : DEFAULT_VOICE_LANG;
-}
-
-/** @param {string | null | undefined} id */
-export function voiceLang(id) {
-  return /** @type {typeof VOICE_LANGS[number]} */ (VOICE_LANGS.find((l) => l.id === knownVoiceLang(id)));
-}
+// There is no language choice: every capture is Turkish and English at once. The
+// clip is transcribed with the desktop's `en-tr` mode (src/main/stt-lib.js
+// LANGUAGES) — Whisper detects the language per phrase, fenced to those two, so a
+// sentence can switch midway. Android's recognizer can only run one locale, so the
+// live preview runs in Turkish, biased toward the English words a coding task is
+// full of (CODING_TERMS); it is only a preview — the desktop writes the real text.
+export const WHISPER_LANGUAGE = 'en-tr';
+export const PREVIEW_LOCALE = 'tr-TR';
 
 // English words a Turkish-locale preview would otherwise spell phonetically
 // ("komit", "rifaktır"). Android 13+ biases toward them (EXTRA_BIASING_STRINGS).
@@ -49,6 +35,26 @@ export const CODING_TERMS = [
   'TypeScript', 'JavaScript', 'React', 'Electron', 'Android', 'mobile', 'widget', 'session', 'terminal',
   'README', 'config', 'database', 'error', 'log', 'debug', 'performance', 'UI', 'login',
 ];
+
+// Slide to cancel a hold, as in a messaging app's voice note: the finger is busy
+// holding New session, so the sheet's Cancel button is out of reach — dragging left
+// this far (px) drops the capture instead of sending it.
+export const SLIDE_CANCEL_PX = 120;
+
+/**
+ * How far along the cancel slide a finger is, 0 (where it pressed) to 1 (cancels).
+ * Only leftward travel counts; drifting right or a few px of jitter is nothing.
+ * @param {number} dx pageX now minus pageX at the press
+ */
+export function slideCancelProgress(dx) {
+  if (!Number.isFinite(dx) || dx >= 0) return 0;
+  return Math.min(1, -dx / SLIDE_CANCEL_PX);
+}
+
+/** @param {number} dx */
+export function shouldCancelSlide(dx) {
+  return slideCancelProgress(dx) >= 1;
+}
 
 /**
  * May the microphone open the instant New session is pressed, before we know it is

@@ -25,7 +25,7 @@ import { ErrorState, LoadingState } from '../components/ui';
 import { ConnectionBanner, confirmAction, showToast } from '../components/feedback';
 import { showError, errorText } from '../components/ErrorDialog';
 import { openBinaryFile } from '../api/installApk';
-import { baseName, parentPath } from '../lib/file-ops';
+import { baseName, isKnownBinaryName, parentPath, textFromReadReply } from '../lib/file-ops';
 import { color, font, inset, radius } from '../theme';
 
 // FilesScreen has already read the file (it has to, to tell text from binary before
@@ -80,8 +80,8 @@ export function FileViewer({ path, line, onExit, inline = false }: Props) {
     }
     setLoadError(null);
     try {
-      const r: any = await conn.req('read-text', path);
-      if (r?.ok) { setText(r.text); return; }
+      const fileText = isKnownBinaryName(name) ? null : textFromReadReply(await conn.req('read-text', path));
+      if (fileText !== null) { setText(fileText); return; }
       // Not text (an image, a zip…): hand it to the phone's own apps, as the
       // Files tab does, and leave nothing behind.
       setLeaving(true);

@@ -11,6 +11,7 @@ import FileIcon from '../components/FileIcon';
 import CodeView from '../components/CodeView';
 import { showError, errorText } from '../components/ErrorDialog';
 import { openBinaryFile } from '../api/installApk';
+import { isKnownBinaryName, textFromReadReply } from '../lib/file-ops';
 import { color, radius, inset } from '../theme';
 
 export default function FileScreen({ route, navigation }: any) {
@@ -25,9 +26,10 @@ export default function FileScreen({ route, navigation }: any) {
     if (!conn) return;
     let live = true;
     (async () => {
-      const r: any = await conn.req('read-text', path).catch(() => null);
+      const reply = isKnownBinaryName(name) ? null : await conn.req<any>('read-text', path).catch(() => null);
       if (!live) return;
-      if (r?.ok) { setText(r.text); return; }
+      const fileText = textFromReadReply(reply);
+      if (fileText !== null) { setText(fileText); return; }
       // Not text (an image, a PDF…): hand it to the phone's own apps, as the Files
       // tab does, and leave nothing behind on the stack.
       navigation.goBack();

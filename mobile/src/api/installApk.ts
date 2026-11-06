@@ -25,6 +25,8 @@ import * as IntentLauncher from 'expo-intent-launcher';
 import * as Sharing from 'expo-sharing';
 import Constants from 'expo-constants';
 import { isRunningInExpoGo } from 'expo';
+import { Platform } from 'react-native';
+import { mimeForName } from '../lib/file-ops';
 
 const APK_MIME = 'application/vnd.android.package-archive';
 // Divisible by 3 so base64 slices land on byte boundaries; ~4MB base64 per frame,
@@ -143,12 +145,27 @@ async function launchInstaller(fileUri: string) {
   throw new InstallError('Android blocked the installer because this app isn\'t yet allowed to install unknown apps. Flip the switch in the settings screen that just opened, then tap the APK again — it installs directly from then on.');
 }
 
-// Open a binary the phone has no viewer for (a zip, a pdf, an unknown format) with
-// the system share sheet, letting the user pick whatever app can handle it.
-async function openWithShareSheet(fileUri: string, name: string) {
+// Open a binary the phone has no viewer for (an image, a pdf, a zip…) in another
+// app. On Android that's an ACTION_VIEW typed by extension, so the system's "Open
+// with" offers the apps that really handle it (a gallery, a PDF reader). When no
+// app claims the type — or on iOS, which has no such intent — the share sheet is
+// the fallback: it still offers "Save to Files" and every app that accepts files.
+async function openInOtherApp(fileUri: string, name: string) {
+  if (Platform.OS === 'android') {
+    try {
+      const contentUri = await FileSystem.getContentUriAsync(fileUri);
+      log(`opening ${name} with ACTION_VIEW (${mimeForName(name)})`);
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: contentUri, type: mimeForName(name), flags: 1,
+      });
+      return;
+    } catch (e: any) {
+      warn(`no app opens ${name} directly (${e?.message ?? e}) — falling back to the share sheet`);
+    }
+  }
   if (!(await Sharing.isAvailableAsync())) throw new InstallError('No app on this phone can open that file.');
   log(`opening share sheet for ${name}`);
-  await Sharing.shareAsync(fileUri, { dialogTitle: name });
+  await Sharing.shareAsync(fileUri, { mimeType: mimeForName(name), dialogTitle: name });
 }
 
 // Downloads to `dest` and verifies the whole file arrived (a wrong size means an
@@ -332,8 +349,8 @@ export async function installApk(conn: InstallConn, rel: string, name: string) {
 }
 
 // Any other binary the phone can't view as text: download it the same way, then
-// let the user pick an app for it via the share sheet.
+// hand it to whichever app on the phone opens that type.
 export async function openBinaryFile(conn: InstallConn, rel: string, name: string) {
   const dest = await fetchToCache(conn, rel, name);
-  await openWithShareSheet(dest, name);
+  await openInOtherApp(dest, name);
 }

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   joinPath, parentPath, baseName, validateEntryName, renamedPath, createLatestQueue,
+  extensionOf, isKnownBinaryName, mimeForName, textFromReadReply,
 } from '../mobile/src/lib/file-ops.js';
 
 test('path helpers treat "" as the repo root', () => {
@@ -69,4 +70,37 @@ test('a request made while idle runs immediately, and a throwing run does not we
   q.request('next');
   await q.whenIdle();
   assert.deepEqual(seen, ['boom', 'next']);
+});
+
+test('extensionOf lower-cases and ignores dotfiles and folders', () => {
+  assert.equal(extensionOf('build/app-release.APK'), 'apk');
+  assert.equal(extensionOf('archive.tar.gz'), 'gz');
+  assert.equal(extensionOf('.gitignore'), '');
+  assert.equal(extensionOf('Makefile'), '');
+  assert.equal(extensionOf('v1.2/README'), '');
+});
+
+test('known binary names skip the text viewer; source files do not', () => {
+  for (const name of ['app.apk', 'logo.PNG', 'docs/spec.pdf', 'out.zip', 'clip.mp4', 'font.woff2']) {
+    assert.equal(isKnownBinaryName(name), true, name);
+  }
+  for (const name of ['main.js', 'README.md', 'icon.svg', 'data.json', 'Makefile', 'toString']) {
+    assert.equal(isKnownBinaryName(name), false, name);
+  }
+});
+
+test('mimeForName types known formats and falls back to generic bytes', () => {
+  assert.equal(mimeForName('a/b/app.apk'), 'application/vnd.android.package-archive');
+  assert.equal(mimeForName('photo.JPG'), 'image/jpeg');
+  assert.equal(mimeForName('report.pdf'), 'application/pdf');
+  assert.equal(mimeForName('weird.xyz'), 'application/octet-stream');
+  assert.equal(mimeForName('constructor'), 'application/octet-stream');
+});
+
+test('textFromReadReply rejects failed reads and binaries decoded as text', () => {
+  assert.equal(textFromReadReply({ ok: true, text: 'hello' }), 'hello');
+  assert.equal(textFromReadReply({ ok: true, text: '' }), '');
+  assert.equal(textFromReadReply({ ok: true, text: 'PK\u0003\u0004\u0000\u0000' }), null);
+  assert.equal(textFromReadReply({ ok: false, error: 'ENOENT' }), null);
+  assert.equal(textFromReadReply(null), null);
 });
