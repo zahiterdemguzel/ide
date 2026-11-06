@@ -15,7 +15,7 @@ const {
 const { handle, on } = require('./remote-bridge');
 const {
   clampCaptureSize, clampFps, clampQuality, keyCandidates, toControlOps, normalizeCursor,
-  clampRegion, regionSourceSize, cropRect,
+  clampRegion, regionSourceSize, cropRect, injectionSpace,
 } = require('./remote-control-lib');
 
 let broadcast = null; // injected by remote.js while remote access is enabled
@@ -26,11 +26,12 @@ let quality = 50;
 let capturing = false; // a slow getSources call must not stack the next tick on itself
 let lastJpeg = null;
 let lastCursorKey = '';
-let screenPx = { w: 0, h: 0 }; // physical px of the selected display
+let screenPx = { w: 0, h: 0 }; // physical px of the selected display (capture)
+let injectSize = { w: 0, h: 0 }; // the same display in nut-js's injection units
 let region = null; // normalized sub-rect of the display to stream; null = full screen
 let targets = []; // capturable displays: [{ id, sourceId, display, primary, label }]
 let current = null; // selected target from `targets`
-let injectOrigin = { x: 0, y: 0 }; // selected display's top-left in nut-js's virtual-desktop px
+let injectOrigin = { x: 0, y: 0 }; // selected display's top-left in nut-js's injection units
 
 let nut = null; // { mouse, keyboard, screen, Key, Button } once loaded
 let nutError = null;
@@ -166,19 +167,19 @@ function libnutFrame() {
   return full.resize({ width: Math.max(1, Math.round(bmp.width * scale)) });
 }
 
-// Point capture + injection at one capturable target. nut-js injects in physical
-// px across the whole virtual desktop, so injectOrigin offsets this display into
-// that shared space; screenPx is its own physical size. Default (no id, or an id
+// Point capture + injection at one capturable target. nut-js injects across the
+// whole virtual desktop (logical points on macOS, physical px elsewhere), so
+// injectOrigin/injectSize place this display in that shared space; screenPx is
+// its physical size, which bounds capture density. Default (no id, or an id
 // with no source) falls to the primary target, else the first capturable one —
 // never a display we cannot actually stream.
 function selectTarget(id) {
   current = targets.find((t) => t.id === String(id))
     || targets.find((t) => t.primary) || targets[0] || null;
   const d = current ? current.display : screen.getPrimaryDisplay();
-  injectOrigin = {
-    x: Math.round(d.bounds.x * d.scaleFactor),
-    y: Math.round(d.bounds.y * d.scaleFactor),
-  };
+  const space = injectionSpace(d, process.platform);
+  injectOrigin = space.origin;
+  injectSize = space.size;
   screenPx = {
     w: Math.round(d.bounds.width * d.scaleFactor),
     h: Math.round(d.bounds.height * d.scaleFactor),
@@ -187,7 +188,10 @@ function selectTarget(id) {
   // libnut knows the primary's exact physical size, so trust it there.
   if (current && current.kind === 'libnut' && libnut) {
     const s = libnut.getScreenSize();
-    if (s && s.width) screenPx = { w: s.width, h: s.height };
+    if (s && s.width) {
+      screenPx = { w: s.width, h: s.height };
+      injectSize = { w: s.width, h: s.height }; // libnut reports its own injection space
+    }
   }
 }
 
@@ -289,9 +293,9 @@ handle('control-open', async (_event, args = {}) => {
 });
 
 on('control-input', (_event, { events } = {}) => {
-  if (!nut || !Array.isArray(events) || !screenPx.w) return;
+  if (!nut || !Array.isArray(events) || !injectSize.w) return;
   for (const item of events) {
-    for (const op of toControlOps(item, screenPx.w, screenPx.h)) {
+    for (const op of toControlOps(item, injectSize.w, injectSize.h)) {
       queue = queue.then(() => runOp(op)).catch(() => {});
     }
   }

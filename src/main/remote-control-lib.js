@@ -147,6 +147,20 @@ function cropRect(region, w, h) {
   };
 }
 
+// Where nut-js injection lands for one display: its top-left and size in the
+// coordinate space the OS input API uses. macOS (CGEvent) works in logical
+// points — the same units as Electron's display bounds — while Windows/Linux
+// inject in physical px. Mapping a Retina Mac in physical px doubles every
+// coordinate and sends clicks off-screen.
+function injectionSpace(display, platform) {
+  const b = display.bounds;
+  const scale = platform === 'darwin' ? 1 : display.scaleFactor;
+  return {
+    origin: { x: Math.round(b.x * scale), y: Math.round(b.y * scale) },
+    size: { w: Math.round(b.width * scale), h: Math.round(b.height * scale) },
+  };
+}
+
 // Cursor position in display coords → normalized 0..1 of that display, clamped;
 // null when outside it (another monitor) so the phone hides its overlay.
 function normalizeCursor(point, bounds) {
@@ -159,6 +173,6 @@ function normalizeCursor(point, bounds) {
 
 module.exports = {
   clampCaptureSize, clampFps, clampQuality, keyCandidates, normalizeMods,
-  toControlOps, normalizeCursor, clampRegion, regionSourceSize, cropRect,
+  toControlOps, normalizeCursor, clampRegion, regionSourceSize, cropRect, injectionSpace,
   MIN_CAP, MAX_CAP, DEFAULT_FPS, DEFAULT_QUALITY, MAX_TEXT,
 };

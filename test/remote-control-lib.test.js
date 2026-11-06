@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const {
   clampCaptureSize, clampFps, clampQuality, keyCandidates, normalizeMods,
-  toControlOps, normalizeCursor, clampRegion, regionSourceSize, cropRect,
+  toControlOps, normalizeCursor, clampRegion, regionSourceSize, cropRect, injectionSpace,
   MIN_CAP, MAX_CAP, DEFAULT_FPS, DEFAULT_QUALITY, MAX_TEXT,
 } = require('../src/main/remote-control-lib');
 
@@ -141,4 +141,12 @@ test('cropRect maps a region to integer pixels inside the image', () => {
   const r = cropRect({ x: 0.667, y: 0.667, w: 0.334, h: 0.334 }, 999, 777);
   assert.ok(r.x + r.width <= 999 && r.y + r.height <= 777);
   assert.ok(r.width >= 1 && r.height >= 1);
+});
+
+test('injectionSpace uses logical points on macOS and physical px elsewhere', () => {
+  const retina = { bounds: { x: 1728, y: 0, width: 1728, height: 1117 }, scaleFactor: 2 };
+  assert.deepEqual(injectionSpace(retina, 'darwin'),
+    { origin: { x: 1728, y: 0 }, size: { w: 1728, h: 1117 } });
+  assert.deepEqual(injectionSpace(retina, 'win32'),
+    { origin: { x: 3456, y: 0 }, size: { w: 3456, h: 2234 } });
 });
