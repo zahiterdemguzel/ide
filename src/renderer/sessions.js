@@ -1,5 +1,5 @@
 import { createTerminal, FitAddon, attachClipboard, trackTermTheme, untrackTermTheme, attachRenderer } from './shared/terminal.js';
-import { hideAllOverlays } from './viewer/center.js';
+import { hideAllOverlays, isOverlayOpen } from './viewer/center.js';
 import { renderDiffInto, renderDiffSplitInto } from './viewer/diff.js';
 import { registerTerminalLinks } from './terminal-links.js';
 import { refreshGit } from './git-pane.js';
@@ -313,7 +313,10 @@ function selectFirstVisible() {
   }
   activeId = null;
   for (const [, o] of sessions) o.container.style.display = 'none';
-  emptyHint.style.display = 'flex';
+  // A file (or other overlay) opened over the session stays on screen; the
+  // welcome only fills an otherwise empty center, or it draws on top of it.
+  // Closing that overlay later falls through to the welcome (closeOverlay).
+  if (!isOverlayOpen()) emptyHint.style.display = 'flex';
   updateSessionBar();
 }
 

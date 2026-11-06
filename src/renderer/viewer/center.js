@@ -46,6 +46,16 @@ export function hideAllOverlays() {
   if (mod.diagram) mod.diagram.hideDiagram();
 }
 
+// Whether a file/diff/asset/sheet/db/browser/diagram overlay currently fills the
+// center. Read from the DOM so it holds for viewers that were never loaded.
+const OVERLAY_IDS = ['diff-view', 'asset-view', 'sheet-view', 'db-view', 'web-view', 'diagram-view'];
+export function isOverlayOpen() {
+  return OVERLAY_IDS.some((id) => {
+    const el = document.getElementById(id);
+    return el && getComputedStyle(el).display !== 'none';
+  });
+}
+
 // Hide the per-session terminal containers via the DOM (no import of sessions).
 // The session bar (commit/revert) belongs to the terminal view, so hide it too —
 // it's restored by sessions' updateSessionBar() when a session is shown again.
