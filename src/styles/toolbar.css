@@ -132,7 +132,7 @@
 .acct-btn .acct-avatar { background: var(--accent); color: var(--on-accent); }
 
 .acct-menu {
-  position: fixed; z-index: 60; width: 330px;
+  position: fixed; z-index: 60; width: 470px; max-width: calc(100vw - 16px);
   background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); padding: 6px; box-sizing: border-box;
   display: flex; flex-direction: column; gap: 2px;
@@ -158,20 +158,26 @@
 .acct-row:hover, .acct-row:focus-visible { background: var(--bg-3); outline: none; }
 .acct-row.is-active { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .acct-row.is-active .acct-avatar { background: var(--accent); color: var(--on-accent); }
-.acct-row .acct-avatar { width: 26px; height: 26px; font-size: 10px; }
-.acct-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.acct-row-name { font-size: 12px; font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acct-row-sub { font-size: 11px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-row .acct-avatar { width: 30px; height: 30px; font-size: 11px; }
+.acct-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.acct-row-name { font-size: 13px; font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-row-sub { font-size: 11.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acct-row-sub.is-warn { color: var(--yellow); }
-.acct-usage { flex: none; display: inline-flex; align-items: center; gap: 6px; }
+/* Two stacked windows (5-hour, weekly), each: label · bar · % · reset countdown. */
+.acct-usage {
+  flex: none; display: grid; grid-template-columns: auto 64px auto auto;
+  align-items: center; column-gap: 7px; row-gap: 5px;
+}
+.acct-usage-label { font-size: 11px; color: var(--fg); white-space: nowrap; }
+.acct-usage-reset { display: inline-flex; align-items: center; gap: 3px; min-width: 34px; font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .acct-usage-bar {
-  width: 44px; height: 5px; border-radius: 3px; overflow: hidden;
+  display: block; width: 64px; height: 6px; border-radius: 3px; overflow: hidden;
   background: color-mix(in srgb, var(--fg) 14%, transparent);
 }
 .acct-usage-fill { display: block; height: 100%; border-radius: 3px; background: var(--green); transition: width .3s ease; }
 .acct-usage-fill[data-level="warn"] { background: var(--yellow); }
 .acct-usage-fill[data-level="crit"] { background: var(--red); }
-.acct-usage-pct { width: 30px; text-align: right; font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.acct-usage-pct { width: 32px; text-align: right; font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 
 /* Rename / sign-in / remove: revealed on hover so the list stays calm. */
 .acct-actions { flex: none; display: none; align-items: center; gap: 2px; }

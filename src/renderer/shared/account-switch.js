@@ -10,6 +10,18 @@ export function fiveHourUtilization(view) {
   return win && typeof win.utilization === 'number' ? win.utilization : null;
 }
 
+// The windows an account row shows, in display order (5-hour above weekly), each
+// with its fraction used and compact reset countdown. Windows the reading lacks, or
+// whose utilization is unknown, are left out; no reading gives an empty list.
+const ROW_WINDOW_ORDER = ['5h', '7d'];
+export function rowUsageWindows(view) {
+  if (!view || !Array.isArray(view.windows)) return [];
+  return ROW_WINDOW_ORDER
+    .map((key) => view.windows.find((w) => w.key === key))
+    .filter((w) => w && typeof w.utilization === 'number')
+    .map((w) => ({ key: w.key, utilization: w.utilization, resetIn: w.resetIn || '' }));
+}
+
 // A key naming "this account crossed the threshold in this 5-hour window", or null
 // when it hasn't. Asking once per key means a "Not now" holds until the window
 // resets, instead of re-asking on every 30s poll.

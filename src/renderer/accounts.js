@@ -8,7 +8,7 @@ import {
 import { registerTerminalLinks } from './terminal-links.js';
 import {
   fiveHourUtilization, switchPromptKey, rankSwitchTargets, usageLevel, accountInitials, reloginPromptKey,
-  autoSwitchKey, pickAutoSwitchTarget,
+  autoSwitchKey, pickAutoSwitchTarget, rowUsageWindows,
 } from './shared/account-switch.js';
 
 // --- toolbar account switcher (multiple Claude accounts) ---
@@ -58,9 +58,37 @@ function el(tag, className, text) {
   return node;
 }
 
-// One account as a row: avatar, name over email, and a mini 5-hour usage bar.
+const WINDOW_LABEL_KEYS = { '5h': 'usage.session', '7d': 'usage.weekly' };
+const ICON_RESET_CLOCK = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>';
+
+// Both usage windows stacked like the toolbar meter: label · bar · % · "resets in …".
+function usageMeter(view) {
+  const windows = rowUsageWindows(view);
+  if (!windows.length) return null;
+  const meter = el('span', 'acct-usage');
+  for (const w of windows) {
+    const pct = Math.round(w.utilization * 100);
+    const resetText = w.resetIn ? t('usage.resetsIn').replace('{t}', w.resetIn) : '';
+    const label = el('span', 'acct-usage-label', t(WINDOW_LABEL_KEYS[w.key]));
+    const bar = el('span', 'acct-usage-bar');
+    const fill = el('span', 'acct-usage-fill');
+    fill.style.width = `${pct}%`;
+    fill.dataset.level = usageLevel(w.utilization);
+    bar.append(fill);
+    // Just the countdown (with a reset glyph) to keep the row narrow; the tooltip spells it out.
+    const reset = el('span', 'acct-usage-reset');
+    if (w.resetIn) reset.innerHTML = ICON_RESET_CLOCK;
+    reset.append(w.resetIn);
+    const tip = `${t(WINDOW_LABEL_KEYS[w.key])}: ${pct}% ${t('usage.used')}` + (resetText ? ` · ${resetText}` : '');
+    for (const cell of [label, bar, reset]) cell.title = tip;
+    meter.append(label, bar, el('span', 'acct-usage-pct', `${pct}%`), reset);
+  }
+  return meter;
+}
+
+// One account as a row: avatar, name over email, and its 5-hour + weekly usage.
 // Shared by the toolbar menu and the switch prompt, so both read the same.
-function accountRow(account, utilization, { active = false } = {}) {
+function accountRow(account, usageView, { active = false } = {}) {
   const row = el('div', 'acct-row');
   if (active) row.classList.add('is-active');
   const badge = el('span', 'acct-avatar', accountInitials(displayName(account)));
@@ -74,17 +102,8 @@ function accountRow(account, utilization, { active = false } = {}) {
   else if (!account.loggedIn) sub.classList.add('is-warn');
   text.append(sub);
   row.append(badge, text);
-  if (utilization !== null && utilization !== undefined) {
-    const meter = el('span', 'acct-usage');
-    const bar = el('span', 'acct-usage-bar');
-    const fill = el('span', 'acct-usage-fill');
-    fill.style.width = `${Math.round(utilization * 100)}%`;
-    fill.dataset.level = usageLevel(utilization);
-    bar.append(fill);
-    meter.append(bar, el('span', 'acct-usage-pct', `${Math.round(utilization * 100)}%`));
-    meter.title = `${t('usage.session')}: ${Math.round(utilization * 100)}% ${t('usage.used')}`;
-    row.append(meter);
-  }
+  const meter = usageMeter(usageView);
+  if (meter) row.append(meter);
   return row;
 }
 
@@ -134,7 +153,7 @@ function renderMenu() {
   menu.append(el('div', 'acct-menu-head', t('accounts.menuTitle')));
   for (const account of state.accounts) {
     const active = account.id === state.activeId;
-    const row = accountRow(account, fiveHourUtilization(usageById[account.id]), { active });
+    const row = accountRow(account, usageById[account.id], { active });
     row.setAttribute('role', 'menuitemradio');
     row.setAttribute('aria-checked', String(active));
     row.tabIndex = 0;
@@ -369,8 +388,8 @@ async function offerSwitch(key) {
     let chosen = targets[0].account.id;
     const list = el('div', 'acct-pick-list');
     list.setAttribute('role', 'radiogroup');
-    const rows = targets.map(({ account, utilization }) => {
-      const row = accountRow(account, utilization, { active: account.id === chosen });
+    const rows = targets.map(({ account }) => {
+      const row = accountRow(account, usageById[account.id], { active: account.id === chosen });
       row.classList.add('is-choice');
       row.setAttribute('role', 'radio');
       row.addEventListener('click', () => {

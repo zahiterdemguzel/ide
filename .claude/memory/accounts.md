@@ -2,7 +2,7 @@
 
 Several Claude subscriptions can live on one machine at once. A pill in the top
 toolbar (left of the usage meter) names the **active account**; its menu lists every
-account with its 5-hour usage, switches with one click, and adds / renames /
+account with its 5-hour and weekly usage (bar, %, and reset countdown each), switches with one click, and adds / renames /
 re-signs-in / removes accounts. New sessions spawn as the active account, and a
 switch moves the open sessions over too — **without restarting them**, through the
 account proxy (below). **Each app instance (window process) has its own active
@@ -131,7 +131,7 @@ asks `switchPromptKey(activeId, view)` (pure, `shared/account-switch.js`): at �
 the **5-hour** window it returns `<account>:<resetAt>`, and the dialog is shown once
 per key (remembered in `localStorage` `ide.accountSwitchPrompted`), so "Not now" holds
 until that window resets. The dialog lists the other signed-in accounts best-first
-(`rankSwitchTargets`: most 5-hour headroom), each with its own usage bar (fetched via
+(`rankSwitchTargets`: most 5-hour headroom), each with its own usage bars (fetched via
 `accounts-usage`, one 1-token call per account). With no other signed-in account it
 offers "Add account" instead. The prompt also says the 98% auto-switch exists.
 
@@ -168,7 +168,10 @@ after a restart move, once `continueOnceResumed` sees the resumed TUI go quiet (
 
 Markup: `#account-switcher` in `index.html`. Styles: the `.acct-*` block at the end of
 `toolbar.css` (pill = session-bar badge look; the menu is `position: fixed` because
-`#toolbar` clips overflow). Rows (`accountRow`) are shared by the menu and the prompt.
+`#toolbar` clips overflow). Rows (`accountRow`) are shared by the menu and the prompt;
+each takes the account's full usage reading and shows both windows stacked like the
+toolbar meter (`usageMeter`: label · bar · % · reset glyph + countdown, "resets in …" in the tooltip; windows picked and
+ordered by the tested `rowUsageWindows`).
 Each menu row's hover actions include a lightning toggle (`autoSwitchToggle` →
 `accounts-set-auto-switch` → `setAccountAutoSwitch`) that opts the account in or out
 of the 98% auto-switch; manual switching ignores it. An opted-out row shows a

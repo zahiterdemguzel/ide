@@ -2,8 +2,25 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SWITCH_THRESHOLD, fiveHourUtilization, switchPromptKey, rankSwitchTargets, usageLevel, accountInitials,
-  reloginPromptKey, AUTO_SWITCH_THRESHOLD, autoSwitchKey, pickAutoSwitchTarget,
+  reloginPromptKey, AUTO_SWITCH_THRESHOLD, autoSwitchKey, pickAutoSwitchTarget, rowUsageWindows,
 } from '../src/renderer/shared/account-switch.js';
+
+test('rowUsageWindows: 5-hour then weekly, with reset countdowns, skipping unknowns', () => {
+  const reading = {
+    windows: [
+      { key: '7d', utilization: 0.3, resetIn: '4d' },
+      { key: '5h', utilization: 0.1, resetIn: '2h' },
+      { key: 'other', utilization: 0.9, resetIn: '1m' },
+    ],
+  };
+  assert.deepEqual(rowUsageWindows(reading), [
+    { key: '5h', utilization: 0.1, resetIn: '2h' },
+    { key: '7d', utilization: 0.3, resetIn: '4d' },
+  ]);
+  assert.deepEqual(rowUsageWindows({ windows: [{ key: '5h', utilization: null }, { key: '7d', utilization: 0.5 }] }),
+    [{ key: '7d', utilization: 0.5, resetIn: '' }]);
+  assert.deepEqual(rowUsageWindows(null), []);
+});
 
 const view = (fiveHour, resetAt = 1700000000) => ({
   windows: [
