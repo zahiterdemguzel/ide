@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { cliForModel, cliCheckChannel, cliProblem } from '../mobile/src/lib/cli-check.js';
 
 test('cliForModel maps codex ids to codex and everything else to claude', () => {
-  assert.equal(cliForModel('codex:gpt-5.5'), 'codex');
+  assert.equal(cliForModel('codex:gpt-6.1-sol'), 'codex');
   assert.equal(cliForModel('default'), 'claude');
   assert.equal(cliForModel('opus'), 'claude');
   // Ollama models run through the Claude CLI via the local proxy.
@@ -15,7 +15,7 @@ test('cliForModel maps codex ids to codex and everything else to claude', () => 
 });
 
 test('cliCheckChannel picks the matching desktop probe', () => {
-  assert.equal(cliCheckChannel('codex:gpt-5.4'), 'check-codex');
+  assert.equal(cliCheckChannel('codex:gpt-6-sol'), 'check-codex');
   assert.equal(cliCheckChannel('sonnet'), 'check-claude');
 });
 

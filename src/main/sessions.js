@@ -495,6 +495,16 @@ function setSessionState(id, state) {
   if (state !== 'working') s.tool = null;
   persistSession(id);
   moveToActiveAccountIfSettled(id, state);
+  if (s.pendingCodexEffort && (state === 'completed' || state === 'interrupted')) {
+    // Let the Stop hook return before replacing its CLI, and recheck in case a
+    // new turn started in the meantime.
+    setTimeout(() => {
+      const cur = sessions.get(id);
+      if (!cur || !cur.pendingCodexEffort || !cur.pty || !['completed', 'interrupted'].includes(cur.state)) return;
+      cur.pendingCodexEffort = false;
+      respawnSession(id, cur, 'applying deferred effort switch');
+    }, 500);
+  }
 }
 
 // Paint and persist a state the main process derived itself (not the hook stream,
@@ -1931,9 +1941,14 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
     // spawn-time config override, so — like its model switch above — a live
     // change is a conversation-preserving respawn.
     if (!codexEffortValue(chosen)) return;
+    if (chosen === s.effort) return;
     s.effort = chosen;
     persistSession(id);
-    if (s.pty) respawnSession(id, s, 'respawning for effort switch');
+    if (s.pty && ['working', 'bg-agents', 'needs-input'].includes(s.state)) s.pendingCodexEffort = true;
+    else if (s.pty) {
+      s.pendingCodexEffort = false;
+      respawnSession(id, s, 'respawning for effort switch');
+    }
     sendToRenderer('session-effort', { id, effort: chosen });
     return;
   }

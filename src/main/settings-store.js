@@ -43,3 +43,5 @@ ipcMain.on('settings-store-changes', (_event, changes) => {
 ipcMain.on('settings-store-seed', (_event, all) => {
   if (readStore() === null) writeStore(normalizeStore(all));
 });
+
+module.exports = { readStore };

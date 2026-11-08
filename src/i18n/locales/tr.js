@@ -439,11 +439,10 @@ export default {
     'settings.agents': 'Ajan modelleri',
     'settings.agentsHint': 'Yeni oturumlara uygulanır. Oturum oluştururken oturum başına model seçin.',
     'settings.model': 'Oturum modeli',
+    'settings.commitModel': "Commit mesajı modeli",
+    'settings.commitModelDesc': "Otomatik commit mesajlarını yazar. Otomatik seçim önce yüklü yerel modeli, sonra Haiku’yu kullanır.",
+    'settings.commitModelAuto': "Otomatik (yerel model, ardından Haiku)",
     'settings.subagentModel': 'Alt ajan modeli',
-    'settings.newSessionMenu': 'Yeni oturum menüsü',
-    'settings.menuFamily.claude': 'Claude',
-    'settings.menuFamily.codex': 'Codex (GPT)',
-    'settings.menuFamily.ollama': 'Yerel modeller',
     'settings.general': 'Genel',
     'voice.title': 'Sesli giriş',
     'voice.hint': 'Bir oturum terminali odaktayken söyledikleriniz bu cihazda yazıya çevrilir ve o oturuma yazılır. Enter tuşuna basmadan hiçbir şey gönderilmez.',
@@ -483,7 +482,6 @@ export default {
     'settings.soundDesc': 'Bir oturum bittiğinde çalar. Seçtiğinizde önizlemesini duyarsınız.',
     'settings.osNotificationsDesc': 'Uygulama odakta değilken bir oturum bittiğinde sistem bildirimi göster.',
     'settings.subagentModelDesc': 'Explore, Plan ve oturumun başlattığı diğer alt ajanlar kullanır.',
-    'settings.newSessionMenuDesc': 'Yeni oturum menüsünün hangi model ailesini listeleyeceği.',
     'settings.sessionDiffBadgeDesc': 'Listede her oturumun eklenen ve silinen satır sayılarını göster.',
     'settings.doubleSessionDesc': 'İkinci bir oturuma Shift+tıklayarak mevcut oturumun yanında aç. Worktree oturumlarında kullanılamaz.',
     'settings.statusLineDesc': 'Her oturumun altında token ve maliyeti göster. Yeni oturumlara uygulanır.',
@@ -514,7 +512,6 @@ export default {
 
 
     'models.codexDivider': 'Codex',
-    'models.effortDivider': 'Efor',
 
     'settings.customModels': 'Yerel modeller',
     'settings.customModelsHint': 'Yerelde çalışan açık kaynak modelleri kurun ve oturumlarda kullanın.',

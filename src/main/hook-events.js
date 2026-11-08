@@ -265,6 +265,9 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
   // reads as the green spinner. Its blocking asks (needs-input) still come through
   // — those are addressed to the user and outrank "merely running".
   const state = eventToState(payload);
+  // A successful push is still a tool result inside a turn. Keep the session
+  // busy until Stop; otherwise bulk cleanup can kill it while it is continuing.
+  if (state === 'pushed' && active.length) return { state: backgroundOnly ? 'bg-agents' : 'working', tracking: next };
   if (state === 'working' && backgroundOnly) return { state: 'bg-agents', tracking: next };
   return { state, tracking: next };
 }
@@ -382,7 +385,13 @@ function normalizeHookPayload(payload, ideId) {
   return { payload: { ...payload, session_id: ideId }, agentSessionId: String(payload.session_id || '') };
 }
 
+// Codex's session UUID belongs to the main conversation even though it differs
+// from the IDE's UUID; Claude's differing IDs can identify forked conversations.
+function hookOriginId(family, agentSessionId) {
+  return family === 'codex' ? '' : agentSessionId;
+}
+
 module.exports = {
   eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState,
-  hooksSettings, normalizeHookPayload, isUsageLimitStop, ORIGIN_STALE_MS,
+  hooksSettings, normalizeHookPayload, hookOriginId, isUsageLimitStop, ORIGIN_STALE_MS,
 };

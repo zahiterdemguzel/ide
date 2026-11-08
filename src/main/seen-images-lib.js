@@ -22,7 +22,12 @@ function imageMimeForPath(filePath) {
 //   Messages API block      { type: 'image', source: { type: 'base64', media_type, data } }
 //   Claude Code Read result { type: 'image', file: { base64, type } }
 function imageFromBlock(block) {
-  if (!block || block.type !== 'image') return null;
+  if (!block) return null;
+  if (block.type === 'input_image' && typeof block.image_url === 'string') {
+    const match = /^data:([^;,]+);base64,(.+)$/s.exec(block.image_url);
+    if (match) return { mimeType: match[1], base64: match[2] };
+  }
+  if (block.type !== 'image') return null;
   if (typeof block.data === 'string' && block.data) {
     return { mimeType: block.mimeType || 'image/png', base64: block.data };
   }
@@ -61,13 +66,17 @@ function toolLabel(toolName) {
 function seenImagesFromPayload(payload) {
   if (!payload || payload.hook_event_name !== 'PostToolUse') return null;
   const tool = String(payload.tool_name || '');
-  const filePath = payload.tool_input && payload.tool_input.file_path;
+  const filePath = payload.tool_input && (payload.tool_input.file_path || (tool === 'view_image' && payload.tool_input.path));
   const images = collectImageBlocks(payload.tool_response);
+  // Codex can label a valid image's data URL as application/octet-stream.
+  for (const image of images) {
+    if (image.mimeType === 'application/octet-stream' && imageMimeForPath(filePath)) image.mimeType = imageMimeForPath(filePath);
+  }
   if (!images.length && tool === 'Read' && imageMimeForPath(filePath)) {
     images.push({ mimeType: imageMimeForPath(filePath), filePath });
   }
   if (!images.length) return null;
-  const label = tool === 'Read' && filePath ? String(filePath).split(/[\\/]/).pop() : toolLabel(tool);
+  const label = (tool === 'Read' || tool === 'view_image') && filePath ? String(filePath).split(/[\\/]/).pop() : toolLabel(tool);
   return { tool, label, images };
 }
 

@@ -440,11 +440,10 @@ export default {
     'settings.agents': 'Agent models',
     'settings.agentsHint': 'Applies to new sessions. Pick a model per session when creating one.',
     'settings.model': 'Session model',
+    'settings.commitModel': "Commit message model",
+    'settings.commitModelDesc': "Used to write automatic commit messages. Auto prefers an installed local model, then Haiku.",
+    'settings.commitModelAuto': "Auto (local model, then Haiku)",
     'settings.subagentModel': 'Subagent model',
-    'settings.newSessionMenu': 'New-session menu',
-    'settings.menuFamily.claude': 'Claude',
-    'settings.menuFamily.codex': 'Codex (GPT)',
-    'settings.menuFamily.ollama': 'Local models',
     'settings.general': 'General',
     'voice.title': 'Voice input',
     'voice.hint': 'While a session terminal has focus, what you say is transcribed on this device and typed into that session. Nothing is sent until you press Enter.',
@@ -484,7 +483,6 @@ export default {
     'settings.soundDesc': 'Plays when a session finishes. Picking one previews it.',
     'settings.osNotificationsDesc': "Show a system notification when a session finishes while the app isn't focused.",
     'settings.subagentModelDesc': 'Used by Explore, Plan and the other subagents a session starts.',
-    'settings.newSessionMenuDesc': 'Which model family the New session dropdown lists.',
     'settings.sessionDiffBadgeDesc': 'Show added and removed line counts on each session in the list.',
     'settings.doubleSessionDesc': 'Shift+click a second session to open it beside the current one. Not available for worktree sessions.',
     'settings.statusLineDesc': 'Show tokens and cost at the bottom of each session. Applies to new sessions.',
@@ -515,7 +513,6 @@ export default {
 
 
     'models.codexDivider': 'Codex',
-    'models.effortDivider': 'Effort',
 
     'settings.customModels': 'Local models',
     'settings.customModelsHint': 'Install open-source models that run locally and start sessions with them.',

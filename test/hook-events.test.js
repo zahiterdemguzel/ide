@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState, hooksSettings, normalizeHookPayload, isUsageLimitStop, ORIGIN_STALE_MS } = require('../src/main/hook-events');
+const { eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState, hooksSettings, normalizeHookPayload, hookOriginId, isUsageLimitStop, ORIGIN_STALE_MS } = require('../src/main/hook-events');
 
 test('eventToState: Stop -> completed', () => {
   assert.equal(eventToState({ hook_event_name: 'Stop' }), 'completed');
@@ -392,7 +392,7 @@ test('deriveStatus: non-terminal events fall through to eventToState', () => {
   assert.equal(deriveStatus({ hook_event_name: 'SessionStart' }).state, 'idle');
   assert.equal(
     deriveStatus({ hook_event_name: 'PostToolUse', tool_input: { command: 'git push' } }).state,
-    'pushed',
+    'working',
   );
 });
 
@@ -584,6 +584,23 @@ test('codex SubagentStart counts a spawn; its SubagentStop drains it', () => {
     { hook_event_name: 'SubagentStop' },      // last agent out settles the session
   ]);
   assert.deepEqual(states, ['working', 'working', 'bg-agents', 'completed']);
+});
+
+test('Codex main conversation stays busy across turns and a push until it stops', () => {
+  const originId = hookOriginId('codex', 'codex-uuid');
+  assert.equal(hookOriginId('claude', 'fork-id'), 'fork-id');
+  let tracking = {};
+  for (const [payload, expected] of [
+    [{ hook_event_name: 'UserPromptSubmit' }, 'working'],
+    [{ hook_event_name: 'Stop' }, 'completed'],
+    [{ hook_event_name: 'UserPromptSubmit' }, 'working'],
+    [{ hook_event_name: 'PostToolUse', tool_input: { command: ['git', 'push'] } }, 'working'],
+    [{ hook_event_name: 'Stop' }, 'completed'],
+  ]) {
+    const result = deriveStatus(payload, tracking, { originId });
+    assert.equal(result.state, expected);
+    tracking = result.tracking;
+  }
 });
 
 test('codex SubagentStart with an agent_id still counts (fires in either context)', () => {

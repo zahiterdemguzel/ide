@@ -1,24 +1,26 @@
-/* The "Press ⌘Q again to quit" pill (quit-warning.js): centered near the top of
-   the window like Chrome's, above every panel, never intercepting clicks. */
+/* Keep the quit warning prominent and centered without intercepting clicks. */
 .quit-warning {
   position: fixed;
-  top: 20%;
+  top: 50%;
   left: 50%;
-  z-index: 10000;
-  padding: 10px 18px;
+  z-index: 2147483647;
+  max-width: calc(100vw - 32px);
+  padding: 20px 28px;
   background: var(--bg-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-  font-size: 14px;
+  font-size: 20px;
+  font-weight: 600;
+  text-align: center;
   pointer-events: none;
   opacity: 0;
-  transform: translate(-50%, -6px);
+  transform: translate(-50%, calc(-50% - 6px));
   transition: opacity 120ms ease, transform 120ms ease;
 }
 
 .quit-warning.visible {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: translate(-50%, -50%);
 }

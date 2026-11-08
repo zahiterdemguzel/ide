@@ -35,6 +35,14 @@ test('seenImagesFromPayload: finds MCP and Messages-API image blocks nested in a
   ]);
 });
 
+test('Codex view_image result uses the returned bytes and the file extension for its generic MIME', () => {
+  const seen = seenImagesFromPayload(post('view_image', { path: '/tmp/screen.png' }, [
+    { type: 'input_image', image_url: 'data:application/octet-stream;base64,AAAA' },
+  ]));
+  assert.deepEqual(seen, { tool: 'view_image', label: 'screen.png', images: [{ mimeType: 'image/png', base64: 'AAAA' }] });
+  assert.equal(seenImagesFromPayload(post('view_image', { path: '/tmp/missing.png' }, [{ type: 'text', text: 'failed' }])), null);
+});
+
 test('seenImagesFromPayload: ignores other events and image-free results', () => {
   assert.equal(seenImagesFromPayload({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: 'a.png' } }), null);
   assert.equal(seenImagesFromPayload(post('Bash', { command: 'ls' }, { stdout: 'a.png' })), null);

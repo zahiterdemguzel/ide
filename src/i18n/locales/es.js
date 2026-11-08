@@ -439,11 +439,10 @@ export default {
     'settings.agents': 'Modelos de agente',
     'settings.agentsHint': 'Se aplica a las nuevas sesiones. Elige un modelo por sesión al crearla.',
     'settings.model': 'Modelo de sesión',
+    'settings.commitModel': "Modelo de mensajes de commit",
+    'settings.commitModelDesc': "Escribe mensajes de commit automáticos. Automático prefiere un modelo local instalado y luego Haiku.",
+    'settings.commitModelAuto': "Automático (modelo local, luego Haiku)",
     'settings.subagentModel': 'Modelo de subagente',
-    'settings.newSessionMenu': 'Menú de nueva sesión',
-    'settings.menuFamily.claude': 'Claude',
-    'settings.menuFamily.codex': 'Codex (GPT)',
-    'settings.menuFamily.ollama': 'Modelos locales',
     'settings.general': 'General',
     'voice.title': 'Entrada de voz',
     'voice.hint': 'Mientras el terminal de una sesión tiene el foco, lo que dices se transcribe en este dispositivo y se escribe en esa sesión. Nada se envía hasta que pulsas Enter.',
@@ -483,7 +482,6 @@ export default {
     'settings.soundDesc': 'Suena cuando termina una sesión. Al elegir uno se reproduce una muestra.',
     'settings.osNotificationsDesc': 'Mostrar una notificación del sistema cuando una sesión termina y la aplicación no tiene el foco.',
     'settings.subagentModelDesc': 'Lo usan Explore, Plan y los demás subagentes que inicia una sesión.',
-    'settings.newSessionMenuDesc': 'Qué familia de modelos muestra el menú Nueva sesión.',
     'settings.sessionDiffBadgeDesc': 'Mostrar las líneas añadidas y eliminadas de cada sesión en la lista.',
     'settings.doubleSessionDesc': 'Mayús+clic en una segunda sesión para abrirla junto a la actual. No disponible para sesiones con worktree.',
     'settings.statusLineDesc': 'Mostrar tokens y coste al pie de cada sesión. Se aplica a sesiones nuevas.',
@@ -514,7 +512,6 @@ export default {
 
 
     'models.codexDivider': 'Codex',
-    'models.effortDivider': 'Esfuerzo',
 
     'settings.customModels': 'Modelos locales',
     'settings.customModelsHint': 'Instala modelos de código abierto que se ejecutan localmente y úsalos en las sesiones.',

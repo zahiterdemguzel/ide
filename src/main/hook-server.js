@@ -2,9 +2,10 @@ const http = require('http');
 const { sendToRenderer } = require('./window');
 // Pure event->state mapping, resume-downgrade rule, and settings JSON live in the
 // Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
-const { deriveStatus, shouldApplyState, hooksSettings: buildHooksSettings, normalizeHookPayload } = require('./hook-events');
+const { deriveStatus, shouldApplyState, hooksSettings: buildHooksSettings, normalizeHookPayload, hookOriginId } = require('./hook-events');
 const { statusLineCommand } = require('./statusline');
 const { seenImagesFromPayload } = require('./seen-images-lib');
+const { modelFamily } = require('./agent-providers');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
 // circular require is safe. Access via the module object, never destructure at top.
@@ -96,6 +97,14 @@ function startHookServer() {
         const normalized = normalizeHookPayload(payload, ideId);
         payload = normalized.payload;
         if (normalized.agentSessionId) sessions.noteAgentSessionId(ideId, normalized.agentSessionId);
+        if (payload.session_id && payload.agent_id &&
+            (payload.hook_event_name === 'SubagentStart' || payload.hook_event_name === 'SubagentStop')) {
+          sendToRenderer('session-agent', {
+            id: payload.session_id, agentId: String(payload.agent_id),
+            agentType: String(payload.agent_type || ''),
+            state: payload.hook_event_name === 'SubagentStart' ? 'running' : 'finished',
+          });
+        }
         let state = null;
         if (payload.session_id) {
           // Agent-aware gating: a session with background subagents — or forked
@@ -103,7 +112,11 @@ function startHookServer() {
           // stays "working" through one agent's Stop, so the finish chime waits
           // for the last one out (see deriveStatus). `originId` is which
           // conversation this payload came from.
-          const opts = { originId: normalized.agentSessionId, now: Date.now() };
+          // Codex generates its own ID even for the main conversation. It must
+          // represent the main origin, not a Claude-style fork.
+          const session = sessions.sessions.get(payload.session_id);
+          const originId = hookOriginId(modelFamily(session?.model), normalized.agentSessionId);
+          const opts = { originId, now: Date.now() };
           const { state: derived, tracking } = deriveStatus(payload, getTracking(payload.session_id), opts);
           subagentTracking.set(payload.session_id, tracking);
           // An ESC/Ctrl+C keystroke on its own never moves the dot — this event is

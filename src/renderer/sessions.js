@@ -17,9 +17,9 @@ import { BROADCAST_KINDS, DEFAULT_BROADCAST_KINDS, countByKind, broadcastTargetI
 import {
   getSessionModel, getSubagentModel, setSessionModel, getSessionEffort, setSessionEffort,
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
-  effortsFor, effortName, DEFAULT_EFFORT, getLastModelOf, getNewSessionMenuFamily,
+  effortsFor, effortName, DEFAULT_EFFORT,
 } from './settings.js';
-import { effortsForFamily, QUICK_EFFORTS } from './shared/effort-levels.js';
+import { QUICK_EFFORTS } from './shared/effort-levels.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
 import { initHoldToTalk } from './voice.js';
@@ -897,6 +897,9 @@ function buildTerminal(id, repo) {
 function suspendSessionUI(s, { notifyMain = true } = {}) {
   if (s.suspended) return;
   s.suspended = true;
+  s.container.querySelector('.session-agents')?.remove();
+  s.container.classList.remove('has-session-agents');
+  s.agents = new Map();
   if (notifyMain) window.api.suspendSession(s.id);
   if (s.term) {
     if (s.renderer) { s.renderer.dispose(); s.renderer = null; }
@@ -1587,12 +1590,11 @@ document.getElementById('new-session').onclick = () => newSession();
 // Holding it instead records the task by voice (see voice.js).
 initHoldToTalk(document.getElementById('new-session'), () => startVoiceDraft());
 
-// New-session caret menu: the split-button caret opens a dropdown of one family's
-// models (Claude unless changed in Settings → Agent models) followed by that family's
-// effort ladder. A model row spawns a session on that model at the remembered effort;
-// an effort row spawns one on the family's last-used model at that effort. Either pick
-// is remembered as the next session's default. The menu pops up above the button and
-// mirrors the recent-folders menu's open/close handling.
+// New-session caret menu: the split-button caret opens a dropdown of every model —
+// Claude, then Codex, then installed local models, each group under its divider. A row
+// spawns a session on that model at the remembered effort and becomes the next session's
+// default. The menu pops up above the button and mirrors the recent-folders menu's
+// open/close handling.
 const modelMenu = document.getElementById('session-model-menu');
 const newSessionOptsBtn = document.getElementById('new-session-opts');
 function closeModelMenu() {
@@ -1602,38 +1604,13 @@ function closeModelMenu() {
   // Wait for the collapse animation before hiding so it actually plays.
   modelMenu.addEventListener('transitionend', () => { modelMenu.hidden = true; }, { once: true });
 }
-function appendEffortItems(container, levels, currentEffort, onPick) {
-  const div = document.createElement('div');
-  div.className = 'model-menu-divider';
-  div.textContent = t('models.effortDivider');
-  container.appendChild(div);
-  for (const level of levels) {
-    const item = document.createElement('button');
-    item.className = 'model-menu-item' + (level.id === currentEffort ? ' current' : '');
-    item.textContent = level.name;
-    item.title = level.hint;
-    item.onclick = () => onPick(level.id);
-    container.appendChild(item);
-  }
-}
 function openModelMenu() {
-  const family = getNewSessionMenuFamily();
-  const familyModels = getMergedModels().filter((m) => modelFamily(m.id) === family);
   // buildModelMenuItems skips the inherit/default model — the plain New session button already uses it.
-  buildModelMenuItems(modelMenu, getLastModelOf(family), (model) => {
+  buildModelMenuItems(modelMenu, getSessionModel(), (model) => {
     closeModelMenu();
     setSessionModel(model);
     newSession({ model });
-  }, 'model-menu-item', familyModels);
-  // With no local models installed the family has nothing to spawn, so skip the
-  // effort rows rather than offer ones that would fall back to another family.
-  if (familyModels.length) {
-    appendEffortItems(modelMenu, effortsForFamily(family), getSessionEffort(), (effort) => {
-      closeModelMenu();
-      setSessionEffort(effort);
-      newSession({ model: getLastModelOf(family), effort });
-    });
-  }
+  }, 'model-menu-item');
   modelMenu.hidden = false;
   newSessionOptsBtn.setAttribute('aria-expanded', 'true');
   // Next frame so the un-hidden element transitions from the collapsed state.
@@ -1649,17 +1626,16 @@ document.addEventListener('click', (e) => {
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModelMenu(); });
 
 // Optional Low/Mid/High buttons beside New session (Settings → General, off by default):
-// one click spawns a session at that effort on the caret-menu family's last-used model.
-// Unlike the caret's effort rows they don't change the remembered effort, so the plain
-// New session button keeps its default.
+// one click spawns a session at that effort on the default model. They don't change the
+// remembered effort, so the plain New session button keeps its default.
 const QUICK_EFFORT_STORE = 'ide.quickEffortButtons';
 const quickEffortEl = document.getElementById('new-session-quick');
 for (const level of QUICK_EFFORTS) {
   const btn = document.createElement('button');
   btn.className = 'quick-effort-btn';
   btn.textContent = level.label;
-  // Read at click/hold time, so a family switch in the caret menu is picked up.
-  const quickSessionOpts = () => ({ model: getLastModelOf(getNewSessionMenuFamily()), effort: level.id });
+  // Read at click/hold time, so a model picked from the caret menu since is picked up.
+  const quickSessionOpts = () => ({ model: getSessionModel(), effort: level.id });
   btn.onclick = () => newSession(quickSessionOpts());
   // Holding it records the task by voice, like New session, at this button's effort.
   initHoldToTalk(btn, () => startVoiceDraft(quickSessionOpts()));
@@ -1805,6 +1781,30 @@ window.api.onPtyData(({ id, data }) => {
   }
 });
 window.api.onStatus(({ id, state }) => setState(id, state));
+window.api.onSessionAgent(({ id, agentId, agentType, state }) => {
+  const s = sessions.get(id);
+  if (!s || s.suspended) return;
+  if (!s.agents) s.agents = new Map();
+  const previous = s.agents.get(agentId);
+  s.agents.set(agentId, { type: agentType || previous?.type || 'Agent', state });
+  let bar = s.container.querySelector('.session-agents');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.className = 'session-agents';
+    bar.setAttribute('aria-label', 'Subagents');
+    s.container.appendChild(bar);
+    s.container.classList.add('has-session-agents');
+    if (isOnScreen(id)) fit(s);
+  }
+  bar.replaceChildren();
+  for (const [key, agent] of s.agents) {
+    const item = document.createElement('span');
+    item.className = `session-agent ${agent.state}`;
+    item.title = `${agent.type} · ${key} · ${agent.state}`;
+    item.textContent = `${agent.type} · ${agent.state}`;
+    bar.appendChild(item);
+  }
+});
 // Clicking the OS notification asks main to raise the window; this is main
 // telling the renderer which session that notification was about.
 window.api.onSelectSession((id) => selectSession(id));

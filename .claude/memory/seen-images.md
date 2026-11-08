@@ -8,6 +8,7 @@ No hook of its own — it rides on the existing `PostToolUse` hook every session
 
 - **Image blocks anywhere in `tool_response`** (bounded walk): MCP `{ type: 'image', data, mimeType }` (Playwright/browser-use/computer-use screenshots), Messages-API `{ type: 'image', source: { type: 'base64', … } }`, and Claude Code's Read result `{ type: 'image', file: { base64, type } }`. These bytes win, because they are exactly what the model saw (after Claude Code's downscaling).
 - **A `Read` of an image file whose result has no bytes** falls back to `tool_input.file_path`; main reads the file (skipped above 20 MB).
+- **Codex `view_image`** returns `input_image` data URLs. Its generic `application/octet-stream` MIME is replaced using the input path's extension so the browser can display the returned bytes. Other Codex tool results with image blocks use the same bounded walk.
 
 Main sends one `session-image` event per image, `{ id, tool, label, at, src }`, where `src` is a **data URL**. A path won't work here: the asset viewer and `file-url` only accept paths inside the repo, and these images are often temp screenshots or files elsewhere. Forwarding is not awaited, so the hook reply (and therefore the tool) never waits on it.
 

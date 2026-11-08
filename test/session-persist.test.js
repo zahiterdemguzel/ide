@@ -134,10 +134,15 @@ test('a snapshot written when auto was a level resolves to a real one', () => {
   assert.equal(deserializeSession({ id: 'x', effort: 'auto' }).effort, DEFAULT_EFFORT);
   // A codex session carrying claude's `max` can't spawn with it — clamped to the shared
   // fallback rather than left to fail.
-  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-5.4', effort: 'max' }).effort, DEFAULT_EFFORT);
+  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-6-sol', effort: 'max' }).effort, DEFAULT_EFFORT);
   // A level the family does have is left exactly as it was.
-  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-5.4', effort: 'high' }).effort, 'high');
+  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-6-sol', effort: 'high' }).effort, 'high');
   assert.equal(deserializeSession({ id: 'x', model: 'sonnet', effort: 'max' }).effort, 'max');
+});
+
+test('a session saved on a retired codex model restores onto its replacement', () => {
+  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-5.5' }).model, 'codex:gpt-6.1-sol');
+  assert.equal(deserializeSession({ id: 'x', model: 'sonnet' }).model, 'sonnet');
 });
 
 test('deserializeSession: tolerates a malformed snapshot', () => {

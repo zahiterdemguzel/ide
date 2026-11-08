@@ -19,12 +19,17 @@ export const MODELS: Model[] = [
 // src/renderer/settings.js (keep in step). A codex: session is locked to the
 // codex family; the pickers filter through switchableModels below.
 export const CODEX_MODELS: Model[] = [
-  { id: 'codex:gpt-5.5', name: 'GPT-5.5 (Codex)' },
-  { id: 'codex:gpt-5.4', name: 'GPT-5.4 (Codex)' },
-  { id: 'codex:gpt-5.4-mini', name: 'GPT-5.4 Mini (Codex)' },
+  { id: 'codex:gpt-6-astra', name: 'GPT-6 Astra (Codex)' },
+  { id: 'codex:gpt-6.1-sol', name: 'GPT-6.1 Sol (Codex)' },
+  { id: 'codex:gpt-6.1-terra', name: 'GPT-6.1 Terra (Codex)' },
+  { id: 'codex:gpt-6-sol', name: 'GPT-6 Sol (Codex)' },
+  { id: 'codex:gpt-6-luna', name: 'GPT-6 Luna (Codex)' },
 ];
 
 export const DEFAULT_MODEL = 'default';
+// Where a saved Codex pick lands once its model leaves CODEX_MODELS (retired) —
+// mirror of DEFAULT_CODEX_MODEL in src/renderer/settings.js.
+const DEFAULT_CODEX_MODEL = 'codex:gpt-6.1-sol';
 
 export const isCodexId = (v: string | null | undefined): boolean => typeof v === 'string' && v.startsWith('codex:');
 
@@ -95,7 +100,8 @@ const KEY_EFFORT = storageKey('sessionEffort');
 export async function getSessionModel(): Promise<string> {
   try {
     const v = await SecureStore.getItemAsync(KEY_MODEL);
-    return MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || isOllamaId(v) ? (v as string) : DEFAULT_MODEL;
+    if (MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v as string;
+    return isCodexId(v) ? DEFAULT_CODEX_MODEL : DEFAULT_MODEL;
   } catch {
     return DEFAULT_MODEL;
   }

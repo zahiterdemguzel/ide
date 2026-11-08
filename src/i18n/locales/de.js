@@ -439,11 +439,10 @@ export default {
     'settings.agents': 'Agent-Modelle',
     'settings.agentsHint': 'Gilt für neue Sitzungen. Wählen Sie beim Erstellen ein Modell pro Sitzung.',
     'settings.model': 'Sitzungsmodell',
+    'settings.commitModel': "Commit-Nachrichtenmodell",
+    'settings.commitModelDesc': "Schreibt automatische Commit-Nachrichten. Automatisch bevorzugt ein installiertes lokales Modell, danach Haiku.",
+    'settings.commitModelAuto': "Automatisch (lokales Modell, dann Haiku)",
     'settings.subagentModel': 'Subagent-Modell',
-    'settings.newSessionMenu': 'Menü „Neue Sitzung“',
-    'settings.menuFamily.claude': 'Claude',
-    'settings.menuFamily.codex': 'Codex (GPT)',
-    'settings.menuFamily.ollama': 'Lokale Modelle',
     'settings.general': 'Allgemein',
     'voice.title': 'Spracheingabe',
     'voice.hint': 'Solange ein Sitzungsterminal den Fokus hat, wird das Gesprochene auf diesem Gerät transkribiert und in diese Sitzung geschrieben. Erst mit Enter wird etwas abgeschickt.',
@@ -483,7 +482,6 @@ export default {
     'settings.soundDesc': 'Ertönt, wenn eine Sitzung fertig ist. Beim Auswählen hörst du eine Vorschau.',
     'settings.osNotificationsDesc': 'Eine Systembenachrichtigung zeigen, wenn eine Sitzung fertig ist und die App nicht im Fokus steht.',
     'settings.subagentModelDesc': 'Wird von Explore, Plan und den anderen Subagenten einer Sitzung genutzt.',
-    'settings.newSessionMenuDesc': 'Welche Modellfamilie das Menü „Neue Sitzung“ auflistet.',
     'settings.sessionDiffBadgeDesc': 'Hinzugefügte und entfernte Zeilen bei jeder Sitzung in der Liste zeigen.',
     'settings.doubleSessionDesc': 'Eine zweite Sitzung mit Umschalt+Klick neben der aktuellen öffnen. Nicht für Worktree-Sitzungen verfügbar.',
     'settings.statusLineDesc': 'Tokens und Kosten unten in jeder Sitzung zeigen. Gilt für neue Sitzungen.',
@@ -514,7 +512,6 @@ export default {
 
 
     'models.codexDivider': 'Codex',
-    'models.effortDivider': 'Aufwand',
 
     'settings.customModels': 'Lokale Modelle',
     'settings.customModelsHint': 'Lokal laufende Open-Source-Modelle installieren und in Sitzungen verwenden.',

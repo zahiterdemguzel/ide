@@ -159,23 +159,20 @@ rather than `ANTHROPIC_MODEL` alone — see [custom-models.md](custom-models.md)
 
 **Per-session override.** The New session button is a split button: the main
 action creates a session with the saved defaults, and the caret (`#new-session-opts`)
-opens a dropdown (`#session-model-menu`) listing **one family's** models followed by
-an **Effort** divider and that family's effort ladder (`effortsForFamily`). The family
-is Settings → Agent models → *New-session menu* (`#settings-new-session-menu`,
-`ide.newSessionMenuFamily`: `claude` default, `codex`, or `ollama`), so Codex/local
-models only appear there when chosen. A model row spawns a session on that model at
-the remembered effort; an effort row spawns one on the family's **last-used model**
-(`getLastModelOf(family)` — `setSessionModel` also writes `ide.lastModel.<family>`,
-so badge switches, Settings, and caret picks all count) at that effort. Both picks
-are remembered as the next session's defaults. The inherit `default` is never a row
-(the plain button covers it). `sessions.js`'s `newSession(opts)` takes
-`{ model, effort }` overrides and passes them through the `new-session` IPC.
+opens a dropdown (`#session-model-menu`) listing **every** model from
+`getMergedModels()` — Claude first, then a *Codex* divider and the Codex models, then a
+*Local models* divider and installed Ollama models. There are no effort rows. A row
+spawns a session on that model at the remembered effort and is remembered as the next
+session's default (`setSessionModel`); the current default is highlighted. The inherit
+`default` is never a row (the plain button covers it). `sessions.js`'s
+`newSession(opts)` takes `{ model, effort }` overrides and passes them through the
+`new-session` IPC.
 
 **Quick effort buttons.** Optional (Settings → General → *Quick effort buttons*,
 `#settings-quick-effort`, `ide.quickEffortButtons`, off by default): **Low / Mid / High**
 buttons (`#new-session-quick`, levels from `QUICK_EFFORTS` in `shared/effort-levels.js`)
 continue the split-button pill after the caret. Each spawns a session at that effort on
-the caret-menu family's last-used model, but — unlike the caret's effort rows — does
+the default model (`getSessionModel()`, i.e. the last caret/badge/Settings pick) and does
 **not** change the remembered effort, so the plain button keeps its default.
 
 **Mobile.** `mobile/src/screens/SessionsScreen.tsx` mirrors the same split button:

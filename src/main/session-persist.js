@@ -4,7 +4,7 @@
 // lives in sessions.js; everything here is plain data so it stays unit-testable.
 
 const { defaultEffortFor } = require('./agent-effort');
-const { modelFamily } = require('./agent-providers');
+const { modelFamily, currentModelId } = require('./agent-providers');
 const { isInsideRepo } = require('./fs-track');
 
 // The most we keep on disk for previous sessions and their tracking data. Once the
@@ -99,7 +99,8 @@ function deserializeSession(obj) {
     firstPrompt: obj.firstPrompt || '',
     name: obj.name || '',
     archived: !!obj.archived,
-    model: obj.model || '',
+    // A session saved on a since-retired Codex model resumes on its replacement.
+    model: currentModelId(obj.model || ''),
     subagentModel: obj.subagentModel || '',
     // Snapshots written by a build that had `auto` (or none at all) carry a level this
     // ladder can't name. Resolve them here rather than at the badge: the record is what

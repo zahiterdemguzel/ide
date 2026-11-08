@@ -439,11 +439,10 @@ export default {
     'settings.agents': 'Modèles d’agent',
     'settings.agentsHint': 'S’applique aux nouvelles sessions. Choisissez un modèle par session lors de la création.',
     'settings.model': 'Modèle de session',
+    'settings.commitModel': "Modèle de message de commit",
+    'settings.commitModelDesc': "Rédige les messages de commit automatiques. Auto privilégie un modèle local installé, puis Haiku.",
+    'settings.commitModelAuto': "Auto (modèle local, puis Haiku)",
     'settings.subagentModel': 'Modèle de sous-agent',
-    'settings.newSessionMenu': 'Menu Nouvelle session',
-    'settings.menuFamily.claude': 'Claude',
-    'settings.menuFamily.codex': 'Codex (GPT)',
-    'settings.menuFamily.ollama': 'Modèles locaux',
     'settings.general': 'Général',
     'voice.title': 'Saisie vocale',
     'voice.hint': 'Tant que le terminal d\'une session a le focus, ce que vous dites est transcrit sur cet appareil et écrit dans cette session. Rien n\'est envoyé avant que vous appuyiez sur Entrée.',
@@ -483,7 +482,6 @@ export default {
     'settings.soundDesc': "Joué à la fin d'une session. Le choisir le fait entendre.",
     'settings.osNotificationsDesc': "Afficher une notification système à la fin d'une session lorsque l'application n'est pas au premier plan.",
     'settings.subagentModelDesc': 'Utilisé par Explore, Plan et les autres sous-agents lancés par une session.',
-    'settings.newSessionMenuDesc': 'La famille de modèles listée par le menu Nouvelle session.',
     'settings.sessionDiffBadgeDesc': 'Afficher les lignes ajoutées et supprimées de chaque session dans la liste.',
     'settings.doubleSessionDesc': 'Maj+clic sur une deuxième session pour l\'ouvrir à côté de la session actuelle. Indisponible pour les sessions en worktree.',
     'settings.statusLineDesc': "Afficher les tokens et le coût en bas de chaque session. S'applique aux nouvelles sessions.",
@@ -514,7 +512,6 @@ export default {
 
 
     'models.codexDivider': 'Codex',
-    'models.effortDivider': 'Effort',
 
     'settings.customModels': 'Modèles locaux',
     'settings.customModelsHint': 'Installez des modèles open source exécutés localement et utilisez-les dans les sessions.',

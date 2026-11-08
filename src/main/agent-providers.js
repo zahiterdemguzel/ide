@@ -1,7 +1,7 @@
 // Pure (Electron-free) model of the agent-CLI providers a session can run: the
 // Claude Code CLI (the default), a local Ollama model routed through the Claude
 // CLI, and the OpenAI Codex CLI. A session's model id encodes its provider as a
-// prefix (`codex:gpt-5.5`, `ollama:llama3`; everything else is Claude), and the
+// prefix (`codex:gpt-6.1-sol`, `ollama:llama3`; everything else is Claude), and the
 // session is locked to that family for life — see canSwitchModel. sessions.js
 // asks this module which binary flavour to spawn and with which argv; keeping
 // the argv construction here (plain data) keeps it unit-tested
@@ -13,6 +13,25 @@ const { codexEffortValue } = require('./agent-effort');
 const CODEX_PREFIX = 'codex:';
 const isCodexId = (id) => typeof id === 'string' && id.startsWith(CODEX_PREFIX);
 const codexModelName = (id) => (isCodexId(id) ? id.slice(CODEX_PREFIX.length) : String(id || ''));
+
+// Codex models OpenAI has retired for ChatGPT sign-in, each mapped to the
+// replacement its migration notice names. A session saved on one would otherwise
+// resume onto a model the API refuses, failing every turn.
+const RETIRED_CODEX_MODELS = {
+  'gpt-5.5': 'gpt-6.1-sol',
+  'gpt-5.4': 'gpt-6-sol',
+  'gpt-5.4-mini': 'gpt-6-luna',
+  'gpt-5.3-codex': 'gpt-6.1-sol',
+  'gpt-5.3-codex-spark': 'gpt-6-luna',
+  'gpt-5.2': 'gpt-6.1-sol',
+};
+// A model id with any retired Codex model swapped for its replacement; every other
+// id (Claude, Ollama, current Codex) comes back unchanged.
+function currentModelId(id) {
+  if (!isCodexId(id)) return id;
+  const replacement = RETIRED_CODEX_MODELS[codexModelName(id)];
+  return replacement ? CODEX_PREFIX + replacement : id;
+}
 
 // Which CLI family a model id belongs to. An empty/`default` selection is a
 // Claude session inheriting the CLI's own default model.
@@ -71,12 +90,13 @@ function codexHookOverrides(port, ideId, platform) {
 function codexSpawnArgs({ resume, agentSessionId, model, effort, port, ideId, platform }) {
   const args = [];
   if (resume && agentSessionId) args.push('resume', agentSessionId);
-  const bare = codexModelName(model);
+  const bare = codexModelName(currentModelId(model));
   if (bare) args.push('--model', bare);
   const e = codexEffortValue(effort);
   if (e) args.push('-c', `model_reasoning_effort="${e}"`);
-  args.push(...codexHookOverrides(port, ideId, platform), '--dangerously-bypass-hook-trust');
+  args.push('--dangerously-bypass-approvals-and-sandbox',
+    ...codexHookOverrides(port, ideId, platform), '--dangerously-bypass-hook-trust');
   return args;
 }
 
-module.exports = { modelFamily, canSwitchModel, isCodexId, codexModelName, codexSpawnArgs, codexHookCommand, CODEX_HOOK_EVENTS };
+module.exports = { modelFamily, canSwitchModel, isCodexId, codexModelName, currentModelId, codexSpawnArgs, codexHookCommand, CODEX_HOOK_EVENTS };
