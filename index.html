@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="src/styles/layout.css" />
   <link rel="stylesheet" href="src/styles/sessions.css" />
   <link rel="stylesheet" href="src/styles/seen-images.css" />
+  <link rel="stylesheet" href="src/styles/quick-prompts.css" />
   <link rel="stylesheet" href="src/styles/explorer.css" />
   <link rel="stylesheet" href="src/styles/diff.css" />
   <link rel="stylesheet" href="src/styles/editor.css" />
@@ -143,6 +144,17 @@
           </div>
           <div id="seen-list"></div>
         </aside>
+        <!-- Quick prompts: an up-arrow tab at the bottom centre of the session view;
+             hovering unfolds the project's saved prompts (src/renderer/quick-prompts.js). -->
+        <div id="quick-prompts" class="quick-prompts" hidden>
+          <div class="qp-panel">
+            <div class="qp-menu" role="menu" aria-labelledby="quick-prompts-title">
+              <div id="quick-prompts-title" class="qp-title" data-i18n="quickPrompts.title">Quick prompts</div>
+              <div id="quick-prompts-list" class="qp-list"></div>
+            </div>
+          </div>
+          <button id="quick-prompts-handle" class="qp-handle" type="button" aria-haspopup="menu" data-i18n-title="quickPrompts.handleTitle" title="Send a quick prompt to this session"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></button>
+        </div>
         <div id="empty-hint">
           <div class="welcome">
             <div class="welcome-mark">
@@ -807,6 +819,14 @@
               </label>
               <label class="panel-toggle">
                 <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.doubleSession">Double session</span>
+                  <small class="settings-desc" data-i18n="settings.doubleSessionDesc">Shift+click a second session to open it beside the current one. Not available for worktree sessions.</small>
+                </span>
+                <input type="checkbox" id="settings-double-session" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="settings-label">
                   <span class="panel-toggle-label" data-i18n="settings.statusLine">Token cost meter</span>
                   <small class="settings-desc" data-i18n="settings.statusLineDesc">Show tokens and cost at the bottom of each session. Applies to new sessions.</small>
                 </span>
@@ -829,6 +849,21 @@
                 <input type="checkbox" id="settings-quick-effort" class="switch-input" />
                 <span class="switch-ui"></span>
               </label>
+            </div>
+          </div>
+          <div class="settings-group" id="quick-prompts-settings">
+            <div class="settings-group-title" data-i18n="settings.quickPrompts">Quick prompts</div>
+            <div class="settings-card qp-card">
+              <div class="qp-head" data-search-item>
+                <span class="settings-label">
+                  <span><span id="quick-prompts-for" data-i18n="settings.quickPromptsFor">Prompts for</span> <strong id="quick-prompts-project"></strong></span>
+                  <small class="settings-desc" data-i18n="settings.quickPromptsDesc">Messages you send to sessions often in this project. Hover the arrow at the bottom of a session to send one.</small>
+                </span>
+              </div>
+              <div id="quick-prompts-rows" class="qp-rows"></div>
+              <div class="qp-foot">
+                <button id="quick-prompts-add" type="button" class="settings-secondary" data-i18n="settings.quickPromptsAdd">Add prompt</button>
+              </div>
             </div>
           </div>
         </section>

@@ -1,0 +1,102 @@
+/* Quick prompts (renderer/quick-prompts.js): an up-arrow tab docked to the bottom
+   centre of the session view. Hover (or keyboard focus) unfolds the project's saved
+   prompts upward in the same chrome as the session bar's model/effort menus.
+   The wrapper ignores the pointer so the folded menu's box never steals hover from
+   the terminal; only the tab and the open menu take events. center.js hides it
+   with the terminals whenever an overlay fills the centre. */
+.quick-prompts {
+  position: absolute; bottom: 0; left: 50%; z-index: 6;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center;
+  pointer-events: none;
+}
+.quick-prompts[hidden] { display: none; }
+/* Keep it centred on the terminal, not on terminal + Seen-by-AI column. */
+#center-body.seen-open .quick-prompts { left: calc(50% - var(--seen-panel-width) / 2); }
+
+.qp-handle {
+  pointer-events: auto;
+  display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 16px; padding: 0; cursor: pointer;
+  background: var(--bg-2); color: var(--fg-dim);
+  border: 1px solid var(--border); border-bottom: none; border-radius: 8px 8px 0 0;
+  opacity: .75;
+  transition: opacity .12s ease, color .12s ease, border-color .12s ease, height .12s ease;
+}
+.quick-prompts:hover .qp-handle,
+.quick-prompts:focus-within .qp-handle { opacity: 1; height: 20px; color: var(--accent); border-color: var(--accent); }
+.qp-handle svg { transition: transform 140ms ease; }
+.quick-prompts:hover .qp-handle svg,
+.quick-prompts:focus-within .qp-handle svg { transform: translateY(-1px); }
+.qp-handle:focus-visible { outline: none; }
+
+/* The panel's bottom padding bridges the gap to the tab, so moving the pointer
+   from the tab up into the menu never leaves the hover area. */
+.qp-panel {
+  position: absolute; bottom: 100%; left: 50%;
+  padding-bottom: 6px;
+  transform-origin: bottom center;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translateX(-50%) translateY(8px) scaleY(0.85);
+  transition: opacity 140ms ease, transform 140ms ease, visibility 0s linear 140ms;
+}
+.quick-prompts:hover .qp-panel,
+.quick-prompts:focus-within .qp-panel {
+  opacity: 1; visibility: visible; pointer-events: auto;
+  transform: translateX(-50%) translateY(0) scaleY(1);
+  transition: opacity 140ms ease, transform 140ms ease, visibility 0s;
+}
+/* Folded right after a pick until the pointer leaves (see collapseUntilPointerLeaves). */
+.quick-prompts.qp-suppressed .qp-panel { opacity: 0; visibility: hidden; pointer-events: none; }
+.quick-prompts.qp-suppressed .qp-handle { opacity: .75; height: 16px; color: var(--fg-dim); border-color: var(--border); }
+
+.qp-menu {
+  width: max-content; min-width: 200px; max-width: min(420px, 80vw);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); padding: 4px; box-sizing: border-box;
+}
+.qp-title {
+  padding: 4px 8px 6px; font-size: 10.5px; font-weight: 600; color: var(--fg-dim);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.qp-list {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 50vh; overflow-y: auto;
+}
+.qp-item {
+  display: block; width: 100%; box-sizing: border-box;
+  background: var(--bg-3); color: var(--fg); border: none; border-radius: 4px;
+  padding: 6px 10px; cursor: pointer; font-size: 12px; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.qp-item:hover,
+.qp-item:focus-visible { outline: none; background: color-mix(in srgb, var(--bg-3) 70%, var(--fg)); }
+/* "Edit prompts…" reads as an action, not one of the prompts. */
+.qp-item.qp-manage { background: transparent; color: var(--fg-dim); margin-top: 2px; }
+.qp-item.qp-manage:hover,
+.qp-item.qp-manage:focus-visible { background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--fg); }
+.qp-empty { padding: 6px 10px; font-size: 12px; color: var(--fg-dim); white-space: nowrap; }
+
+/* --- Settings → Sessions → Quick prompts --- */
+.qp-head strong { font-weight: 600; }
+.qp-rows { display: flex; flex-direction: column; gap: 6px; }
+.qp-rows:empty { display: none; }
+.qp-row { display: flex; align-items: center; gap: 6px; }
+.qp-row input {
+  flex: 1; min-width: 0; height: 30px; box-sizing: border-box; padding: 0 10px;
+  font-family: inherit; font-size: 12.5px;
+  background-color: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.qp-row input:hover { border-color: color-mix(in srgb, var(--fg-dim) 60%, var(--border)); }
+.qp-row input:focus { outline: none; border-color: var(--accent); box-shadow: var(--set-ring); }
+.qp-row input::placeholder { color: var(--fg-dim); }
+.qp-remove {
+  flex: none; width: 28px; height: 28px; padding: 0;
+  background: none; border: none; border-radius: 4px; cursor: pointer;
+  color: var(--fg-dim); font-size: 16px; line-height: 1;
+}
+.qp-remove:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.qp-foot { display: flex; }
+.qp-foot .settings-secondary { padding: 5px 14px; }

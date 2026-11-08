@@ -3,9 +3,9 @@
 // cross-module hand-offs and kicks off the initial loads.
 import './shared/bootstrap.js';
 import './shared/storage-sync.js'; // before any module that writes settings
-import { onClose, refreshDiagram } from './viewer/center.js';
+import { onClose, onTakeover, refreshDiagram } from './viewer/center.js';
 import { onEditorRepoChanged } from './viewer/file.js';
-import { showActiveSession, restoreSessions, setSessionsRepo, newSession, sessionNameForWorktree, setSessionScope } from './sessions.js';
+import { showActiveSession, restoreSessions, setSessionsRepo, newSession, sessionNameForWorktree, setSessionScope, submitToActiveSession, endSplit } from './sessions.js';
 import { refreshGit, autoFetch } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
@@ -21,6 +21,7 @@ import { initUsageMeter } from './usage-meter.js';
 import { initAccounts, wantsBackgroundUsage } from './accounts.js';
 import { initPanels } from './panels.js';
 import { refreshWorktreeToggle, setTreeScope } from './worktrees.js';
+import { initQuickPrompts, refreshQuickPrompts } from './quick-prompts.js';
 import { initOnboarding, activateOnboarding, startTour, openCheatSheet } from './onboarding/index.js';
 import { onClaudeReady } from './claude-setup.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
@@ -32,6 +33,7 @@ const TRASH_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="1
 
 // Closing a center overlay returns to the active session (sessions owns it).
 onClose(showActiveSession);
+onTakeover(endSplit);
 
 // Open folder: a reverse-combobox that pops up the recent projects (most recent
 // first) plus a "Browse…" entry, then re-points the repo and reloads everything
@@ -83,6 +85,7 @@ function applyRepoChange(r) {
   currentProject = project;
   if (projectChanged) resetConsoles();
   refreshWorktreeToggle();
+  refreshQuickPrompts();
   refreshGit(); refreshTree(); loadToolbar(); autoFetch();
 }
 
@@ -219,6 +222,7 @@ registerCommands([
 ]);
 
 initSettings();
+initQuickPrompts({ submit: submitToActiveSession });
 initRemotePane();
 // Toolbar meter for the user's remaining Claude subscription usage (after
 // initSettings so its labels are translated).

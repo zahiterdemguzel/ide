@@ -14,12 +14,13 @@ import {
 } from './shared/notify.js';
 import {
   isSessionDiffBadgeEnabled, setSessionDiffBadge, isQuickEffortButtonsEnabled, setQuickEffortButtons,
-  isOsNotificationsEnabled, setOsNotificationsEnabled,
+  isOsNotificationsEnabled, setOsNotificationsEnabled, isDoubleSessionEnabled, setDoubleSessionEnabled,
 } from './sessions.js';
 import { initCustomModels, refreshCustomModels } from './custom-models.js';
 import { initVoice, refreshVoiceSection } from './voice.js';
 import { initEditorSettingsSection, refreshEditorSettingsSection } from './editor/settings-section.js';
 import { initSettingsNav } from './settings-nav.js';
+import { renderQuickPromptSettings } from './quick-prompts.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -293,6 +294,7 @@ export function initSettings() {
   const volumeInput = document.getElementById('settings-volume');
   const volumeValue = document.getElementById('settings-volume-value');
   const sessionDiffBox = document.getElementById('settings-session-diff');
+  const doubleSessionBox = document.getElementById('settings-double-session');
   const statusLineBox = document.getElementById('settings-statusline');
   const toolHooksBox = document.getElementById('settings-tool-hooks');
   const quickEffortBox = document.getElementById('settings-quick-effort');
@@ -342,6 +344,7 @@ export function initSettings() {
     playNotification(soundSel.value);
   };
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
+  doubleSessionBox.onchange = () => setDoubleSessionEnabled(doubleSessionBox.checked);
   statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
   toolHooksBox.onchange = () => setToolHooksEnabled(toolHooksBox.checked);
   quickEffortBox.onchange = () => setQuickEffortButtons(quickEffortBox.checked);
@@ -388,11 +391,13 @@ export function initSettings() {
       getNewSessionMenuFamily(),
     );
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
+    doubleSessionBox.checked = isDoubleSessionEnabled();
     statusLineBox.checked = isStatusLineEnabled();
     toolHooksBox.checked = isToolHooksEnabled();
     quickEffortBox.checked = isQuickEffortButtonsEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();
     refreshEditorSettingsSection();
+    renderQuickPromptSettings();
     resetSettingsNav();
     dialog.showModal();
     // Refresh installed Ollama models and the Custom Models section after the

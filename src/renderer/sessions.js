@@ -12,6 +12,7 @@ import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
 import { reconcileArchived } from './shared/session-archive.js';
+import { canSplitSession, splitAfterClick, splitPartner, splitStillValid } from './shared/session-split.js';
 import { BROADCAST_KINDS, DEFAULT_BROADCAST_KINDS, countByKind, broadcastTargetIds } from './shared/session-broadcast.js';
 import {
   getSessionModel, getSubagentModel, setSessionModel, getSessionEffort, setSessionEffort,
@@ -23,6 +24,7 @@ import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
 import { initHoldToTalk } from './voice.js';
 import { showSeenImagesFor } from './seen-images.js';
+import { showQuickPromptsFor } from './quick-prompts.js';
 import { promptTypingDelay, promptSubmitDelay, TUI_READY_MS } from './shared/prompt-timing.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -30,6 +32,32 @@ import { promptTypingDelay, promptSubmitDelay, TUI_READY_MS } from './shared/pro
 const sessions = new Map(); // id -> { id, term, fit, container, li, dot, label, state, firstPrompt, name, fileCount, archived }
 let activeId = null;
 export const getActiveId = () => activeId;
+
+// Double session: [leftId, rightId] when two terminals share the center (Shift+click
+// a second row), else null. activeId is always one of the pair -- the focused pane
+// that the session bar, model badge and keyboard act on.
+let splitIds = null;
+const isSplittableId = (id) => canSplitSession(sessions.get(id));
+const isOnScreen = (id) => id === activeId || (!!splitIds && splitIds.includes(id));
+
+// Anything else taking over the center (a file, the browser, the diagram) ends
+// the double session; closing it comes back to the focused session alone.
+export function endSplit() { splitIds = null; }
+
+// Double session can be switched off in settings (on by default); off, a
+// Shift+click on a row is just a click. Persists in localStorage.
+const DOUBLE_SESSION_STORE = 'ide.doubleSession';
+let doubleSessionEnabled = localStorage.getItem(DOUBLE_SESSION_STORE) !== 'false';
+
+export function isDoubleSessionEnabled() { return doubleSessionEnabled; }
+export function setDoubleSessionEnabled(on) {
+  doubleSessionEnabled = !!on;
+  localStorage.setItem(DOUBLE_SESSION_STORE, doubleSessionEnabled ? 'true' : 'false');
+  if (!doubleSessionEnabled && splitIds) {
+    splitIds = null;
+    if (activeId) selectSession(activeId);
+  }
+}
 
 // Name of the session that owns a tree path, for the explorer's active-tree chip
 // and for terminal tabs -- 'sess-9f1c2b3a' means nothing to the user, the
@@ -224,26 +252,44 @@ export function selectSession(id) {
   activeId = id;
   hideAllOverlays();
   emptyHint.style.display = 'none';
-  // Only the visible terminal keeps a GPU renderer (see attachRenderer): release
+  if (!splitStillValid(splitIds, id, isSplittableId)) splitIds = null;
+  hostEl.classList.toggle('split', !!splitIds);
+  // Only on-screen terminals keep a GPU renderer (see attachRenderer): release
   // every other session's so live WebGL contexts stay well under Chromium's cap.
   for (const [, o] of sessions) {
-    o.container.style.display = o === s ? 'block' : 'none';
-    if (o !== s && o.renderer) { o.renderer.dispose(); o.renderer = null; }
+    const pane = splitIds ? splitIds.indexOf(o.id) : -1;
+    const shown = o === s || pane !== -1;
+    o.container.style.display = shown ? 'block' : 'none';
+    o.container.style.order = pane === -1 ? '' : String(pane);
+    o.container.classList.toggle('split-focused', !!splitIds && o === s);
+    if (!shown && o.renderer) { o.renderer.dispose(); o.renderer = null; }
   }
-  for (const o of listEl.children) o.classList.toggle('active', o.dataset.id === id);
+  for (const o of listEl.children) {
+    o.classList.toggle('active', o.dataset.id === id);
+    o.classList.toggle('split-pane', o.dataset.id !== id && isOnScreen(o.dataset.id));
+  }
   updateSessionBar();
+  const partner = sessions.get(splitPartner(splitIds, id));
+  if (partner) revealTerminal(partner, id);
+  if (revealTerminal(s, id)) s.term.focus();
+}
+
+// Bring an on-screen session's terminal up to date. `focusId` is the session
+// being selected; the deferred work is skipped if the selection moved on since.
+// Returns false when there's no terminal to show yet.
+function revealTerminal(s, focusId) {
   if (!s.term) {
     // A non-archived session with no terminal was restored from disk on startup:
     // bring its Claude process back the moment the user looks at it, then re-select
     // to fit and focus the rebuilt terminal. Archived sessions wait for an explicit
     // restore (their placeholder stays put).
-    if (s.suspended && !s.archived) resumeSessionUI(s).then(() => { if (activeId === id) selectSession(id); });
-    return;
+    if (s.suspended && !s.archived) resumeSessionUI(s).then(() => { if (activeId === focusId) selectSession(focusId); });
+    return false;
   }
   // Catch the terminal up on the output buffered while it was hidden, and
   // re-validate its diff badge (background rows only refresh on their own edits).
   flushPendingOutput(s);
-  if (!s.archived && (s.worktree || s.fileCount || (s.diffStat && s.diffStat.files))) refreshDiffStat(id);
+  if (!s.archived && (s.worktree || s.fileCount || (s.diffStat && s.diffStat.files))) refreshDiffStat(s.id);
   fit(s);
   if (!s.renderer) s.renderer = attachRenderer(s.term);
   // A hidden xterm can't render its viewport; on reveal it keeps a stale scroll
@@ -256,11 +302,11 @@ export function selectSession(id) {
   // new session stuck at xterm's default 80x24 until something resizes it.
   s.term.scrollToBottom();
   requestAnimationFrame(() => {
-    if (!s.term || activeId !== id) return;
+    if (!s.term || activeId !== focusId || !isOnScreen(s.id)) return;
     fit(s);
     s.term.scrollToBottom();
   });
-  s.term.focus();
+  return true;
 }
 
 function sessionInTab(s) {
@@ -313,6 +359,8 @@ function selectFirstVisible() {
     if (o.style.display !== 'none') { selectSession(o.dataset.id); return; }
   }
   activeId = null;
+  splitIds = null;
+  hostEl.classList.remove('split');
   for (const [, o] of sessions) o.container.style.display = 'none';
   // A file (or other overlay) opened over the session stays on screen; the
   // welcome only fills an otherwise empty center, or it draws on top of it.
@@ -359,7 +407,7 @@ function markArchived(s) {
 async function setArchived(id, archived) {
   const s = sessions.get(id);
   if (!s) return;
-  if (archived) markArchived(s);
+  if (archived) { markArchived(s); collapseSplitWithout(id); }
   else {
     s.pendingArchived = false;
     await resumeSessionUI(s);
@@ -384,6 +432,7 @@ export function showActiveSession() {
 function updateSessionBar() {
   const s = sessions.get(activeId);
   showSeenImagesFor(s ? activeId : null);
+  showQuickPromptsFor(s);
   if (!s) { sessionBar.style.display = 'none'; return; }
   sessionBar.style.display = 'flex';
   if (sessionRevertBtn.classList.contains('armed') || sessionMergeBtn.classList.contains('armed')) hideArmHint();
@@ -755,8 +804,30 @@ export function fit(s) {
   } catch { /* container hidden / closing */ }
 }
 
-// Reflow the active session's terminal (used by the window-resize + pane drags).
-export function fitActive() { if (activeId) fit(sessions.get(activeId)); }
+// Reflow the on-screen terminal(s) (used by the window-resize + pane drags).
+export function fitActive() {
+  if (!activeId) return;
+  fit(sessions.get(activeId));
+  const partner = splitPartner(splitIds, activeId);
+  if (partner) fit(sessions.get(partner));
+}
+
+// One pane of a double session is going away (archived or closed): the other
+// pane takes the whole center and the focus.
+function collapseSplitWithout(id) {
+  const partner = splitPartner(splitIds, id);
+  if (!partner) return;
+  splitIds = null;
+  selectSession(partner);
+}
+
+// Row click. Shift+click opens the clicked session beside the active one (see
+// session-split.js for the rules); a plain click shows it alone.
+function onRowClick(id, e) {
+  const shift = e.shiftKey && doubleSessionEnabled;
+  splitIds = splitAfterClick({ split: splitIds, activeId, clickedId: id, shift, eligible: isSplittableId });
+  selectSession(id);
+}
 
 // Send raw input to the active session (used by explorer drag-drop and "add to chat").
 export function sendToActiveSession(text) {
@@ -765,6 +836,17 @@ export function sendToActiveSession(text) {
   if (!s || !s.term) return; // archived session: nothing to send input to
   window.api.sendInput(activeId, text);
   s.term.focus();
+}
+
+// Type a whole prompt into the active session and submit it (the quick-prompts
+// picker). Text and Enter go in two steps, like a queued first message, so a long
+// prompt is ingested before it's submitted.
+export function submitToActiveSession(text) {
+  const s = sessions.get(activeId);
+  if (!s || !s.term) return false;
+  typePromptAfter(activeId, text, 0);
+  s.term.focus();
+  return true;
 }
 
 // The one place a session's terminal pane is created. Single site on purpose: the
@@ -776,6 +858,8 @@ function createTermContainer(id) {
   const container = document.createElement('div');
   container.className = 'term-container';
   container.dataset.sessionId = id;
+  // Clicking into the unfocused pane of a double session makes it the active one.
+  container.addEventListener('focusin', () => { if (id !== activeId && isOnScreen(id)) selectSession(id); });
   hostEl.appendChild(container);
   return container;
 }
@@ -904,7 +988,9 @@ function makeRow(id) {
     closeSession(id);
   };
   li.append(dot, label, wtMark, diffBadge, restore, del, close);
-  li.onclick = () => selectSession(id);
+  li.onclick = (e) => onRowClick(id, e);
+  // Shift+click would otherwise extend a text selection across the rows.
+  li.onmousedown = (e) => { if (e.shiftKey && doubleSessionEnabled) e.preventDefault(); };
   li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrDelete(); } };
   listEl.appendChild(li);
   return { li, dot, label, diffBadge, wtMark, closeBtn: close };
@@ -1156,6 +1242,7 @@ function syncSessions(list) {
 function removeSessionUI(id) {
   const s = sessions.get(id);
   if (!s) return;
+  collapseSplitWithout(id);
   if (s.term) { if (s.renderer) s.renderer.dispose(); untrackTermTheme(s.term); s.term.dispose(); }
   s.container.remove();
   s.li.remove();
@@ -1705,7 +1792,7 @@ function scheduleIdleFlush() {
 window.api.onPtyData(({ id, data }) => {
   const s = sessions.get(id);
   if (s && s.term) {
-    if (id === activeId) s.term.write(data);
+    if (isOnScreen(id)) s.term.write(data);
     else queueHiddenOutput(s, data);
   }
   // First output means Claude's TUI is painting — give it a beat to ready its

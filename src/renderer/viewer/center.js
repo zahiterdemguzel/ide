@@ -57,15 +57,26 @@ export function isOverlayOpen() {
 }
 
 // Hide the per-session terminal containers via the DOM (no import of sessions).
-// The session bar (commit/revert) belongs to the terminal view, so hide it too —
+// The session bar (commit/revert) and the quick-prompts tab belong to the terminal
+// view, so hide them too —
 // it's restored by sessions' updateSessionBar() when a session is shown again.
 function hideSessionViews() {
   for (const el of document.querySelectorAll('#terminal-host .term-container')) el.style.display = 'none';
   emptyHint.style.display = 'none';
   sessionBar.style.display = 'none';
+  document.getElementById('quick-prompts').hidden = true;
 }
 
-function clearCenter() { hideAllOverlays(); hideSessionViews(); }
+// A file, diff, browser or diagram taking over the center ends a double session
+// (sessions registers endSplit() here so this module needn't import it).
+let onTakeoverCb = null;
+export function onTakeover(fn) { onTakeoverCb = fn; }
+
+function clearCenter() {
+  if (onTakeoverCb) onTakeoverCb();
+  hideAllOverlays();
+  hideSessionViews();
+}
 
 // Route a file opened from the tree/search: images/audio/video/3D-models/vector/
 // Godot scenes → asset viewer, everything else → read-only text view. `jump`

@@ -49,6 +49,8 @@
 }
 #session-list li:hover { background: var(--bg-3); }
 #session-list li.active { background: var(--bg-3); border-left-color: var(--accent-hi); }
+/* The other half of a double session: on screen, but not the focused one. */
+#session-list li.split-pane { border-left-color: var(--accent); }
 
 /* The panels -- git pane, file explorer, run toolbar -- are pointed at THIS
    session's worktree. Deliberately a second mark rather than reusing .active:

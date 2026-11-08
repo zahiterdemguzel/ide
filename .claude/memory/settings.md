@@ -317,6 +317,13 @@ on/off toggles wired in `src/renderer/settings.js`:
   `setSessionDiffBadge()`; `renderRowDiff(s)` paints each row's `.sess-diff` badge
   from the session's `diffStat` whenever the stat refreshes, and flipping the
   toggle re-renders every row.
+- **Double session** (`#settings-double-session`, default **on**) gates
+  Shift+click opening a second session beside the active one (see
+  [architecture.md](architecture.md#renderer) — "Double session"). `sessions.js`
+  owns the flag (`localStorage` `ide.doubleSession`) via
+  `isDoubleSessionEnabled()` / `setDoubleSessionEnabled()`; off, a Shift+click
+  is a plain click, and switching it off while split collapses to the focused
+  session.
 - **Token cost meter** (`#settings-statusline`, default **on**) gates the
   per-session token/cost status line at the bottom of each session's terminal
   (see [architecture.md](architecture.md#per-session-token-meter)). Unlike the
