@@ -335,9 +335,15 @@ function shouldApplyState(next, current) {
 // working-tree scan. The trade: Bash/MCP file changes are attributed by the
 // turn-wide diff at each Stop/SubagentStop instead of per tool call, and the
 // row's tool line only names the matched tools.
+//
+// `Read` and MCP tools keep their PostToolUse: those results are where the
+// images the model is shown arrive (the "Seen by AI" panel, seen-images-lib.js).
+// Post alone opens no working-tree snapshot, so it stays a cheap hook.
+const IMAGE_RESULT_TOOLS = ['Read', 'mcp__.*'];
+
 function lightToolMatchers() {
   const pre = [...ASK_TOOLS, ...SUBAGENT_TOOLS, ...TEXT_EDIT_TOOLS].join('|');
-  return { PreToolUse: pre, PostToolUse: `${pre}|Bash` };
+  return { PreToolUse: pre, PostToolUse: [pre, 'Bash', ...IMAGE_RESULT_TOOLS].join('|') };
 }
 
 function hooksSettings(port, statusLineCommand, ideId, { detailedToolHooks = true } = {}) {

@@ -229,6 +229,9 @@ export default {
     'session.archiveTitle': 'Bu oturumu arşivle',
     'session.diff': 'Diff',
     'session.diffTitle': 'Bu oturumun değişikliklerini görüntüle',
+    'seen.title': 'Yapay zekânın gördükleri',
+    'seen.toggleTitle': 'Yapay zekânın bu oturumda baktığı görselleri göster veya gizle',
+    'seen.close': 'Paneli gizle',
     'session.modelTitle': 'Bu oturum için model — değiştirmek için tıklayın',
     'session.effortTitle': 'Bu oturum için düşünme çabası — değiştirmek için tıklayın',
     'session.diffDialogTitle': 'Oturum diff’i',
@@ -737,5 +740,6 @@ export default {
     'settings.editorOpt.all': 'Tümü',
     'settings.editorOpt.afterDelay': 'Gecikmeden sonra',
     'settings.editorOpt.onFocusChange': 'Odak değişince',
+    'app.quitWarning': 'Çıkmak için ⌘Q tuşuna tekrar basın',
   },
 };

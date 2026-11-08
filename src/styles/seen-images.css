@@ -1,0 +1,54 @@
+/* "Seen by AI" panel (renderer/seen-images.js): a column at the right of the
+   session terminal. Opening it pulls the terminal host's right edge in, and the
+   host's ResizeObserver refits the terminal. It sits before the center overlays
+   in the DOM, so an opened file/diff still covers it. */
+#center-body.seen-open #terminal-host { right: var(--seen-panel-width); }
+#center-body { --seen-panel-width: 140px; }
+
+#seen-panel {
+  position: absolute; top: 0; right: 0; bottom: 0; width: var(--seen-panel-width);
+  display: flex; flex-direction: column;
+  background: var(--bg-2); border-left: 1px solid var(--border);
+}
+#seen-panel[hidden] { display: none; }
+
+.seen-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.seen-title { font-size: 12px; font-weight: 600; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .04em; }
+.seen-close {
+  background: none; border: none; color: var(--fg-dim); cursor: pointer;
+  font-size: 16px; line-height: 1; padding: 2px 6px; border-radius: 4px;
+}
+.seen-close:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 10%, transparent); }
+
+#seen-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 12px; }
+.seen-item { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.seen-item img {
+  width: 100%; max-height: 220px; object-fit: contain; cursor: zoom-in;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+}
+.seen-item img:hover { border-color: var(--accent); }
+.seen-item figcaption {
+  font-size: 11px; color: var(--fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Session-bar toggle, styled like its Diff neighbour. */
+#session-seen {
+  background: transparent; color: var(--fg); border: 1px solid var(--border);
+  border-radius: 5px; padding: 6px 10px; cursor: pointer; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s ease, color .12s ease;
+}
+#session-seen[hidden] { display: none; }
+#session-seen:hover, #session-seen[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+.seen-lightbox {
+  position: fixed; inset: 0; z-index: 1000; cursor: zoom-out;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(0, 0, 0, .8); padding: 32px;
+}
+.seen-lightbox img { max-width: 100%; max-height: calc(100% - 32px); object-fit: contain; border-radius: 6px; }
+.seen-lightbox-caption { color: #ddd; font-size: 12px; }

@@ -4,6 +4,7 @@ const { sendToRenderer } = require('./window');
 // Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
 const { deriveStatus, shouldApplyState, hooksSettings: buildHooksSettings, normalizeHookPayload } = require('./hook-events');
 const { statusLineCommand } = require('./statusline');
+const { seenImagesFromPayload } = require('./seen-images-lib');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
 // circular require is safe. Access via the module object, never destructure at top.
@@ -50,6 +51,32 @@ const clearTracking = (id) => subagentTracking.delete(id);
 let detailedToolHooks = true;
 const setDetailedToolHooks = (on) => { detailedToolHooks = !!on; };
 const hooksSettings = (ideId) => buildHooksSettings(hookPort, statusLineCommand(), ideId, { detailedToolHooks });
+
+// An image file bigger than this is skipped rather than shipped over IPC: the model
+// never sees one that size anyway (Claude Code downscales what Read returns).
+const MAX_SEEN_FILE_BYTES = 20 * 1024 * 1024;
+
+// Forward every image a tool call showed the model to the session's "Seen by AI"
+// panel (renderer seen-images.js) as a data URL. Temp screenshots and files
+// outside the repo are as common here as project files, so the bytes travel with
+// the event instead of a path the repo-scoped file viewers would refuse.
+async function forwardSeenImages(payload) {
+  const seen = seenImagesFromPayload(payload);
+  if (!seen) return;
+  const fsp = require('fs').promises;
+  for (const image of seen.images) {
+    let base64 = image.base64;
+    if (!base64) {
+      const { size } = await fsp.stat(image.filePath);
+      if (size > MAX_SEEN_FILE_BYTES) continue;
+      base64 = (await fsp.readFile(image.filePath)).toString('base64');
+    }
+    sendToRenderer('session-image', {
+      id: payload.session_id, tool: seen.tool, label: seen.label, at: Date.now(),
+      src: `data:${image.mimeType};base64,${base64}`,
+    });
+  }
+}
 
 function startHookServer() {
   const server = http.createServer((req, res) => {
@@ -105,6 +132,8 @@ function startHookServer() {
         // touching tools.
         const meta = await sessions.recordSessionActivity(payload);
         if (meta) sendToRenderer('session-meta', meta);
+        // Not awaited: showing the image must never hold up the tool's hook reply.
+        if (payload.session_id) forwardSeenImages(payload).catch((err) => console.error('[seen images]', err.message));
       } catch (err) {
         // Tracking this session's activity failed — surface it instead of silently
         // losing the session's edit/commit state (and never crash the hook server).

@@ -7,6 +7,7 @@ Index of what's worth remembering about this project. Each line links to a detai
 - [Overview & commands](project-overview.md) — what the app is, its three-column layout, and the `npm` commands.
 - [Architecture](architecture.md) — main/preload/renderer split, the main-process subsystems, IPC surface, and every feature's behavior. It's large; **start at its [Map](architecture.md#map--start-here) section** — the `Files` table maps each `src/` module to the section that explains it, so you can jump straight to one section.
 - [Status detection](status-detection.md) — how the colored status dots are driven by Claude Code hooks.
+- [Seen by AI panel](seen-images.md) — the column beside the session terminal showing every image the model was shown (Read of an image, MCP screenshots), pulled off `PostToolUse` hooks by `seen-images-lib.js` and sent as data URLs.
 - [Platform notes](platform-notes.md) — Windows gotchas (node-pty fork, PTY path resolution, sandbox flag). **Do not revert these.**
 - [Settings](settings.md) — the theme + language settings system (gear button), CSS-variable theming, and the i18n engine. How to add a theme, a language, or a translatable string.
 - [Onboarding](onboarding.md) — the first-time-user aids: the spotlight guided tour, keyboard cheat sheet, welcome screen, and contextual hints. How to add a tour step, a hint, or a shortcut row.

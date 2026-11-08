@@ -20,4 +20,5 @@ contextBridge.exposeInMainWorld('api', {
   ...require('./stt'),
   ...require('./ai'),
   ...require('./accounts'),
+  ...require('./quit-guard'),
 });

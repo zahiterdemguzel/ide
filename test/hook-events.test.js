@@ -510,8 +510,8 @@ test('hooksSettings: wires every tracked event to a curl POST on the given port'
 });
 
 // With "Track every tool call" off, only the tools whose payloads drive status,
-// asks, the edit log or the push sniff may fire tool hooks — every other tool
-// call (Read, Grep, MCP…) must cost the agent no hook at all.
+// asks, the edit log, the push sniff or the Seen by AI panel (Read/MCP Post only)
+// may fire tool hooks — every other tool call (Grep, Glob…) must cost no hook.
 test('hooksSettings: light mode narrows only the tool hooks', () => {
   const cfg = JSON.parse(hooksSettings(54321, '', 'ide-uuid', { detailedToolHooks: false }));
   const matches = (event, tool) => new RegExp(`^(?:${cfg.hooks[event][0].matcher})$`).test(tool);
@@ -520,7 +520,11 @@ test('hooksSettings: light mode narrows only the tool hooks', () => {
     assert.ok(matches('PostToolUse', tool), `Post ${tool}`);
   }
   assert.ok(matches('PostToolUse', 'Bash'), 'Post Bash keeps the git push sniff');
-  for (const tool of ['Read', 'Grep', 'Glob', 'WebFetch', 'mcp__x__y']) {
+  for (const tool of ['Read', 'mcp__playwright__browser_take_screenshot']) {
+    assert.ok(!matches('PreToolUse', tool), `Pre ${tool}`);
+    assert.ok(matches('PostToolUse', tool), `Post ${tool} carries the images the Seen by AI panel shows`);
+  }
+  for (const tool of ['Grep', 'Glob', 'WebFetch']) {
     assert.ok(!matches('PreToolUse', tool), `Pre ${tool}`);
     assert.ok(!matches('PostToolUse', tool), `Post ${tool}`);
   }

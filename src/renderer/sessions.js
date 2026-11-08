@@ -22,6 +22,7 @@ import { effortsForFamily, QUICK_EFFORTS } from './shared/effort-levels.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
 import { initHoldToTalk } from './voice.js';
+import { showSeenImagesFor } from './seen-images.js';
 import { promptTypingDelay, promptSubmitDelay, TUI_READY_MS } from './shared/prompt-timing.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
@@ -382,6 +383,7 @@ export function showActiveSession() {
 // Top toolbar: active session's name (its first prompt) + scoped-commit button.
 function updateSessionBar() {
   const s = sessions.get(activeId);
+  showSeenImagesFor(s ? activeId : null);
   if (!s) { sessionBar.style.display = 'none'; return; }
   sessionBar.style.display = 'flex';
   if (sessionRevertBtn.classList.contains('armed') || sessionMergeBtn.classList.contains('armed')) hideArmHint();

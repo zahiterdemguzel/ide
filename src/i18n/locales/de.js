@@ -229,6 +229,9 @@ export default {
     'session.archiveTitle': 'Diese Sitzung archivieren',
     'session.diff': 'Diff',
     'session.diffTitle': 'Änderungen dieser Sitzung anzeigen',
+    'seen.title': 'Von der KI gesehen',
+    'seen.toggleTitle': 'Bilder, die sich die KI in dieser Sitzung angesehen hat, ein- oder ausblenden',
+    'seen.close': 'Bereich ausblenden',
     'session.modelTitle': 'Modell für diese Sitzung – zum Ändern klicken',
     'session.effortTitle': 'Denkaufwand für diese Sitzung – zum Ändern klicken',
     'session.diffDialogTitle': 'Sitzungs-Diff',
@@ -737,5 +740,6 @@ export default {
     'settings.editorOpt.all': 'Alle',
     'settings.editorOpt.afterDelay': 'Nach einer Verzögerung',
     'settings.editorOpt.onFocusChange': 'Bei Fokuswechsel',
+    'app.quitWarning': 'Zum Beenden erneut ⌘Q drücken',
   },
 };

@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="src/styles/toolbar.css" />
   <link rel="stylesheet" href="src/styles/layout.css" />
   <link rel="stylesheet" href="src/styles/sessions.css" />
+  <link rel="stylesheet" href="src/styles/seen-images.css" />
   <link rel="stylesheet" href="src/styles/explorer.css" />
   <link rel="stylesheet" href="src/styles/diff.css" />
   <link rel="stylesheet" href="src/styles/editor.css" />
@@ -33,6 +34,7 @@
   <link rel="stylesheet" href="src/styles/settings.css" />
   <link rel="stylesheet" href="src/styles/arm-hint.css" />
   <link rel="stylesheet" href="src/styles/onboarding.css" />
+  <link rel="stylesheet" href="src/styles/quit-warning.css" />
   <title>IDE</title>
 </head>
 <body>
@@ -124,6 +126,7 @@
         </div>
         <div class="bar-right">
           <span id="session-commit-msg" class="git-msg"></span>
+          <button id="session-seen" data-i18n-title="seen.toggleTitle" title="Show or hide the images the AI looked at in this session" aria-pressed="false" hidden><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></svg><span id="session-seen-count"></span></button>
           <button id="session-diff" data-i18n-title="session.diffTitle" title="View this session's diff" disabled><span class="sdiff-label" data-i18n="session.diff">Diff</span><span id="session-diff-add" class="sdiff-add"></span><span id="session-diff-del" class="sdiff-del"></span></button>
           <button id="session-revert" data-i18n-title="session.revertTitle" data-i18n="session.revert" title="Revert only this session's changes" disabled>Revert</button>
           <button id="session-archive" data-i18n-title="session.archiveTitle" title="Archive this session"></button>
@@ -133,6 +136,13 @@
       </div>
       <div id="center-body">
         <div id="terminal-host"></div>
+        <aside id="seen-panel" hidden>
+          <div class="seen-head">
+            <span class="seen-title" data-i18n="seen.title">Seen by AI</span>
+            <button id="seen-close" class="seen-close" data-i18n-title="seen.close" title="Hide panel">×</button>
+          </div>
+          <div id="seen-list"></div>
+        </aside>
         <div id="empty-hint">
           <div class="welcome">
             <div class="welcome-mark">

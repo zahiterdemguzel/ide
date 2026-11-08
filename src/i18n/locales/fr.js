@@ -229,6 +229,9 @@ export default {
     'session.archiveTitle': 'Archiver cette session',
     'session.diff': 'Diff',
     'session.diffTitle': 'Voir les modifications de cette session',
+    'seen.title': 'Vu par l’IA',
+    'seen.toggleTitle': 'Afficher ou masquer les images que l’IA a consultées dans cette session',
+    'seen.close': 'Masquer le panneau',
     'session.modelTitle': 'Modèle pour cette session — cliquez pour le modifier',
     'session.effortTitle': 'Effort de raisonnement pour cette session — cliquez pour le modifier',
     'session.diffDialogTitle': 'Diff de la session',
@@ -737,5 +740,6 @@ export default {
     'settings.editorOpt.all': 'Tous',
     'settings.editorOpt.afterDelay': 'Après un délai',
     'settings.editorOpt.onFocusChange': 'Au changement de focus',
+    'app.quitWarning': 'Appuyez à nouveau sur ⌘Q pour quitter',
   },
 };

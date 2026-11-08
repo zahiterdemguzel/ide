@@ -34,6 +34,7 @@ module.exports = {
   sessionDiff: (id) => ipcRenderer.invoke('session-diff', id),
   sessionDiffStat: (id) => ipcRenderer.invoke('session-diff-stat', id),
   onSessionMeta: (cb) => ipcRenderer.on('session-meta', (_e, msg) => cb(msg)),
+  onSessionImage: (cb) => ipcRenderer.on('session-image', (_e, msg) => cb(msg)),
   onSessionName: (cb) => ipcRenderer.on('session-name', (_e, msg) => cb(msg)),
   onSessionModel: (cb) => ipcRenderer.on('session-model', (_e, msg) => cb(msg)),
   onSessionEffort: (cb) => ipcRenderer.on('session-effort', (_e, msg) => cb(msg)),

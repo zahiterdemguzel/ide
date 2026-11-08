@@ -230,6 +230,9 @@ export default {
     'session.archiveTitle': 'Archive this session',
     'session.diff': 'Diff',
     'session.diffTitle': "View this session's diff",
+    'seen.title': 'Seen by AI',
+    'seen.toggleTitle': 'Show or hide the images the AI looked at in this session',
+    'seen.close': 'Hide panel',
     'session.modelTitle': 'Model for this session — click to change',
     'session.effortTitle': 'Reasoning effort for this session — click to change',
     'session.diffDialogTitle': 'Session diff',
@@ -738,5 +741,6 @@ export default {
     'settings.editorOpt.all': 'All',
     'settings.editorOpt.afterDelay': 'After a delay',
     'settings.editorOpt.onFocusChange': 'When focus leaves',
+    'app.quitWarning': 'Press ⌘Q again to quit',
   },
 };
