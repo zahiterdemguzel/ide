@@ -6,7 +6,7 @@
 // ipcMain deliberately — they must never be remotely callable.
 
 const {
-  ipcMain, app, powerMonitor, powerSaveBlocker,
+  ipcMain, app, powerMonitor,
 } = require('electron');
 const os = require('os');
 const path = require('path');
@@ -26,6 +26,7 @@ const {
   normalizeConfig, isRoom, resolveRelayUrl, relayUrlForPhone,
 } = require('./remote-config-lib');
 const push = require('./push');
+const keepAwake = require('./keep-awake');
 const remoteBrowser = require('./remote-browser');
 const remoteControl = require('./remote-control');
 const remoteAudio = require('./remote-audio');
@@ -90,7 +91,6 @@ let hub = null;
 let relay = null; // outbound socket to the cloud relay, while enabled
 let p2p = null; // answers phones' WebRTC offers so they can leave the relay, while enabled
 let enabled = false;
-let awakeBlocker = null; // powerSaveBlocker id, while enabled
 
 // Remote access is a *service*: a phone must reach this machine at any hour, and a
 // sleeping machine answers nothing — the relay drops the desktop socket, and the
@@ -98,20 +98,8 @@ let awakeBlocker = null; // powerSaveBlocker id, while enabled
 // hold the system awake for as long as the service is on, and only that long.
 // 'prevent-app-suspension' keeps the system running while still letting the display
 // sleep, which is what an unattended desktop should do.
-function holdSystemAwake() {
-  if (awakeBlocker !== null) return;
-  try {
-    awakeBlocker = powerSaveBlocker.start('prevent-app-suspension');
-  } catch (err) {
-    console.error('[remote power blocker]', err);
-    awakeBlocker = null;
-  }
-}
-function releaseSystemAwake() {
-  if (awakeBlocker === null) return;
-  try { powerSaveBlocker.stop(awakeBlocker); } catch (err) { console.error('[remote power blocker]', err); }
-  awakeBlocker = null;
-}
+function holdSystemAwake() { keepAwake.setReason('remote-service', true); }
+function releaseSystemAwake() { keepAwake.setReason('remote-service', false); }
 const forwards = new Map(); // targetPort -> proxy handle ({ port, issueUrlToken, close })
 
 async function proxyFor(targetPort) {

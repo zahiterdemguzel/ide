@@ -8,6 +8,7 @@ const { getRepoPath } = require('./repo');
 const { cleanEnv } = require('./proc-env');
 const { terminalEnv, PTY_TERM_NAME } = require('./terminal-env');
 const { createPtyBatcher } = require('./pty-batch');
+const keepAwake = require('./keep-awake');
 
 // --- git-pane consoles: interactive shell PTYs in the repo dir, keyed by id.
 // The renderer shows one tab per terminal. A terminal may run a launch config /
@@ -19,6 +20,14 @@ const { createPtyBatcher } = require('./pty-batch');
 // terminals, tell which launch configs are running (kind 'config' names), and stop
 // one — the desktop's own toolbar keeps deriving that from its local tab map.
 const consoles = new Map(); // id -> { pty, name, kind, scroll }
+
+// A plain shell (or the login terminal waiting on a person) is idle most of the
+// time, so only terminals started to run a command keep the machine awake.
+const COMMAND_KINDS = new Set(['config', 'run']);
+function syncKeepAwake() {
+  const anyCommandRunning = [...consoles.values()].some((c) => COMMAND_KINDS.has(c.kind));
+  keepAwake.setReason('console-commands', anyCommandRunning);
+}
 
 // A phone that opens a terminal gets a fresh WebView with an empty xterm, so it
 // needs the output that already scrolled by. Main keeps a bounded tail per
@@ -62,6 +71,7 @@ function killConsole(id) {
   const c = consoles.get(id);
   if (!c) return;
   consoles.delete(id);
+  syncKeepAwake();
   try { c.pty.kill(); } catch { /* already gone */ }
   sendToRenderer('term-exit', { id });
   broadcastTerminals();
@@ -136,6 +146,7 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env, name, ki
     // tab as exited (the renderer reopens a default shell) and bail out of this spawn.
     console.error('[console] spawn failed', e);
     consoles.delete(id);
+    syncKeepAwake();
     sendToRenderer('term-exit', { id });
     broadcastTerminals();
     return null;
@@ -150,6 +161,7 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env, name, ki
     scroll: newScroll(),
   };
   consoles.set(id, entry);
+  syncKeepAwake();
   // A restart reuses the id, so a phone already attached to this terminal keeps
   // listening — tell it the fresh PTY's dimensions (a no-op for a brand-new id).
   sendToRenderer('term-resized', { id, cols: p.cols, rows: p.rows });
@@ -177,6 +189,7 @@ function spawnConsole(id, { cols, rows, shell, args, command, cwd, env, name, ki
     termBatch.flushId(id); // deliver the tail output before the tab closes
     if (consoles.get(id) !== entry) return; // replaced by a restart — stay quiet
     consoles.delete(id);
+    syncKeepAwake();
     sendToRenderer('term-exit', { id });
     broadcastTerminals();
   });
@@ -195,7 +208,7 @@ bridge.handle('term-create', (_e, opts = {}) => {
 // by the guard above once we've removed it) and spawn a fresh one under the same id.
 bridge.handle('term-restart', (_e, opts = {}) => {
   const old = consoles.get(opts.id);
-  if (old) { consoles.delete(opts.id); try { old.pty.kill(); } catch { /* already gone */ } }
+  if (old) { consoles.delete(opts.id); syncKeepAwake(); try { old.pty.kill(); } catch { /* already gone */ } }
   spawnConsole(opts.id, { ...opts, name: opts.name || (old && old.name), kind: opts.kind || (old && old.kind) });
   broadcastTerminals();
   return { ok: true };

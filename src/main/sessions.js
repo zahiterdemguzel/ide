@@ -47,6 +47,7 @@ const statusline = require('./statusline');
 // transcript stream and the question the TUI is blocked on. It reads what we hand it
 // and never reaches back in here.
 const chat = require('./chat');
+const keepAwake = require('./keep-awake');
 const { keystrokes, dismissSteps } = require('./ask-lib');
 
 // id -> { pty, edits: Map<absPath, op[]>, fileOps: Map<absPath, 'add'|'delete'>,
@@ -303,6 +304,7 @@ function evictOverBudget() {
     if (s && s.pty) try { s.pty.kill(); } catch { /* already gone */ }
     releaseRepoWatch(s);
     sessions.delete(id);
+    syncKeepAwake();
     // An evicted suspended session has no PTY, so no onExit fires to release its chat
     // state — forget it explicitly or its watcher/messages/path leak permanently.
     chat.forget(id);
@@ -392,6 +394,7 @@ function syncSessionFile(id) {
   if (action === 'drop') {
     releaseRepoWatch(local);
     sessions.delete(id);
+    syncKeepAwake();
     chat.forget(id);
     syncedStamps.delete(id);
     persistedBytes.delete(id);
@@ -467,6 +470,13 @@ function watchSessionsDir() {
 }
 watchSessionsDir();
 
+// The machine stays awake while any session has an agent at work. `needs-input` is
+// not counted: that is the agent waiting on a person, not working.
+function syncKeepAwake() {
+  const anyWorking = [...sessions.values()].some((s) => s.state === 'working' || s.state === 'bg-agents');
+  keepAwake.setReason('agent-sessions', anyWorking);
+}
+
 // Record a session's current status-dot state so it survives a restart (the hook
 // server drives this from the live event stream; commit-session marks 'pushed').
 // Only a `working` session reopens as `interrupted` on disk; the settled states
@@ -478,6 +488,7 @@ function setSessionState(id, state) {
   if (!s || s.state === state) return;
   const prev = s.state;
   s.state = state;
+  syncKeepAwake();
   // A run finishing is the one transition a person who walked away wants to hear
   // about: push it to paired phones (OS notification via Expo — the app holds no
   // background socket, so the ws 'status' event can't reach a sleeping phone).
@@ -1464,6 +1475,7 @@ async function spawnPty(id, cols, rows, resume) {
     if (s && s.suspended) return;
     releaseRepoWatch(s);
     sessions.delete(id);
+    syncKeepAwake();
     // The session is gone from the map — release its chat state (watcher, retained
     // messages, transcript path) too, or it leaks for the process lifetime.
     chat.forget(id);
@@ -1645,6 +1657,7 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
       // than none. The client reports the reason and offers to retry plainly.
       releaseRepoWatch(s);
       sessions.delete(id);
+      syncKeepAwake();
       removeSessionFile(id);
       broadcastSessions();
       return { error: r.stderr || r.code, code: r.code };
@@ -2093,6 +2106,7 @@ function destroySession(id) {
   if (s.pty) try { s.pty.kill(); } catch { /* already gone */ }
   releaseRepoWatch(s);
   sessions.delete(id);
+  syncKeepAwake();
   chat.forget(id);
   if (persistTimers.has(id)) { clearTimeout(persistTimers.get(id)); persistTimers.delete(id); }
   removeSessionFile(id);
