@@ -68,6 +68,7 @@ export default {
     'sessions.new': 'Nouvelle session',
     'sessions.newWithModel': 'Nouvelle session avec un modèle choisi',
     'sessions.newWithEffort': 'Nouvelle session avec effort {level}',
+    'sessions.draftPlaceholder': 'Message pour la nouvelle session — Entrée pour envoyer, Maj+Entrée pour une nouvelle ligne, Échap pour annuler',
 
     'explorer.search': 'Rechercher des fichiers…',
     'explorer.openFolder': 'Ouvrir un dossier',

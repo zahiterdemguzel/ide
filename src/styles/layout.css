@@ -88,6 +88,18 @@
 .model-menu .model-menu-item:hover { background: color-mix(in srgb, var(--bg-3) 70%, var(--fg)); }
 .model-menu .model-menu-item.current { color: var(--fg); font-weight: 600; }
 
+/* Right-click message box for a new session: floats centred over the session area, which is dimmed behind it. */
+.draft-box {
+  position: absolute; inset: 0; z-index: 31; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.35); padding: 24px; box-sizing: border-box; pointer-events: none;
+}
+.draft-box-input {
+  pointer-events: auto; width: min(720px, 100%); box-sizing: border-box; resize: vertical;
+  min-height: 140px; max-height: 70%;
+  background: var(--bg-2); color: var(--fg); border: 1px solid var(--accent); border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55); padding: 16px 18px; font: inherit; font-size: 17px; line-height: 1.5; outline: none;
+}
+
 /* Open-folder reverse-combobox: the recent-projects menu pops up *above* the
    button (bottom: 100%) and grows downward into place from a collapsed top. */
 /* The wrap is the positioning context for the popup; it must not change the

@@ -175,6 +175,12 @@ continue the split-button pill after the caret. Each spawns a session at that ef
 the default model (`getSessionModel()`, i.e. the last caret/badge/Settings pick) and does
 **not** change the remembered effort, so the plain button keeps its default.
 
+**Right-click message box.** Right-clicking New session or a Low/Mid/High button
+(`openDraftBox` in `sessions.js`) boots the session behind it at once via `startVoiceDraft`
+(the same draft a voice hold uses) and floats a large `.draft-box` textarea centred over `#center-body` (session area dimmed, `pointer-events: none` backdrop). A capture `focusin` guard returns focus to it whenever the booting session's xterm grabs it.
+Enter submits the text to that session, Shift+Enter adds a line, Esc (or a click outside while
+empty) closes it and discards the unused session. Placeholder: `sessions.draftPlaceholder`.
+
 **Mobile.** `mobile/src/screens/SessionsScreen.tsx` mirrors the same split button:
 the wide half creates with the last-picked model (its label carries the suffix —
 "New session (Opus)"), the caret half opens a menu listing the concrete models.

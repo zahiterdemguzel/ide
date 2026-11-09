@@ -68,6 +68,7 @@ export default {
     'sessions.new': 'Yeni oturum',
     'sessions.newWithModel': 'Seçili modelle yeni oturum',
     'sessions.newWithEffort': '{level} eforla yeni oturum',
+    'sessions.draftPlaceholder': 'Yeni oturum için mesaj — göndermek için Enter, yeni satır için Shift+Enter, iptal için Esc',
 
     'explorer.search': 'Dosyalarda ara…',
     'explorer.openFolder': 'Klasör aç',

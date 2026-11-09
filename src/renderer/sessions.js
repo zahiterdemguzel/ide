@@ -1590,6 +1590,65 @@ document.getElementById('new-session').onclick = () => newSession();
 // Holding it instead records the task by voice (see voice.js).
 initHoldToTalk(document.getElementById('new-session'), () => startVoiceDraft());
 
+// Right-clicking New session or a Low/Mid/High button opens a message box above the
+// button and boots the session behind it right away (same draft as a voice hold), so
+// the agent is up by the time Enter sends the message. Shift+Enter adds a line; Esc
+// closes the unused session again.
+const centerBody = document.getElementById('center-body');
+let closeDraftBox = null;
+function openDraftBox(opts) {
+  closeDraftBox?.();
+  const draft = startVoiceDraft(opts);
+  draft.reveal();
+
+  const box = document.createElement('div');
+  box.className = 'draft-box';
+  const input = document.createElement('textarea');
+  input.className = 'draft-box-input';
+  input.rows = 3;
+  input.placeholder = t('sessions.draftPlaceholder');
+  box.appendChild(input);
+  centerBody.appendChild(box);
+  input.focus();
+  // Selecting the booting session (now and again once its terminal is revealed) hands
+  // focus to the terminal; take it back for as long as the box is open.
+  function keepFocus(e) {
+    if (e.target.classList?.contains('xterm-helper-textarea')) input.focus();
+  }
+  document.addEventListener('focusin', keepFocus, true);
+
+  function close() {
+    box.remove();
+    document.removeEventListener('mousedown', onOutside, true);
+    document.removeEventListener('focusin', keepFocus, true);
+    closeDraftBox = null;
+  }
+  // A click elsewhere keeps a half-written message; only an empty box is dismissed.
+  function onOutside(e) {
+    if (box.contains(e.target) || input.value.trim()) return;
+    close();
+    draft.discard();
+  }
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); close(); draft.discard(); return; }
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    close();
+    draft.submit(text);
+  });
+  document.addEventListener('mousedown', onOutside, true);
+  closeDraftBox = close;
+}
+function onDraftContextMenu(button, getOpts) {
+  button.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    openDraftBox(getOpts());
+  });
+}
+onDraftContextMenu(document.getElementById('new-session'), () => ({}));
+
 // New-session caret menu: the split-button caret opens a dropdown of every model —
 // Claude, then Codex, then installed local models, each group under its divider. A row
 // spawns a session on that model at the remembered effort and becomes the next session's
@@ -1637,6 +1696,7 @@ for (const level of QUICK_EFFORTS) {
   // Read at click/hold time, so a model picked from the caret menu since is picked up.
   const quickSessionOpts = () => ({ model: getSessionModel(), effort: level.id });
   btn.onclick = () => newSession(quickSessionOpts());
+  onDraftContextMenu(btn, quickSessionOpts);
   // Holding it records the task by voice, like New session, at this button's effort.
   initHoldToTalk(btn, () => startVoiceDraft(quickSessionOpts()));
   // Built on hover so the tooltip follows a language change made after startup.
