@@ -897,9 +897,6 @@ function buildTerminal(id, repo) {
 function suspendSessionUI(s, { notifyMain = true } = {}) {
   if (s.suspended) return;
   s.suspended = true;
-  s.container.querySelector('.session-agents')?.remove();
-  s.container.classList.remove('has-session-agents');
-  s.agents = new Map();
   if (notifyMain) window.api.suspendSession(s.id);
   if (s.term) {
     if (s.renderer) { s.renderer.dispose(); s.renderer = null; }
@@ -1841,30 +1838,6 @@ window.api.onPtyData(({ id, data }) => {
   }
 });
 window.api.onStatus(({ id, state }) => setState(id, state));
-window.api.onSessionAgent(({ id, agentId, agentType, state }) => {
-  const s = sessions.get(id);
-  if (!s || s.suspended) return;
-  if (!s.agents) s.agents = new Map();
-  const previous = s.agents.get(agentId);
-  s.agents.set(agentId, { type: agentType || previous?.type || 'Agent', state });
-  let bar = s.container.querySelector('.session-agents');
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.className = 'session-agents';
-    bar.setAttribute('aria-label', 'Subagents');
-    s.container.appendChild(bar);
-    s.container.classList.add('has-session-agents');
-    if (isOnScreen(id)) fit(s);
-  }
-  bar.replaceChildren();
-  for (const [key, agent] of s.agents) {
-    const item = document.createElement('span');
-    item.className = `session-agent ${agent.state}`;
-    item.title = `${agent.type} · ${key} · ${agent.state}`;
-    item.textContent = `${agent.type} · ${agent.state}`;
-    bar.appendChild(item);
-  }
-});
 // Clicking the OS notification asks main to raise the window; this is main
 // telling the renderer which session that notification was about.
 window.api.onSelectSession((id) => selectSession(id));

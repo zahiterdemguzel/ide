@@ -97,14 +97,6 @@ function startHookServer() {
         const normalized = normalizeHookPayload(payload, ideId);
         payload = normalized.payload;
         if (normalized.agentSessionId) sessions.noteAgentSessionId(ideId, normalized.agentSessionId);
-        if (payload.session_id && payload.agent_id &&
-            (payload.hook_event_name === 'SubagentStart' || payload.hook_event_name === 'SubagentStop')) {
-          sendToRenderer('session-agent', {
-            id: payload.session_id, agentId: String(payload.agent_id),
-            agentType: String(payload.agent_type || ''),
-            state: payload.hook_event_name === 'SubagentStart' ? 'running' : 'finished',
-          });
-        }
         let state = null;
         if (payload.session_id) {
           // Agent-aware gating: a session with background subagents — or forked

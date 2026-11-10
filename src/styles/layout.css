@@ -171,14 +171,6 @@
    absolutely-positioned children (the archived hint, the voice indicator). Making it
    conditional on a state meant those states fought over the containing block. */
 .term-container { width: 100%; height: 100%; display: none; position: relative; }
-.term-container.has-session-agents { padding-bottom: 32px; box-sizing: border-box; }
-.session-agents {
-  position: absolute; bottom: 0; left: 0; right: 0; height: 30px;
-  display: flex; align-items: center; gap: 6px; overflow-x: auto;
-  border-top: 1px solid var(--border); background: var(--bg); padding: 0 6px;
-}
-.session-agent { flex: none; font-size: 11px; color: var(--fg-dim); }
-.session-agent.running { color: var(--accent); }
 /* Double session: two terminals side by side (Shift+click a second session row).
    The focused pane gets the accent outline; outline, not box-shadow, so it never
    fights the voice indicator's ring. */
