@@ -246,7 +246,12 @@ CLI's two places, which is why it needs both: `--effort <level>` as a **spawn fl
 (`effortArgs()`, the pure, unit-tested `src/main/agent-effort.js`), so a session resumed
 after a restart comes back thinking as hard as it was last told to; and, on a live PTY,
 **typing `/effort <level>`** into the session (the model's story exactly — it queues
-behind the current turn). Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`.
+behind the current turn). The command is sent through `draftSafeSlashCommand()` (`slash-command.js`): a leading
+Ctrl+S makes the CLI stash whatever the user is half-way through typing and restore it
+after the submit (same for `/model`). Caveats: Ctrl+S is the CLI's stash *toggle*, so two
+switches fired before the first submit lands (e.g. queued behind a running turn) may pop
+the stash back into the composer; and the draft only returns once the queued command is
+submitted. Levels are the CLI's — `low`/`medium`/`high`/`xhigh`/`max`.
 There is deliberately **no `auto` and no unset state**: a session whose level the badge
 can't name is one reasoning at a level the user never chose and can't see, so
 `defaultEffortFor(family, remembered)` resolves every empty, stale or off-ladder value

@@ -19,6 +19,7 @@ const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
 const { installGuide: codexInstallGuide } = require('./codex-install');
+const { draftSafeSlashCommand } = require('./slash-command');
 const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
@@ -1935,7 +1936,7 @@ bridge.on('set-session-model', guardOn('changing session model', (_e, { id, mode
     // composer queue until the current turn ends, so a switch made mid-run lands when
     // the agent stops rather than at once — the deliberate trade for not scripting the
     // TUI's picker with keystrokes, which broke whenever the picker's layout moved.
-    s.pty.write(`/model ${chosen}\r`);
+    s.pty.write(draftSafeSlashCommand(`/model ${chosen}`));
   }
   sendToRenderer('session-model', { id, model: chosen });
 }));
@@ -1969,7 +1970,7 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
   s.effort = chosen;
   persistSession(id);
   // Same as the model above: type the command and let it queue behind the current turn.
-  if (s.pty) s.pty.write(`/effort ${chosen}\r`);
+  if (s.pty) s.pty.write(draftSafeSlashCommand(`/effort ${chosen}`));
   sendToRenderer('session-effort', { id, effort: chosen });
 }));
 
