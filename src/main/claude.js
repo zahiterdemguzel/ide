@@ -80,6 +80,12 @@ function activeConfigDir() {
   try { return require('./accounts').activeAccount().configDir; } catch { return null; }
 }
 
+// The env that runs the CLI as the account with this config folder — including
+// ANTHROPIC_API_KEY for an API-key account. Lazy for the same reason as above.
+function cliAccountEnv(configDir) {
+  try { return require('./accounts').accountEnvForConfigDir(configDir); } catch { return accountEnv({ configDir }); }
+}
+
 function readOauthToken(configDir = activeConfigDir()) {
   return pickOauthToken(credsCandidates(configDir), Date.now());
 }
@@ -311,7 +317,7 @@ async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYST
       // Run as the active account (unless told otherwise), so a fallback call bills
       // the same login the sessions use.
       { cwd: os.tmpdir(), maxBuffer: 4 * 1024 * 1024, shell: win32, // MAX_THINKING_TOKENS=0 turns extended thinking off: these are short one-shot generations.
-      env: { ...process.env, ...accountEnv({ configDir }), MAX_THINKING_TOKENS: '0' } },
+      env: { ...process.env, ...cliAccountEnv(configDir), MAX_THINKING_TOKENS: '0' } },
       (err, stdout) => {
         signal?.removeEventListener('abort', kill);
         resolve(err ? null : stdout.trim());

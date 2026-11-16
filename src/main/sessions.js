@@ -6,15 +6,15 @@ const fs = require('fs');
 const execFileAsync = require('util').promisify(require('child_process').execFile);
 const { sendToRenderer } = require('./window');
 const { getRepoPath, getMainRepoPath, setActiveWorktree } = require('./repo');
-const { resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readUsage } = require('./claude');
+const { resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { terminalEnv, PTY_TERM_NAME } = require('./terminal-env');
 const { modelEnv } = require('./agent-models');
 const accounts = require('./accounts');
-const { accountEnv, planAccountMove, shouldMoveAfterState } = require('./accounts-lib');
+const { planAccountMove, shouldMoveAfterState, isApiKeyAccount } = require('./accounts-lib');
 const { ensureAccountProxy } = require('./account-proxy');
-const { canRouteThroughProxy, proxyRouteEnv } = require('./account-proxy-lib');
+const { canRouteThroughProxy, canMeterThroughProxy, proxyRouteEnv } = require('./account-proxy-lib');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
@@ -925,10 +925,17 @@ function sessionEnv(models) {
   return { ...cleanEnv(process.env), ...modelEnv(models) };
 }
 
-// The CLAUDE_CONFIG_DIR of the account a Claude session was just spawned as
-// (spawnPty sets `accountId`); {} for the default account and non-Claude sessions.
+// The CLAUDE_CONFIG_DIR (and, for an API-key account, ANTHROPIC_API_KEY) of the
+// account a Claude session was just spawned as (spawnPty sets `accountId`); {} for
+// the default account and non-Claude sessions.
 function accountEnvFor(s) {
-  return s && s.accountId ? accountEnv(accounts.accountById(s.accountId)) : {};
+  const account = s && s.accountId ? accounts.accountById(s.accountId) : null;
+  return account ? accounts.spawnEnv(account) : {};
+}
+
+// What planAccountMove/shouldMoveAfterState need to know about the target account.
+function activeMoveOptions() {
+  return { activeIsApiKey: isApiKeyAccount(accounts.activeAccount()) };
 }
 
 // The shape planAccountMove/shouldMoveAfterState read off a live session record.
@@ -955,6 +962,14 @@ async function accountProxyRoute(s, spawnEnv, configDir) {
   if (!s) return {};
   s.viaAccountProxy = false;
   if (modelFamily(s.model) !== 'claude' || isOllamaId(s.model)) return {};
+  // An API-key session goes through the proxy only to be metered against its
+  // spending limit; it still moves accounts by restart (viaAccountProxy stays off).
+  const account = s.accountId ? accounts.accountById(s.accountId) : null;
+  if (isApiKeyAccount(account)) {
+    if (!canMeterThroughProxy(spawnEnv, claudeSettingsEnv(configDir))) return {};
+    const port = await ensureAccountProxy();
+    return port ? proxyRouteEnv(port, account.id) : {};
+  }
   if (!canRouteThroughProxy(spawnEnv, claudeSettingsEnv(configDir))) return {};
   const port = await ensureAccountProxy();
   if (!port) return {};
@@ -969,10 +984,11 @@ async function accountProxyRoute(s, spawnEnv, configDir) {
 // folders — see accounts.js); one mid-turn moves when the turn ends
 // (setSessionState). Either way, a turn the old account's limit cut off carries on.
 accounts.onActiveAccountChanged((activeId) => {
-  const { now } = planAccountMove([...sessions].map(([id, s]) => accountMoveView(id, s)), activeId);
+  const { now } = planAccountMove([...sessions].map(([id, s]) => accountMoveView(id, s)), activeId, activeMoveOptions());
   for (const id of now) moveToActiveAccount(id, sessions.get(id));
   for (const [id, s] of sessions) {
-    if (s.pty && s.viaAccountProxy && s.cutOffByUsageLimit) continueCutOffTurn(id);
+    // A restarted session continues its cut-off turn once resumed (moveToActiveAccount).
+    if (s.pty && s.viaAccountProxy && s.cutOffByUsageLimit && !now.includes(id)) continueCutOffTurn(id);
   }
 });
 
@@ -981,11 +997,11 @@ accounts.onActiveAccountChanged((activeId) => {
 // answer before the CLI that sent it is restarted.
 function moveToActiveAccountIfSettled(id, state) {
   const s = sessions.get(id);
-  if (!s || !shouldMoveAfterState(accountMoveView(id, s), state, accounts.activeAccount().id)) return;
+  if (!s || !shouldMoveAfterState(accountMoveView(id, s), state, accounts.activeAccount().id, activeMoveOptions())) return;
   setTimeout(() => {
     const cur = sessions.get(id);
     if (cur && cur.pty && !cur.respawning
-      && shouldMoveAfterState(accountMoveView(id, cur), cur.state, accounts.activeAccount().id)) {
+      && shouldMoveAfterState(accountMoveView(id, cur), cur.state, accounts.activeAccount().id, activeMoveOptions())) {
       moveToActiveAccount(id, cur);
     }
   }, 500);
@@ -1617,7 +1633,8 @@ bridge.handle('check-codex', async () => {
 // Polled ~once a minute by the renderer; null when unavailable (no OAuth token,
 // an API-key user, or a transport error) so the meter stays hidden.
 bridge.handle('get-usage', async () => {
-  try { return await readUsage(); } catch { return null; }
+  // An API-key account reads its spending limit instead (null without one).
+  try { return await accounts.accountUsage(accounts.activeAccount()); } catch { return null; }
 });
 
 // Settings â†’ General â†’ per-session token meter on/off. The renderer pushes the

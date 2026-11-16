@@ -175,6 +175,14 @@ continue the split-button pill after the caret. Each spawns a session at that ef
 the default model (`getSessionModel()`, i.e. the last caret/badge/Settings pick) and does
 **not** change the remembered effort, so the plain button keeps its default.
 
+**Quick model buttons.** Own toggle (Settings → General → *Quick model buttons*,
+`#settings-quick-model`, `ide.quickModelButtons`, off by default): a row under
+the split button (`#new-session-quick-models`) with three GPT/Codex models on the left
+(Astra = best, 6.1 Sol = best value, Luna = cheapest) and Sonnet / Opus / Fable on the
+right, from `shared/quick-models.js` (tested in `test/quick-models.test.mjs`). Each spawns
+a session on that model at the remembered effort without changing the saved default
+model; right-click and voice hold work like the effort buttons.
+
 **Right-click message box.** Right-clicking New session or a Low/Mid/High button
 (`openDraftBox` in `sessions.js`) boots the session behind it at once via `startVoiceDraft`
 (the same draft a voice hold uses) and floats a large `.draft-box` textarea centred over `#center-body` (session area dimmed, `pointer-events: none` backdrop). A capture `focusin` guard returns focus to it whenever the booting session's xterm grabs it.
@@ -202,6 +210,13 @@ cleaned process env. The choice is persisted with the session
 (`session-persist.js`), so a restored/resumed session keeps running the model it
 was created with. The settings-panel defaults only affect the *next* session; a live
 session is retargeted only from the session-bar model badge (below).
+
+**Effort step buttons.** `−` / `+` flank the session-bar badge (`#session-effort-down`/`-up`,
+joined into one segmented pill) and move the active session one level along its family's
+ladder via `stepEffort()` (`shared/effort-levels.js`, unit-tested); they disable at either
+end rather than wrapping, and go through `chooseEffort()` like a menu pick. On by default;
+Settings → General → *Effort step buttons* (`#settings-effort-step`, `ide.effortStepButtons`,
+off only when stored as `'false'`) hides them.
 
 **Session-bar indicator.** The active session's model is shown and changeable
 **live** from a pill next to the session name in `#session-bar`

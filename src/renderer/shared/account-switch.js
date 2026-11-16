@@ -13,13 +13,40 @@ export function fiveHourUtilization(view) {
 // The windows an account row shows, in display order (5-hour above weekly), each
 // with its fraction used and compact reset countdown. Windows the reading lacks, or
 // whose utilization is unknown, are left out; no reading gives an empty list.
-const ROW_WINDOW_ORDER = ['5h', '7d'];
+// An API-key account's spending limit ('budget') reads as one more window, and
+// also carries its dollar amounts.
+const ROW_WINDOW_ORDER = ['5h', '7d', 'budget'];
 export function rowUsageWindows(view) {
   if (!view || !Array.isArray(view.windows)) return [];
   return ROW_WINDOW_ORDER
     .map((key) => view.windows.find((w) => w.key === key))
     .filter((w) => w && typeof w.utilization === 'number')
-    .map((w) => ({ key: w.key, utilization: w.utilization, resetIn: w.resetIn || '' }));
+    .map((w) => {
+      const row = { key: w.key, utilization: w.utilization, resetIn: w.resetIn || '' };
+      if (w.key === 'budget') Object.assign(row, { spentUsd: w.spentUsd || 0, limitUsd: w.limitUsd || 0 });
+      return row;
+    });
+}
+
+// Dollars for the meters: cents always, so $0.42 and $50.00 line up.
+export function formatUsd(amount) {
+  const n = typeof amount === 'number' && Number.isFinite(amount) ? Math.max(0, amount) : 0;
+  return `$${n.toFixed(2)}`;
+}
+
+// What a spending limit has left (never negative: spend can overshoot by the
+// one response that crossed it).
+export function budgetLeftUsd(window) {
+  return Math.max(0, (window.limitUsd || 0) - (window.spentUsd || 0));
+}
+
+// A typed limit → dollars: "$50", "50", "12.5" → number; '' → 0 (no limit);
+// anything else → null.
+export function parseUsdInput(text) {
+  const clean = String(text || '').trim().replace(/^\$/, '').replace(',', '.').trim();
+  if (!clean) return 0;
+  if (!/^\d+(\.\d+)?$/.test(clean)) return null;
+  return Number(clean);
 }
 
 // A key naming "this account crossed the threshold in this 5-hour window", or null
@@ -60,11 +87,12 @@ function busiestWindowUtilization(view) {
 // auto-switching (`autoSwitch !== false`), signed in, a fresh usage reading, and
 // every window (5-hour and weekly) below the prompt threshold so it isn't about to
 // need a switch itself. A maxed-out reading synthesized from a rejected request has
-// a single window at 100%, so the headroom rule keeps it out.
+// a single window at 100%, so the headroom rule keeps it out. An API-key account
+// is never picked: it bills per token, so spending on it is the user's call.
 export function pickAutoSwitchTarget(accounts, usageById, activeId) {
   const eligible = rankSwitchTargets(accounts, usageById, activeId).filter(({ account, utilization }) => {
     const busiest = busiestWindowUtilization(usageById && usageById[account.id]);
-    return account.loggedIn && account.autoSwitch !== false
+    return account.loggedIn && account.autoSwitch !== false && account.kind !== 'apiKey'
       && utilization !== null && busiest !== null && busiest < SWITCH_THRESHOLD;
   });
   return eligible.length ? eligible[0].account : null;

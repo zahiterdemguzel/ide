@@ -64,6 +64,16 @@
 .quick-effort[hidden] { display: none; }
 .split-btn .quick-effort-btn { flex: 0 0 auto; padding: 7px 7px; border-radius: 0; font-size: 11px; }
 .split-btn .quick-effort-btn:last-child { border-radius: 0 5px 5px 0; }
+/* Quick-model row under the split button: one continuous pill styled and spaced like the
+   row above (accent fill, 1px seams, 7px padding, 11px text, rounded only at the outer
+   ends). GPT buttons first, Claude after; the groups are display:contents so all six
+   share the row equally. */
+.quick-models { display: flex; gap: 1px; margin-top: 6px; }
+.quick-models[hidden] { display: none; }
+.quick-models-group { display: contents; }
+.sidebar-actions .quick-model-btn { flex: 1 1 0; min-width: 0; padding: 7px 7px; border-radius: 0; font-size: 11px; }
+.quick-models-group:first-child .quick-model-btn:first-child { border-radius: 5px 0 0 5px; }
+.quick-models-group:last-child .quick-model-btn:last-child { border-radius: 0 5px 5px 0; }
 /* Point the caret up — the model menu opens above the button. */
 .split-btn .split-btn-caret svg { transform: rotate(180deg); }
 

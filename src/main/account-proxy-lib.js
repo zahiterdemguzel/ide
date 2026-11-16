@@ -40,9 +40,41 @@ function canRouteThroughProxy(spawnEnv, settingsEnv) {
   return FOREIGN_ROUTE_ENV.every((name) => !(spawnEnv && spawnEnv[name]) && !(settingsEnv && settingsEnv[name]));
 }
 
-// The env that points a spawned CLI at the proxy.
-function proxyRouteEnv(port) {
-  return { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}` };
+// The env that points a spawned CLI at the proxy. A session of an API-key
+// account (`meteredAccountId`) gets a path prefix naming the account, so the proxy
+// knows whose spending limit its requests count against.
+function proxyRouteEnv(port, meteredAccountId = '') {
+  const prefix = meteredAccountId ? `${METERED_PREFIX}${encodeURIComponent(meteredAccountId)}` : '';
+  return { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}${prefix}` };
+}
+
+const METERED_PREFIX = '/k/';
+
+// A request path → { accountId, path }: the API-key account it is metered for
+// ('' for a login-swapping session) and the path to send upstream.
+function splitMeteredPath(url) {
+  const raw = String(url || '/');
+  if (!raw.startsWith(METERED_PREFIX)) return { accountId: '', path: raw };
+  const rest = raw.slice(METERED_PREFIX.length);
+  const slash = rest.search(/[/?]/);
+  const id = slash < 0 ? rest : rest.slice(0, slash);
+  let accountId = '';
+  try { accountId = decodeURIComponent(id); } catch { /* malformed: not metered */ }
+  const path = slash < 0 ? '/' : rest.slice(slash);
+  return { accountId, path: path.startsWith('/') ? path : `/${path}` };
+}
+
+// Whether a request creates a message (the only billed call; count_tokens isn't).
+function isBilledMessagesRequest(method, path) {
+  return method === 'POST' && /^\/v1\/messages(\?|$)/.test(path);
+}
+
+// Whether an API-key session can still be routed through the proxy for metering:
+// its own key is fine, any other foreign route (a custom base URL, a 3P provider) isn't.
+function canMeterThroughProxy(spawnEnv, settingsEnv) {
+  const withoutOwnKey = { ...spawnEnv };
+  delete withoutOwnKey.ANTHROPIC_API_KEY;
+  return canRouteThroughProxy(withoutOwnKey, settingsEnv);
 }
 
 // Whether a request carries a claude.ai login (an OAuth bearer) for the proxy to
@@ -90,5 +122,6 @@ function isLoginRefused(status) {
 module.exports = {
   UPSTREAM_HOST, LOGIN_REREAD_MS, LOGIN_EXPIRY_MARGIN_MS, FOREIGN_ROUTE_ENV,
   canRouteThroughProxy, proxyRouteEnv, carriesClaudeLogin, upstreamHeaders,
+  splitMeteredPath, isBilledMessagesRequest, canMeterThroughProxy,
   isCachedLoginFresh, loginAction, isLoginRefused,
 };

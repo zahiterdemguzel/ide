@@ -227,6 +227,23 @@
    neutral default `--ec`; click opens the `.effort-menu` dropdown to switch, applied
    live via the CLI's /model and /effort commands. Their menu items carry no dot. */
 .model-wrap, .effort-wrap { position: relative; flex: none; }
+/* Effort stepper: − and + join the badge into one segmented pill. The outer ends take
+   the pill radius, the badge in the middle goes square, and the shared tint comes from
+   the same `--ec` the badge uses. */
+.effort-wrap { display: inline-flex; align-items: stretch; }
+.effort-step {
+  --ec: var(--fg-dim);
+  display: inline-flex; align-items: center; justify-content: center; width: 20px; padding: 0;
+  background: color-mix(in srgb, var(--ec) 14%, transparent); color: var(--ec);
+  border: 1px solid color-mix(in srgb, var(--ec) 45%, transparent); cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, opacity .12s ease;
+}
+.effort-step:hover:not(:disabled) { background: color-mix(in srgb, var(--ec) 24%, transparent); border-color: var(--ec); }
+.effort-step:disabled { opacity: .35; cursor: default; }
+.effort-step-down { border-radius: 999px 0 0 999px; border-right: none; }
+.effort-step-up { border-radius: 0 999px 999px 0; border-left: none; }
+.effort-wrap.has-steps .effort-badge { border-radius: 0; }
+.effort-wrap:not(.has-steps) .effort-step { display: none; }
 /* The current row reads as bold text rather than tinted: `--ec` is neutral on these two
    menus, so tinting it would only mute the row you're pointing at. */
 .effort-menu .effort-menu-item.model-item.current,

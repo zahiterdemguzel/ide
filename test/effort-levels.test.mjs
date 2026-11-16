@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  stepEffort,
   EFFORTS, CODEX_EFFORTS, QUICK_EFFORTS, DEFAULT_EFFORT, effortsForFamily, effortNameForFamily,
 } from '../src/renderer/shared/effort-levels.js';
 import agentEffort from '../src/main/agent-effort.js';
@@ -91,4 +92,20 @@ test('every quick-start effort button is a level both ladders offer', () => {
     assert.ok(EFFORTS.some((e) => e.id === id), `${id} missing from the claude ladder`);
     assert.ok(CODEX_EFFORTS.some((e) => e.id === id), `${id} missing from the codex ladder`);
   }
+});
+
+test('stepEffort walks the ladder and stops at both ends', () => {
+  assert.equal(stepEffort('medium', 'claude', 1), 'high');
+  assert.equal(stepEffort('medium', 'claude', -1), 'low');
+  assert.equal(stepEffort('low', 'claude', -1), null);
+  assert.equal(stepEffort('max', 'claude', 1), null);
+});
+
+test('stepEffort respects the Codex ladder, which has no max', () => {
+  assert.equal(stepEffort('xhigh', 'codex', 1), null);
+  assert.equal(stepEffort('xhigh', 'claude', 1), 'max');
+});
+
+test('stepEffort treats an off-ladder level as the default', () => {
+  assert.equal(stepEffort('bogus', 'claude', 1), 'high');
 });

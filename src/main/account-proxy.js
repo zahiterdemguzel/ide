@@ -15,6 +15,8 @@ const https = require('https');
 const accounts = require('./accounts');
 const { readOauthCredsAsync, runCli } = require('./claude');
 const lib = require('./account-proxy-lib');
+const { isApiKeyAccount } = require('./accounts-lib');
+const spend = require('./api-spend-lib');
 
 // account config dir ('' = default account) -> { token, expiresAt, readAt }
 const loginCache = new Map();
@@ -67,18 +69,59 @@ function readBody(req) {
 
 // Send one request upstream. Resolves with the upstream response, which the
 // caller either streams back or discards to retry.
-function sendUpstream(req, body, token, onRequest) {
+function sendUpstream(req, body, token, onRequest, { path = req.url, headers = req.headers } = {}) {
   return new Promise((resolve, reject) => {
     const upstream = https.request({
       host: lib.UPSTREAM_HOST,
-      path: req.url,
+      path,
       method: req.method,
-      headers: lib.upstreamHeaders(req.headers, token, body.length),
+      headers: lib.upstreamHeaders(headers, token, body.length),
     }, resolve);
     upstream.on('error', reject);
     onRequest(upstream);
     upstream.end(body);
   });
+}
+
+function sendJsonError(res, status, payload) {
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(payload));
+}
+
+// A request from an API-key session (its base URL carries the account, see
+// proxyRouteEnv): passed through with its own key, refused once the account's
+// spending limit is used up, and its cost — read off the response's usage — added
+// to the account's spend.
+async function handleMeteredRequest(req, res, body, accountId, path, track) {
+  const billed = lib.isBilledMessagesRequest(req.method, path);
+  if (billed) {
+    const budget = accounts.readBudget(accountId);
+    if (spend.isOverBudget(budget, Date.now())) {
+      sendJsonError(res, 400, spend.overBudgetError(budget.limitUsd));
+      return;
+    }
+  }
+  // Ask for an uncompressed body so the usage events can be read as they pass.
+  const headers = { ...req.headers };
+  if (billed) delete headers['accept-encoding'];
+  const upstreamRes = await sendUpstream(req, body, null, track, { path, headers });
+  if (res.destroyed) { upstreamRes.resume(); return; }
+  res.writeHead(upstreamRes.statusCode, upstreamRes.headers);
+  if (billed && upstreamRes.statusCode === 200) {
+    const reader = spend.createUsageReader(upstreamRes.headers['content-type']);
+    upstreamRes.on('data', (chunk) => reader.feed(chunk));
+    // 'close' too: a stream the user interrupted was still billed for what it sent.
+    let counted = false;
+    const count = () => {
+      if (counted) return;
+      counted = true;
+      const read = reader.result();
+      if (read) accounts.recordApiSpend(accountId, spend.costOfUsage(read.model, read.usage));
+    };
+    upstreamRes.on('end', count);
+    upstreamRes.on('close', count);
+  }
+  upstreamRes.pipe(res);
 }
 
 async function handleRequest(req, res) {
@@ -88,8 +131,15 @@ async function handleRequest(req, res) {
   const track = (r) => { upstream = r; };
   try {
     const body = await readBody(req);
+    const metered = lib.splitMeteredPath(req.url);
+    if (metered.accountId) {
+      await handleMeteredRequest(req, res, body, metered.accountId, metered.path, track);
+      return;
+    }
     const account = accounts.activeAccount();
-    const swapsLogin = lib.carriesClaudeLogin(req.headers);
+    // An API-key account has no login to lend: sessions still on the proxy keep
+    // their own until they restart onto the key (see planAccountMove).
+    const swapsLogin = !isApiKeyAccount(account) && lib.carriesClaudeLogin(req.headers);
     let token = swapsLogin ? await loginTokenFor(account) : null;
     let upstreamRes = await sendUpstream(req, body, token, track);
     if (token && lib.isLoginRefused(upstreamRes.statusCode)) {
@@ -104,8 +154,7 @@ async function handleRequest(req, res) {
   } catch (err) {
     if (res.headersSent) { res.destroy(); return; }
     if (!res.destroyed) {
-      res.writeHead(502, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: `account proxy: ${err.message}` } }));
+      sendJsonError(res, 502, { type: 'error', error: { type: 'api_error', message: `account proxy: ${err.message}` } });
     }
   }
 }

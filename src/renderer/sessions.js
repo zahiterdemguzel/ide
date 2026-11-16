@@ -19,7 +19,8 @@ import {
   getMergedModels, getOllamaModels, modelLabel, modelFamily, switchableModels,
   effortsFor, effortName, DEFAULT_EFFORT,
 } from './settings.js';
-import { QUICK_EFFORTS } from './shared/effort-levels.js';
+import { QUICK_EFFORTS, stepEffort } from './shared/effort-levels.js';
+import { QUICK_GPT_MODELS, QUICK_CLAUDE_MODELS } from './shared/quick-models.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
 import { initHoldToTalk } from './voice.js';
@@ -159,6 +160,8 @@ const sessionModelMenu = document.getElementById('session-model-badge-menu');
 const sessionEffortBtn = document.getElementById('session-effort');
 const sessionEffortLabel = document.getElementById('session-effort-label');
 const sessionEffortMenu = document.getElementById('session-effort-badge-menu');
+const sessionEffortDownBtn = document.getElementById('session-effort-down');
+const sessionEffortUpBtn = document.getElementById('session-effort-up');
 const sessionDiffBtn = document.getElementById('session-diff');
 const sessionDiffAdd = document.getElementById('session-diff-add');
 const sessionDiffDel = document.getElementById('session-diff-del');
@@ -610,6 +613,8 @@ function effortId(s) {
 
 function renderEffortBadge(s) {
   sessionEffortLabel.textContent = effortName(effortId(s), s.model);
+  sessionEffortDownBtn.disabled = stepEffort(effortId(s), modelFamily(s.model), -1) === null;
+  sessionEffortUpBtn.disabled = stepEffort(effortId(s), modelFamily(s.model), 1) === null;
 }
 
 function closeEffortBadgeMenu() {
@@ -646,6 +651,27 @@ function chooseEffort(effort) {
   renderEffortBadge(s);
   window.api.setSessionEffort(activeId, effort);
 }
+
+// − / + move the active session one level along its family's ladder.
+function stepActiveEffort(delta) {
+  const s = sessions.get(activeId);
+  if (!s) return;
+  const next = stepEffort(effortId(s), modelFamily(s.model), delta);
+  if (next) chooseEffort(next);
+}
+sessionEffortDownBtn.onclick = () => stepActiveEffort(-1);
+sessionEffortUpBtn.onclick = () => stepActiveEffort(1);
+
+const EFFORT_STEP_STORE = 'ide.effortStepButtons';
+// On unless the user switched it off.
+export function isEffortStepButtonsEnabled() {
+  return localStorage.getItem(EFFORT_STEP_STORE) !== 'false';
+}
+export function setEffortStepButtons(on) {
+  localStorage.setItem(EFFORT_STEP_STORE, on ? 'true' : 'false');
+  sessionEffortBtn.parentElement.classList.toggle('has-steps', !!on);
+}
+setEffortStepButtons(isEffortStepButtonsEnabled());
 
 sessionEffortBtn.onclick = (e) => {
   e.stopPropagation();
@@ -1702,6 +1728,38 @@ for (const level of QUICK_EFFORTS) {
   };
   quickEffortEl.appendChild(btn);
 }
+
+// Quick-model row under New session (own toggle in Settings → General, off by default): one
+// click spawns a session on that model at the remembered effort, without changing the
+// saved default model.
+const quickModelsEl = document.getElementById('new-session-quick-models');
+function addQuickModelButtons(container, models) {
+  for (const m of models) {
+    const btn = document.createElement('button');
+    btn.className = 'quick-model-btn';
+    btn.textContent = m.label;
+    const quickSessionOpts = () => ({ model: m.id });
+    btn.onclick = () => newSession(quickSessionOpts());
+    onDraftContextMenu(btn, quickSessionOpts);
+    initHoldToTalk(btn, () => startVoiceDraft(quickSessionOpts()));
+    btn.onmouseenter = () => {
+      const name = m.hint ? `${modelLabel(m.id)} (${m.hint})` : modelLabel(m.id);
+      btn.title = `${t('sessions.newWithModelName').replace('{model}', name)} — ${t('voice.holdHint')}`;
+    };
+    container.appendChild(btn);
+  }
+}
+addQuickModelButtons(document.getElementById('quick-models-gpt'), QUICK_GPT_MODELS);
+addQuickModelButtons(document.getElementById('quick-models-claude'), QUICK_CLAUDE_MODELS);
+const QUICK_MODEL_STORE = 'ide.quickModelButtons';
+export function isQuickModelButtonsEnabled() {
+  return localStorage.getItem(QUICK_MODEL_STORE) === 'true';
+}
+export function setQuickModelButtons(on) {
+  localStorage.setItem(QUICK_MODEL_STORE, on ? 'true' : 'false');
+  quickModelsEl.hidden = !on;
+}
+setQuickModelButtons(isQuickModelButtonsEnabled());
 export function isQuickEffortButtonsEnabled() {
   return localStorage.getItem(QUICK_EFFORT_STORE) === 'true';
 }

@@ -76,6 +76,10 @@
               <button id="new-session-opts" class="split-btn-caret" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="sessions.newWithModel" title="New session with a chosen model"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
               <div id="new-session-quick" class="quick-effort" hidden></div>
             </div>
+            <div id="new-session-quick-models" class="quick-models" hidden>
+              <div id="quick-models-gpt" class="quick-models-group"></div>
+              <div id="quick-models-claude" class="quick-models-group"></div>
+            </div>
             <div id="session-model-menu" class="model-menu" hidden></div>
           </div>
         </div>
@@ -117,10 +121,16 @@
             <div id="session-model-badge-menu" class="effort-menu" hidden></div>
           </div>
           <div class="effort-wrap">
+            <button id="session-effort-down" class="effort-step effort-step-down" data-i18n-title="session.effortDown" title="Lower reasoning effort">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"/></svg>
+            </button>
             <button id="session-effort" class="effort-badge" aria-haspopup="listbox" aria-expanded="false" data-i18n-title="session.effortTitle" title="Reasoning effort for this session — click to change">
               <span class="effort-dot"></span>
               <span id="session-effort-label"></span>
               <svg class="effort-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <button id="session-effort-up" class="effort-step effort-step-up" data-i18n-title="session.effortUp" title="Raise reasoning effort">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg>
             </button>
             <div id="session-effort-badge-menu" class="effort-menu" hidden></div>
           </div>
@@ -847,6 +857,22 @@
                   <small class="settings-desc" data-i18n="settings.quickEffortButtonsDesc">Add Low, Mid and High buttons beside New session.</small>
                 </span>
                 <input type="checkbox" id="settings-quick-effort" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.quickModelButtons">Quick model buttons</span>
+                  <small class="settings-desc" data-i18n="settings.quickModelButtonsDesc">Add GPT and Claude model buttons under New session.</small>
+                </span>
+                <input type="checkbox" id="settings-quick-model" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.effortStepButtons">Effort step buttons</span>
+                  <small class="settings-desc" data-i18n="settings.effortStepButtonsDesc">Add − and + buttons beside a session's effort badge.</small>
+                </span>
+                <input type="checkbox" id="settings-effort-step" class="switch-input" />
                 <span class="switch-ui"></span>
               </label>
             </div>

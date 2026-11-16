@@ -13,7 +13,7 @@ import {
   SOUNDS, getSound, setSound, playNotification, getVolume, setVolume,
 } from './shared/notify.js';
 import {
-  isSessionDiffBadgeEnabled, setSessionDiffBadge, isQuickEffortButtonsEnabled, setQuickEffortButtons,
+  isSessionDiffBadgeEnabled, setSessionDiffBadge, isQuickEffortButtonsEnabled, setQuickEffortButtons, isQuickModelButtonsEnabled, setQuickModelButtons, isEffortStepButtonsEnabled, setEffortStepButtons,
   isOsNotificationsEnabled, setOsNotificationsEnabled, isDoubleSessionEnabled, setDoubleSessionEnabled,
 } from './sessions.js';
 import { initCustomModels, refreshCustomModels } from './custom-models.js';
@@ -277,6 +277,8 @@ export function initSettings() {
   const statusLineBox = document.getElementById('settings-statusline');
   const toolHooksBox = document.getElementById('settings-tool-hooks');
   const quickEffortBox = document.getElementById('settings-quick-effort');
+  const quickModelBox = document.getElementById('settings-quick-model');
+  const effortStepBox = document.getElementById('settings-effort-step');
   const osNotifyBox = document.getElementById('settings-notifications');
   const modelSel = document.getElementById('settings-model');
   const subagentSel = document.getElementById('settings-subagent-model');
@@ -327,6 +329,8 @@ export function initSettings() {
   statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
   toolHooksBox.onchange = () => setToolHooksEnabled(toolHooksBox.checked);
   quickEffortBox.onchange = () => setQuickEffortButtons(quickEffortBox.checked);
+  quickModelBox.onchange = () => setQuickModelButtons(quickModelBox.checked);
+  effortStepBox.onchange = () => setEffortStepButtons(effortStepBox.checked);
   osNotifyBox.onchange = () => setOsNotificationsEnabled(osNotifyBox.checked);
   // The model defaults apply to the *next* session created (and pre-fill the
   // per-session picker); live sessions keep the model they spawned with.
@@ -376,6 +380,8 @@ export function initSettings() {
     statusLineBox.checked = isStatusLineEnabled();
     toolHooksBox.checked = isToolHooksEnabled();
     quickEffortBox.checked = isQuickEffortButtonsEnabled();
+    quickModelBox.checked = isQuickModelButtonsEnabled();
+    effortStepBox.checked = isEffortStepButtonsEnabled();
     osNotifyBox.checked = isOsNotificationsEnabled();
     refreshEditorSettingsSection();
     renderQuickPromptSettings();

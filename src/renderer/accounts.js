@@ -9,7 +9,9 @@ import { registerTerminalLinks } from './terminal-links.js';
 import {
   fiveHourUtilization, switchPromptKey, rankSwitchTargets, usageLevel, accountInitials, reloginPromptKey,
   autoSwitchKey, pickAutoSwitchTarget, rowUsageWindows,
+  formatUsd, parseUsdInput,
 } from './shared/account-switch.js';
+import { budgetLeftText, budgetTooltip, refreshUsageMeter } from './usage-meter.js';
 
 // --- toolbar account switcher (multiple Claude accounts) ---
 // A pill left of the usage meter names the active Claude account; its menu lists
@@ -58,7 +60,7 @@ function el(tag, className, text) {
   return node;
 }
 
-const WINDOW_LABEL_KEYS = { '5h': 'usage.session', '7d': 'usage.weekly' };
+const WINDOW_LABEL_KEYS = { '5h': 'usage.session', '7d': 'usage.weekly', budget: 'usage.budget' };
 const ICON_RESET_CLOCK = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>';
 
 // Both usage windows stacked like the toolbar meter: label · bar · % · "resets in …".
@@ -76,10 +78,15 @@ function usageMeter(view) {
     fill.dataset.level = usageLevel(w.utilization);
     bar.append(fill);
     // Just the countdown (with a reset glyph) to keep the row narrow; the tooltip spells it out.
+    // A spending limit shows the dollars left there instead.
     const reset = el('span', 'acct-usage-reset');
-    if (w.resetIn) reset.innerHTML = ICON_RESET_CLOCK;
-    reset.append(w.resetIn);
-    const tip = `${t(WINDOW_LABEL_KEYS[w.key])}: ${pct}% ${t('usage.used')}` + (resetText ? ` · ${resetText}` : '');
+    if (w.key === 'budget') reset.append(budgetLeftText(w));
+    else {
+      if (w.resetIn) reset.innerHTML = ICON_RESET_CLOCK;
+      reset.append(w.resetIn);
+    }
+    const tip = w.key === 'budget' ? budgetTooltip(w)
+      : `${t(WINDOW_LABEL_KEYS[w.key])}: ${pct}% ${t('usage.used')}` + (resetText ? ` · ${resetText}` : '');
     for (const cell of [label, bar, reset]) cell.title = tip;
     meter.append(label, bar, el('span', 'acct-usage-pct', `${pct}%`), reset);
   }
@@ -95,8 +102,9 @@ function accountRow(account, usageView, { active = false } = {}) {
   const text = el('span', 'acct-text');
   text.append(el('span', 'acct-row-name', displayName(account)));
   const expired = account.login === 'expired';
-  const detail = account.loggedIn ? (account.email || account.orgName || '')
-    : expired ? t('accounts.loginExpired') : t('accounts.signedOut');
+  const detail = isApiKey(account) ? apiKeyDetail(account)
+    : account.loggedIn ? (account.email || account.orgName || '')
+      : expired ? t('accounts.loginExpired') : t('accounts.signedOut');
   const sub = el('span', 'acct-row-sub', detail);
   if (expired) sub.classList.add('is-error');
   else if (!account.loggedIn) sub.classList.add('is-warn');
@@ -105,6 +113,21 @@ function accountRow(account, usageView, { active = false } = {}) {
   const meter = usageMeter(usageView);
   if (meter) row.append(meter);
   return row;
+}
+
+function isApiKey(account) {
+  return account && account.kind === 'apiKey';
+}
+
+// "API key · sk-ant-…abcd" (main sends the masked key in place of an email), plus
+// what was spent when no limit draws a meter for it.
+function apiKeyDetail(account) {
+  if (!account.loggedIn) return t('accounts.apiKeyMissing');
+  const budget = account.budget || {};
+  const spent = !budget.limitUsd && budget.spentUsd > 0
+    ? ` · ${t(budget.period === 'total' ? 'accounts.spentTotal' : 'accounts.spentMonth').replace('{amount}', formatUsd(budget.spentUsd))}`
+    : '';
+  return `${t('accounts.apiKeyLabel')} · ${account.email}${spent}`;
 }
 
 function renderButton() {
@@ -147,6 +170,8 @@ const ICON_RENAME = '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 
 const ICON_AUTO = '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>';
 const ICON_AUTO_OFF = '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/><path d="M2 2l20 20"/>';
 const ICON_REMOVE = '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>';
+const ICON_LIMIT = '<path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>';
+const ICON_KEY = '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>';
 
 function renderMenu() {
   menu.replaceChildren();
@@ -166,13 +191,18 @@ function renderMenu() {
       row.append(renew);
     }
     const actions = el('span', 'acct-actions');
-    actions.append(iconButton(ICON_SIGN_IN, t('accounts.signIn'), () => signIn(account)));
+    if (isApiKey(account)) {
+      actions.append(iconButton(ICON_KEY, t('accounts.changeApiKey'), () => changeApiKey(account)));
+      actions.append(iconButton(ICON_LIMIT, t('accounts.spendingLimit'), () => editSpendingLimit(account)));
+    }
+    else actions.append(iconButton(ICON_SIGN_IN, t('accounts.signIn'), () => signIn(account)));
     actions.append(iconButton(ICON_RENAME, t('accounts.rename'), () => rename(account)));
-    actions.append(autoSwitchToggle(account));
+    // The auto-switch never picks an API-key account, so it has no toggle.
+    if (!isApiKey(account)) actions.append(autoSwitchToggle(account));
     if (account.id !== 'default') actions.append(iconButton(ICON_REMOVE, t('accounts.remove'), () => remove(account)));
     row.append(actions);
     // Kept visible outside the hover actions, so an opted-out account reads as such at a glance.
-    if (account.autoSwitch === false) row.insertBefore(autoSwitchOffMark(), actions);
+    if (account.autoSwitch === false && !isApiKey(account)) row.insertBefore(autoSwitchOffMark(), actions);
     const pick = () => (account.loggedIn ? switchTo(account.id) : signIn(account));
     row.addEventListener('click', pick);
     row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
@@ -241,16 +271,108 @@ async function switchTo(id) {
   await window.api.setActiveAccount(id);
 }
 
+// Asks first whether the new entry is a claude.ai login or an API key; a login
+// is signed in right after, a key is asked for (and checked) before it's added.
 async function addAccount() {
+  const kind = await openDialog({
+    title: t('accounts.addTitle'),
+    body: t('accounts.kindBody'),
+    cancelValue: null,
+    buttons: [
+      { label: t('accounts.cancel'), value: null, variant: 'secondary' },
+      { label: t('accounts.kindApiKey'), value: 'apiKey', variant: 'secondary' },
+      { label: t('accounts.kindClaude'), value: 'claude', variant: 'primary' },
+    ],
+  });
+  if (!kind) return;
   const name = await promptText({
-    title: t('accounts.addTitle'), label: t('accounts.nameLabel'),
-    placeholder: t('accounts.namePlaceholder'), ok: t('accounts.addOk'),
+    title: t(kind === 'apiKey' ? 'accounts.addApiKeyTitle' : 'accounts.addTitle'), label: t('accounts.nameLabel'),
+    placeholder: t('accounts.namePlaceholder'), ok: t(kind === 'apiKey' ? 'accounts.next' : 'accounts.addOk'),
   });
   if (!name) return;
-  const account = await window.api.addAccount(name);
+  if (kind === 'apiKey') {
+    let addedId = null;
+    const saved = await askForApiKey({
+      title: t('accounts.addApiKeyTitle'),
+      save: async (key) => {
+        const result = await window.api.addAccount(name, 'apiKey', key);
+        if (result && result.account) addedId = result.account.id;
+        return result;
+      },
+    });
+    // Offered right away; cancelling leaves the account without a limit.
+    const added = saved && state.accounts.find((a) => a.id === addedId);
+    if (added) await editSpendingLimit(added);
+    return;
+  }
+  const { account } = await window.api.addAccount(name, 'claude');
   await refreshAccounts();
   const added = state.accounts.find((a) => a.id === account.id) || account;
   await signIn(added);
+}
+
+// Asks for an API key until `save(key)` accepts it ({ error } re-asks with the
+// reason) or the user cancels. Main checks the key against the API before saving.
+async function askForApiKey({ title, save }) {
+  let error = '';
+  for (;;) {
+    const key = await openDialog({
+      title,
+      body: t('accounts.apiKeyBody'),
+      label: t('accounts.apiKeyLabel'),
+      input: { placeholder: 'sk-ant-…', error, type: 'password' },
+      cancelValue: null,
+      buttons: [
+        { label: t('accounts.cancel'), value: null, variant: 'secondary' },
+        { label: t('accounts.saveApiKey'), value: (text) => text || null, variant: 'primary' },
+      ],
+    });
+    if (!key) return false;
+    const result = await save(key);
+    if (!result || !result.error) { await refreshAccounts(); return true; }
+    error = t(result.error === 'rejected' ? 'accounts.apiKeyRejected' : 'accounts.apiKeyInvalid');
+  }
+}
+
+// Sets, changes or removes an API-key account's spending limit (an empty amount
+// means no limit), per month or in total, or starts the spend over at $0.
+async function editSpendingLimit(account) {
+  closeMenu();
+  const budget = account.budget || { limitUsd: 0, period: 'month', spentUsd: 0 };
+  const spentKey = budget.period === 'total' ? 'accounts.spentTotal' : 'accounts.spentMonth';
+  let error = '';
+  for (;;) {
+    const choice = await openDialog({
+      title: t('accounts.spendingLimitTitle').replace('{name}', displayName(account)),
+      body: `${t('accounts.spendingLimitBody')}\n\n${t(spentKey).replace('{amount}', formatUsd(budget.spentUsd))}`,
+      label: t('accounts.spendingLimitLabel'),
+      input: { placeholder: '50', value: budget.limitUsd ? String(budget.limitUsd) : '', error },
+      cancelValue: null,
+      buttons: [
+        { label: t('accounts.cancel'), value: null, variant: 'secondary' },
+        ...(budget.spentUsd > 0 ? [{ label: t('accounts.resetSpent'), value: { reset: true }, variant: 'secondary' }] : []),
+        { label: t('accounts.limitTotal'), value: (text) => ({ text, period: 'total' }), variant: 'secondary' },
+        { label: t('accounts.limitMonthly'), value: (text) => ({ text, period: 'month' }), variant: 'primary' },
+      ],
+    });
+    if (!choice) return;
+    if (choice.reset) { state = await window.api.setAccountBudget(account.id, { reset: true }); break; }
+    const limitUsd = parseUsdInput(choice.text);
+    if (limitUsd === null) { error = t('accounts.spendingLimitInvalid'); continue; }
+    state = await window.api.setAccountBudget(account.id, { limitUsd, period: choice.period });
+    break;
+  }
+  renderButton();
+  // The toolbar meter shows the active account's limit; repaint it now.
+  if (account.id === state.activeId) refreshUsageMeter();
+}
+
+async function changeApiKey(account) {
+  closeMenu();
+  await askForApiKey({
+    title: t('accounts.changeApiKeyTitle').replace('{name}', displayName(account)),
+    save: (key) => window.api.setAccountApiKey(account.id, key),
+  });
 }
 
 async function rename(account) {
@@ -284,6 +406,7 @@ const login = { termId: null, term: null, close: null };
 // The command exits once the browser login completes; the dialog then closes on
 // its own and, if the account isn't the active one, offers to switch to it.
 async function signIn(account) {
+  if (isApiKey(account)) { await changeApiKey(account); return; }
   closeMenu();
   const command = await window.api.accountLoginCommand(account.id);
   if (!command) return;

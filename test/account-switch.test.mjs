@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   SWITCH_THRESHOLD, fiveHourUtilization, switchPromptKey, rankSwitchTargets, usageLevel, accountInitials,
   reloginPromptKey, AUTO_SWITCH_THRESHOLD, autoSwitchKey, pickAutoSwitchTarget, rowUsageWindows,
+  formatUsd, budgetLeftUsd, parseUsdInput,
 } from '../src/renderer/shared/account-switch.js';
 
 test('rowUsageWindows: 5-hour then weekly, with reset countdowns, skipping unknowns', () => {
@@ -143,4 +144,27 @@ test('pickAutoSwitchTarget: skips unknown usage, signed-out, nearly-full and the
   assert.equal(pickAutoSwitchTarget(accounts, usage, 'active').id, 'busy');
   delete usage.busy;
   assert.equal(pickAutoSwitchTarget(accounts, usage, 'active'), null);
+});
+
+test('pickAutoSwitchTarget: never picks an API-key account, even with headroom', () => {
+  const accounts = [{ id: 'active', loggedIn: true }, { id: 'key', loggedIn: true, kind: 'apiKey' }];
+  assert.equal(pickAutoSwitchTarget(accounts, { key: view(0.1) }, 'active'), null);
+});
+
+test('rowUsageWindows: a spending limit is a window that carries its dollars', () => {
+  const view = { windows: [{ key: 'budget', utilization: 0.4, resetIn: '22d', spentUsd: 20, limitUsd: 50 }] };
+  assert.deepEqual(rowUsageWindows(view), [{ key: 'budget', utilization: 0.4, resetIn: '22d', spentUsd: 20, limitUsd: 50 }]);
+});
+
+test('formatUsd / budgetLeftUsd / parseUsdInput', () => {
+  assert.equal(formatUsd(50), '$50.00');
+  assert.equal(formatUsd(0.426), '$0.43');
+  assert.equal(formatUsd(-1), '$0.00');
+  assert.equal(budgetLeftUsd({ spentUsd: 12.3, limitUsd: 50 }), 37.7);
+  assert.equal(budgetLeftUsd({ spentUsd: 51, limitUsd: 50 }), 0);
+  assert.equal(parseUsdInput('$50'), 50);
+  assert.equal(parseUsdInput(' 12,5 '), 12.5);
+  assert.equal(parseUsdInput(''), 0);
+  assert.equal(parseUsdInput('fifty'), null);
+  assert.equal(parseUsdInput('-5'), null);
 });

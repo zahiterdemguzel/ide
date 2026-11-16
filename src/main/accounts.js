@@ -10,9 +10,10 @@
 // and the IPC surface. Accounts are a desktop-only concern, so the channels use
 // ipcMain directly rather than the remote bridge.
 
-const { ipcMain } = require('electron');
+const { ipcMain, safeStorage } = require('electron');
 const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
+const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
@@ -23,6 +24,7 @@ const { cleanEnv } = require('./proc-env');
 const { resolveClaude, readUsage, readOauthCreds, readOauthCredsAsync, probeOauthToken, runCli } = require('./claude');
 const { authArgs } = require('./claude-install');
 const lib = require('./accounts-lib');
+const spend = require('./api-spend-lib');
 
 const ACCOUNTS_ROOT = path.join(os.homedir(), '.claude-accounts');
 // The list lives beside the account folders, not in the app's data folder: the dev
@@ -99,20 +101,155 @@ function seedClaudeJson(configDir) {
   fs.writeFileSync(target, JSON.stringify(lib.seedAccountConfig(defaultConfig), null, 2));
 }
 
-function addAccount(name) {
+// --- API-key accounts ---
+// The key lives in the account's own folder (encrypted with the OS keystore via
+// safeStorage when available) and reaches the CLI as ANTHROPIC_API_KEY at spawn.
+
+function apiKeyPath(configDir) {
+  return path.join(configDir, lib.API_KEY_FILE);
+}
+
+function readApiKey(account) {
+  if (!lib.isApiKeyAccount(account) || !account.configDir) return '';
+  try { return lib.decodeStoredApiKey(fs.readFileSync(apiKeyPath(account.configDir), 'utf8'), safeStorage); }
+  catch { return ''; }
+}
+
+// Writes the key and pre-approves it in the account's .claude.json, so sessions
+// start without the CLI's "use this API key?" question.
+function writeApiKey(configDir, apiKey) {
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(apiKeyPath(configDir), lib.encodeStoredApiKey(apiKey, safeStorage), { mode: 0o600 });
+  const configPath = lib.claudeJsonPathFor(configDir, os.homedir());
+  let config = {};
+  try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch {}
+  const tmpPath = `${configPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(lib.approveApiKeyInConfig(config, apiKey), null, 2), { mode: 0o600 });
+  fs.renameSync(tmpPath, configPath);
+}
+
+// HTTP status of a free call (list models) made with the key; 0 = unreachable.
+function probeApiKey(apiKey) {
+  return new Promise((resolve) => {
+    const req = https.request('https://api.anthropic.com/v1/models?limit=1', {
+      method: 'GET', timeout: 15000,
+      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    }, (res) => {
+      res.resume();
+      res.on('end', () => resolve(res.statusCode || 0));
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(0));
+    req.end();
+  });
+}
+
+// '' when the key looks usable, else an error code for the renderer to translate.
+// Offline counts as usable: the key is checked again by the first session anyway.
+async function apiKeyProblem(apiKey) {
+  if (!apiKey) return 'invalidFormat';
+  const status = await probeApiKey(apiKey);
+  return status === 401 || status === 403 ? 'rejected' : '';
+}
+
+// The env a CLI needs to run as the account with this config folder (null: the
+// default account): its CLAUDE_CONFIG_DIR, plus ANTHROPIC_API_KEY for an API-key
+// account. Used for sessions and for the one-off `claude -p` runs.
+function accountEnvForConfigDir(configDir) {
+  const account = configDir ? loadStore().accounts.find((a) => a.configDir === configDir) : null;
+  return account ? spawnEnv(account) : lib.accountEnv({ configDir });
+}
+
+function spawnEnv(account) {
+  return lib.accountEnv(account, readApiKey(account));
+}
+
+// --- spending limit (API-key accounts) ---
+// `<folder>/.ide-budget.json` holds the limit and what was spent against it; the
+// account proxy adds every metered response's cost (see account-proxy.js).
+
+const BUDGET_FILE = '.ide-budget.json';
+
+function budgetPath(configDir) {
+  return path.join(configDir, BUDGET_FILE);
+}
+
+function readBudgetOf(account) {
+  let raw = null;
+  if (account && account.configDir) {
+    try { raw = JSON.parse(fs.readFileSync(budgetPath(account.configDir), 'utf8')); } catch {}
+  }
+  return spend.currentBudget(raw, Date.now());
+}
+
+function readBudget(accountId) {
+  return readBudgetOf(accountById(accountId));
+}
+
+function writeBudget(account, budget) {
+  const file = budgetPath(account.configDir);
+  const tmpPath = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(budget, null, 2));
+  fs.renameSync(tmpPath, file);
+}
+
+// Read-modify-write per response: a few bytes, and re-reading each time keeps
+// spend recorded by other app instances.
+function updateBudget(accountId, change) {
+  const account = accountById(accountId);
+  if (!lib.isApiKeyAccount(account)) return null;
+  const next = change(readBudgetOf(account), Date.now());
+  try { writeBudget(account, next); } catch (err) { console.warn('[accounts] could not save the spend:', err.message); }
+  return next;
+}
+
+function recordApiSpend(accountId, usd) {
+  if (usd > 0) updateBudget(accountId, (budget, now) => spend.addSpend(budget, usd, now));
+}
+
+// The usage reading of any account: the subscription windows of a login, the
+// spending limit of an API-key account (null without a limit).
+async function accountUsage(account) {
+  if (lib.isApiKeyAccount(account)) return spend.budgetUsageView(readBudgetOf(account), Date.now());
+  return readUsage(account.configDir).catch(() => null);
+}
+
+// `options`: { kind: 'claude' | 'apiKey', apiKey } — an API-key account is only
+// created once its key checks out; resolves { account } or { error }.
+async function addAccount(name, options = {}) {
+  const kind = lib.cleanAccountKind(options.kind);
+  const apiKey = lib.cleanApiKey(options.apiKey);
+  if (kind === lib.ACCOUNT_KIND_API_KEY) {
+    const problem = await apiKeyProblem(apiKey);
+    if (problem) return { error: problem };
+  }
   const store = loadStore();
   const displayName = String(name || '').trim() || `Account ${store.accounts.length + 1}`;
   let taken = [];
   try { taken = fs.readdirSync(ACCOUNTS_ROOT); } catch {}
   const configDir = path.join(ACCOUNTS_ROOT, lib.accountFolderName(displayName, taken));
-  const account = { id: crypto.randomUUID(), name: displayName, configDir, autoSwitch: true };
+  // The unattended auto-switch never picks an API-key account: it bills per token.
+  const account = { id: crypto.randomUUID(), name: displayName, configDir, autoSwitch: kind !== lib.ACCOUNT_KIND_API_KEY, kind };
   fs.mkdirSync(configDir, { recursive: true });
   seedClaudeJson(configDir);
+  if (kind === lib.ACCOUNT_KIND_API_KEY) writeApiKey(configDir, apiKey);
   linkSharedConfig(account);
   store.accounts.push(account);
   store.removedDirs = store.removedDirs.filter((dir) => dir !== configDir);
   saveStore(store);
-  return account;
+  return { account };
+}
+
+// Replaces an API-key account's key; resolves { ok } or { error }. Sessions pick
+// it up on their next spawn.
+async function setAccountApiKey(id, rawKey) {
+  const account = accountById(id);
+  if (!lib.isApiKeyAccount(account)) return { error: 'notApiKeyAccount' };
+  const apiKey = lib.cleanApiKey(rawKey);
+  const problem = await apiKeyProblem(apiKey);
+  if (problem) return { error: problem };
+  writeApiKey(account.configDir, apiKey);
+  return { ok: true };
 }
 
 // Forgets the account but leaves its folder (and Keychain login) on disk: the
@@ -219,6 +356,7 @@ async function loginHealth(account, recheck) {
 async function describeAccounts({ recheck = false } = {}) {
   const store = loadStore();
   const results = await Promise.all(store.accounts.map(async (a) => {
+    if (lib.isApiKeyAccount(a)) return describeApiKeyAccount(a);
     const status = await authStatus(a);
     if (!status.loggedIn) return { ...status, login: 'none', loginStamp: 0 };
     const { login, loginStamp } = await loginHealth(a, recheck);
@@ -229,15 +367,28 @@ async function describeAccounts({ recheck = false } = {}) {
   return {
     activeId: lib.resolveActiveAccount(store, instanceActiveId).id,
     accounts: store.accounts.map((a, i) => ({
-      id: a.id, name: a.name, configDir: a.configDir, autoSwitch: a.autoSwitch !== false, ...results[i],
+      id: a.id, name: a.name, configDir: a.configDir, autoSwitch: a.autoSwitch !== false, kind: a.kind, ...results[i],
     })),
   };
 }
 
+// An API-key account has no login to check: it's usable while it holds a key,
+// shown masked in place of an email.
+function describeApiKeyAccount(account) {
+  const apiKey = readApiKey(account);
+  const budget = readBudgetOf(account);
+  return {
+    loggedIn: !!apiKey, email: lib.maskApiKey(apiKey), orgName: '', plan: '',
+    login: apiKey ? 'ok' : 'none', loginStamp: 0,
+    budget: { limitUsd: budget.limitUsd, period: budget.period, spentUsd: budget.spentUsd },
+  };
+}
+
 // The shell argv + env that signs an account in, for an embedded terminal.
+// API-key accounts have no CLI login (the renderer asks for a key instead).
 function loginCommand(id) {
   const account = accountById(id);
-  if (!account) return null;
+  if (!account || lib.isApiKeyAccount(account)) return null;
   loginChecks.delete(id); // a fresh login is about to replace the checked one
   linkSharedConfig(account);
   const args = authArgs().slice();
@@ -267,7 +418,8 @@ function signedInAccountFolders() {
     const configDir = path.join(ACCOUNTS_ROOT, e.name);
     let claudeJson = null;
     try { claudeJson = JSON.parse(fs.readFileSync(lib.claudeJsonPathFor(configDir, os.homedir()), 'utf8')); } catch {}
-    return { folderName: e.name, configDir, signedIn: !!readOauthCreds(configDir), claudeJson };
+    const hasApiKey = fs.existsSync(apiKeyPath(configDir));
+    return { folderName: e.name, configDir, signedIn: !!readOauthCreds(configDir), hasApiKey, claudeJson };
   });
 }
 
@@ -283,7 +435,8 @@ try { restoreAccounts(); } catch (err) { console.warn('[accounts] could not rest
 instanceActiveId = loadStore().activeId;
 
 bridge.handle('accounts-list', (_e, opts) => describeAccounts(opts || {}));
-ipcMain.handle('accounts-add', (_e, name) => addAccount(name));
+ipcMain.handle('accounts-add', (_e, { name, kind, apiKey } = {}) => addAccount(name, { kind, apiKey }));
+ipcMain.handle('accounts-set-api-key', (_e, { id, apiKey }) => setAccountApiKey(id, apiKey));
 ipcMain.handle('accounts-remove', (_e, id) => { removeAccount(id); return describeAccounts(); });
 ipcMain.handle('accounts-rename', (_e, { id, name }) => { renameAccount(id, name); return describeAccounts(); });
 ipcMain.handle('accounts-set-auto-switch', (_e, { id, allowed }) => { setAccountAutoSwitch(id, allowed); return describeAccounts(); });
@@ -291,10 +444,19 @@ bridge.handle('accounts-set-active', (_e, id) => setActiveAccount(id));
 ipcMain.handle('accounts-login-command', (_e, id) => loginCommand(id));
 // Each account's subscription usage, for picking which one to switch to. One
 // 1-token Messages call per signed-in account, so it's fetched only on demand.
+// `{ limitUsd, period }` sets an API-key account's spending limit (0 = none);
+// `{ reset: true }` starts its spend over at $0.
+ipcMain.handle('accounts-set-budget', (_e, { id, limitUsd, period, reset }) => {
+  updateBudget(id, (budget, now) => (reset ? spend.resetSpend(budget, now) : spend.withLimit(budget, { limitUsd, period }, now)));
+  return describeAccounts();
+});
 bridge.handle('accounts-usage', async () => {
   const store = loadStore();
-  const usages = await Promise.all(store.accounts.map((a) => readUsage(a.configDir).catch(() => null)));
+  const usages = await Promise.all(store.accounts.map(accountUsage));
   return Object.fromEntries(store.accounts.map((a, i) => [a.id, usages[i]]));
 });
 
-module.exports = { activeAccount, accountById, linkSharedConfig, onActiveAccountChanged };
+module.exports = {
+  activeAccount, accountById, linkSharedConfig, onActiveAccountChanged, spawnEnv, accountEnvForConfigDir,
+  readBudget, recordApiSpend, accountUsage,
+};

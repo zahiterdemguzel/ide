@@ -69,3 +69,27 @@ test('isLoginRefused: only a 401 triggers a renew-and-retry', () => {
   assert.equal(lib.isLoginRefused(401), true);
   for (const status of [200, 403, 429, 500, 529]) assert.equal(lib.isLoginRefused(status), false);
 });
+
+test('proxyRouteEnv / splitMeteredPath: API-key sessions carry their account in the path', () => {
+  assert.deepEqual(lib.proxyRouteEnv(5000), { ANTHROPIC_BASE_URL: 'http://127.0.0.1:5000' });
+  const env = lib.proxyRouteEnv(5000, 'dir-my key');
+  assert.equal(env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:5000/k/dir-my%20key');
+  assert.deepEqual(lib.splitMeteredPath('/k/dir-my%20key/v1/messages?beta=true'),
+    { accountId: 'dir-my key', path: '/v1/messages?beta=true' });
+  assert.deepEqual(lib.splitMeteredPath('/v1/messages'), { accountId: '', path: '/v1/messages' });
+  assert.deepEqual(lib.splitMeteredPath('/k/abc'), { accountId: 'abc', path: '/' });
+  assert.deepEqual(lib.splitMeteredPath('/k/%E0%A4%A/v1'), { accountId: '', path: '/v1' });
+});
+
+test('isBilledMessagesRequest: message creation only, not token counting', () => {
+  assert.equal(lib.isBilledMessagesRequest('POST', '/v1/messages'), true);
+  assert.equal(lib.isBilledMessagesRequest('POST', '/v1/messages?beta=true'), true);
+  assert.equal(lib.isBilledMessagesRequest('POST', '/v1/messages/count_tokens'), false);
+  assert.equal(lib.isBilledMessagesRequest('HEAD', '/v1/messages'), false);
+});
+
+test('canMeterThroughProxy: the session\'s own key is fine, another route is not', () => {
+  assert.equal(lib.canMeterThroughProxy({ ANTHROPIC_API_KEY: 'sk' }, {}), true);
+  assert.equal(lib.canMeterThroughProxy({ ANTHROPIC_API_KEY: 'sk', ANTHROPIC_BASE_URL: 'http://x' }, {}), false);
+  assert.equal(lib.canMeterThroughProxy({ ANTHROPIC_API_KEY: 'sk' }, { CLAUDE_CODE_USE_BEDROCK: '1' }), false);
+});

@@ -23,7 +23,8 @@ export function closeDialog(singleton) {
 
 // A spec is:
 //   title, tone ('error' reddens the title), body, mono (monospace body, for
-//   command output), label, input ({ placeholder, value, error }), buttons,
+//   command output), label, input ({ placeholder, value, error, type }; type
+//   'password' hides what is typed, e.g. an API key), buttons,
 //   cancelValue, singleton,
 //   content (an element, or array of them, for a dialog whose middle is richer
 //   than text — a checkbox list, a progress bar), dismissible (false pins the
@@ -72,7 +73,7 @@ export function openDialog(spec = {}) {
   if (input) {
     inputEl = document.createElement('input');
     inputEl.className = 'dlg-input';
-    inputEl.type = 'text';
+    inputEl.type = input.type === 'password' ? 'password' : 'text';
     inputEl.placeholder = input.placeholder || '';
     inputEl.value = input.value || '';
     const errEl = document.createElement('div');

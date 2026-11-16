@@ -52,6 +52,62 @@ account. The built-in **default** account is the user's normal setup: no env ove
   and a recursive delete isn't worth the risk. Removing the active one switches to
   default first.
 
+## API-key accounts
+
+An account has a `kind`: `'claude'` (a claude.ai login, the default) or `'apiKey'` (an
+Anthropic API key). "Add account" first asks which (dialog: Claude account / API key),
+then the name; a login is signed in as before, a key is asked for in a password field.
+Main checks the key with a free `GET /v1/models` (401/403 → `{ error: 'rejected' }`,
+the renderer re-asks with the reason; offline is accepted) before creating the account.
+
+- **Storage**: still its own folder under `~/.claude-accounts` (shared config links,
+  seeded `.claude.json`), plus `.ide-api-key` (mode 0600) holding the key as
+  `enc:<base64>` via Electron `safeStorage`, or `plain:<key>` when the OS offers no
+  encryption (`encodeStoredApiKey`/`decodeStoredApiKey`). The key's last 20 chars are
+  added to `.claude.json` `customApiKeyResponses.approved` (`approveApiKeyInConfig`) so
+  the CLI doesn't ask "use this API key?" on every session.
+- **Spawning**: `accounts.spawnEnv(account)` = `CLAUDE_CONFIG_DIR` + `ANTHROPIC_API_KEY`;
+  `runCli` gets the same via `accountEnvForConfigDir`. The CLI's own `primaryApiKey` in
+  `.claude.json` is **not** used: `claude auth status` reports it, but API calls still
+  say "Not logged in" (checked on CLI 2.1.322).
+- **Not proxied**: the key in the spawn env makes `canRouteThroughProxy` false, so these
+  sessions move by restart. The other way round, switching *to* an API-key account
+  restarts proxied sessions too (`planAccountMove(..., { activeIsApiKey })`) — the proxy
+  only swaps claude.ai logins, and skips swapping while an API-key account is active.
+- **No usage / login check**: `describeAccounts` reports `loggedIn` = has a key, the
+  masked key (`maskApiKey`) in `email`; `accounts-usage` returns null for them. Never
+  auto-switch targets (`pickAutoSwitchTarget` excludes `kind: 'apiKey'`, created with
+  `autoSwitch: false`, no lightning toggle). The menu row shows "API key · sk-ant-…abcd"
+  and a key icon (Change API key → `accounts-set-api-key`) in place of Sign in.
+- **Recovery**: a folder with `.ide-api-key` is recovered as an API-key account.
+
+### Spending limit (API-key accounts)
+
+A dollar limit per API-key account, **monthly** (starts over on the 1st, local time) or
+**total** (until "Reset spent"), set from the menu row's $ icon and offered right after
+adding a key (`editSpendingLimit`; empty amount = no limit). Stored in
+`<folder>/.ide-budget.json` (`{limitUsd, period, spentUsd, periodStart}`); pure logic in
+`api-spend-lib.js`.
+
+- **Metering**: API-key sessions *are* routed through the account proxy, but only to be
+  counted: their base URL is `http://127.0.0.1:<port>/k/<accountId>` (`proxyRouteEnv`,
+  allowed by `canMeterThroughProxy`), `viaAccountProxy` stays false so they still move by
+  restart. The proxy strips the prefix, forwards with the session's own key (no login
+  swap), drops `accept-encoding` on billed calls so the body is readable, and feeds the
+  response to `createUsageReader` (SSE `message_start` + `message_delta`, or JSON). On end
+  (or close — an interrupted stream was still billed) `costOfUsage` prices it from the
+  local price table and `recordApiSpend` adds it. **Prices are hardcoded** (first-party
+  list, 2026-11) — update `MODEL_PRICES` when Anthropic changes them. Only
+  `POST /v1/messages` counts; the app's own `claude -p` helpers (commit messages etc.) are
+  not metered.
+- **Enforcement**: once `spentUsd >= limitUsd` the proxy answers billed calls with a 400
+  `invalid_request_error` naming the limit (the CLI shows it and stops; a 429 would be retried).
+- **Display**: `budgetUsageView` turns the budget into a usage window `key: 'budget'` (with
+  `spentUsd`/`limitUsd`), returned by `get-usage` (active account) and `accounts-usage`, so
+  the toolbar meter and menu rows draw it like the 5h/weekly bars, showing "$X left"
+  where the reset countdown sits. Since it's a window, the 98% auto-switch also leaves an
+  API-key account whose limit is nearly spent (the 95% prompt only watches the 5-hour window).
+
 ## The account proxy — switching without a restart
 
 `account-proxy.js` (pure parts in `account-proxy-lib.js`, tested): a loopback HTTP server, **one per

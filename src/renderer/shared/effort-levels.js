@@ -49,6 +49,16 @@ export function effortNameForFamily(id, family) {
   return effortsForFamily(family).find((e) => e.id === level)?.name ?? level;
 }
 
+// The level one step up (+1) or down (-1) the family's ladder, for the session bar's
+// stepper buttons. null at either end, so the button can disable instead of wrapping.
+// An id off the ladder steps from the default level, matching what the badge shows.
+export function stepEffort(id, family, delta) {
+  const ladder = effortsForFamily(family);
+  const known = ladder.findIndex((e) => e.id === id);
+  const from = known === -1 ? ladder.findIndex((e) => e.id === DEFAULT_EFFORT) : known;
+  return ladder[from + delta]?.id ?? null;
+}
+
 // The optional quick-start buttons beside New session (Settings → General): one click
 // spawns a session at that level. Short labels so three fit in the narrow sidebar; every
 // id must be on both ladders so the buttons work whichever family the caret menu lists.

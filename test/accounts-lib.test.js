@@ -28,9 +28,9 @@ test('normalizeAccountStore: keeps valid extra accounts, drops duplicates and fo
     ],
   });
   assert.deepEqual(store.accounts, [
-    { id: 'default', name: 'Personal', configDir: null, autoSwitch: true },
-    { id: 'work', name: 'Work', configDir: '/h/.claude-accounts/work', autoSwitch: true },
-    { id: 'noname', name: 'noname', configDir: '/h/.claude-accounts/noname', autoSwitch: true },
+    { id: 'default', name: 'Personal', configDir: null, autoSwitch: true, kind: 'claude' },
+    { id: 'work', name: 'Work', configDir: '/h/.claude-accounts/work', autoSwitch: true, kind: 'claude' },
+    { id: 'noname', name: 'noname', configDir: '/h/.claude-accounts/noname', autoSwitch: true, kind: 'claude' },
   ]);
   assert.equal(store.activeId, 'work');
 });
@@ -172,4 +172,86 @@ test('recoverAccounts: an account the user removed stays removed', () => {
   const folders = [{ folderName: 'gone', configDir: '/r/gone', signedIn: true, claudeJson: null }];
   assert.equal(lib.recoverAccounts(store, folders), store);
   assert.deepEqual(lib.serializeAccountStore(store).removedDirs, ['/r/gone']);
+});
+
+// --- API-key accounts ---
+
+test('normalizeAccountStore: keeps the API-key kind, anything else reads as a Claude login', () => {
+  const store = lib.normalizeAccountStore({
+    accounts: [
+      { id: 'key', name: 'Key', configDir: '/k', kind: 'apiKey' },
+      { id: 'old', name: 'Old', configDir: '/o' },
+      { id: 'odd', name: 'Odd', configDir: '/x', kind: 'weird' },
+    ],
+  });
+  assert.deepEqual(store.accounts.map((a) => a.kind), ['claude', 'apiKey', 'claude', 'claude']);
+  assert.deepEqual(lib.normalizeAccountStore(lib.serializeAccountStore(store)), store);
+});
+
+test('accountEnv: an API-key account also passes ANTHROPIC_API_KEY, a login account never does', () => {
+  assert.deepEqual(lib.accountEnv({ configDir: '/k', kind: 'apiKey' }, 'sk-ant-xyz'),
+    { CLAUDE_CONFIG_DIR: '/k', ANTHROPIC_API_KEY: 'sk-ant-xyz' });
+  assert.deepEqual(lib.accountEnv({ configDir: '/k', kind: 'apiKey' }, ''), { CLAUDE_CONFIG_DIR: '/k' });
+  assert.deepEqual(lib.accountEnv({ configDir: '/w', kind: 'claude' }, 'sk-ant-xyz'), { CLAUDE_CONFIG_DIR: '/w' });
+});
+
+test('cleanApiKey / maskApiKey', () => {
+  assert.equal(lib.cleanApiKey('  sk-ant-api03-abcdefghijklmnop  '), 'sk-ant-api03-abcdefghijklmnop');
+  assert.equal(lib.cleanApiKey('short'), '');
+  assert.equal(lib.cleanApiKey('sk-ant-api03 abcdefghijklmnop'), '');
+  assert.equal(lib.cleanApiKey(null), '');
+  assert.equal(lib.maskApiKey('sk-ant-api03-abcdefghijklmnWXYZ'), 'sk-ant-…WXYZ');
+  assert.equal(lib.maskApiKey(''), '');
+});
+
+test('approveApiKeyInConfig: pre-approves the key suffix once, keeps other settings and approvals', () => {
+  const key = 'sk-ant-api03-0123456789abcdefghijKLMNOPQRST';
+  const suffix = key.slice(-lib.APPROVED_KEY_SUFFIX_LENGTH);
+  const config = lib.approveApiKeyInConfig(
+    { theme: 'dark', customApiKeyResponses: { approved: ['other'], rejected: [suffix] } }, key);
+  assert.equal(config.theme, 'dark');
+  assert.deepEqual(config.customApiKeyResponses, { approved: ['other', suffix], rejected: [] });
+  assert.deepEqual(lib.approveApiKeyInConfig(config, key).customApiKeyResponses.approved, ['other', suffix]);
+  assert.deepEqual(lib.approveApiKeyInConfig(null, key).customApiKeyResponses, { approved: [suffix], rejected: [] });
+});
+
+test('encodeStoredApiKey / decodeStoredApiKey: encrypted when the OS can, plain otherwise', () => {
+  const fakeSafeStorage = {
+    isEncryptionAvailable: () => true,
+    encryptString: (s) => Buffer.from(s.split('').reverse().join('')),
+    decryptString: (b) => b.toString().split('').reverse().join(''),
+  };
+  const stored = lib.encodeStoredApiKey('sk-ant-secret', fakeSafeStorage);
+  assert.match(stored, /^enc:/);
+  assert.ok(!stored.includes('sk-ant-secret'));
+  assert.equal(lib.decodeStoredApiKey(stored, fakeSafeStorage), 'sk-ant-secret');
+  const plain = lib.encodeStoredApiKey('sk-ant-secret', { ...fakeSafeStorage, isEncryptionAvailable: () => false });
+  assert.equal(plain, 'plain:sk-ant-secret');
+  assert.equal(lib.decodeStoredApiKey(plain, null), 'sk-ant-secret');
+  assert.equal(lib.decodeStoredApiKey(stored, null), '');
+  assert.equal(lib.decodeStoredApiKey('garbage', fakeSafeStorage), '');
+  const broken = { ...fakeSafeStorage, decryptString: () => { throw new Error('locked'); } };
+  assert.equal(lib.decodeStoredApiKey(stored, broken), '');
+});
+
+test('planAccountMove: switching to an API-key account restarts proxied sessions too', () => {
+  const sessions = [
+    { id: 'proxied', live: true, family: 'claude', accountId: 'a', proxied: true, state: 'idle' },
+    { id: 'direct', live: true, family: 'claude', accountId: 'a', proxied: false, state: 'idle' },
+    { id: 'proxiedBusy', live: true, family: 'claude', accountId: 'a', proxied: true, state: 'working' },
+  ];
+  assert.deepEqual(lib.planAccountMove(sessions, 'key', { activeIsApiKey: true }),
+    { now: ['proxied', 'direct'], later: ['proxiedBusy'] });
+  assert.deepEqual(lib.planAccountMove(sessions, 'b'), { now: ['direct'], later: [] });
+  assert.equal(lib.shouldMoveAfterState(sessions[2], 'idle', 'key', { activeIsApiKey: true }), true);
+  assert.equal(lib.shouldMoveAfterState(sessions[2], 'idle', 'b'), false);
+});
+
+test('recoverAccounts: a lost API-key folder comes back as an API-key account', () => {
+  const store = lib.normalizeAccountStore(null);
+  const recovered = lib.recoverAccounts(store, [
+    { folderName: 'billing', configDir: '/r/billing', signedIn: false, hasApiKey: true, claudeJson: null },
+  ]);
+  assert.equal(recovered.accounts[1].kind, 'apiKey');
+  assert.equal(recovered.accounts[1].configDir, '/r/billing');
 });

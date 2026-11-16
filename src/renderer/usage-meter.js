@@ -1,6 +1,19 @@
 import { t } from '../i18n/index.js';
 import { isPanelEnabled, onPanelsChanged } from './panels.js';
-import { usageLevel } from './shared/account-switch.js';
+import { usageLevel, formatUsd, budgetLeftUsd } from './shared/account-switch.js';
+
+// "$37.70 left"
+export function budgetLeftText(window) {
+  return t('usage.budgetLeft').replace('{amount}', formatUsd(budgetLeftUsd(window)));
+}
+
+// "Spending limit: $12.30 of $50.00 spent · $37.70 left · resets in 18d"
+export function budgetTooltip(window) {
+  const spent = t('usage.budgetSpent')
+    .replace('{spent}', formatUsd(window.spentUsd)).replace('{limit}', formatUsd(window.limitUsd));
+  const reset = window.resetIn ? ` · ${t('usage.resetsIn').replace('{t}', window.resetIn)}` : '';
+  return `${t('usage.budget')}: ${spent} · ${budgetLeftText(window)}${reset}`;
+}
 
 // --- toolbar usage meter (Claude subscription limits) ---
 // Shows the user's remaining usage against the two rolling subscription windows —
@@ -17,9 +30,12 @@ const POLL_MS = 30000;
 const meter = document.getElementById('usage-meter');
 
 // Stacked top-to-bottom: 5-hour (the window users hit first) on top, weekly below.
+// 'budget' is an API-key account's spending limit (see api-spend-lib.js): the bar
+// is the share spent, and the right-hand text says how many dollars are left.
 const WINDOWS = [
   { key: '5h', labelKey: 'usage.session' },
   { key: '7d', labelKey: 'usage.weekly' },
+  { key: 'budget', labelKey: 'usage.budget' },
 ];
 
 const fills = {}; // key -> { win, label, bar, fill, reset }
@@ -62,10 +78,12 @@ function render(view) {
     const pct = Math.round(data.utilization * 100);
     el.fill.style.width = pct + '%';
     el.fill.dataset.level = usageLevel(data.utilization);
-    el.reset.textContent = data.resetIn ? t('usage.resetsIn').replace('{t}', data.resetIn) : '';
+    const resetText = data.resetIn ? t('usage.resetsIn').replace('{t}', data.resetIn) : '';
+    const leftText = w.key === 'budget' ? budgetLeftText(data) : '';
+    el.reset.textContent = leftText || resetText;
     // .um-win is display:contents (no box), so the row tooltip rides on its children.
-    const tip = `${t(w.labelKey)}: ${pct}% ${t('usage.used')}`
-      + (data.resetIn ? ` · ${t('usage.resetsIn').replace('{t}', data.resetIn)}` : '');
+    const tip = w.key === 'budget' ? budgetTooltip(data)
+      : `${t(w.labelKey)}: ${pct}% ${t('usage.used')}` + (resetText ? ` · ${resetText}` : '');
     el.label.title = el.bar.title = el.reset.title = tip;
   }
   meter.hidden = !any;
@@ -81,6 +99,11 @@ async function refresh() {
   render(view);
   // The account switcher watches each reading to offer a switch near the limit.
   window.dispatchEvent(new CustomEvent('usage-updated', { detail: view }));
+}
+
+// Re-read now, e.g. after the active account's spending limit changed.
+export function refreshUsageMeter() {
+  refresh();
 }
 
 export function initUsageMeter({ pollInBackground = () => false } = {}) {
