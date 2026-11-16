@@ -347,8 +347,11 @@ on/off toggles wired in `src/renderer/settings.js`:
   `isDoubleSessionEnabled()` / `setDoubleSessionEnabled()`; off, a Shift+click
   is a plain click, and switching it off while split collapses to the focused
   session.
-- **Token cost meter** (`#settings-statusline`, default **on**) gates the
-  per-session token/cost status line at the bottom of each session's terminal
+- **Context & usage group** (Sessions page, its own group since the context
+  gauge landed) holds the two meter toggles below; they were pulled out of
+  "General" so everything about context/token visibility sits together.
+- **Status line meter** (`#settings-statusline`, default **on**; was "Token cost
+  meter") gates the per-session model/context/token/cost status line at the bottom of each session's terminal
   (see [architecture.md](architecture.md#per-session-token-meter)). Unlike the
   other two — whose effect is renderer-side — this one is *applied in main* at
   spawn time, so `settings.js` both persists the flag (`localStorage`
@@ -359,6 +362,18 @@ on/off toggles wired in `src/renderer/settings.js`:
   off so the next-spawned session gets no statusLine. A **live session keeps the
   meter it spawned with** — the toggle affects the next session, like the agent
   model defaults.
+- **Context in session bar** (`#settings-context-badge`, default **on**) shows the
+  live context badge beside the effort stepper (see
+  [architecture.md](architecture.md#per-session-token-meter)). Renderer-only and
+  applied instantly: `sessions.js` owns the flag (`localStorage`
+  `ide.sessionContextBadge`, `isContextBadgeEnabled()` /
+  `setContextBadgeEnabled()`). Its data comes from the status line script, so a
+  session spawned with the status line meter off shows no badge.
+- **Session bar shows** (`#settings-context-badge-mode`, default **Token count**)
+  picks the badge text: `tokens` (`84k / 200k`), `percent` (`42%`) or `both`.
+  `sessions.js` owns it (`localStorage` `ide.sessionContextBadgeMode`,
+  `getContextBadgeMode()` / `setContextBadgeMode()`, cleaned by
+  `cleanContextBadgeMode`); disabled while the badge toggle is off.
 - **Track every tool call** (`#settings-tool-hooks`, default **on**) — same
   push-to-main, apply-at-spawn shape as the token meter (`localStorage`
   `ide.toolHooks`, `isToolHooksEnabled()` / `setToolHooksEnabled()`, IPC

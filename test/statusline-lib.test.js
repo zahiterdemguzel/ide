@@ -1,7 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  sumTranscriptTokens, formatTokens, formatCost, formatStatusLine,
+  summarizeTranscript, sumTranscriptTokens, resolveContextUsage, formatContext, sanitizeContextReport,
+  formatTokens, formatCost, formatStatusLine,
 } = require('../src/main/statusline-lib');
 
 const line = (usage) => JSON.stringify({ type: 'assistant', message: { usage } });
@@ -99,4 +100,71 @@ test('formatStatusLine: falls back to inline when width is too small or invalid'
     formatStatusLine({ model: 'M', tokens: 0, cost: 0, width: NaN }),
     'M · $0.00 · 0 tokens',
   );
+});
+
+// --- live context-window gauge ---
+
+test('summarizeTranscript: last main-thread call is the current context, sidechains ignored', () => {
+  const entry = (usage, extra = {}) => JSON.stringify({ type: 'assistant', message: { usage }, ...extra });
+  const text = [
+    entry({ input_tokens: 10, cache_read_input_tokens: 1000, output_tokens: 50 }),
+    entry({ input_tokens: 5, cache_creation_input_tokens: 200, cache_read_input_tokens: 2000, output_tokens: 9 }),
+    entry({ input_tokens: 99999 }, { isSidechain: true }),
+  ].join('\n');
+  const { totalTokens, lastContextTokens } = summarizeTranscript(text);
+  assert.equal(lastContextTokens, 5 + 200 + 2000);
+  assert.equal(totalTokens, 1060 + 2214 + 99999);
+});
+
+test('summarizeTranscript: no calls yet -> null context', () => {
+  assert.equal(summarizeTranscript('').lastContextTokens, null);
+});
+
+test('resolveContextUsage: prefers Claude\'s stdin context_window and its percentage', () => {
+  const ctx = resolveContextUsage({
+    context_window_size: 200000,
+    used_percentage: 42,
+    current_usage: { input_tokens: 4000, cache_creation_input_tokens: 0, cache_read_input_tokens: 80000, output_tokens: 500 },
+  }, 1);
+  assert.deepEqual(ctx, { usedTokens: 84000, windowSize: 200000, percent: 42 });
+});
+
+test('resolveContextUsage: computes the percentage when Claude omits it', () => {
+  const ctx = resolveContextUsage({ context_window_size: 200000, current_usage: { input_tokens: 50000 } });
+  assert.equal(ctx.percent, 25);
+});
+
+test('resolveContextUsage: falls back to the transcript count when stdin has no usage', () => {
+  assert.deepEqual(resolveContextUsage({ context_window_size: 1000000, current_usage: null }, 250000),
+    { usedTokens: 250000, windowSize: 1000000, percent: 25 });
+  assert.deepEqual(resolveContextUsage(undefined, 1234), { usedTokens: 1234, windowSize: null, percent: null });
+  assert.equal(resolveContextUsage(undefined, null), null);
+});
+
+test('formatContext: full, percent-only, tokens-only and empty forms', () => {
+  assert.equal(formatContext({ usedTokens: 84000, windowSize: 200000, percent: 42.4 }), 'ctx 42% (84k/200k)');
+  assert.equal(formatContext({ usedTokens: null, windowSize: null, percent: 7 }), 'ctx 7%');
+  assert.equal(formatContext({ usedTokens: 1234, windowSize: null, percent: null }), 'ctx 1.2k');
+  assert.equal(formatContext(null), '');
+});
+
+test('formatStatusLine: puts the context gauge beside the model on the left', () => {
+  const context = { usedTokens: 84000, windowSize: 200000, percent: 42 };
+  assert.equal(
+    formatStatusLine({ model: 'Opus 5.5', tokens: 1000, cost: 1.5, context }),
+    'Opus 5.5 · ctx 42% (84k/200k) · $1.50 · 1k tokens',
+  );
+  const out = formatStatusLine({ model: 'Opus 5.5', tokens: 1000, cost: 1.5, context, width: 60 });
+  assert.equal(out.length, 60);
+  assert.ok(out.startsWith('Opus 5.5 · ctx 42% (84k/200k)'));
+  assert.ok(out.endsWith('$1.50 · 1k tokens'));
+});
+
+test('sanitizeContextReport: keeps finite non-negative numbers, drops the rest', () => {
+  assert.deepEqual(sanitizeContextReport({ usedTokens: 84000, windowSize: 200000, percent: 42, extra: 'x' }),
+    { usedTokens: 84000, windowSize: 200000, percent: 42 });
+  assert.deepEqual(sanitizeContextReport({ usedTokens: '9', windowSize: -1, percent: 12 }),
+    { usedTokens: null, windowSize: null, percent: 12 });
+  assert.equal(sanitizeContextReport({ usedTokens: null, percent: NaN }), null);
+  assert.equal(sanitizeContextReport('nope'), null);
 });

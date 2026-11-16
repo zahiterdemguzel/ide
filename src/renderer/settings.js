@@ -13,7 +13,7 @@ import {
   SOUNDS, getSound, setSound, playNotification, getVolume, setVolume,
 } from './shared/notify.js';
 import {
-  isSessionDiffBadgeEnabled, setSessionDiffBadge, isQuickEffortButtonsEnabled, setQuickEffortButtons, isQuickModelButtonsEnabled, setQuickModelButtons, isEffortStepButtonsEnabled, setEffortStepButtons,
+  isSessionDiffBadgeEnabled, setSessionDiffBadge, isContextBadgeEnabled, setContextBadgeEnabled, getContextBadgeMode, setContextBadgeMode, isQuickEffortButtonsEnabled, setQuickEffortButtons, isQuickModelButtonsEnabled, setQuickModelButtons, isEffortStepButtonsEnabled, setEffortStepButtons,
   isOsNotificationsEnabled, setOsNotificationsEnabled, isDoubleSessionEnabled, setDoubleSessionEnabled,
 } from './sessions.js';
 import { initCustomModels, refreshCustomModels } from './custom-models.js';
@@ -275,6 +275,8 @@ export function initSettings() {
   const sessionDiffBox = document.getElementById('settings-session-diff');
   const doubleSessionBox = document.getElementById('settings-double-session');
   const statusLineBox = document.getElementById('settings-statusline');
+  const contextBadgeBox = document.getElementById('settings-context-badge');
+  const contextBadgeModeSel = document.getElementById('settings-context-badge-mode');
   const toolHooksBox = document.getElementById('settings-tool-hooks');
   const quickEffortBox = document.getElementById('settings-quick-effort');
   const quickModelBox = document.getElementById('settings-quick-model');
@@ -327,6 +329,11 @@ export function initSettings() {
   sessionDiffBox.onchange = () => setSessionDiffBadge(sessionDiffBox.checked);
   doubleSessionBox.onchange = () => setDoubleSessionEnabled(doubleSessionBox.checked);
   statusLineBox.onchange = () => setStatusLineEnabled(statusLineBox.checked);
+  contextBadgeBox.onchange = () => {
+    setContextBadgeEnabled(contextBadgeBox.checked);
+    contextBadgeModeSel.disabled = !contextBadgeBox.checked;
+  };
+  contextBadgeModeSel.onchange = () => setContextBadgeMode(contextBadgeModeSel.value);
   toolHooksBox.onchange = () => setToolHooksEnabled(toolHooksBox.checked);
   quickEffortBox.onchange = () => setQuickEffortButtons(quickEffortBox.checked);
   quickModelBox.onchange = () => setQuickModelButtons(quickModelBox.checked);
@@ -378,6 +385,9 @@ export function initSettings() {
     sessionDiffBox.checked = isSessionDiffBadgeEnabled();
     doubleSessionBox.checked = isDoubleSessionEnabled();
     statusLineBox.checked = isStatusLineEnabled();
+    contextBadgeBox.checked = isContextBadgeEnabled();
+    contextBadgeModeSel.value = getContextBadgeMode();
+    contextBadgeModeSel.disabled = !contextBadgeBox.checked;
     toolHooksBox.checked = isToolHooksEnabled();
     quickEffortBox.checked = isQuickEffortButtonsEnabled();
     quickModelBox.checked = isQuickModelButtonsEnabled();

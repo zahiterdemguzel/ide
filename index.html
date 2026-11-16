@@ -134,6 +134,10 @@
             </button>
             <div id="session-effort-badge-menu" class="effort-menu" hidden></div>
           </div>
+          <span id="session-context" class="effort-badge context-badge" hidden>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9" opacity=".35"/><circle id="session-context-ring" cx="12" cy="12" r="9" pathLength="100" transform="rotate(-90 12 12)" stroke-dasharray="0 100"/></svg>
+            <span id="session-context-label"></span>
+          </span>
         </div>
         <div class="bar-right">
           <span id="session-commit-msg" class="git-msg"></span>
@@ -837,14 +841,6 @@
               </label>
               <label class="panel-toggle">
                 <span class="settings-label">
-                  <span class="panel-toggle-label" data-i18n="settings.statusLine">Token cost meter</span>
-                  <small class="settings-desc" data-i18n="settings.statusLineDesc">Show tokens and cost at the bottom of each session. Applies to new sessions.</small>
-                </span>
-                <input type="checkbox" id="settings-statusline" class="switch-input" />
-                <span class="switch-ui"></span>
-              </label>
-              <label class="panel-toggle">
-                <span class="settings-label">
                   <span class="panel-toggle-label" data-i18n="settings.toolHooks">Track every tool call</span>
                   <small class="settings-desc" data-i18n="settings.toolHooksHint">Off: only subagent, question, edit and Bash calls fire hooks — much lighter for sessions running many subagents. Applies to sessions started or resumed afterwards.</small>
                 </span>
@@ -874,6 +870,38 @@
                 </span>
                 <input type="checkbox" id="settings-effort-step" class="switch-input" />
                 <span class="switch-ui"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-title" data-i18n="settings.contextUsage">Context &amp; usage</div>
+            <div class="settings-card">
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.statusLine">Status line meter</span>
+                  <small class="settings-desc" data-i18n="settings.statusLineDesc">Show the model, context fill, tokens and cost at the bottom of each session, refreshed live while it runs. Applies to new sessions.</small>
+                </span>
+                <input type="checkbox" id="settings-statusline" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="panel-toggle">
+                <span class="settings-label">
+                  <span class="panel-toggle-label" data-i18n="settings.contextBadge">Context in session bar</span>
+                  <small class="settings-desc" data-i18n="settings.contextBadgeDesc">Show how full the context window is beside the effort badge, live while the session runs. Needs the status line meter.</small>
+                </span>
+                <input type="checkbox" id="settings-context-badge" class="switch-input" />
+                <span class="switch-ui"></span>
+              </label>
+              <label class="settings-row">
+                <span class="settings-label">
+                  <span data-i18n="settings.contextBadgeMode">Session bar shows</span>
+                  <small class="settings-desc" data-i18n="settings.contextBadgeModeDesc">What the context badge displays. Hover it for the full reading.</small>
+                </span>
+                <select id="settings-context-badge-mode">
+                  <option value="tokens" data-i18n="settings.contextBadgeMode.tokens">Token count</option>
+                  <option value="percent" data-i18n="settings.contextBadgeMode.percent">Percentage</option>
+                  <option value="both" data-i18n="settings.contextBadgeMode.both">Both</option>
+                </select>
               </label>
             </div>
           </div>

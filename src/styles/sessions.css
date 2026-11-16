@@ -248,6 +248,17 @@
    menus, so tinting it would only mute the row you're pointing at. */
 .effort-menu .effort-menu-item.model-item.current,
 .effort-menu .effort-menu-item.effort-item.current { color: var(--fg); font-weight: 600; }
+/* Context badge: the active session's live context-window fill, beside the effort
+   stepper. Same pill chrome but read-only (no hover, no caret); the ring is a
+   progress arc whose dash length renderContextBadge sets. Tints amber, then red, as
+   the window approaches auto-compaction (levels from shared/context-gauge.js). */
+.context-badge { cursor: default; flex: none; font-variant-numeric: tabular-nums; }
+.context-badge[hidden] { display: none; }
+.context-badge:hover { background: color-mix(in srgb, var(--ec) 14%, transparent); border-color: color-mix(in srgb, var(--ec) 45%, transparent); }
+.context-badge svg { flex: none; }
+.context-badge circle { transition: stroke-dasharray .3s ease; }
+.context-badge[data-level="warn"] { --ec: var(--yellow); }
+.context-badge[data-level="critical"] { --ec: var(--red); }
 #session-commit-msg { margin: 0; white-space: nowrap; }
 #session-commit {
   background: var(--accent); color: var(--on-accent); border: none; border-radius: 5px;

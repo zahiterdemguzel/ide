@@ -24,8 +24,9 @@ import CodeView, { CODE_SURFACE, CODE_TEXT } from '../components/CodeView';
 import { ErrorState, LoadingState } from '../components/ui';
 import { ConnectionBanner, confirmAction, showToast } from '../components/feedback';
 import { showError, errorText } from '../components/ErrorDialog';
-import { openBinaryFile } from '../api/installApk';
-import { baseName, isKnownBinaryName, parentPath, textFromReadReply } from '../lib/file-ops';
+import { openNonTextFile } from '../api/installApk';
+import { fileConn } from '../api/fileActions';
+import { baseName, isKnownBinaryName, parentPath, previewKindFor, textFromReadReply } from '../lib/file-ops';
 import { color, font, inset, radius } from '../theme';
 
 // FilesScreen has already read the file (it has to, to tell text from binary before
@@ -80,24 +81,27 @@ export function FileViewer({ path, line, onExit, inline = false }: Props) {
     }
     setLoadError(null);
     try {
+      // An image or PDF belongs in the preview. An SVG stays: it is text, and the
+      // preview's "View source" is what sends it here.
+      const previewKind = previewKindFor(name);
+      if (previewKind && previewKind !== 'svg' && !inline) {
+        navigation.replace('FilePreview', { path });
+        return;
+      }
       const fileText = isKnownBinaryName(name) ? null : textFromReadReply(await conn.req('read-text', path));
       if (fileText !== null) { setText(fileText); return; }
-      // Not text (an image, a zip…): hand it to the phone's own apps, as the
-      // Files tab does, and leave nothing behind.
+      // Not text (an .apk, a zip…): install it or hand it to the phone's own apps,
+      // as the Files tab does, and leave nothing behind.
       setLeaving(true);
       try {
-        await openBinaryFile({
-          req: (ch, args, opts) => conn.req(ch, args, opts),
-          state: () => conn.state,
-          onState: (fn) => conn.onState(fn),
-        }, path, name);
+        await openNonTextFile(fileConn(conn), path, name);
       } catch (err) {
         showError('Files', `Could not open ${name}.\n\n${errorText(err)}`);
       }
     } catch (err) {
       setLoadError(errorText(err));
     }
-  }, [conn, path, name]);
+  }, [conn, path, name, inline, navigation]);
 
   useEffect(() => { load(); }, [load]);
 

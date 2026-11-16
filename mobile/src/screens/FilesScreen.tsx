@@ -20,9 +20,10 @@ import { showError, errorText } from '../components/ErrorDialog';
 import { confirmAction, haptic, showToast } from '../components/feedback';
 import { ActionSheet, PromptDialog, type PromptRequest, type SheetAction } from '../components/PromptDialog';
 import { FileViewer, primeFileText, type FileViewerParams } from './FileViewerScreen';
-import { isApk, installApk, openBinaryFile } from '../api/installApk';
+import { isApk, openNonTextFile } from '../api/installApk';
+import { downloadRepoFile, fileConn, openInOtherApp, saveToPhone, shareLocalFile } from '../api/fileActions';
 import {
-  baseName, createLatestQueue, isKnownBinaryName, joinPath, parentPath, renamedPath,
+  baseName, createLatestQueue, isKnownBinaryName, joinPath, parentPath, previewKindFor, renamedPath,
   textFromReadReply, validateEntryName,
 } from '../lib/file-ops';
 import { alpha, color, radius, font } from '../theme';
@@ -32,6 +33,7 @@ type Ref = { file: string; line: number; text: string };
 type Found = { files: string[]; refs: Ref[]; refsPending: boolean; refsError?: string };
 
 const VIEWER_ROUTE = 'FileViewer';
+const PREVIEW_ROUTE = 'FilePreview';
 
 export default function FilesScreen() {
   const { conn } = useConnection();
@@ -109,31 +111,22 @@ export default function FilesScreen() {
   const openPath = async (rel: string, line?: number) => {
     if (!conn) return;
     const name = baseName(rel);
-    const installConn = {
-      req: (ch: string, args?: any, opts?: any) => conn.req<any>(ch, args, opts),
-      forwardPort: (port: number, path?: string) => conn.forwardPort(port, path),
-      closeForward: (port: number) => conn.closeForward(port),
-      state: () => conn.state,
-      onState: (fn: (s: string) => void) => conn.onState(fn),
-    };
+    // Images, SVG icons and PDFs are shown in-app; the preview downloads them itself.
+    if (previewKindFor(name)) {
+      navigation.navigate(PREVIEW_ROUTE, { path: rel });
+      return;
+    }
     setOpening(true);
     try {
-      // An .apk isn't text — on Android, pull its bytes and hand it to the OS
-      // package installer instead of trying to render it in the viewer.
-      if (Platform.OS === 'android' && isApk(name)) {
-        await installApk(installConn, rel, name).catch((err) => {
-          showError('Install APK', `Could not open the installer for ${name}.\n\n${errorText(err)}`);
-        });
-        return;
-      }
-      // Not text (an image, a zip, some unknown binary): pull the file down the
-      // same pipe the APK uses and hand it to an app on the phone that opens it.
+      // Not text (an .apk, a zip, some unknown binary): an .apk goes to the Android
+      // package installer, anything else to an app on the phone that opens it.
       // A known binary extension skips read-text, which would ship the whole file
       // over the socket only to be thrown away.
       const text = isKnownBinaryName(name) ? null : textFromReadReply(await conn.req('read-text', rel));
       if (text === null) {
-        await openBinaryFile(installConn, rel, name).catch((err) => {
-          showError('Files', `Could not open ${name}.\n\n${errorText(err)}`);
+        await openNonTextFile(fileConn(conn), rel, name).catch((err) => {
+          const title = isApk(name) && Platform.OS === 'android' ? 'Install APK' : 'Files';
+          showError(title, `Could not open ${name}.\n\n${errorText(err)}`);
         });
         return;
       }
@@ -144,6 +137,56 @@ export default function FilesScreen() {
     } finally {
       setOpening(false);
     }
+  };
+
+  // Download a file onto the phone, then hand the copy to `action` — the row menu's
+  // Open with / Share / Save. The scrim covers the download, which can take a while.
+  const withDownloaded = async (rel: string, title: string, action: (localUri: string, name: string) => Promise<void>) => {
+    if (!conn) return;
+    const name = baseName(rel);
+    setOpening(true);
+    try {
+      const localUri = await downloadRepoFile(conn, rel, name);
+      await action(localUri, name);
+    } catch (err) {
+      showError(title, `${name}: ${errorText(err)}`);
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  const saveFileToPhone = (rel: string, chooseFolder = false) => withDownloaded(rel, 'Save to phone', async (uri, name) => {
+    const result = await saveToPhone(uri, name, { chooseFolder });
+    if (result.saved) showToast({ message: `Saved ${name} to ${result.where}`, tone: 'success' });
+  });
+
+  // What a file's long-press menu offers besides Rename/Delete.
+  const fileActions = (rel: string): SheetAction[] => {
+    const name = baseName(rel);
+    const android = Platform.OS === 'android';
+    const actions: SheetAction[] = [];
+    if (android && isApk(name)) {
+      actions.push({ label: 'Install', icon: 'logo-android', onPress: () => openPath(rel) });
+    }
+    actions.push({
+      label: 'Open in another app', icon: 'open-outline',
+      onPress: () => withDownloaded(rel, 'Open file', (uri) => openInOtherApp(uri, name)),
+    });
+    if (android) {
+      actions.push(
+        {
+          label: 'Open with any app…', icon: 'apps-outline',
+          onPress: () => withDownloaded(rel, 'Open file', (uri) => openInOtherApp(uri, name, { anyApp: true })),
+        },
+        { label: 'Save to phone', icon: 'download-outline', onPress: () => saveFileToPhone(rel) },
+        { label: 'Save to folder…', icon: 'folder-open-outline', onPress: () => saveFileToPhone(rel, true) },
+      );
+    }
+    actions.push({
+      label: android ? 'Share…' : 'Share / Save to Files…', icon: 'share-outline',
+      onPress: () => withDownloaded(rel, 'Share file', (uri) => shareLocalFile(uri, name)),
+    });
+    return actions;
   };
 
   const openEntry = (e: Entry) => {
@@ -219,6 +262,7 @@ export default function FilesScreen() {
     setMenu({
       title: rel,
       actions: [
+        ...(e.dir ? [] : fileActions(rel)),
         { label: 'Rename', icon: 'pencil-outline', onPress: () => rename(rel) },
         { label: 'Delete', icon: 'trash-outline', destructive: true, onPress: () => remove(rel, e.dir) },
       ],

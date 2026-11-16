@@ -20,6 +20,7 @@ import {
   effortsFor, effortName, DEFAULT_EFFORT,
 } from './settings.js';
 import { QUICK_EFFORTS, stepEffort } from './shared/effort-levels.js';
+import { contextBadge, cleanContextBadgeMode } from './shared/context-gauge.js';
 import { QUICK_GPT_MODELS, QUICK_CLAUDE_MODELS } from './shared/quick-models.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
@@ -129,6 +130,42 @@ export function setSessionDiffBadge(on) {
   for (const [, s] of sessions) renderRowDiff(s);
 }
 
+// Session-bar context badge (beside the effort badge): the active session's live
+// context-window fill. On by default; toggled from Settings → Sessions → Context
+// & usage. The numbers come from the session's statusLine script (session-context
+// push), so a session spawned with the status line meter off has none to show.
+const CONTEXT_BADGE_STORE = 'ide.sessionContextBadge';
+let contextBadgeEnabled = localStorage.getItem(CONTEXT_BADGE_STORE) !== 'false';
+
+export function isContextBadgeEnabled() { return contextBadgeEnabled; }
+export function setContextBadgeEnabled(on) {
+  contextBadgeEnabled = !!on;
+  localStorage.setItem(CONTEXT_BADGE_STORE, contextBadgeEnabled ? 'true' : 'false');
+  renderContextBadge(sessions.get(activeId));
+}
+
+// What the badge text shows: 'tokens' (default), 'percent' or 'both'.
+const CONTEXT_BADGE_MODE_STORE = 'ide.sessionContextBadgeMode';
+let contextBadgeMode = cleanContextBadgeMode(localStorage.getItem(CONTEXT_BADGE_MODE_STORE));
+
+export function getContextBadgeMode() { return contextBadgeMode; }
+export function setContextBadgeMode(mode) {
+  contextBadgeMode = cleanContextBadgeMode(mode);
+  localStorage.setItem(CONTEXT_BADGE_MODE_STORE, contextBadgeMode);
+  renderContextBadge(sessions.get(activeId));
+}
+
+function renderContextBadge(s) {
+  const badge = contextBadgeEnabled && s ? contextBadge(s.context, contextBadgeMode) : null;
+  sessionContextBadge.hidden = !badge;
+  if (!badge) return;
+  sessionContextLabel.textContent = badge.text;
+  sessionContextBadge.dataset.level = badge.level;
+  const percent = Number.isFinite(s.context.percent) ? Math.min(Math.max(s.context.percent, 0), 100) : 0;
+  sessionContextRing.setAttribute('stroke-dasharray', `${percent} 100`);
+  sessionContextBadge.title = t('session.contextTitle').replace('{detail}', badge.detail);
+}
+
 // Optional OS-level desktop notification on the same working -> completed
 // transition that triggers the chime (see celebrateFinish). Off by default —
 // stealing window focus is more intrusive than a chime, so it's opt-in.
@@ -162,6 +199,9 @@ const sessionEffortLabel = document.getElementById('session-effort-label');
 const sessionEffortMenu = document.getElementById('session-effort-badge-menu');
 const sessionEffortDownBtn = document.getElementById('session-effort-down');
 const sessionEffortUpBtn = document.getElementById('session-effort-up');
+const sessionContextBadge = document.getElementById('session-context');
+const sessionContextLabel = document.getElementById('session-context-label');
+const sessionContextRing = document.getElementById('session-context-ring');
 const sessionDiffBtn = document.getElementById('session-diff');
 const sessionDiffAdd = document.getElementById('session-diff-add');
 const sessionDiffDel = document.getElementById('session-diff-del');
@@ -448,6 +488,7 @@ function updateSessionBar() {
   sessionTitle.title = name;
   renderModelBadge(s);
   renderEffortBadge(s);
+  renderContextBadge(s);
   // A worktree session owns its whole checkout, so there are no other sessions'
   // hunks to leave behind: Commit (this session's hunks only) and Revert (undo
   // this session's edits) are both meaningless there, and Merge replaces them.
@@ -1951,6 +1992,15 @@ window.api.onSessionEffort(({ id, effort }) => {
   if (!s) return;
   s.effort = effort;
   if (id === activeId) renderEffortBadge(s);
+});
+// A session's statusLine reported a new context-window fill (main dedupes, so
+// this fires only when the number moved). Kept on the record so switching to the
+// session shows its last reading straight away.
+window.api.onSessionContext(({ id, usedTokens, windowSize, percent }) => {
+  const s = sessions.get(id);
+  if (!s) return;
+  s.context = { usedTokens, windowSize, percent };
+  if (id === activeId) renderContextBadge(s);
 });
 // Main evicted the oldest sessions to stay under the persisted-storage budget;
 // drop their rows so the UI matches what survives on disk.

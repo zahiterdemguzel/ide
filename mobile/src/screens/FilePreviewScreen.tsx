@@ -8,7 +8,7 @@
 // another app, save it onto the phone, or share it. Those stay available when the
 // preview itself fails (no internet for pdf.js, a format the WebView can't decode,
 // a file too big to preview), so a file is never a dead end.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -93,7 +93,7 @@ export default function FilePreviewScreen({ route, navigation }: any) {
     if (result.saved) showToast({ message: `Saved ${name} to ${result.where}`, tone: 'success' });
   });
 
-  const moreActions: SheetAction[] = useMemo(() => [
+  const moreActions: SheetAction[] = [
     ...(Platform.OS === 'android'
       ? [
         { label: 'Open in another app', icon: 'open-outline', onPress: () => openElsewhere(false) },
@@ -106,8 +106,7 @@ export default function FilePreviewScreen({ route, navigation }: any) {
     ...(kind === 'svg'
       ? [{ label: 'View source', icon: 'code-slash-outline', onPress: () => navigation.navigate('FileViewer', { path }) }]
       : []),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [loaded, busy, kind, path]);
+  ];
 
   const onMessage = (event: { nativeEvent: { data: string } }) => {
     try {
@@ -160,7 +159,9 @@ export default function FilePreviewScreen({ route, navigation }: any) {
         setBuiltInZoomControls
         setDisplayZoomControls={false}
         scalesPageToFit
-        javaScriptEnabled={kind === 'pdf' || true}
+        // The page reports load/decode errors back; an SVG is an <img>, so its own
+        // scripts never run regardless.
+        javaScriptEnabled
         onError={(e) => setRenderError(e.nativeEvent.description || 'The preview failed to load.')}
         accessibilityLabel={`Preview of ${name}`}
       />

@@ -145,24 +145,29 @@ async function launchInstaller(fileUri: string) {
   throw new InstallError('Android blocked the installer because this app isn\'t yet allowed to install unknown apps. Flip the switch in the settings screen that just opened, then tap the APK again — it installs directly from then on.');
 }
 
-// Open a binary the phone has no viewer for (an image, a pdf, a zip…) in another
-// app. On Android that's an ACTION_VIEW typed by extension, so the system's "Open
-// with" offers the apps that really handle it (a gallery, a PDF reader). When no
-// app claims the type — or on iOS, which has no such intent — the share sheet is
-// the fallback: it still offers "Save to Files" and every app that accepts files.
-async function openInOtherApp(fileUri: string, name: string) {
+// Open a downloaded file in another app. On Android that's an ACTION_VIEW: typed by
+// extension, so the system offers the apps that really handle it (a gallery for a
+// PNG, a PDF reader) — or, with `anyApp`, typed as */* so the chooser lists every
+// app that opens files at all, for "open this with whatever I pick". When nothing
+// claims it — or on iOS, which has no such intent — the share sheet is the
+// fallback: it still offers "Save to Files" and every app that accepts files.
+export async function openInOtherApp(fileUri: string, name: string, { anyApp = false } = {}) {
   if (Platform.OS === 'android') {
+    const type = anyApp ? '*/*' : mimeForName(name);
     try {
       const contentUri = await FileSystem.getContentUriAsync(fileUri);
-      log(`opening ${name} with ACTION_VIEW (${mimeForName(name)})`);
-      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-        data: contentUri, type: mimeForName(name), flags: 1,
-      });
+      log(`opening ${name} with ACTION_VIEW (${type})`);
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', { data: contentUri, type, flags: 1 });
       return;
     } catch (e: any) {
       warn(`no app opens ${name} directly (${e?.message ?? e}) — falling back to the share sheet`);
     }
   }
+  await shareLocalFile(fileUri, name);
+}
+
+// The platform share sheet for a downloaded file (send it, or "Save to Files").
+export async function shareLocalFile(fileUri: string, name: string) {
   if (!(await Sharing.isAvailableAsync())) throw new InstallError('No app on this phone can open that file.');
   log(`opening share sheet for ${name}`);
   await Sharing.shareAsync(fileUri, { mimeType: mimeForName(name), dialogTitle: name });
@@ -200,7 +205,7 @@ async function downloadOverHttp(url: string, dest: string, expectedSize: number,
   }
 
   if (!res || res.status < 200 || res.status >= 300) {
-    throw new InstallError(`The desktop couldn't serve the APK (HTTP ${res?.status ?? 'error'}).`);
+    throw new InstallError(`The desktop couldn't serve the file (HTTP ${res?.status ?? 'error'}).`);
   }
   const info = await FileSystem.getInfoAsync(dest, { size: true });
   if (!info.exists || (expectedSize > 0 && info.size !== expectedSize)) {
@@ -236,7 +241,7 @@ function base64ToBytes(b64: string): Uint8Array {
 async function streamOverSocket(conn: InstallConn, rel: string, dest: string): Promise<void> {
   const { req } = conn;
   if (isRunningInExpoGo()) {
-    throw new InstallError('Sideloading this APK needs the phone on the same Wi-Fi as the desktop — Expo Go can only install over the local network.');
+    throw new InstallError('Downloading this file needs the phone on the same Wi-Fi as the desktop — Expo Go can only download over the local network.');
   }
   // Pull the file a range at a time and lay each decoded chunk into one preallocated
   // byte array — held as bytes, never as a base64 string (that's the cap we're
@@ -276,7 +281,7 @@ async function streamOverSocket(conn: InstallConn, rel: string, dest: string): P
 
 // Pull a repo file into the phone's cache over the fastest transport that answers
 // (LAN HTTP → relay port-forward → chunked socket) and return its file:// path.
-async function fetchToCache(conn: InstallConn, rel: string, name: string): Promise<string> {
+export async function fetchToCache(conn: InstallConn, rel: string, name: string): Promise<string> {
   const { req } = conn;
   // Spaces or exotic characters in the repo filename would land unescaped in the
   // file:// URI and can break the content-URI bridge to the installer.
@@ -353,4 +358,11 @@ export async function installApk(conn: InstallConn, rel: string, name: string) {
 export async function openBinaryFile(conn: InstallConn, rel: string, name: string) {
   const dest = await fetchToCache(conn, rel, name);
   await openInOtherApp(dest, name);
+}
+
+// A non-text file the phone has no in-app preview for: an .apk goes to the package
+// installer (Android), anything else to another app.
+export async function openNonTextFile(conn: InstallConn, rel: string, name: string) {
+  if (Platform.OS === 'android' && isApk(name)) return installApk(conn, rel, name);
+  return openBinaryFile(conn, rel, name);
 }

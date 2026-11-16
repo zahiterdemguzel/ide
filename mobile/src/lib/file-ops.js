@@ -151,10 +151,170 @@ export function isKnownBinaryName(name) {
   return Object.prototype.hasOwnProperty.call(BINARY_MIME, extensionOf(name));
 }
 
+// Text formats that still deserve a real media type when handed to another app or
+// saved to the phone (an .svg should offer image apps, a .txt a text editor). Kept
+// apart from BINARY_MIME because these must still go through read-text.
+const TEXT_MIME = {
+  svg: 'image/svg+xml', txt: 'text/plain', log: 'text/plain', md: 'text/markdown',
+  csv: 'text/csv', json: 'application/json', xml: 'text/xml', html: 'text/html', htm: 'text/html',
+};
+
+const hasOwn = (table, key) => Object.prototype.hasOwnProperty.call(table, key);
+
 /** The media type to open a downloaded file with; generic bytes when unknown. @param {string} name */
 export function mimeForName(name) {
   const ext = extensionOf(name);
-  return Object.prototype.hasOwnProperty.call(BINARY_MIME, ext) ? BINARY_MIME[ext] : 'application/octet-stream';
+  if (hasOwn(BINARY_MIME, ext)) return BINARY_MIME[ext];
+  if (hasOwn(TEXT_MIME, ext)) return TEXT_MIME[ext];
+  return 'application/octet-stream';
+}
+
+// --- In-app preview ------------------------------------------------------------
+//
+// Images, SVGs and PDFs are shown on the phone itself (FilePreviewScreen) rather
+// than bounced to another app. Everything renders in a WebView from an HTML page
+// built here, which gives pinch-zoom on both platforms and one code path.
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico']);
+
+/**
+ * How the phone previews a file in-app, or null when it can't (open it elsewhere).
+ * @param {string} name
+ * @returns {'image' | 'svg' | 'pdf' | null}
+ */
+export function previewKindFor(name) {
+  const ext = extensionOf(name);
+  if (IMAGE_EXTS.has(ext)) return 'image';
+  if (ext === 'svg') return 'svg';
+  if (ext === 'pdf') return 'pdf';
+  return null;
+}
+
+// Above this the base64 page would strain the JS↔WebView bridge; the preview
+// offers "Open in another app" / "Save to phone" instead.
+export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
+
+// pdf.js 3.x is the last line shipped as a classic (non-module) script, which every
+// Android System WebView still in the wild can run. Loaded from the CDN, so a PDF
+// preview needs the phone online; the page reports failure and the screen falls
+// back to the other-app actions.
+export const PDFJS_VERSION = '3.11.174';
+const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
+
+/** Human-readable size: 812 B, 14.2 KB, 3.1 MB. @param {number} bytes */
+export function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[ch]));
+
+// A checkerboard behind the picture, so transparent icons and SVG strokes in the
+// page's own dark colour stay visible.
+const PAGE_HEAD = `<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=8, user-scalable=yes">`;
+
+/**
+ * The page that shows one image or SVG, centred and pinch-zoomable. The picture is
+ * an <img> fed a data URL, so an SVG's scripts never run.
+ *
+ * @param {{ kind: 'image' | 'svg', base64: string, name: string }} file
+ */
+export function imagePreviewHtml({ kind, base64, name }) {
+  const mime = mimeForName(name);
+  // An SVG icon is often 16–24 units with no intrinsic size worth keeping: scale it
+  // up to fill the view. A bitmap keeps its own pixels, only shrunk to fit.
+  const sizing = kind === 'svg'
+    ? 'width: min(82vw, 82vh); height: min(82vw, 82vh); object-fit: contain;'
+    : 'max-width: 100%; max-height: 100vh; object-fit: contain;';
+  return `<!doctype html><html><head>${PAGE_HEAD}<style>
+html, body { margin: 0; height: 100%; background: #0d1117; }
+body { display: flex; align-items: center; justify-content: center; }
+img { ${sizing} display: block;
+  background: repeating-conic-gradient(#2d333b 0% 25%, #1c2128 0% 50%) 50% / 16px 16px; }
+</style></head><body>
+<img alt="${escapeHtml(name)}" src="data:${mime};base64,${base64}"
+  onload="window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'ready'}))"
+  onerror="window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'error',message:'This image could not be decoded on the phone.'}))">
+</body></html>`;
+}
+
+/**
+ * The page that renders a PDF with pdf.js, one canvas per page at the screen's
+ * pixel density, pages drawn lazily as they scroll near. Posts {type:'ready',pages}
+ * or {type:'error',message} to the WebView host.
+ *
+ * @param {{ base64: string }} file
+ */
+export function pdfPreviewHtml({ base64 }) {
+  // The bytes sit in an inert <script> block rather than a JS string literal, so a
+  // 30MB document never goes through the JavaScript parser.
+  return `<!doctype html><html><head>${PAGE_HEAD}<style>
+html, body { margin: 0; background: #0d1117; color: #8b949e; font: 14px sans-serif; }
+.page { display: block; margin: 8px auto; background: #fff; box-shadow: 0 1px 4px #0008; }
+#status { padding: 24px; text-align: center; }
+</style></head><body>
+<div id="status">Loading PDF…</div>
+<script type="application/octet-stream" id="pdf-data">${base64}</script>
+<script src="${PDFJS_BASE}/pdf.min.js"></script>
+<script>
+(function () {
+  function post(msg) { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(msg)); }
+  function fail(message) { document.getElementById('status').textContent = message; post({ type: 'error', message: message }); }
+  if (!window.pdfjsLib) { fail('The PDF viewer could not load — the phone needs internet access to preview PDFs.'); return; }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '${PDFJS_BASE}/pdf.worker.min.js';
+  var raw = atob(document.getElementById('pdf-data').textContent.trim());
+  var bytes = new Uint8Array(raw.length);
+  for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  pdfjsLib.getDocument({ data: bytes }).promise.then(function (pdf) {
+    document.getElementById('status').remove();
+    var ratio = window.devicePixelRatio || 1;
+    var width = document.documentElement.clientWidth - 16;
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting || entry.target.dataset.drawn) return;
+        entry.target.dataset.drawn = '1';
+        drawPage(entry.target);
+      });
+    }, { rootMargin: '1000px 0px' });
+    function drawPage(canvas) {
+      pdf.getPage(Number(canvas.dataset.page)).then(function (page) {
+        var base = page.getViewport({ scale: 1 });
+        var viewport = page.getViewport({ scale: (width / base.width) * ratio });
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.height = Math.round(viewport.height / ratio) + 'px'; // a page shaped unlike page 1
+        return page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
+      }).catch(function (e) { post({ type: 'error', message: String(e && e.message || e) }); });
+    }
+    // Reserve every page's height up front from page 1's shape, so the scrollbar
+    // is right and lazy drawing doesn't make the document jump.
+    pdf.getPage(1).then(function (first) {
+      var shape = first.getViewport({ scale: 1 });
+      for (var n = 1; n <= pdf.numPages; n++) {
+        var canvas = document.createElement('canvas');
+        canvas.className = 'page';
+        canvas.dataset.page = String(n);
+        canvas.style.width = width + 'px';
+        canvas.style.height = Math.round(width * shape.height / shape.width) + 'px';
+        document.body.appendChild(canvas);
+        observer.observe(canvas);
+      }
+      post({ type: 'ready', pages: pdf.numPages });
+    });
+  }).catch(function (e) {
+    fail(e && e.name === 'PasswordException' ? 'This PDF is password-protected.' : 'This PDF could not be read: ' + (e && e.message || e));
+  });
+})();
+</script>
+</body></html>`;
 }
 
 /**

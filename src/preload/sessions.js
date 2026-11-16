@@ -38,6 +38,7 @@ module.exports = {
   onSessionName: (cb) => ipcRenderer.on('session-name', (_e, msg) => cb(msg)),
   onSessionModel: (cb) => ipcRenderer.on('session-model', (_e, msg) => cb(msg)),
   onSessionEffort: (cb) => ipcRenderer.on('session-effort', (_e, msg) => cb(msg)),
+  onSessionContext: (cb) => ipcRenderer.on('session-context', (_e, msg) => cb(msg)),
   onSessionEvicted: (cb) => ipcRenderer.on('session-evicted', (_e, msg) => cb(msg)),
   onSessionsChanged: (cb) => ipcRenderer.on('sessions-changed', (_e, list) => cb(list)),
   onSessionError: (cb) => ipcRenderer.on('session-error', (_e, msg) => cb(msg)),

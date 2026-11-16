@@ -37,6 +37,7 @@ import ControlScreen from './src/screens/ControlScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import FileScreen from './src/screens/FileScreen';
 import FileViewerScreen from './src/screens/FileViewerScreen';
+import FilePreviewScreen from './src/screens/FilePreviewScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -360,6 +361,9 @@ export default function App() {
                 {/* The Files tab's viewer/editor, pushed so it gets native swipe-back and
                     hides the tab bar while a file is open. */}
                 <Stack.Screen name="FileViewer" component={FileViewerScreen} options={{ headerShown: false }} />
+                {/* Images, SVG icons and PDFs, shown on the phone — with open-in-app,
+                    save-to-phone and share for the downloaded copy. */}
+                <Stack.Screen name="FilePreview" component={FilePreviewScreen} options={{ headerShown: false }} />
                 {/* Pushed from the bell in any tab's header, not a tab of its own:
                     it's a log you visit, not a place you work. */}
                 <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />

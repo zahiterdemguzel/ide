@@ -4,6 +4,7 @@ const { sendToRenderer } = require('./window');
 // Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
 const { deriveStatus, shouldApplyState, hooksSettings: buildHooksSettings, normalizeHookPayload, hookOriginId } = require('./hook-events');
 const { statusLineCommand } = require('./statusline');
+const { sanitizeContextReport } = require('./statusline-lib');
 const { seenImagesFromPayload } = require('./seen-images-lib');
 const { modelFamily } = require('./agent-providers');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
@@ -79,11 +80,33 @@ async function forwardSeenImages(payload) {
   }
 }
 
+// Last context gauge forwarded per session, so the statusLine's 2-second refresh
+// only costs an IPC message when the number actually moved.
+const lastContextReport = new Map();
+
+// A session's statusLine script reporting its live context-window fill (see
+// statusline-script.js reportContext). Forwarded to the session bar's badge.
+function handleContextReport(ideId, body) {
+  let report;
+  try { report = sanitizeContextReport(JSON.parse(body)); } catch { return; }
+  if (!ideId || !report) return;
+  const key = JSON.stringify(report);
+  if (lastContextReport.get(ideId) === key) return;
+  lastContextReport.set(ideId, key);
+  sendToRenderer('session-context', { id: ideId, ...report });
+}
+
 function startHookServer() {
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (d) => (body += d));
     req.on('end', async () => {
+      const url = new URL(req.url, 'http://localhost');
+      if (url.pathname === '/statusline') {
+        handleContextReport(url.searchParams.get('ide'), body);
+        res.end('{}');
+        return;
+      }
       let payload;
       // The BOM strip is for Codex on Windows: its hooks run through PowerShell,
       // whose stdin piping prepends a UTF-8 BOM that JSON.parse rejects.

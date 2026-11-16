@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   joinPath, parentPath, baseName, validateEntryName, renamedPath, createLatestQueue,
   extensionOf, isKnownBinaryName, mimeForName, textFromReadReply,
+  previewKindFor, formatBytes, imagePreviewHtml, pdfPreviewHtml, PDFJS_VERSION,
 } from '../mobile/src/lib/file-ops.js';
 
 test('path helpers treat "" as the repo root', () => {
@@ -103,4 +104,46 @@ test('textFromReadReply rejects failed reads and binaries decoded as text', () =
   assert.equal(textFromReadReply({ ok: true, text: 'PK\u0003\u0004\u0000\u0000' }), null);
   assert.equal(textFromReadReply({ ok: false, error: 'ENOENT' }), null);
   assert.equal(textFromReadReply(null), null);
+});
+
+test('previewKindFor picks in-app previews for images, SVGs and PDFs only', () => {
+  for (const name of ['shot.PNG', 'a/b/photo.jpeg', 'anim.gif', 'pic.webp', 'favicon.ico']) {
+    assert.equal(previewKindFor(name), 'image', name);
+  }
+  assert.equal(previewKindFor('icons/check.svg'), 'svg');
+  assert.equal(previewKindFor('docs/manual.pdf'), 'pdf');
+  for (const name of ['app-release.apk', 'model.glb', 'main.ts', 'archive.zip', 'README']) {
+    assert.equal(previewKindFor(name), null, name);
+  }
+});
+
+test('an SVG stays text (read-text still serves View source) but gets an image type', () => {
+  assert.equal(isKnownBinaryName('logo.svg'), false);
+  assert.equal(mimeForName('logo.svg'), 'image/svg+xml');
+  assert.equal(mimeForName('notes.txt'), 'text/plain');
+  assert.equal(mimeForName('main.rs'), 'application/octet-stream');
+});
+
+test('formatBytes keeps one decimal only below 10', () => {
+  assert.equal(formatBytes(812), '812 B');
+  assert.equal(formatBytes(3584), '3.5 KB');
+  assert.equal(formatBytes(14540), '14 KB');
+  assert.equal(formatBytes(3 * 1024 * 1024), '3.0 MB');
+  assert.equal(formatBytes(150 * 1024 * 1024), '150 MB');
+  assert.equal(formatBytes(-1), '');
+});
+
+test('imagePreviewHtml embeds the bytes as a typed data URL and escapes the name', () => {
+  const html = imagePreviewHtml({ kind: 'svg', base64: 'PHN2Zz4=', name: 'a"<b>.svg' });
+  assert.match(html, /src="data:image\/svg\+xml;base64,PHN2Zz4="/);
+  assert.match(html, /alt="a&quot;&lt;b&gt;.svg"/);
+  assert.match(html, /user-scalable=yes/);
+  assert.match(imagePreviewHtml({ kind: 'image', base64: 'AA==', name: 'x.png' }), /data:image\/png;base64,AA==/);
+});
+
+test('pdfPreviewHtml loads a pinned pdf.js and keeps the bytes out of a JS literal', () => {
+  const html = pdfPreviewHtml({ base64: 'JVBERi0x' });
+  assert.ok(html.includes(`pdf.js/${PDFJS_VERSION}/pdf.min.js`));
+  assert.ok(html.includes(`pdf.js/${PDFJS_VERSION}/pdf.worker.min.js`));
+  assert.match(html, /<script type="application\/octet-stream" id="pdf-data">JVBERi0x<\/script>/);
 });

@@ -567,10 +567,12 @@ test('hooksSettings: disables agent view in every spawned session', () => {
   assert.equal(JSON.parse(hooksSettings(54321, 'node "/x/statusline-script.js"')).disableAgentView, true);
 });
 
-test('hooksSettings: injects the given statusLine command with zero padding', () => {
-  const cfg = JSON.parse(hooksSettings(54321, 'node "/x/statusline-script.js"'));
+test('hooksSettings: injects the statusLine command with zero padding, a live refresh and a context report URL', () => {
+  const cfg = JSON.parse(hooksSettings(54321, 'node "/x/statusline-script.js"', 'ide-7'));
   assert.deepEqual(cfg.statusLine, {
-    type: 'command', command: 'node "/x/statusline-script.js"', padding: 0,
+    type: 'command',
+    command: 'node "/x/statusline-script.js" "http://127.0.0.1:54321/statusline?ide=ide-7"',
+    padding: 0, refreshInterval: 2,
   });
 });
 

@@ -349,6 +349,15 @@ function lightToolMatchers() {
   return { PreToolUse: pre, PostToolUse: [pre, 'Bash', ...IMAGE_RESULT_TOOLS].join('|') };
 }
 
+const STATUS_LINE_REFRESH_SECONDS = 2;
+
+// Where a session's statusLine script reports its live context-window fill.
+// Tagged `?ide=` like the hook URLs, so a forked conversation still lands on
+// our session.
+function statusLineReportUrl(port, ideId) {
+  return `http://127.0.0.1:${port}/statusline${ideId ? `?ide=${ideId}` : ''}`;
+}
+
 function hooksSettings(port, statusLineCommand, ideId, { detailedToolHooks = true } = {}) {
   const url = `http://127.0.0.1:${port}/hook${ideId ? `?ide=${ideId}` : ''}`;
   const cmd = `curl -s -X POST "${url}" -d @-`;
@@ -367,7 +376,18 @@ function hooksSettings(port, statusLineCommand, ideId, { detailedToolHooks = tru
   const settings = { hooks, disableAgentView: true };
   // padding: 0 removes Claude's own side padding so $COLUMNS matches the usable
   // width and the right-aligned cost reaches the edge without being clipped.
-  if (statusLineCommand) settings.statusLine = { type: 'command', command: statusLineCommand, padding: 0 };
+  // refreshInterval re-runs the command every N seconds on top of Claude's
+  // event-driven refreshes, so the context gauge keeps moving mid-turn (e.g.
+  // during a long Bash call or while subagents stream) instead of freezing
+  // until the next message lands.
+  // The report URL argument makes the script also POST the context gauge back
+  // to the hook server, which feeds the session bar's context badge (renderer).
+  if (statusLineCommand) {
+    settings.statusLine = {
+      type: 'command', command: `${statusLineCommand} "${statusLineReportUrl(port, ideId)}"`, padding: 0,
+      refreshInterval: STATUS_LINE_REFRESH_SECONDS,
+    };
+  }
   return JSON.stringify(settings);
 }
 
