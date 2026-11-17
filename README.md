@@ -78,7 +78,7 @@ A chime and a desktop notification fire when a session finishes, so you can look
 - **Usage meter** for your Claude subscription's 5-hour and weekly limits, plus a per-session token and cost line.
 
 ### 🎙️ And more
-- **Voice input:** dictate into the focused session with offline Whisper. Audio never leaves your machine.
+- **Voice input:** Force Click a session pane or row on macOS or right-click it on Windows to dictate. OpenAI Whisper large-v3-turbo transcribes locally. Repeat the gesture or press Esc to stop. Press Enter to send the text.
 - **Themes** (Dark, Light, Midnight, Solarized, …) and **5 languages** (English, Deutsch, Español, Français, Türkçe).
 - A guided **first-run tour** and a setup wizard that installs and signs in to Claude Code for you.
 

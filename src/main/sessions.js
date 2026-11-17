@@ -17,6 +17,7 @@ const { ensureAccountProxy } = require('./account-proxy');
 const { canRouteThroughProxy, canMeterThroughProxy, proxyRouteEnv } = require('./account-proxy-lib');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
+const { latestCodexModel } = require('./codex-latest');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
 const { installGuide: codexInstallGuide } = require('./codex-install');
 const { draftSafeSlashCommand } = require('./slash-command');
@@ -1411,6 +1412,7 @@ async function spawnPty(id, cols, rows, resume) {
     // agent id the hooks reported; without one there is no conversation to
     // resume, so it starts fresh under the same IDE id.
     exe = await resolveCodex();
+    if (s) s.model = await latestCodexModel(exe, s.model);
     args = codexSpawnArgs({
       resume, agentSessionId: s && s.agentSessionId, model: s && s.model,
       effort: s && s.effort, port: hookServer.getHookPort(), ideId: id,

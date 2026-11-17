@@ -21,10 +21,10 @@ import {
 } from './settings.js';
 import { QUICK_EFFORTS, stepEffort } from './shared/effort-levels.js';
 import { contextBadge, cleanContextBadgeMode } from './shared/context-gauge.js';
-import { QUICK_GPT_MODELS, QUICK_CLAUDE_MODELS } from './shared/quick-models.js';
+import { QUICK_GPT_MODELS, QUICK_CLAUDE_MODELS, initQuickModelGestures } from './shared/quick-models.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
-import { initHoldToTalk } from './voice.js';
+import { initHoldToTalk, toggleSessionDictation, stopSessionDictation } from './voice.js';
 import { showSeenImagesFor } from './seen-images.js';
 import { showQuickPromptsFor } from './quick-prompts.js';
 import { promptTypingDelay, promptSubmitDelay, TUI_READY_MS } from './shared/prompt-timing.js';
@@ -33,6 +33,7 @@ import { promptTypingDelay, promptSubmitDelay, TUI_READY_MS } from './shared/pro
 // switching sessions toggles which container is visible, preserving scrollback.
 const sessions = new Map(); // id -> { id, term, fit, container, li, dot, label, state, firstPrompt, name, fileCount, archived }
 let activeId = null;
+let pendingDictation = null;
 export const getActiveId = () => activeId;
 
 // Double session: [leftId, rightId] when two terminals share the center (Shift+click
@@ -292,6 +293,7 @@ export function selectSession(id) {
   if (!s) return;
   requestRepoFocus(id);
   closeDiffDialog(); // the dialog belongs to whichever session was showing
+  if (pendingDictation?.id !== id) pendingDictation = null;
   activeId = id;
   hideAllOverlays();
   emptyHint.style.display = 'none';
@@ -315,18 +317,24 @@ export function selectSession(id) {
   const partner = sessions.get(splitPartner(splitIds, id));
   if (partner) revealTerminal(partner, id);
   if (revealTerminal(s, id)) s.term.focus();
+  return s.resuming;
 }
 
 // Bring an on-screen session's terminal up to date. `focusId` is the session
 // being selected; the deferred work is skipped if the selection moved on since.
 // Returns false when there's no terminal to show yet.
 function revealTerminal(s, focusId) {
+  if (s.resuming) return false;
   if (!s.term) {
     // A non-archived session with no terminal was restored from disk on startup:
     // bring its Claude process back the moment the user looks at it, then re-select
     // to fit and focus the rebuilt terminal. Archived sessions wait for an explicit
     // restore (their placeholder stays put).
-    if (s.suspended && !s.archived) resumeSessionUI(s).then(() => { if (activeId === focusId) selectSession(focusId); });
+    if (s.suspended && !s.archived) {
+      resumeSessionUI(s).then(() => {
+        if (activeId === focusId) selectSession(focusId);
+      }).catch((err) => showWarning(err.message, t('session.unnamed')));
+    }
     return false;
   }
   // Catch the terminal up on the output buffered while it was hidden, and
@@ -896,6 +904,52 @@ function onRowClick(id, e) {
   selectSession(id);
 }
 
+function sessionForDictation(target) {
+  if (!(target instanceof Element) || target.closest('button')) return null;
+  const row = target.closest('#session-list > li[data-id]');
+  const pane = target.closest('.term-container');
+  const s = sessions.get(row?.dataset.id || pane?.dataset.sessionId);
+  return s && !s.archived ? s : null;
+}
+
+function dictateIntoSession(s) {
+  if (pendingDictation?.id === s.id) {
+    pendingDictation = null;
+    return;
+  }
+  const resuming = selectSession(s.id);
+  if (!resuming) {
+    toggleSessionDictation(s.id);
+    return;
+  }
+  // Selecting a saved row starts its PTY. A later selection or blur cancels the
+  // pending gesture so a slow resume can't open the mic after the user moves on.
+  const request = { id: s.id };
+  pendingDictation = request;
+  resuming.then((result) => {
+    if (pendingDictation === request && result?.ok && !s.archived) toggleSessionDictation(s.id);
+  }).catch(() => {}).finally(() => {
+    if (pendingDictation === request) pendingDictation = null;
+  });
+}
+
+if (navigator.platform.toLowerCase().startsWith('win')) {
+  // Win session gestures take priority over xterm's right-click paste.
+  document.addEventListener('contextmenu', (e) => {
+    if (e.button !== 2) return;
+    const s = sessionForDictation(e.target);
+    if (!s) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dictateIntoSession(s);
+  }, true);
+}
+window.api.onSessionForceClick(({ x, y }) => {
+  const s = sessionForDictation(document.elementFromPoint(x, y));
+  if (s) dictateIntoSession(s);
+});
+window.addEventListener('blur', () => { pendingDictation = null; });
+
 // Send raw input to the active session (used by explorer drag-drop and "add to chat").
 export function sendToActiveSession(text) {
   if (!activeId) return;
@@ -917,10 +971,7 @@ export function submitToActiveSession(text) {
 }
 
 // The one place a session's terminal pane is created. Single site on purpose: the
-// pane carries `data-session-id`, which is how voice input maps the element under
-// the mouse cursor back to a session (see voice.js and voice-input.md). When a
-// second creation path existed and forgot the attribute, hover-to-dictate silently
-// did nothing for every session restored from disk.
+// pane carries `data-session-id` for gesture hit testing and voice focus tracking.
 function createTermContainer(id) {
   const container = document.createElement('div');
   container.className = 'term-container';
@@ -963,6 +1014,8 @@ function buildTerminal(id, repo) {
 // has already killed the PTY, so re-sending suspend-session would be a no-op echo.
 function suspendSessionUI(s, { notifyMain = true } = {}) {
   if (s.suspended) return;
+  if (pendingDictation?.id === s.id) pendingDictation = null;
+  stopSessionDictation(s.id);
   s.suspended = true;
   if (notifyMain) window.api.suspendSession(s.id);
   if (s.term) {
@@ -993,10 +1046,12 @@ function rebuildTerminalUI(s) {
   return term;
 }
 
-async function resumeSessionUI(s) {
-  if (!s.suspended) return;
+function resumeSessionUI(s) {
+  if (s.resuming || !s.suspended) return s.resuming;
   const term = rebuildTerminalUI(s);
-  await window.api.resumeSession(s.id, { cols: term.cols || 80, rows: term.rows || 24 });
+  s.resuming = window.api.resumeSession(s.id, { cols: term.cols || 80, rows: term.rows || 24 })
+    .finally(() => { s.resuming = null; });
+  return s.resuming;
 }
 
 // Build the sidebar row (dot + label + restore/close buttons) and wire its
@@ -1309,6 +1364,8 @@ function syncSessions(list) {
 function removeSessionUI(id) {
   const s = sessions.get(id);
   if (!s) return;
+  if (pendingDictation?.id === id) pendingDictation = null;
+  stopSessionDictation(id);
   collapseSplitWithout(id);
   if (s.term) { if (s.renderer) s.renderer.dispose(); untrackTermTheme(s.term); s.term.dispose(); }
   s.container.remove();
@@ -1756,6 +1813,7 @@ const quickEffortEl = document.getElementById('new-session-quick');
 for (const level of QUICK_EFFORTS) {
   const btn = document.createElement('button');
   btn.className = 'quick-effort-btn';
+  btn.dataset.effort = level.id;
   btn.textContent = level.label;
   // Read at click/hold time, so a model picked from the caret menu since is picked up.
   const quickSessionOpts = () => ({ model: getSessionModel(), effort: level.id });
@@ -1770,28 +1828,34 @@ for (const level of QUICK_EFFORTS) {
   quickEffortEl.appendChild(btn);
 }
 
-// Quick-model row under New session (own toggle in Settings → General, off by default): one
-// click spawns a session on that model at the remembered effort, without changing the
-// saved default model.
 const quickModelsEl = document.getElementById('new-session-quick-models');
 function addQuickModelButtons(container, models) {
   for (const m of models) {
     const btn = document.createElement('button');
     btn.className = 'quick-model-btn';
+    btn.dataset.model = m.id;
+    btn.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown');
     btn.textContent = m.label;
-    const quickSessionOpts = () => ({ model: m.id });
-    btn.onclick = () => newSession(quickSessionOpts());
-    onDraftContextMenu(btn, quickSessionOpts);
-    initHoldToTalk(btn, () => startVoiceDraft(quickSessionOpts()));
-    btn.onmouseenter = () => {
+    onDraftContextMenu(btn, () => ({ model: m.id }));
+    btn.onmouseenter = btn.onfocus = () => {
       const name = m.hint ? `${modelLabel(m.id)} (${m.hint})` : modelLabel(m.id);
-      btn.title = `${t('sessions.newWithModelName').replace('{model}', name)} — ${t('voice.holdHint')}`;
+      btn.title = `${t('sessions.newWithModelName').replace('{model}', name)} — ${t('sessions.quickModelEffortHint')}`;
     };
     container.appendChild(btn);
   }
 }
 addQuickModelButtons(document.getElementById('quick-models-gpt'), QUICK_GPT_MODELS);
 addQuickModelButtons(document.getElementById('quick-models-claude'), QUICK_CLAUDE_MODELS);
+initQuickModelGestures(quickModelsEl, {
+  launch: (button, effort) => newSession({ model: button.dataset.model, effort }),
+  preview: (button, effort) => {
+    if (effort) button.dataset.effortPreview = QUICK_EFFORTS.find((level) => level.id === effort).label;
+    else delete button.dataset.effortPreview;
+    for (const effortButton of quickEffortEl.children) {
+      effortButton.classList.toggle('effort-preview', effortButton.dataset.effort === effort);
+    }
+  },
+});
 const QUICK_MODEL_STORE = 'ide.quickModelButtons';
 export function isQuickModelButtonsEnabled() {
   return localStorage.getItem(QUICK_MODEL_STORE) === 'true';

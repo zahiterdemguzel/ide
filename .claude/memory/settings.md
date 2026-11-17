@@ -177,11 +177,14 @@ the default model (`getSessionModel()`, i.e. the last caret/badge/Settings pick)
 
 **Quick model buttons.** Own toggle (Settings → General → *Quick model buttons*,
 `#settings-quick-model`, `ide.quickModelButtons`, off by default): a row under
-the split button (`#new-session-quick-models`) with three GPT/Codex models on the left
-(Astra = best, 6.1 Sol = best value, Luna = cheapest) and Sonnet / Opus / Fable on the
-right, from `shared/quick-models.js` (tested in `test/quick-models.test.mjs`). Each spawns
-a session on that model at the remembered effort without changing the saved default
-model; right-click and voice hold work like the effort buttons.
+the split button (`#new-session-quick-models`) with Sol / Luna / Astra on the left and
+Sonnet / Opus / Fable on the right. The two rows meet at a one-pixel seam. Click a model
+to start at Mid effort. Press and drag up or down at least 12 px, then release to start
+at High or Low. The matching effort button lights up during the gesture, or an effort
+label appears if the quick-effort buttons are hidden. While a model button is focused,
+Alt+Up and Alt+Down launch at High and Low. Launches use per-session overrides. The
+right-click prompt still uses the remembered effort. The ordering and drag threshold
+live in `shared/quick-models.js` and are tested in `test/quick-models.test.mjs`.
 
 **Right-click message box.** Right-clicking New session or a Low/Mid/High button
 (`openDraftBox` in `sessions.js`) boots the session behind it at once via `startVoiceDraft`

@@ -61,16 +61,15 @@ export const MODELS = [
 // of `claude` (see src/main/agent-providers.js), and the session is locked to
 // the codex family for life — the model menus only offer same-family switches.
 export const CODEX_MODELS = [
-  { id: 'codex:gpt-6-astra', name: 'GPT-6 Astra (Codex)' },
-  { id: 'codex:gpt-6.1-sol', name: 'GPT-6.1 Sol (Codex)' },
-  { id: 'codex:gpt-6.1-terra', name: 'GPT-6.1 Terra (Codex)' },
-  { id: 'codex:gpt-6-sol', name: 'GPT-6 Sol (Codex)' },
-  { id: 'codex:gpt-6-luna', name: 'GPT-6 Luna (Codex)' },
+  { id: 'codex:astra', name: 'Astra (latest, Codex)' },
+  { id: 'codex:sol', name: 'Sol (latest, Codex)' },
+  { id: 'codex:terra', name: 'Terra (latest, Codex)' },
+  { id: 'codex:luna', name: 'Luna (latest, Codex)' },
 ];
 const DEFAULT_MODEL = 'default';
 // Where a saved Codex default lands once its model leaves CODEX_MODELS (retired),
 // so someone who runs Codex isn't silently moved onto Claude. Codex CLI's own default.
-const DEFAULT_CODEX_MODEL = 'codex:gpt-6.1-sol';
+const DEFAULT_CODEX_MODEL = 'codex:sol';
 
 const STORE = {
   theme: 'ide.theme', locale: 'ide.locale',
@@ -163,7 +162,8 @@ export function modelLabel(id) {
 // can't check installs synchronously); the session simply fails to route and the
 // user re-picks — the menu self-heals when it re-renders from the live list.
 function readModel(key) {
-  const v = localStorage.getItem(key);
+  const saved = localStorage.getItem(key);
+  const v = saved?.replace(/^codex:gpt-\d+(?:\.\d+)*-(sol|astra|terra|luna)$/, 'codex:$1');
   if (MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v;
   return isCodexId(v) ? DEFAULT_CODEX_MODEL : DEFAULT_MODEL;
 }

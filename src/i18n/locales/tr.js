@@ -69,6 +69,7 @@ export default {
     'sessions.newWithModel': 'Seçili modelle yeni oturum',
     'sessions.newWithEffort': '{level} eforla yeni oturum',
     'sessions.newWithModelName': '{model} ile yeni oturum',
+    'sessions.quickModelEffortHint': 'Mid için tıklayın. High için yukarı, Low için aşağı sürükleyin. Klavyede Alt+Yukarı veya Alt+Aşağı tuşlarına basın.',
     'sessions.draftPlaceholder': 'Yeni oturum için mesaj — göndermek için Enter, yeni satır için Shift+Enter, iptal için Esc',
 
     'explorer.search': 'Dosyalarda ara…',
@@ -450,7 +451,7 @@ export default {
     'settings.subagentModel': 'Alt ajan modeli',
     'settings.general': 'Genel',
     'voice.title': 'Sesli giriş',
-    'voice.hint': 'Bir oturum terminali odaktayken söyledikleriniz bu cihazda yazıya çevrilir ve o oturuma yazılır. Enter tuşuna basmadan hiçbir şey gönderilmez.',
+    'voice.hint': 'Dikteye başlamak için oturum paneline veya listedeki oturuma macOS’te kuvvetli tıklayın, Windows’ta sağ tıklayın. Durdurmak için hareketi tekrarlayın veya Esc tuşuna basın. Whisper söylediklerinizi bu cihazda yazıya çevirir. Metni göndermek için Enter tuşuna basın.',
     'voice.enable': 'Odaktaki oturuma dikte et',
     'voice.model': 'Ses modeli',
     'voice.language': 'Konuşulan dil',

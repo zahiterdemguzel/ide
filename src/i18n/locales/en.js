@@ -70,6 +70,7 @@ export default {
     'sessions.newWithModel': 'New session with a chosen model',
     'sessions.newWithEffort': 'New session at {level} effort',
     'sessions.newWithModelName': 'New session on {model}',
+    'sessions.quickModelEffortHint': 'Click for Mid. Drag up for High or down for Low. Use Alt+Up or Alt+Down on the keyboard.',
     'sessions.draftPlaceholder': 'Message for the new session — Enter to send, Shift+Enter for a new line, Esc to cancel',
 
     'explorer.search': 'Search files…',
@@ -451,7 +452,7 @@ export default {
     'settings.subagentModel': 'Subagent model',
     'settings.general': 'General',
     'voice.title': 'Voice input',
-    'voice.hint': 'While a session terminal has focus, what you say is transcribed on this device and typed into that session. Nothing is sent until you press Enter.',
+    'voice.hint': 'Force-click on macOS or right-click on Windows to dictate into a session pane or list item. Repeat the gesture or press Esc to stop. Whisper transcribes on this device. Press Enter to send the text.',
     'voice.enable': 'Dictate into the focused session',
     'voice.model': 'Voice model',
     'voice.language': 'Spoken language',

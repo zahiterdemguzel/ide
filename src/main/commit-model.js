@@ -2,8 +2,10 @@
 const { execFile } = require('child_process');
 const os = require('os');
 const { runHaiku, runCli } = require('./claude');
+const { latestCodexModel } = require('./codex-latest');
 const { resolveCodex } = require('./codex');
 const { readStore } = require('./settings-store');
+const { codexModelName } = require('./agent-providers');
 const { pickCommitModel } = require('./commit-msg');
 
 async function runLocal(prompt, name) {
@@ -16,6 +18,7 @@ async function runLocal(prompt, name) {
 
 async function runCodex(prompt, model) {
   const exe = await resolveCodex();
+  model = codexModelName(await latestCodexModel(exe, 'codex:' + model));
   return new Promise((resolve) => {
     const win32 = process.platform === 'win32';
     const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--model', model, '-'];

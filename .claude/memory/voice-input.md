@@ -1,20 +1,10 @@
-# Voice input (dictate into the focused session)
+# Voice input
 
-**While a session terminal has keyboard focus, the microphone is live and what the
-user says is typed into that session.** No hotkey, no button — the mic follows the
-caret. The rule is exactly *"could I type into this panel right now?"*, so the same
-act that makes a session ready for the keyboard makes it ready for the voice.
-Recognition is fully offline: a bundled Whisper model runs in the main process, so
-nothing is ever uploaded.
-
-> **The mouse is irrelevant.** An earlier version armed on *hover*, which is worse on
-> both counts: moving the cursor across the app could open a microphone, and it
-> needed a dwell delay, a pointer-position cache and `pointermove` bookkeeping to
-> approximate intent that focus states already express exactly.
-> `test/voice-focus.test.js` fails if a pointer listener creeps back in.
-
-Text is **typed into the session, never submitted**. The user reviews it and presses
-Enter themselves.
+Force Click a session pane or list row on macOS or right-click one on Windows.
+The gesture selects the session and starts dictation even when automatic
+focus-based dictation is off. Repeat the gesture or press Escape to stop.
+OpenAI Whisper large-v3-turbo transcribes on the device. Text goes into the
+session's terminal for review. Press Enter to submit it.
 
 ## The parts
 
@@ -45,55 +35,30 @@ Enter themselves.
 
 ## How arming is decided
 
-Everything routes through one `syncToFocus()` — a focus change, the window regaining
-focus, the feature being switched on — so there is a single definition of "should
-this be listening": **voice enabled, window focused, and the caret inside a live
-`.term-container`**.
+`sessions.js` resolves either gesture to a session and selects its terminal. A
+saved active row waits for its PTY to resume. An archived row requires the usual
+restore action. On Windows the capture-phase context menu handler takes precedence
+over xterm's right-click clipboard action on live session panes. On macOS the
+Node-API addon in `src/native/force-click.mm` observes AppKit stage-two pressure
+events from the focused window and reports coordinates for renderer hit testing.
+`npm start` and `npm run build:mac` compile it for arm64 and x64 with the macOS
+command-line tools.
 
-- Bound to **`focusin` + `focusout`** (they bubble; `focus`/`blur` don't).
-  `focusout` is deferred a tick so `document.activeElement` has settled, and it's
-  needed for the case where focus leaves for something that never takes focus itself
-  (clicking blank chrome), where no `focusin` follows.
-- xterm focuses a **hidden textarea inside** the pane, so the caret is always on a
-  *descendant* of `.term-container`, never the container itself — hence `closest()`.
-- A **suspended** pane never arms: no live PTY behind it, which is the same reason it
-  can't be typed into by hand.
-- A **modal dialog traps focus**, so nothing arms while the settings or setup dialog
-  is open. That falls out of the rule rather than being special-cased, and it's
-  correct — the terminal can't be typed into then either.
-- `selectSession()` already calls `term.focus()`, so picking a session in the sidebar
-  arms it without the user clicking into the pane.
+`syncToFocus()` reconciles the requested capture with the focused terminal. The
+Voice input setting still supports automatic dictation on focus, with a 120 ms
+settle for transient focus changes. A gesture starts immediately, and stopping
+with the gesture or Escape pauses automatic dictation until focus leaves that
+terminal. Window blur disarms capture and clears any pending gesture.
 
-Two guards remain non-negotiable, because a mic that opens without a button press is
-still a mic that opens on its own:
+All terminal panes use `createTermContainer(id)` to set `data-session-id`.
+xterm's focused textarea is a descendant of this container. The same ID is used
+to route each phrase back to the session that was recording. The renderer awaits
+the current capture's final phrase before starting the next capture or a New
+session hold.
 
-- **`document.hasFocus()`** — a focused terminal in an *unfocused window* is inert
-  (the user is talking to another app), and a window `blur` disarms immediately.
-- **A visible indicator** — the pulsing `.voice-hot` pill (`layout.css`) plus a ring
-  on the session that is listening.
-
-A **120 ms settle** sits in front of arming, because a click that moves focus between
-panes can flicker for a frame. It is *not* the old dwell delay: it guards against
-transient focus, not against accidental proximity.
-
-The mic stream is opened once and **kept open between sessions, with the worklet
-gated** rather than torn down: `getUserMedia` costs 200–500 ms, which would eat the
-first words of a phrase. It's released after 3 minutes idle, so the OS recording
-indicator doesn't stay lit after the user has moved on.
-
-`.term-container` carries **`data-session-id`** — that's how the focused element maps
-to a session. A phrase is always typed into the session it was *captured* for, even
-if the cursor has since moved.
-
-> **All terminal panes are built by `sessions.js`'s `createTermContainer(id)`** —
-> deliberately the only site, because the pane must carry `data-session-id`. There
-> used to be two (`buildTerminal` for a fresh session, `restoreSessionRow` for one
-> restored from disk) and only the first stamped the attribute, which shipped a
-> feature that did **nothing at all, silently**, for every restored session — i.e.
-> most sessions after a restart — because `sessionOf()` resolved `null` and it
-> never armed. `test/voice-focus.test.js` holds the line by asserting there is still
-> exactly **one** creation site (and that `voice.js` still reads the attribute the
-> writer sets); with one site the invariant is structural rather than policed.
+The indicator is shown while arming and listening. When automatic dictation is
+off, stopping a session gesture releases the microphone. The recognizer stays
+warm until the idle timer expires.
 
 ## The indicator (three states)
 
@@ -330,6 +295,7 @@ in `voice.js`'s `initHoldToTalk`, wired from `sessions.js`. The optional **Low/M
 quick-effort buttons get the same hold: the session starts at that button's effort on
 the caret-menu family's last model (`startVoiceDraft(opts)`). They have no
 `[data-i18n]` label, so their text stays put and only the colour shows the hold state.
+Holding a quick-model button is used to [choose effort](settings.md#agent-models).
 
 - **The mic opens on the press, not at the threshold.** `pointerdown` starts the mic
   graph (`ensureGraph`, deduped with dictation's arm) and every chunk from then on is
@@ -363,8 +329,8 @@ the caret-menu family's last model (`startVoiceDraft(opts)`). They have no
   after that decode (~1.1 s at 12 threads), so the transcript is complete before it's
   typed. An empty one shows "Didn't catch any words" and closes the booted session.
 - **A late stop can't cut off the next capture.** `stopCapture()` only clears the
-  target it stopped: dictation's stop (sent as the button takes focus) is queued
-  behind its last decode, and would otherwise null the hold's target after it armed.
+  target it stopped. The renderer orders engine changes so the previous capture
+  flushes before the next starts.
 - `MAX_HOLD_MS` (2 min) ends a hold whose pointerup never arrived.
 
 ## Dev wrapper reads models from `vendor/stt`

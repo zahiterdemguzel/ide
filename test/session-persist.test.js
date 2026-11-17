@@ -141,7 +141,7 @@ test('a snapshot written when auto was a level resolves to a real one', () => {
 });
 
 test('a session saved on a retired codex model restores onto its replacement', () => {
-  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-5.5' }).model, 'codex:gpt-6.1-sol');
+  assert.equal(deserializeSession({ id: 'x', model: 'codex:gpt-5.5' }).model, 'codex:gpt-6.2-sol');
   assert.equal(deserializeSession({ id: 'x', model: 'sonnet' }).model, 'sonnet');
 });
 

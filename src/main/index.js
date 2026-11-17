@@ -39,7 +39,7 @@ require('./onboarding-store');
 require('./settings-store'); // the renderer's localStorage, mirrored to a file write by write
 require('./remote');
 require('./ollama'); // embedded Ollama engine + custom-models IPC (lazy — nothing starts here)
-require('./stt'); // voice input: Whisper recognizer + VAD (lazy — loads on first hover)
+require('./stt'); // voice input: Whisper recognizer + VAD (loaded on demand)
 require('./ai-assist'); // editor AI: ghost-text completions + Cmd/Ctrl+K inline edits
 
 // Log every crash (uncaught exception, unhandled rejection, renderer/child-process

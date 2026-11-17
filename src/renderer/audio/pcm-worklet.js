@@ -8,7 +8,7 @@
 // happens here. Frames arrive 128 samples at a time; posting each one would mean
 // ~125 IPC messages a second, so they're batched to BATCH samples (~64 ms) first.
 // `gate` is flipped from the main thread instead of tearing the graph down, so
-// arming on hover costs nothing and never loses the first words of a phrase.
+// a new capture can reuse the graph while the microphone is still open.
 
 const BATCH = 1024;
 

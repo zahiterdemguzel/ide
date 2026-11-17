@@ -69,6 +69,7 @@ export default {
     'sessions.newWithModel': 'Neue Sitzung mit gewähltem Modell',
     'sessions.newWithEffort': 'Neue Sitzung mit Aufwand {level}',
     'sessions.newWithModelName': 'Neue Sitzung mit {model}',
+    'sessions.quickModelEffortHint': 'Für Mid klicken. Für High nach oben, für Low nach unten ziehen. Auf der Tastatur Alt+Pfeil hoch oder Alt+Pfeil runter drücken.',
     'sessions.draftPlaceholder': 'Nachricht für die neue Sitzung – Enter zum Senden, Umschalt+Enter für neue Zeile, Esc zum Abbrechen',
 
     'explorer.search': 'Dateien suchen…',
@@ -450,7 +451,7 @@ export default {
     'settings.subagentModel': 'Subagent-Modell',
     'settings.general': 'Allgemein',
     'voice.title': 'Spracheingabe',
-    'voice.hint': 'Solange ein Sitzungsterminal den Fokus hat, wird das Gesprochene auf diesem Gerät transkribiert und in diese Sitzung geschrieben. Erst mit Enter wird etwas abgeschickt.',
+    'voice.hint': 'Drücke unter macOS fest oder klicke unter Windows mit der rechten Maustaste auf ein Sitzungsfenster oder einen Listeneintrag, um zu diktieren. Wiederhole die Geste oder drücke Esc zum Beenden. Whisper transkribiert auf diesem Gerät. Drücke Enter, um den Text zu senden.',
     'voice.enable': 'In die fokussierte Sitzung diktieren',
     'voice.model': 'Sprachmodell',
     'voice.language': 'Gesprochene Sprache',

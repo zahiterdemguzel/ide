@@ -14,23 +14,49 @@ const CODEX_PREFIX = 'codex:';
 const isCodexId = (id) => typeof id === 'string' && id.startsWith(CODEX_PREFIX);
 const codexModelName = (id) => (isCodexId(id) ? id.slice(CODEX_PREFIX.length) : String(id || ''));
 
-// Codex models OpenAI has retired for ChatGPT sign-in, each mapped to the
-// replacement its migration notice names. A session saved on one would otherwise
-// resume onto a model the API refuses, failing every turn.
-const RETIRED_CODEX_MODELS = {
-  'gpt-5.5': 'gpt-6.1-sol',
-  'gpt-5.4': 'gpt-6-sol',
-  'gpt-5.4-mini': 'gpt-6-luna',
-  'gpt-5.3-codex': 'gpt-6.1-sol',
-  'gpt-5.3-codex-spark': 'gpt-6-luna',
-  'gpt-5.2': 'gpt-6.1-sol',
+// Keep each named GPT family on its newest known version. At launch the Codex
+// catalog can advance these fallbacks without requiring an IDE release.
+const LATEST_CODEX_MODELS = {
+  sol: 'gpt-6.2-sol', astra: 'gpt-6.2-astra', terra: 'gpt-6.1-terra', luna: 'gpt-6-luna',
 };
-// A model id with any retired Codex model swapped for its replacement; every other
-// id (Claude, Ollama, current Codex) comes back unchanged.
-function currentModelId(id) {
+const RETIRED_CODEX_MODELS = {
+  'gpt-5.5': 'sol', 'gpt-5.4': 'sol', 'gpt-5.4-mini': 'luna',
+  'gpt-5.3-codex': 'sol', 'gpt-5.3-codex-spark': 'luna', 'gpt-5.2': 'sol',
+};
+function versionedModel(name) {
+  const match = /^gpt-(\d+(?:\.\d+)*)-(sol|astra|terra|luna)$/.exec(name);
+  return match && { version: match[1].split('.').map(Number), family: match[2] };
+}
+function newerModel(a, b) {
+  const av = versionedModel(a).version, bv = versionedModel(b).version;
+  for (let i = 0; i < Math.max(av.length, bv.length); i++) {
+    if ((av[i] || 0) !== (bv[i] || 0)) return (av[i] || 0) > (bv[i] || 0);
+  }
+  return false;
+}
+function currentModelId(id, models = []) {
   if (!isCodexId(id)) return id;
-  const replacement = RETIRED_CODEX_MODELS[codexModelName(id)];
-  return replacement ? CODEX_PREFIX + replacement : id;
+  const name = codexModelName(id);
+  const family = Object.hasOwn(LATEST_CODEX_MODELS, name) ? name : RETIRED_CODEX_MODELS[name] || versionedModel(name)?.family;
+  if (!family) return id;
+  let latest = LATEST_CODEX_MODELS[family];
+  if (versionedModel(name) && newerModel(name, latest)) latest = name;
+  for (const model of models) {
+    const slug = model?.slug;
+    if (model.visibility !== 'hide' && versionedModel(slug)?.family === family && newerModel(slug, latest)) latest = slug;
+  }
+  return CODEX_PREFIX + latest;
+}
+function resolveCurrentModelId(id) {
+  if (!isCodexId(id)) return id;
+  try {
+    const path = require('path');
+    const home = process.env.CODEX_HOME || path.join(require('os').homedir(), '.codex');
+    const catalog = JSON.parse(require('fs').readFileSync(path.join(home, 'models_cache.json'), 'utf8'));
+    return currentModelId(id, Array.isArray(catalog.models) ? catalog.models : []);
+  } catch {
+    return currentModelId(id);
+  }
 }
 
 // Which CLI family a model id belongs to. An empty/`default` selection is a
@@ -90,7 +116,7 @@ function codexHookOverrides(port, ideId, platform) {
 function codexSpawnArgs({ resume, agentSessionId, model, effort, port, ideId, platform }) {
   const args = [];
   if (resume && agentSessionId) args.push('resume', agentSessionId);
-  const bare = codexModelName(currentModelId(model));
+  const bare = codexModelName(resolveCurrentModelId(model));
   if (bare) args.push('--model', bare);
   const e = codexEffortValue(effort);
   if (e) args.push('-c', `model_reasoning_effort="${e}"`);
@@ -99,4 +125,4 @@ function codexSpawnArgs({ resume, agentSessionId, model, effort, port, ideId, pl
   return args;
 }
 
-module.exports = { modelFamily, canSwitchModel, isCodexId, codexModelName, currentModelId, codexSpawnArgs, codexHookCommand, CODEX_HOOK_EVENTS };
+module.exports = { modelFamily, canSwitchModel, isCodexId, codexModelName, currentModelId, resolveCurrentModelId, codexSpawnArgs, codexHookCommand, CODEX_HOOK_EVENTS };

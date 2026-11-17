@@ -64,16 +64,27 @@
 .quick-effort[hidden] { display: none; }
 .split-btn .quick-effort-btn { flex: 0 0 auto; padding: 7px 7px; border-radius: 0; font-size: 11px; }
 .split-btn .quick-effort-btn:last-child { border-radius: 0 5px 5px 0; }
-/* Quick-model row under the split button: one continuous pill styled and spaced like the
-   row above (accent fill, 1px seams, 7px padding, 11px text, rounded only at the outer
-   ends). GPT buttons first, Claude after; the groups are display:contents so all six
-   share the row equally. */
-.quick-models { display: flex; gap: 1px; margin-top: 6px; }
+/* With both rows visible, round only the outside corners of the launcher. */
+.new-session-wrap:has(.quick-models:not([hidden])) #new-session { border-bottom-left-radius: 0; }
+.new-session-wrap:has(.quick-models:not([hidden])) :is(.split-btn-caret, .quick-effort-btn:last-child) { border-bottom-right-radius: 0; }
+.quick-models { display: flex; gap: 1px; margin-top: 1px; }
 .quick-models[hidden] { display: none; }
 .quick-models-group { display: contents; }
-.sidebar-actions .quick-model-btn { flex: 1 1 0; min-width: 0; padding: 7px 7px; border-radius: 0; font-size: 11px; }
-.quick-models-group:first-child .quick-model-btn:first-child { border-radius: 5px 0 0 5px; }
-.quick-models-group:last-child .quick-model-btn:last-child { border-radius: 0 5px 5px 0; }
+.sidebar-actions .quick-model-btn {
+  flex: 1 1 0; min-width: 0; padding: 7px; border-radius: 0; font-size: 11px;
+  position: relative; touch-action: none; user-select: none;
+}
+.quick-models-group:first-child .quick-model-btn:first-child { border-bottom-left-radius: 5px; }
+.quick-models-group:last-child .quick-model-btn:last-child { border-bottom-right-radius: 5px; }
+.sidebar-actions :is(.quick-model-btn[data-effort-preview], .quick-effort-btn.effort-preview) {
+  background: var(--accent-hi); box-shadow: inset 0 0 0 1px currentColor;
+}
+.new-session-wrap:has(.quick-effort[hidden]) .quick-model-btn[data-effort-preview]::after {
+  content: attr(data-effort-preview);
+  position: absolute; z-index: 1; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+  padding: 3px 7px; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--bg-2); color: var(--fg); pointer-events: none;
+}
 /* Point the caret up — the model menu opens above the button. */
 .split-btn .split-btn-caret svg { transform: rotate(180deg); }
 
@@ -191,10 +202,7 @@
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   color: var(--fg-dim); font-size: 12px; text-align: center; padding: 0 24px;
 }
-/* Voice input's hot-mic indicator: a state pill in the corner of the terminal that
-   is listening, plus a ring around the terminal itself. A microphone opened by
-   nothing more than a hovering cursor must be impossible to miss — see
-   src/renderer/voice.js, which paints the pill before it even starts arming. */
+/* Paint the pill and ring as soon as dictation starts arming. */
 .term-container.voice-listening {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--danger, #e5534b) 55%, transparent);
 }

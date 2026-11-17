@@ -1,20 +1,5 @@
-// Voice input: while a session terminal has keyboard focus, the microphone is live
-// and what the user says is typed into that session.
-//
-// **Focus, not the mouse.** Where the cursor happens to sit is irrelevant; the mic
-// follows the caret. The rule is exactly "could I type into this panel right now?" —
-// so the same act that makes a session ready for the keyboard makes it ready for the
-// voice, and moving the mouse across the app can never open a microphone.
-//
-// Two guards remain non-negotiable, because a mic that opens without a button press
-// is still a mic that opens on its own:
-//   * a window-focus check, so a focused terminal in an unfocused window is inert;
-//   * a visible indicator on the session that is listening.
-//
-// Only the audio capture lives here. Recognition (Whisper + Silero VAD) is in the
-// main process (src/main/stt.js), which pushes back finished phrases as `stt-text`.
-// Text is *typed into the session, never submitted* — the user reviews it and
-// presses Enter themselves.
+// Session gestures and optional focus-based dictation share microphone capture.
+// Main runs Whisper + Silero VAD and returns phrases to type into the session.
 import { t } from '../i18n/index.js';
 import { showWarning } from './shared/warn.js';
 import { HOLD_TARGET, HOLD_TO_TALK_MS, MAX_HOLD_MS, appendPhrase, holdOutcome } from './shared/hold-to-talk.js';
@@ -29,6 +14,9 @@ const DEFAULT_LANGUAGE = 'en-tr';
 // terminal), so a change is allowed to settle before it arms or disarms. Short
 // enough that clicking into a terminal and speaking still feels immediate.
 const SETTLE_MS = 120;
+// About 16 seconds of worklet batches while Whisper loads or the previous
+// session's final phrase finishes. A stalled engine cannot grow this buffer.
+const MAX_PENDING_CHUNKS = 256;
 // The mic stream is kept open between sessions (acquiring it costs 200-500ms, which
 // would eat the first words of a phrase) but not forever — the OS mic indicator
 // staying lit while the user has moved on reads as spyware.
@@ -41,17 +29,18 @@ let stream = null;
 let ctx = null;
 let node = null;
 let graphLoading = null;  // in-flight mic graph build, shared by dictation and the hold
-let starting = null;      // in-flight arm, so a focus change during it can bail out
+let starting = null;
+let wanted = null; // identity distinguishes consecutive requests for the same session
+let gestureSession = null;
+let pausedSession = null; // a gesture stopped dictation while this session stayed focused
+let engineChange = Promise.resolve();
 let armedSession = null;  // session id currently being dictated into
 let settleTimer = null;
 let idleTimer = null;
-let focusedSession = null; // session whose terminal currently holds the caret
 // The live indicator, held directly rather than re-queried — there is only ever one.
 let hotPill = null;
 let hotContainer = null;
-// Whether we've already typed a phrase into the current hover. Decides whether the
-// next phrase needs a leading space. Reset per arm — we can't see the terminal's
-// real line contents, so each hover starts a fresh "line" as far as spacing goes.
+// Whether a phrase has already been typed during this capture.
 let typedThisArm = false;
 // The New session hold in progress, or null. While it runs it owns the capture:
 // dictation stands down and focus changes are ignored until it ends.
@@ -64,7 +53,6 @@ export function getVoiceLanguage() { return localStorage.getItem(STORE.language)
 // What every stt-warm / stt-start call carries.
 function engineOpts() { return { modelId: getVoiceModel(), language: getVoiceLanguage() }; }
 
-// The single question the hover path asks: should a hover start listening?
 function active() { return available && isVoiceEnabled(); }
 
 // --- capture -----------------------------------------------------------------
@@ -75,7 +63,7 @@ async function buildGraph() {
   ctx = new AudioContext({ sampleRate: 16000, latencyHint: 'interactive' });
   // Independent: compiling the worklet module and acquiring the device share
   // nothing, and the device alone costs 200-500ms.
-  const [, mic] = await Promise.all([
+  const [worklet, mic] = await Promise.allSettled([
     ctx.audioWorklet.addModule(new URL('./audio/pcm-worklet.js', import.meta.url)),
     navigator.mediaDevices.getUserMedia({
       audio: {
@@ -86,12 +74,15 @@ async function buildGraph() {
       },
     }),
   ]);
-  stream = mic;
+  if (mic.status === 'rejected') throw mic.reason;
+  stream = mic.value;
+  if (worklet.status === 'rejected') throw worklet.reason;
   const source = ctx.createMediaStreamSource(stream);
   node = new AudioWorkletNode(ctx, 'pcm-worklet');
   node.port.onmessage = (e) => {
     if (hold) captureForHold(hold, e.data);
     else if (armedSession) window.api.sttAudio(e.data);
+    else if (wanted?.pending && wanted.pending.length < MAX_PENDING_CHUNKS) wanted.pending.push(e.data);
   };
   // The worklet has no output; connecting to the destination would echo the mic
   // back through the speakers.
@@ -129,12 +120,12 @@ function releaseStream() {
 
 function scheduleIdleRelease() {
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { if (!armedSession && !hold) releaseStream(); }, IDLE_RELEASE_MS);
+  idleTimer = setTimeout(() => { if (!wanted && !starting && !hold) releaseStream(); }, IDLE_RELEASE_MS);
 }
 
 // --- indicator ---------------------------------------------------------------
 
-// The indicator has three states, and it appears the moment the hover arms rather
+// The indicator has three states, and it appears the moment dictation starts arming rather
 // than when recognition is ready: the model load and each ~1s decode are both long
 // enough that silence would read as "the feature is broken".
 //   starting    — arming (loading weights / acquiring the mic)
@@ -179,32 +170,60 @@ function containerFor(sessionId) {
   return document.querySelector(`.term-container[data-session-id="${CSS.escape(sessionId)}"]`);
 }
 
-function arm(sessionId) {
-  if (armedSession === sessionId || starting) return;
-  clearTimeout(idleTimer);
-  // Paint "starting" before any awaiting, so focusing a terminal is acknowledged
-  // instantly even on the first arm (mic acquisition + a cold model load).
-  showHot(containerFor(sessionId), 'starting');
-  const attempt = armNow(sessionId).catch(disableVoice).finally(() => {
-    if (starting === attempt) starting = null;
-  });
-  starting = attempt;
+// Let each stop flush the last phrase before changing the main process's target.
+// This also orders a New session hold against dictation that was still arming.
+function changeEngine(task) {
+  const result = engineChange.then(task);
+  engineChange = result.catch(() => {});
+  return result;
 }
 
-async function armNow(sessionId) {
-  // The mic (renderer) and the recognizer (main) load independently, so don't pay
-  // for them one after the other on a cold first arm.
-  const [, res] = await Promise.all([
-    ensureGraph(),
-    window.api.sttStart({ sessionId, ...engineOpts() }),
-  ]);
-  if (res && res.error) throw new Error(res.error);
-  // Focus may have moved on while the weights were loading.
-  if (focusedSession !== sessionId) { hideHot(); window.api?.sttStop?.(); return; }
-  armedSession = sessionId;
-  typedThisArm = false;
+function startEngine(sessionId, isCurrent) {
+  return changeEngine(async () => {
+    if (!isCurrent()) return false;
+    const result = await window.api.sttStart({ sessionId, ...engineOpts() });
+    if (!isCurrent()) {
+      if (!result?.error) await window.api.sttFinish();
+      return false;
+    }
+    if (result?.error) throw new Error(result.error);
+    return true;
+  });
+}
+
+function stopEngine() { return changeEngine(() => window.api.sttFinish()); }
+
+function arm(request) {
+  const { id } = request;
+  if (request !== wanted || armedSession === id || starting) return;
+  clearTimeout(idleTimer);
+  showHot(containerFor(id), 'starting');
+  starting = armNow(request).catch((err) => {
+    if (wanted !== request) return;
+    if (gestureSession === id) {
+      stopGesture();
+      showWarning(err.message || String(err), t('voice.title'));
+    } else {
+      disableVoice(err);
+    }
+  }).finally(() => {
+    starting = null;
+    if (wanted && wanted !== request && !settleTimer) arm(wanted);
+    else if (!wanted && !hold && (!isVoiceEnabled() || pausedSession)) releaseMic();
+  });
+}
+
+async function armNow(request) {
+  await ensureGraph();
+  if (wanted !== request) return;
+  request.pending = [];
   gate(true);
-  showHot(containerFor(sessionId), 'listening');
+  if (!await startEngine(request.id, () => wanted === request) || wanted !== request) return;
+  armedSession = request.id;
+  typedThisArm = false;
+  for (const chunk of request.pending) window.api.sttAudio(chunk);
+  request.pending = null;
+  showHot(containerFor(request.id), 'listening');
 }
 
 // A denied mic permission or a missing model must switch the feature off rather
@@ -217,18 +236,20 @@ function disableVoice(err) {
   if (err) showWarning(err.message ? err.message : String(err), t('voice.title'));
 }
 
-// Clears the pill even when arming never completed — a "starting" pill left behind
-// would claim the mic is live when it isn't. An arm still in flight sees
-// `focusedSession` has moved on and bails out on its own.
 function disarm() {
+  clearTimeout(settleTimer);
+  settleTimer = null;
+  wanted = null;
   hideHot();
-  if (!armedSession) return;
   gate(false);
-  armedSession = null;
-  // Flushes the phrase in progress in main: focus left mid-sentence, but the user
-  // still said the words.
-  window.api?.sttStop?.();
-  scheduleIdleRelease();
+  if (armedSession) {
+    armedSession = null;
+    stopEngine();
+  }
+  if (!hold) {
+    if (!starting && (!isVoiceEnabled() || pausedSession)) releaseMic();
+    scheduleIdleRelease();
+  }
 }
 
 // --- focus tracking ----------------------------------------------------------
@@ -248,24 +269,55 @@ function focusedTerminalSession() {
   return sessionOf(document.activeElement);
 }
 
-// Re-reads where the caret is and arms or disarms to match. Every trigger routes
-// through here — a focus change, the window regaining focus, the feature being
-// switched on — so there is one definition of "should this be listening".
-function syncToFocus() {
-  if (hold) return; // the hold owns the capture; endHold() re-syncs
-  const id = active() && document.hasFocus() ? focusedTerminalSession() : null;
-  if (id === focusedSession && (!id || armedSession === id || starting)) return;
-  focusedSession = id;
-  clearTimeout(settleTimer);
-  if (!id) { disarm(); return; }
-  // Let a click that moves focus between panes settle before opening the mic.
-  settleTimer = setTimeout(() => {
-    if (focusedSession === id && active() && document.hasFocus()) arm(id);
-  }, SETTLE_MS);
+function syncToFocus(immediate = false) {
+  if (hold) return;
+  const focused = document.hasFocus() ? focusedTerminalSession() : null;
+  if (gestureSession !== focused) gestureSession = null;
+  if (pausedSession !== focused) pausedSession = null;
+  const id = gestureSession || (active() && focused !== pausedSession ? focused : null);
+  if ((wanted?.id || null) !== id) {
+    disarm();
+    if (id) wanted = { id };
+  }
+  if (!wanted || armedSession === id) return;
+  if (immediate) {
+    clearTimeout(settleTimer);
+    settleTimer = null;
+    arm(wanted);
+  } else if (!settleTimer && !starting) {
+    const request = wanted;
+    settleTimer = setTimeout(() => {
+      settleTimer = null;
+      arm(request);
+    }, SETTLE_MS);
+  }
 }
 
-// Re-read what the cursor is over right now, without waiting for it to move. Needed
-// when the *feature* changes rather than the cursor: switching voice input on while
+function stopGesture() {
+  pausedSession = gestureSession;
+  gestureSession = null;
+  syncToFocus();
+}
+
+export function toggleSessionDictation(id) {
+  if (hold || !document.hasFocus() || focusedTerminalSession() !== id) return;
+  if (gestureSession === id) {
+    stopGesture();
+    return;
+  }
+  gestureSession = id;
+  pausedSession = null;
+  window.api.sttWarm(engineOpts());
+  syncToFocus(true);
+}
+
+export function stopSessionDictation(id) {
+  if (wanted?.id !== id) return;
+  gestureSession = null;
+  pausedSession = id;
+  disarm();
+}
+
 // --- text delivery -----------------------------------------------------------
 
 function onText(msg) {
@@ -273,7 +325,7 @@ function onText(msg) {
   // A phrase captured for the New session hold goes into its transcript, never
   // into a terminal.
   if (msg.sessionId === HOLD_TARGET) {
-    if (hold) hold.transcript = appendPhrase(hold.transcript, msg.text);
+    if (hold?.engineReady) hold.transcript = appendPhrase(hold.transcript, msg.text);
     return;
   }
   // Only ever type into the session the phrase was captured for, even if focus has
@@ -331,15 +383,19 @@ function endHold(h) {
   if (h.label) h.label.textContent = h.restLabel;
   // A plain click opened the mic only in case it became a hold: with dictation off,
   // close it now rather than leave the OS recording indicator lit.
-  if (!h.recording && !isVoiceEnabled()) releaseMic();
-  else scheduleIdleRelease();
+  if (!isVoiceEnabled()) {
+    (graphLoading || Promise.resolve()).then(() => {
+      if (!hold && !wanted) releaseMic();
+    }, () => {});
+  }
+  scheduleIdleRelease();
   syncToFocus();
 }
 
 function failHold(h, err) {
   if (hold !== h) return;
   h.released = true;
-  window.api?.sttStop?.();
+  if (h.engineReady) stopEngine();
   h.draft?.discard();
   endHold(h);
   showWarning(err && err.message ? err.message : String(err), t('voice.title'));
@@ -349,10 +405,6 @@ function failHold(h, err) {
 // this is a click or a hold.
 function beginPress(button, startDraft) {
   // Dictation and the hold share one capture in main, so the hold takes it over.
-  clearTimeout(settleTimer);
-  focusedSession = null;
-  disarm();
-  clearTimeout(idleTimer);
   swallowNextClick = false;
   const label = button.querySelector('[data-i18n]');
   const h = {
@@ -361,6 +413,9 @@ function beginPress(button, startDraft) {
     released: false, cancelled: false, micError: null, draft: null, pressTimer: null, maxTimer: null,
   };
   hold = h;
+  gestureSession = null;
+  disarm();
+  clearTimeout(idleTimer);
   ensureGraph().then(() => {
     if (hold !== h || h.released) return;
     gate(true);
@@ -380,9 +435,8 @@ function startRecording(h) {
   paintHold(h, node ? 'listening' : 'starting');
   h.maxTimer = setTimeout(() => releaseHold(false), MAX_HOLD_MS);
   h.draft = h.startDraft ? h.startDraft() : null;
-  window.api.sttStart({ sessionId: HOLD_TARGET, ...engineOpts() }).then((res) => {
-    if (res && res.error) throw new Error(res.error);
-    if (hold !== h) { window.api?.sttStop?.(); return; } // cancelled while loading
+  startEngine(HOLD_TARGET, () => hold === h).then((started) => {
+    if (!started || hold !== h) return;
     h.engineReady = true;
     for (const chunk of h.pending) window.api.sttAudio(chunk);
     h.pending = [];
@@ -399,7 +453,12 @@ function releaseHold(cancelled) {
   if (!h.recording) { endHold(h); return; }
   h.cancelled = cancelled;
   clearTimeout(h.maxTimer);
-  if (cancelled) { window.api?.sttStop?.(); h.draft?.discard(); endHold(h); return; }
+  if (cancelled) {
+    if (h.engineReady) stopEngine();
+    h.draft?.discard();
+    endHold(h);
+    return;
+  }
   // Show the session the moment the button is let go; the text follows.
   h.draft?.reveal();
   // Still loading: startRecording finishes once main has the audio.
@@ -410,7 +469,7 @@ function releaseHold(cancelled) {
 // Wait for main to decode the phrase still in progress, then act on the transcript.
 async function finishHold(h) {
   paintHold(h, 'transcribing');
-  try { await window.api.sttFinish(); } catch { /* act on what arrived */ }
+  try { await stopEngine(); } catch { /* act on what arrived */ }
   if (hold !== h) return;
   endHold(h);
   const outcome = holdOutcome(h.transcript, h.cancelled);
@@ -451,7 +510,12 @@ export function initHoldToTalk(button, startDraft) {
 
 export function setVoiceEnabled(on) {
   localStorage.setItem(STORE.enabled, on ? '1' : '0');
-  if (!on) { clearTimeout(settleTimer); focusedSession = null; disarm(); releaseStream(); return; }
+  if (!on) {
+    gestureSession = null;
+    disarm();
+    changeEngine(() => { if (!wanted && !hold && !isVoiceEnabled()) window.api.sttRelease(); });
+    return;
+  }
   // Load the weights now, not on the first arm — the model load is ~2.7s and would
   // otherwise swallow the first words the user says. Deliberately does not touch the
   // microphone: that would light the OS recording indicator while no session is even
@@ -548,20 +612,26 @@ export function initVoice() {
   // and focusout both bubble (unlike focus/blur), and both are needed: focusin
   // catches the caret arriving, focusout catches it leaving for something that never
   // takes focus itself (clicking blank chrome), where no focusin follows.
-  document.addEventListener('focusin', syncToFocus);
+  document.addEventListener('focusin', () => syncToFocus());
   document.addEventListener('focusout', () => setTimeout(syncToFocus, 0));
   // A focused terminal in an unfocused window must be inert — the user is talking to
   // some other app — and coming back should resume listening.
   // A hold is dropped too: the button can't be released in a window that lost focus.
-  window.addEventListener('blur', () => { releaseHold(true); clearTimeout(settleTimer); focusedSession = null; disarm(); });
-  // Esc drops a recording in progress (registered once, not per hold button).
+  window.addEventListener('blur', () => {
+    releaseHold(true);
+    gestureSession = null;
+    pausedSession = null;
+    disarm();
+  });
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !hold || hold.released || !hold.recording) return;
+    if (e.key !== 'Escape') return;
+    if (hold?.recording && !hold.released) releaseHold(true);
+    else if (gestureSession) stopGesture();
+    else return;
     e.preventDefault();
     e.stopPropagation();
-    releaseHold(true);
   }, true);
-  window.addEventListener('focus', syncToFocus);
+  window.addEventListener('focus', () => syncToFocus());
 
   window.api?.onSttText?.(onText);
   // Main tells us when a phrase is being decoded, so the pill can say

@@ -69,6 +69,7 @@ export default {
     'sessions.newWithModel': 'Nouvelle session avec un modèle choisi',
     'sessions.newWithEffort': 'Nouvelle session avec effort {level}',
     'sessions.newWithModelName': 'Nouvelle session sur {model}',
+    'sessions.quickModelEffortHint': 'Cliquez pour Mid. Glissez vers le haut pour High ou vers le bas pour Low. Au clavier, utilisez Alt+Haut ou Alt+Bas.',
     'sessions.draftPlaceholder': 'Message pour la nouvelle session — Entrée pour envoyer, Maj+Entrée pour une nouvelle ligne, Échap pour annuler',
 
     'explorer.search': 'Rechercher des fichiers…',
@@ -450,7 +451,7 @@ export default {
     'settings.subagentModel': 'Modèle de sous-agent',
     'settings.general': 'Général',
     'voice.title': 'Saisie vocale',
-    'voice.hint': 'Tant que le terminal d\'une session a le focus, ce que vous dites est transcrit sur cet appareil et écrit dans cette session. Rien n\'est envoyé avant que vous appuyiez sur Entrée.',
+    'voice.hint': 'Faites un clic forcé sur macOS ou un clic droit sur Windows dans un volet ou un élément de la liste des sessions pour dicter. Répétez le geste ou appuyez sur Échap pour arrêter. Whisper transcrit sur cet appareil. Appuyez sur Entrée pour envoyer le texte.',
     'voice.enable': 'Dicter dans la session active',
     'voice.model': 'Modèle vocal',
     'voice.language': 'Langue parlée',

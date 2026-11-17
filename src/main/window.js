@@ -76,6 +76,26 @@ ipcMain.on('notify-session-finished', (_e, { id, title, body }) => {
 
 let lastReloadAt = 0;
 
+function watchForceClick(window) {
+  if (process.platform !== 'darwin') return;
+  const packaged = path.join(process.resourcesPath, 'force-click.node');
+  // The renamed Electron dev wrapper reports isPackaged too.
+  const addonPath = fs.existsSync(packaged) ? packaged : path.join(app.getAppPath(), 'vendor', 'force-click.node');
+  try {
+    const forceClick = require(addonPath);
+    const stop = forceClick.watch(window.getNativeWindowHandle(), (x, y) => {
+      if (window.isDestroyed() || !window.isFocused()) return;
+      const wc = window.webContents;
+      if (wc.isDestroyed() || wc.isCrashed()) return;
+      const zoom = wc.getZoomFactor();
+      try { wc.send('session-force-click', { x: x / zoom, y: y / zoom }); } catch { /* window is reloading */ }
+    });
+    window.once('closed', stop);
+  } catch (err) {
+    console.warn('[voice] Force Click unavailable:', err.message);
+  }
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1400,
@@ -95,6 +115,7 @@ function createWindow() {
       webviewTag: true, // inline web browser for Ctrl+clicked links
     },
   });
+  watchForceClick(win);
   // First paint is ready — maximize while still hidden, then reveal in one step
   // so the user never sees the unpainted (white) surface or the resize jump.
   // Dev runs stay windowed so the app doesn't cover the terminal it launched from.

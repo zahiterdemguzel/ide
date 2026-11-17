@@ -12,6 +12,8 @@ function harness(selected, localFails = false) {
     } },
     os: { tmpdir: () => '/tmp' },
     './claude': { runHaiku: async () => { calls.push(['haiku']); return 'haiku result'; }, runCli: async (_p, opts) => { calls.push(['claude', opts.model]); return 'claude result'; } },
+    './agent-providers': require('../src/main/agent-providers'),
+    './codex-latest': { latestCodexModel: async (_exe, id) => id },
     './codex': { resolveCodex: async () => 'codex' },
     './settings-store': { readStore: () => ({ 'ide.commitModel': selected }) },
     './commit-msg': { pickCommitModel: () => 'small' },

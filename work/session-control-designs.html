@@ -1,0 +1,496 @@
+<div id="session-designs" class="viz-carousel viz-dotted-background" aria-label="New session control designs">
+  <section data-variant="Inline tabs" aria-label="Inline tabs design"></section>
+  <section data-variant="Compact toolbar" aria-label="Compact toolbar design" hidden></section>
+  <section data-variant="Split button" aria-label="Split button design" hidden></section>
+  <section data-variant="Model grid" aria-label="Model grid design" hidden></section>
+</div>
+
+<style>
+  #session-designs .session-stage {
+    box-sizing: border-box;
+    min-height: 330px;
+    display: grid;
+    align-items: center;
+    justify-items: center;
+    padding: 46px 20px 26px;
+  }
+
+  #session-designs .session-sample {
+    --panel: light-dark(#fff, #151922);
+    --well: light-dark(#f0f2f6, #10141c);
+    --field: light-dark(#f9fafc, #1b202b);
+    --edge: light-dark(#dce1e9, #2a3140);
+    --ink: light-dark(#171e2b, #f1f4fa);
+    --muted-ink: light-dark(#516075, #a9b5c8);
+    --launch: #3260cc;
+    --launch-ink: #fff;
+    --selection: light-dark(#1d4eb9, #a9c3ff);
+    --selection-bg: light-dark(#eaf0ff, #1c2b49);
+    --radius: 14px;
+    box-sizing: border-box;
+    width: min(100%, 494px);
+    min-width: 0;
+    color: var(--ink);
+    position: relative;
+    font: 400 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  #session-designs .session-sample *, #session-designs .session-sample *::before {
+    box-sizing: border-box;
+  }
+
+  #session-designs .session-panel {
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 26px light-dark(#25395713, #0005);
+    padding: 14px;
+  }
+
+  #session-designs .session-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  #session-designs .session-sample button, #session-designs .session-sample select {
+    font: inherit;
+    color: inherit;
+  }
+
+  #session-designs .session-sample button:focus-visible,
+  #session-designs .session-sample select:focus-visible,
+  #session-designs .option input:focus-visible + span {
+    outline: 2px solid var(--selection);
+    outline-offset: 2px;
+  }
+
+  #session-designs .launch-button, #session-designs .split-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 13px;
+    background: var(--launch);
+    border: 1px solid transparent;
+    border-radius: max(4px, calc(var(--radius) - 6px));
+    white-space: nowrap;
+  }
+
+  #session-designs .session-sample :is(.launch-button, .split-toggle) {
+    color: var(--launch-ink);
+    font-weight: 600;
+  }
+
+  #session-designs :is(.launch-button, .split-toggle):hover {
+    background: color-mix(in srgb, var(--launch), var(--launch-ink) 12%);
+  }
+
+  #session-designs .launch-button svg, #session-designs .split-toggle svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  #session-designs :is(.launch-button, .split-toggle) i {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    font: normal 18px/1 system-ui, sans-serif;
+  }
+
+  #session-designs .field-label {
+    color: var(--muted-ink);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .015em;
+  }
+
+  #session-designs .field-stack {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  #session-designs .effort-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #session-designs .choice-set {
+    display: grid;
+    gap: 4px;
+  }
+
+  #session-designs .choice-set[data-kind="effort"] {
+    grid-template-columns: repeat(3, minmax(38px, 1fr));
+    background: var(--well);
+    border: 1px solid var(--edge);
+    padding: 3px;
+    border-radius: max(5px, calc(var(--radius) - 5px));
+  }
+
+  #session-designs .option {
+    position: relative;
+    display: grid;
+    min-width: 0;
+  }
+
+  #session-designs .option input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+  }
+
+  #session-designs .option span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 30px;
+    color: var(--muted-ink);
+    font-weight: 500;
+  }
+
+  #session-designs .option:hover span { color: var(--ink); }
+  #session-designs .option input:checked + span { color: var(--selection); }
+
+  #session-designs .choice-set[data-kind="effort"] .option span {
+    padding: 0 7px;
+    border-radius: max(3px, calc(var(--radius) - 8px));
+  }
+
+  #session-designs .choice-set[data-kind="effort"] .option input:checked + span {
+    background: var(--selection-bg);
+    font-weight: 600;
+  }
+
+  #session-designs .tabs-panel { padding-bottom: 0; }
+
+  #session-designs .tab-models {
+    margin-top: 12px;
+    border-top: 1px solid var(--edge);
+    padding-top: 8px;
+  }
+
+  #session-designs .tab-models .choice-set {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  #session-designs .tab-models .option span {
+    min-height: 37px;
+    border-bottom: 2px solid transparent;
+  }
+
+  #session-designs .tab-models .option input:checked + span {
+    border-bottom-color: var(--selection);
+    font-weight: 600;
+  }
+
+  #session-designs .toolbar-panel {
+    display: grid;
+    grid-template-columns: minmax(86px, 1.2fr) minmax(75px, .9fr) 1px auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  #session-designs .toolbar-panel .field-stack {
+    background: var(--field);
+    border: 1px solid var(--edge);
+    border-radius: max(4px, calc(var(--radius) - 6px));
+    padding: 5px 9px;
+    gap: 0;
+  }
+
+  #session-designs .toolbar-panel select {
+    width: 100%;
+    background: transparent;
+    border: 0;
+    margin: 0;
+    padding: 1px 0;
+    font-weight: 600;
+  }
+
+  #session-designs .toolbar-divider { height: 30px; background: var(--edge); }
+
+  #session-designs [data-variant="Split button"] .session-stage { padding-bottom: 68px; }
+  #session-designs [data-variant="Split button"] .session-sample { align-self: end; }
+
+  #session-designs .split-options {
+    display: grid;
+    gap: 12px;
+    position: absolute;
+    inset-inline: 0;
+    bottom: calc(100% + 12px);
+  }
+
+  #session-designs .split-options[hidden] { display: none; }
+
+  #session-designs .split-options::after {
+    content: "";
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    bottom: -5px;
+    right: 18px;
+    transform: rotate(45deg);
+    background: var(--panel);
+    border-right: 1px solid var(--edge);
+    border-bottom: 1px solid var(--edge);
+  }
+
+  #session-designs .split-options .choice-set[data-kind="model"] {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  #session-designs .split-options .choice-set[data-kind="model"] .option span {
+    border: 1px solid var(--edge);
+    background: var(--field);
+    border-radius: max(4px, calc(var(--radius) - 8px));
+  }
+
+  #session-designs .split-options .choice-set[data-kind="model"] .option input:checked + span {
+    background: var(--selection-bg);
+    border-color: color-mix(in srgb, var(--selection), var(--edge) 65%);
+  }
+
+  #session-designs .split-action {
+    display: grid;
+    grid-template-columns: 1fr 44px;
+  }
+
+  #session-designs .split-action .launch-button {
+    justify-content: flex-start;
+    border-start-end-radius: 0;
+    border-end-end-radius: 0;
+    min-width: 0;
+  }
+
+  #session-designs .split-summary {
+    margin-left: auto;
+    opacity: .87;
+    font-size: 11px;
+    font-weight: 400;
+  }
+
+  #session-designs .split-toggle {
+    padding: 0;
+    border-start-start-radius: 0;
+    border-end-start-radius: 0;
+    border-inline-start-color: color-mix(in srgb, var(--launch-ink) 30%, transparent);
+  }
+
+  #session-designs .split-toggle[aria-expanded="true"] :is(svg, i) { transform: rotate(180deg); }
+
+  #session-designs .grid-models .choice-set {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  #session-designs .grid-models .option span {
+    min-height: 40px;
+    justify-content: flex-start;
+    padding: 0 9px;
+    background: var(--field);
+    border: 1px solid var(--edge);
+    border-radius: max(4px, calc(var(--radius) - 7px));
+  }
+
+  #session-designs .grid-models .option span::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    flex: 0 0 11px;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+  }
+
+  #session-designs .grid-models .option input:checked + span {
+    background: var(--selection-bg);
+    border-color: color-mix(in srgb, var(--selection), var(--edge) 60%);
+    font-weight: 600;
+  }
+
+  #session-designs .grid-models .option input:checked + span::before {
+    background: radial-gradient(circle, currentColor 0 35%, transparent 43%);
+  }
+
+  #session-designs .grid-footer {
+    border-top: 1px solid var(--edge);
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  #session-designs .session-status {
+    position: absolute;
+    margin: 8px 0 0;
+    color: var(--muted-ink);
+    font-size: 11px;
+  }
+
+  @media (max-width: 420px) {
+    #session-designs .session-stage { min-height: 350px; padding-inline: 12px; }
+    #session-designs .session-panel { padding: 12px; }
+    #session-designs .tabs-panel { padding-bottom: 0; }
+    #session-designs .toolbar-panel { grid-template-columns: 1fr 1fr; }
+    #session-designs .toolbar-divider { display: none; }
+    #session-designs .toolbar-panel .launch-button { grid-column: 1 / -1; }
+    #session-designs .tab-models .choice-set,
+    #session-designs .split-options .choice-set[data-kind="model"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    #session-designs .grid-footer .launch-button { flex: 1; }
+  }
+
+  @media (pointer: coarse) {
+    #session-designs :is(.launch-button, .split-toggle, .option span) { min-height: 44px; }
+    #session-designs .toolbar-panel select { min-height: 44px; font-size: 16px; }
+    #session-designs .session-stage { min-height: 380px; }
+  }
+</style>
+
+<script>
+(() => {
+  const root = document.getElementById('session-designs');
+  const options = {
+    model: ['Astra', 'Sol', 'Luna', 'Sonnet', 'Opus', 'Fable'],
+    effort: ['Low', 'Mid', 'High'],
+  };
+  const defaults = { model: 'Astra', effort: 'Mid' };
+  const label = { model: 'Model', effort: 'Effort' };
+
+  function choiceSet(variant, kind) {
+    const choices = options[kind].map(value => `
+      <label class="option cursor-interaction">
+        <input type="radio" name="${variant}-${kind}" value="${value}" data-choice="${kind}" ${value === defaults[kind] ? 'checked' : ''}>
+        <span>${value}</span>
+      </label>`).join('');
+    return `<div class="choice-set" data-kind="${kind}" role="group" aria-label="${label[kind]}">${choices}</div>`;
+  }
+
+  function effortField(variant) {
+    return `<div class="effort-field"><span class="field-label" aria-hidden="true">Effort</span>${choiceSet(variant, 'effort')}</div>`;
+  }
+
+  function modelField(variant, className = '') {
+    return `<div class="field-stack ${className}"><span class="field-label" aria-hidden="true">Model</span>${choiceSet(variant, 'model')}</div>`;
+  }
+
+  function selectField(kind) {
+    const choices = options[kind].map(value => `<option${value === defaults[kind] ? ' selected' : ''}>${value}</option>`).join('');
+    return `
+      <label class="field-stack">
+        <span class="field-label">${label[kind]}</span>
+        <select class="cursor-interaction" data-choice="${kind}">${choices}</select>
+      </label>`;
+  }
+
+  function launchButton(trailingContent = '') {
+    return `
+      <button type="button" class="launch-button cursor-interaction" aria-label="New session">
+        <i data-lucide="plus" aria-hidden="true">+</i><span>New session</span>${trailingContent}
+      </button>`;
+  }
+
+  const layouts = {
+    'Inline tabs': `
+      <div class="session-panel tabs-panel">
+        <div class="session-row">${launchButton()}${effortField('tabs')}</div>
+        ${modelField('tabs', 'tab-models')}
+      </div>`,
+    'Compact toolbar': `
+      <div class="session-panel toolbar-panel">
+        ${selectField('model')}${selectField('effort')}
+        <div class="toolbar-divider" aria-hidden="true"></div>
+        ${launchButton()}
+      </div>`,
+    'Split button': `
+      <div class="session-panel split-options" id="session-designs-split-options">
+        ${modelField('split')}${effortField('split')}
+      </div>
+      <div class="split-action">
+        ${launchButton('<span class="split-summary" aria-hidden="true"></span>')}
+        <button type="button" class="split-toggle cursor-interaction" aria-label="Session options" aria-expanded="true" aria-controls="session-designs-split-options">
+          <i data-lucide="chevron-down" aria-hidden="true">⌄</i>
+        </button>
+      </div>`,
+    'Model grid': `
+      <div class="session-panel">
+        ${modelField('grid', 'grid-models')}
+        <div class="session-row grid-footer">${effortField('grid')}${launchButton()}</div>
+      </div>`,
+  };
+
+  for (const variant of root.querySelectorAll('[data-variant]')) {
+    const name = variant.dataset.variant;
+    variant.innerHTML = `
+      <div class="session-stage">
+        <div class="session-sample" aria-label="${name} controls">
+          ${layouts[name]}
+          <p class="session-status" role="status"></p>
+        </div>
+      </div>`;
+
+    const sample = variant.querySelector('.session-sample');
+    const status = sample.querySelector('[role="status"]');
+    const summary = sample.querySelector('.split-summary');
+    const toggle = sample.querySelector('.split-toggle');
+    const state = { ...defaults };
+
+    function renderSelection() {
+      if (summary) summary.textContent = `${state.model} · ${state.effort}`;
+    }
+
+    sample.addEventListener('change', event => {
+      state[event.target.dataset.choice] = event.target.value;
+      status.textContent = '';
+      renderSelection();
+    });
+
+    sample.querySelector('.launch-button').addEventListener('click', () => {
+      status.textContent = `Session preview · ${state.model} · ${state.effort} effort`;
+    });
+
+    if (toggle) {
+      const panel = document.getElementById(toggle.getAttribute('aria-controls'));
+      const setExpanded = expanded => {
+        panel.hidden = !expanded;
+        toggle.setAttribute('aria-expanded', String(expanded));
+      };
+      toggle.addEventListener('click', () => setExpanded(panel.hidden));
+      sample.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !panel.hidden) {
+          setExpanded(false);
+          toggle.focus();
+        }
+      });
+    }
+
+    renderSelection();
+
+    const appearance = { radius: 14, accent: '#3260cc' };
+    if (globalThis.Tweak) {
+      const tweak = new Tweak({
+        container: sample,
+        onChange() {
+          sample.style.setProperty('--radius', `${appearance.radius}px`);
+          sample.style.setProperty('--launch', appearance.accent);
+          const channels = appearance.accent.slice(1).match(/.{2}/g).map(channel => {
+            const value = parseInt(channel, 16) / 255;
+            return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+          });
+          const luminance = channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+          sample.style.setProperty('--launch-ink', luminance > .179 ? '#000' : '#fff');
+        },
+      });
+      tweak.addSlider(appearance, 'radius', { label: 'Corner radius', min: 4, max: 24, unit: 'px' });
+      tweak.addColorPicker(appearance, 'accent', { label: 'Button color', reference: '--launch' });
+    }
+  }
+
+  globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+})();
+</script>

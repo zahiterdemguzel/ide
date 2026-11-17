@@ -1,9 +1,8 @@
 const { ipcRenderer } = require('electron');
 
-// Voice input (speech-to-text). Desktop-only: the feature is driven by this
-// machine's keyboard focus and microphone, so unlike the model channels none of
-// these are exposed to a paired phone (see server/protocol.js).
+// Desktop voice input and session gestures (see server/protocol.js for phone clips).
 module.exports = {
+  onSessionForceClick: (cb) => ipcRenderer.on('session-force-click', (_e, point) => cb(point)),
   sttStatus: () => ipcRenderer.invoke('stt-status'),
   sttWarm: (opts) => ipcRenderer.invoke('stt-warm', opts),
   sttStart: (opts) => ipcRenderer.invoke('stt-start', opts),

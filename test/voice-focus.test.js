@@ -43,14 +43,11 @@ test('voice.js still reads the attribute and class that sessions.js writes', () 
   assert.match(voiceSrc, /dataset\.sessionId/);
 });
 
-test('the mic follows keyboard focus, never the mouse', () => {
-  // The trigger was deliberately moved off the pointer: hovering is something the
-  // user does by accident, focus is not. A pointer listener creeping back in would
-  // reintroduce a microphone that opens while the mouse merely crosses a pane.
+test('automatic dictation follows keyboard focus', () => {
   assert.match(voiceSrc, /addEventListener\(['"]focusin['"]/);
   assert.doesNotMatch(
     voiceSrc,
     /addEventListener\(\s*['"](pointermove|pointerover|pointerout|mousemove|mouseover)['"]/,
-    'voice input must not arm from pointer events — it follows keyboard focus',
+    'moving the pointer across a pane must not start dictation',
   );
 });

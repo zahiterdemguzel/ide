@@ -69,6 +69,7 @@ export default {
     'sessions.newWithModel': 'Nueva sesión con un modelo elegido',
     'sessions.newWithEffort': 'Nueva sesión con esfuerzo {level}',
     'sessions.newWithModelName': 'Nueva sesión con {model}',
+    'sessions.quickModelEffortHint': 'Haz clic para Mid. Arrastra hacia arriba para High o hacia abajo para Low. En el teclado, pulsa Alt+Arriba o Alt+Abajo.',
     'sessions.draftPlaceholder': 'Mensaje para la nueva sesión — Intro para enviar, Mayús+Intro para nueva línea, Esc para cancelar',
 
     'explorer.search': 'Buscar archivos…',
@@ -450,7 +451,7 @@ export default {
     'settings.subagentModel': 'Modelo de subagente',
     'settings.general': 'General',
     'voice.title': 'Entrada de voz',
-    'voice.hint': 'Mientras el terminal de una sesión tiene el foco, lo que dices se transcribe en este dispositivo y se escribe en esa sesión. Nada se envía hasta que pulsas Enter.',
+    'voice.hint': 'Haz clic fuerte en macOS o clic derecho en Windows sobre un panel o un elemento de la lista de sesiones para dictar. Repite el gesto o pulsa Esc para detener el dictado. Whisper transcribe en este dispositivo. Pulsa Enter para enviar el texto.',
     'voice.enable': 'Dictar en la sesión enfocada',
     'voice.model': 'Modelo de voz',
     'voice.language': 'Idioma hablado',
