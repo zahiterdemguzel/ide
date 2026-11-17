@@ -45,12 +45,15 @@ Every session gets a live status dot, driven by Claude Code's own hooks rather t
 | | State |
 |:-:|---|
 | 🟡 | **Working** (animated spinner) |
-| 🟢 | **Needs input** or **done** |
+| ❕ | **Needs input** (labeled in the desktop session list) |
+| 🟢 | **Done** |
 | 🟣 | **Committed / pushed** |
 | 🔴 | **Interrupted** |
 | ⚪ | **Idle** |
 
 A chime and a desktop notification fire when a session finishes, so you can look away. Sessions get short auto-generated names and show their running `+added −removed` line counts. Archive a session to free its resources and restore it later: the conversation resumes where it left off.
+
+Search by title or first prompt in **Active** and **Archived**. Use **Next Waiting Session** in the Command Palette (`Ctrl/Cmd+Shift+P`) to cycle through the open project's sessions that need input.
 
 <br clear="right"/>
 
@@ -78,7 +81,7 @@ A chime and a desktop notification fire when a session finishes, so you can look
 - **Usage meter** for your Claude subscription's 5-hour and weekly limits, plus a per-session token and cost line.
 
 ### 🎙️ And more
-- **Voice input:** Force Click a session pane or row on macOS or right-click it on Windows to dictate. OpenAI Whisper large-v3-turbo transcribes locally. Repeat the gesture or press Esc to stop. Press Enter to send the text.
+- **Voice input:** Force Click on macOS or right-click on Windows to dictate with local Whisper. A session row opens a transcript popup. Pause or click elsewhere to send to that session, or press Esc or Backspace to cancel. In a terminal pane, press Enter to submit.
 - **Themes** (Dark, Light, Midnight, Solarized, …) and **5 languages** (English, Deutsch, Español, Français, Türkçe).
 - A guided **first-run tour** and a setup wizard that installs and signs in to Claude Code for you.
 
