@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
 const bridge = require('./remote-bridge');
 const { execFile } = require('child_process');
 const { getRepoPath } = require('./repo');
@@ -304,6 +306,151 @@ async function generateCommitMessage() {
   const out = await runCommitModel(commitMessagePrompt(diff));
   return cleanCommitMessage(out);
 }
+
+const smartCommitSnapshots = new Map();
+
+function dropSmartCommitSnapshot(token) {
+  const snapshot = smartCommitSnapshots.get(token);
+  if (!snapshot) return;
+  smartCommitSnapshots.delete(token);
+  fs.rmSync(snapshot.dir, { recursive: true, force: true });
+}
+
+function pruneSmartCommitSnapshots() {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [token, snapshot] of smartCommitSnapshots) {
+    if (snapshot.created < cutoff) dropSmartCommitSnapshot(token);
+  }
+}
+
+// Capture exact blobs before model generation and the review dialog. Later
+// edits to the same paths remain in the worktree and cannot enter these commits.
+async function smartCommitPlan() {
+  pruneSmartCommitSnapshots();
+  const status = await git([...STATUS_ARGS]);
+  if (!status.ok) return { ok: false, stderr: status.stderr };
+  const parsed = parsePorcelain(status.stdout);
+  if ((parsed.conflicts || []).length) return { ok: false, stderr: 'Resolve conflicts before smart committing.' };
+  const files = [...new Set([...parsed.staged, ...parsed.unstaged].map((it) => it.file))];
+  if (!files.length) return { ok: false, stderr: 'There are no changes to commit.' };
+  const head = await headSha();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ide-smart-commit-'));
+  const index = path.join(dir, 'snapshot-index');
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  const originalIndexTree = await git(['write-tree']);
+  if (!originalIndexTree.ok) { fs.rmSync(dir, { recursive: true, force: true }); return { ok: false, stderr: originalIndexTree.stderr }; }
+  const read = await git(head ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'], { env });
+  if (!read.ok) { fs.rmSync(dir, { recursive: true, force: true }); return { ok: false, stderr: read.stderr }; }
+  const add = await git(['add', '-A', '--', ...files.map((file) => `:(literal)${file}`)], { env });
+  if (!add.ok) { fs.rmSync(dir, { recursive: true, force: true }); return { ok: false, stderr: add.stderr }; }
+  const tree = await git(['write-tree'], { env });
+  if (!tree.ok) { fs.rmSync(dir, { recursive: true, force: true }); return { ok: false, stderr: tree.stderr }; }
+  const diff = await git(['diff', '--cached', ...(head ? ['HEAD'] : [])], { env });
+  const token = crypto.randomBytes(18).toString('hex');
+  smartCommitSnapshots.set(token, { dir, tree: tree.stdout.trim(), head, files, originalIndexTree: originalIndexTree.stdout.trim(), created: Date.now() });
+  const prompt = 'Group these changed files into a small number of cohesive git commits. '
+    + 'Prefer one commit when changes are tightly related; split by feature or area when useful. '
+    + 'Use concise Conventional Commit subjects, without bodies or excessive detail. '
+    + 'Return only valid JSON in this shape: {"commits":[{"message":"...","files":["..."]}]}. '
+    + 'Every supplied file must appear exactly once; do not invent paths.\n\n'
+    + 'Changed file paths:\n' + files.map((file) => `- ${file}`).join('\n')
+    + '\n\nDiff from the frozen snapshot:\n' + (diff.stdout || '').slice(0, 18000);
+  let raw;
+  try { raw = await runCommitModel(prompt); }
+  catch { dropSmartCommitSnapshot(token); return { ok: false, stderr: 'Could not create a smart commit plan.' }; }
+  let plan;
+  try {
+    const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    plan = JSON.parse(text);
+  } catch { dropSmartCommitSnapshot(token); return { ok: false, stderr: 'Could not create a smart commit plan.' }; }
+  if (!Array.isArray(plan?.commits) || !plan.commits.length) { dropSmartCommitSnapshot(token); return { ok: false, stderr: 'Could not create a smart commit plan.' }; }
+  const seen = new Set();
+  const commits = [];
+  for (const group of plan.commits) {
+    const message = String(group?.message || '').trim().split('\n')[0].slice(0, 120);
+    const groupFiles = Array.isArray(group?.files) ? group.files : [];
+    if (!message || !groupFiles.length) { dropSmartCommitSnapshot(token); return { ok: false, stderr: 'The smart commit plan was incomplete.' }; }
+    for (const file of groupFiles) {
+      if (!files.includes(file) || seen.has(file)) { dropSmartCommitSnapshot(token); return { ok: false, stderr: 'The smart commit plan included invalid files.' }; }
+      seen.add(file);
+    }
+    commits.push({ message, files: groupFiles });
+  }
+  if (seen.size !== files.length) { dropSmartCommitSnapshot(token); return { ok: false, stderr: 'The smart commit plan did not include every changed file.' }; }
+  return { ok: true, token, commits };
+}
+
+bridge.handle('git-smart-commit-plan', () => smartCommitPlan());
+bridge.handle('git-smart-commit-cancel', (_e, token) => { dropSmartCommitSnapshot(token); return { ok: true }; });
+
+function parseTreeEntries(output) {
+  const entries = new Map();
+  for (const row of String(output || '').split('\0')) {
+    if (!row) continue;
+    const tab = row.indexOf('\t');
+    const meta = row.slice(0, tab).split(' ');
+    if (tab >= 0 && meta.length === 3) entries.set(row.slice(tab + 1), { mode: meta[0], type: meta[1], oid: meta[2] });
+  }
+  return entries;
+}
+
+bridge.handle('git-smart-commit', (_e, payload) => repoWrite(async () => {
+  const commits = payload?.commits;
+  const snapshot = smartCommitSnapshots.get(payload?.token);
+  if (!Array.isArray(commits) || !commits.length) { if (snapshot) dropSmartCommitSnapshot(payload.token); return { ok: false, stderr: 'No smart commits to create.' }; }
+  if (!snapshot) return { ok: false, stderr: 'The smart commit snapshot expired. Plan again.' };
+  if (snapshot.head !== await headSha()) { dropSmartCommitSnapshot(payload.token); return { ok: false, stderr: 'HEAD changed since the plan was created. Plan again.' }; }
+  const expected = new Set(snapshot.files);
+  const planned = new Set();
+  for (const group of commits) {
+    if (!group || typeof group.message !== 'string' || !Array.isArray(group.files) || !group.files.length) { dropSmartCommitSnapshot(payload.token); return { ok: false, stderr: 'Invalid smart commit plan.' }; }
+    for (const file of group.files) {
+      if (!expected.has(file) || planned.has(file)) { dropSmartCommitSnapshot(payload.token); return { ok: false, stderr: 'Invalid smart commit plan.' }; }
+      planned.add(file);
+    }
+  }
+  if (planned.size !== expected.size) { dropSmartCommitSnapshot(payload.token); return { ok: false, stderr: 'Invalid smart commit plan.' }; }
+  const tree = await git(['ls-tree', '-r', '-z', snapshot.tree]);
+  if (!tree.ok) { dropSmartCommitSnapshot(payload.token); return { ok: false, stderr: tree.stderr }; }
+  const entries = parseTreeEntries(tree.stdout);
+  const index = path.join(snapshot.dir, 'commit-index');
+  const env = { ...process.env, GIT_INDEX_FILE: index };
+  try {
+    for (const group of commits) {
+      const base = await git((await headSha()) ? ['read-tree', 'HEAD'] : ['read-tree', '--empty'], { env });
+      if (!base.ok) return { ok: false, stderr: base.stderr };
+      await git(['update-index', '--force-remove', '--', ...group.files.map((file) => `:(literal)${file}`)], { env });
+      const records = group.files.filter((file) => entries.has(file)).map((file) => {
+        const entry = entries.get(file);
+        return `${entry.mode} ${entry.type} ${entry.oid}\t${file}\0`;
+      }).join('');
+      if (records) {
+        const update = await git(['update-index', '-z', '--index-info'], { env, input: records });
+        if (!update.ok) return { ok: false, stderr: update.stderr };
+      }
+      const commit = await git(['commit', '-m', group.message], { env });
+      if (!commit.ok) return { ok: false, stderr: commit.stderr };
+    }
+    // Keep post-click staging changes while moving the index base to the new HEAD.
+    const currentTree = await git(['write-tree']);
+    if (currentTree.ok) {
+      const diff = await git(['diff', '--name-only', '-z', snapshot.originalIndexTree, currentTree.stdout.trim()]);
+      const changed = (diff.stdout || '').split('\0').filter(Boolean);
+      await git(['reset', '--mixed', 'HEAD']);
+      if (changed.length) {
+        await git(['update-index', '--force-remove', '--', ...changed.map((file) => `:(literal)${file}`)]);
+        const currentEntries = await git(['ls-tree', '-r', '-z', currentTree.stdout.trim()]);
+        const stagedEntries = parseTreeEntries(currentEntries.stdout);
+        const stagedRecords = changed.filter((file) => stagedEntries.has(file)).map((file) => {
+          const entry = stagedEntries.get(file);
+          return `${entry.mode} ${entry.type} ${entry.oid}\t${file}\0`;
+        }).join('');
+        if (stagedRecords) await git(['update-index', '-z', '--index-info'], { input: stagedRecords });
+      }
+    }
+    return { ok: true, count: commits.length };
+  } finally { dropSmartCommitSnapshot(payload.token); }
+}));
 
 // Commit staged changes. If nothing is staged, stage everything first so a bare
 // Commit click behaves like "commit all" rather than failing with "nothing to commit".

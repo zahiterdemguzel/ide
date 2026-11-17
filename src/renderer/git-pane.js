@@ -972,6 +972,41 @@ function offerMergeHelp(r, title, message, operation) {
   else offerClaudeMerge(title, message, r.stderr, operation);
 }
 const commitBtn = document.getElementById('git-commit');
+let smartCommitInFlight = false;
+async function smartCommit() {
+  if (smartCommitInFlight || commitBtn.disabled) return;
+  let snapshotToken = null;
+  smartCommitInFlight = true;
+  commitBtn.disabled = true;
+  showGitMsg('Planning smart commits…', true);
+  try {
+    const plan = await window.api.gitSmartCommitPlan();
+    if (!plan?.ok) {
+      showGitMsg(plan?.stderr || 'Could not plan smart commits', false);
+      return;
+    }
+    snapshotToken = plan.token;
+    const summary = plan.commits.map((c, i) => `${i + 1}. ${c.message}\n   ${c.files.join(', ')}`).join('\n\n');
+    const confirmed = await confirmDialog({
+      title: 'Smart commit plan',
+      message: `${plan.commits.length} commit${plan.commits.length === 1 ? '' : 's'} from the current changes:\n\n${summary}\n\nCreate these commits?`,
+      ok: 'Create commits',
+    });
+    if (!confirmed) { await window.api.gitSmartCommitCancel(plan.token); snapshotToken = null; clearGitMsg(); return; }
+    showGitMsg(`Creating ${plan.commits.length} smart commit${plan.commits.length === 1 ? '' : 's'}…`, true);
+    const result = await window.api.gitSmartCommit({ token: plan.token, commits: plan.commits });
+    snapshotToken = null;
+    if (result?.ok) showGitMsg(`Created ${result.count} smart commit${result.count === 1 ? '' : 's'}`, true);
+    else showGitMsg(result?.stderr || 'Smart commit failed', false);
+    refreshGit(); refreshHistory();
+  } catch (err) {
+    if (snapshotToken) await window.api.gitSmartCommitCancel(snapshotToken).catch(() => {});
+    showGitMsg(err?.message || 'Smart commit failed', false);
+  } finally {
+    commitBtn.disabled = false;
+    smartCommitInFlight = false;
+  }
+}
 commitBtn.onclick = async () => {
   const box = document.getElementById('commit-msg');
   const msg = box.value.trim();
@@ -989,6 +1024,16 @@ commitBtn.onclick = async () => {
     showGitMsg(r.stderr || 'Commit failed', false);
   }
   refreshGit(); refreshHistory();};
+// Right-click and macOS Force Click both opt into the multi-commit planner;
+// ordinary click keeps the existing single-commit behavior.
+commitBtn.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  smartCommit();
+});
+window.api.onSessionForceClick?.(({ x, y }) => {
+  if (document.elementFromPoint(x, y) === commitBtn || commitBtn.contains(document.elementFromPoint(x, y))) smartCommit();
+});
 const pushBtn = document.getElementById('git-push');
 pushBtn.onclick = async () => {
   const aheadEl = document.getElementById('git-ahead');
