@@ -62,6 +62,15 @@ function codexEffortValue(v) {
   return CODEX_EFFORT_LEVELS.includes(s) ? s : '';
 }
 
+// The Codex composer binds Alt+. and Alt+, to its native reasoning controls.
+function codexEffortKeys(current, next) {
+  const from = CODEX_EFFORT_LEVELS.indexOf(defaultEffortFor('codex', current));
+  const to = CODEX_EFFORT_LEVELS.indexOf(next);
+  if (to < 0) return '';
+  const key = to > from ? '\x1b.' : '\x1b,';
+  return key.repeat(Math.abs(to - from));
+}
+
 // The level a session actually runs at, given what was remembered (the last level the
 // user picked, carried over from the client) and the family it belongs to. This is the
 // one place "no level" becomes a level: a remembered `max` doesn't survive into a Codex
@@ -72,4 +81,4 @@ function defaultEffortFor(family, remembered) {
   return effortLevelsFor(family).includes(s) ? s : DEFAULT_EFFORT;
 }
 
-module.exports = { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, DEFAULT_EFFORT, defaultEffortFor, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue };
+module.exports = { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, DEFAULT_EFFORT, defaultEffortFor, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue, codexEffortKeys };

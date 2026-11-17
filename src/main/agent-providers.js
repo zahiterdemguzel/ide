@@ -120,6 +120,9 @@ function codexSpawnArgs({ resume, agentSessionId, model, effort, port, ideId, pl
   if (bare) args.push('--model', bare);
   const e = codexEffortValue(effort);
   if (e) args.push('-c', `model_reasoning_effort="${e}"`);
+  // Keep the IDE's live effort controls mapped to reasoning actions in this PTY.
+  args.push('-c', 'tui.keymap.chat.decrease_reasoning_effort=["alt-,"]',
+    '-c', 'tui.keymap.chat.increase_reasoning_effort=["alt-."]');
   args.push('--dangerously-bypass-approvals-and-sandbox',
     ...codexHookOverrides(port, ideId, platform), '--dangerously-bypass-hook-trust');
   return args;

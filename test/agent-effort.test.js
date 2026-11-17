@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, DEFAULT_EFFORT, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('../src/main/agent-effort');
+const { EFFORT_LEVELS, CODEX_EFFORT_LEVELS, DEFAULT_EFFORT, effortLevelsFor, cleanEffort, effortArgs, codexEffortValue, codexEffortKeys, defaultEffortFor } = require('../src/main/agent-effort');
 
 test('every offered level is a spawn flag', () => {
   for (const level of EFFORT_LEVELS) {
@@ -76,4 +76,12 @@ test('nothing remembered still yields a real level — never an unset session', 
 test('the fallback is a level both ladders can actually run', () => {
   assert.equal(cleanEffort(DEFAULT_EFFORT), DEFAULT_EFFORT);
   assert.equal(codexEffortValue(DEFAULT_EFFORT), DEFAULT_EFFORT);
+});
+
+test('live Codex effort changes send only native reasoning shortcuts', () => {
+  assert.equal(codexEffortKeys('medium', 'high'), '\x1b.');
+  assert.equal(codexEffortKeys('xhigh', 'low'), '\x1b,'.repeat(3));
+  assert.equal(codexEffortKeys('low', 'xhigh'), '\x1b.'.repeat(3));
+  assert.equal(codexEffortKeys('medium', 'medium'), '');
+  assert.equal(codexEffortKeys('medium', 'unknown'), '');
 });
