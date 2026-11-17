@@ -45,6 +45,8 @@ let typedThisArm = false;
 // The New session hold in progress, or null. While it runs it owns the capture:
 // dictation stands down and focus changes are ignored until it ends.
 let hold = null;
+let rowDraft = null;
+const rowDrafts = new Map();
 
 export function isVoiceEnabled() { return localStorage.getItem(STORE.enabled) === '1'; }
 export function getVoiceModel() { return localStorage.getItem(STORE.model) || DEFAULT_MODEL; }
@@ -80,7 +82,11 @@ async function buildGraph() {
   const source = ctx.createMediaStreamSource(stream);
   node = new AudioWorkletNode(ctx, 'pcm-worklet');
   node.port.onmessage = (e) => {
-    if (hold) captureForHold(hold, e.data);
+    if (rowDraft) {
+      if (rowDraft.closed) return;
+      if (rowDraft.ready) window.api.sttAudio(e.data);
+      else if (rowDraft.pending.length < MAX_PENDING_CHUNKS) rowDraft.pending.push(e.data);
+    } else if (hold) captureForHold(hold, e.data);
     else if (armedSession) window.api.sttAudio(e.data);
     else if (wanted?.pending && wanted.pending.length < MAX_PENDING_CHUNKS) wanted.pending.push(e.data);
   };
@@ -120,7 +126,7 @@ function releaseStream() {
 
 function scheduleIdleRelease() {
   clearTimeout(idleTimer);
-  idleTimer = setTimeout(() => { if (!wanted && !starting && !hold) releaseStream(); }, IDLE_RELEASE_MS);
+  idleTimer = setTimeout(() => { if (!wanted && !starting && !rowDraft && !hold) releaseStream(); }, IDLE_RELEASE_MS);
 }
 
 // --- indicator ---------------------------------------------------------------
@@ -209,7 +215,7 @@ function arm(request) {
   }).finally(() => {
     starting = null;
     if (wanted && wanted !== request && !settleTimer) arm(wanted);
-    else if (!wanted && !hold && (!isVoiceEnabled() || pausedSession)) releaseMic();
+    else if (!wanted && !rowDraft && !hold && (!isVoiceEnabled() || pausedSession)) releaseMic();
   });
 }
 
@@ -246,7 +252,7 @@ function disarm() {
     armedSession = null;
     stopEngine();
   }
-  if (!hold) {
+  if (!hold && !rowDraft) {
     if (!starting && (!isVoiceEnabled() || pausedSession)) releaseMic();
     scheduleIdleRelease();
   }
@@ -270,7 +276,7 @@ function focusedTerminalSession() {
 }
 
 function syncToFocus(immediate = false) {
-  if (hold) return;
+  if (hold || rowDraft) return;
   const focused = document.hasFocus() ? focusedTerminalSession() : null;
   if (gestureSession !== focused) gestureSession = null;
   if (pausedSession !== focused) pausedSession = null;
@@ -300,7 +306,7 @@ function stopGesture() {
 }
 
 export function toggleSessionDictation(id) {
-  if (hold || !document.hasFocus() || focusedTerminalSession() !== id) return;
+  if (hold || rowDraft || !document.hasFocus() || focusedTerminalSession() !== id) return;
   if (gestureSession === id) {
     stopGesture();
     return;
@@ -312,10 +318,91 @@ export function toggleSessionDictation(id) {
 }
 
 export function stopSessionDictation(id) {
+  for (const draft of rowDrafts.values()) if (draft.id === id) finishRow(draft, true);
   if (wanted?.id !== id) return;
   gestureSession = null;
   pausedSession = id;
   disarm();
+}
+
+function finishRow(draft, cancel = false) {
+  if (!draft) return;
+  if (cancel) {
+    draft.cancelled = true;
+    draft.popup.remove();
+  }
+  if (draft.closed) return;
+  draft.closed = true;
+  if (rowDraft === draft) gate(false);
+  draft.finish();
+}
+
+export function startRowDictation(id, row) {
+  if (hold) return;
+  if (rowDraft && !rowDraft.closed && rowDraft.id === id) { finishRow(rowDraft); return; }
+  finishRow(rowDraft);
+  const popup = document.createElement('div');
+  popup.className = 'row-dictation';
+  popup.setAttribute('role', 'status');
+  popup.textContent = t('voice.starting');
+  document.body.append(popup);
+  const position = () => {
+    const rect = row.getBoundingClientRect();
+    popup.style.left = Math.max(6, Math.min(rect.right + 8, innerWidth - popup.offsetWidth - 6)) + 'px';
+    popup.style.top = Math.max(6, Math.min(rect.top, innerHeight - popup.offsetHeight - 6)) + 'px';
+  };
+  position();
+  const observer = new ResizeObserver(position);
+  observer.observe(popup);
+  window.addEventListener('scroll', position, true);
+  window.addEventListener('resize', position);
+  const key = 'row-draft:' + crypto.randomUUID();
+  const draft = { id, row, popup, pending: [], text: '', ready: false, closed: false, cancelled: false };
+  const finished = new Promise(resolve => { draft.finish = resolve; });
+  rowDrafts.set(key, draft);
+  rowDraft = draft;
+  gestureSession = null;
+  disarm();
+  clearTimeout(idleTimer);
+  window.api.sttWarm(engineOpts());
+  const mic = ensureGraph().then(() => {
+    if (rowDraft === draft && !draft.closed) gate(true);
+    return null;
+  }, err => err);
+  // The engine is shared. Keep its target until the final decoded phrase arrives.
+  changeEngine(async () => {
+    const micError = await mic;
+    if (micError && !draft.cancelled) throw micError;
+    if (draft.cancelled || (draft.closed && !draft.pending.length)) return;
+    const result = await window.api.sttStart({ sessionId: key, ...engineOpts() });
+    if (result?.error) throw new Error(result.error);
+    draft.ready = true;
+    popup.textContent = t('voice.listening');
+    for (const chunk of draft.pending) window.api.sttAudio(chunk);
+    draft.pending = [];
+    await finished;
+    if (!draft.text && popup.textContent === t('voice.listening')) popup.textContent = t('voice.transcribing');
+    await window.api.sttFinish();
+    if (draft.silence && draft.text && !draft.cancelled) {
+      await new Promise(resolve => setTimeout(resolve, 650));
+    }
+  }).finally(() => {
+    observer.disconnect();
+    window.removeEventListener('scroll', position, true);
+    window.removeEventListener('resize', position);
+    popup.remove();
+    rowDrafts.delete(key);
+    if (rowDraft !== draft) return;
+    rowDraft = null;
+    gate(false);
+    if (!isVoiceEnabled()) releaseMic();
+    scheduleIdleRelease();
+    syncToFocus();
+  }).then(async () => {
+    if (draft.cancelled || !draft.text || !row.isConnected) return;
+    const result = await window.api.sendPromptToSessions([id], draft.text);
+    if (!result?.sent) throw new Error(t('voice.sendFailed'));
+  }).catch(err => { showWarning(err.message, t('voice.title')); });
 }
 
 // --- text delivery -----------------------------------------------------------
@@ -324,6 +411,14 @@ function onText(msg) {
   if (!msg || !msg.text) return;
   // A phrase captured for the New session hold goes into its transcript, never
   // into a terminal.
+  if (msg.sessionId?.startsWith('row-draft:')) {
+    const draft = rowDrafts.get(msg.sessionId);
+    if (draft && !draft.cancelled) {
+      draft.text = appendPhrase(draft.text, msg.text);
+      draft.popup.textContent = draft.text;
+    }
+    return;
+  }
   if (msg.sessionId === HOLD_TARGET) {
     if (hold?.engineReady) hold.transcript = appendPhrase(hold.transcript, msg.text);
     return;
@@ -490,7 +585,7 @@ export function initHoldToTalk(button, startDraft) {
   if (!button.title) button.title = t('voice.holdHint');
 
   button.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || button.disabled || hold) return;
+    if (e.button !== 0 || button.disabled || hold || rowDraft) return;
     // Captured, so letting go still ends the hold after the pointer drifts off.
     button.setPointerCapture?.(e.pointerId);
     beginPress(button, startDraft);
@@ -513,7 +608,7 @@ export function setVoiceEnabled(on) {
   if (!on) {
     gestureSession = null;
     disarm();
-    changeEngine(() => { if (!wanted && !hold && !isVoiceEnabled()) window.api.sttRelease(); });
+    changeEngine(() => { if (!wanted && !rowDraft && !hold && !isVoiceEnabled()) window.api.sttRelease(); });
     return;
   }
   // Load the weights now, not on the first arm — the model load is ~2.7s and would
@@ -617,7 +712,29 @@ export function initVoice() {
   // A focused terminal in an unfocused window must be inert — the user is talking to
   // some other app — and coming back should resume listening.
   // A hold is dropped too: the button can't be released in a window that lost focus.
+  window.api.onRowPreview(({ sessionId, text }) => {
+    const draft = rowDrafts.get(sessionId);
+    if (!draft || draft.closed) return;
+    draft.popup.textContent = appendPhrase(draft.text, text);
+    draft.popup.scrollTop = draft.popup.scrollHeight;
+  });
+  window.api.onRowSilence(key => {
+    const draft = rowDrafts.get(key);
+    if (!draft || draft.closed) return;
+    draft.silence = true;
+    finishRow(draft);
+  });
+  window.addEventListener('pointerdown', (e) => {
+    if (rowDraft && !rowDraft.popup.contains(e.target) && !rowDraft.row.contains(e.target)) finishRow(rowDraft);
+  }, true);
+  window.addEventListener('keydown', (e) => {
+    if (!rowDraft || rowDraft.cancelled || (e.key !== 'Escape' && e.key !== 'Backspace')) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    finishRow(rowDraft, true);
+  }, true);
   window.addEventListener('blur', () => {
+    finishRow(rowDraft);
     releaseHold(true);
     gestureSession = null;
     pausedSession = null;
@@ -645,6 +762,7 @@ export function initVoice() {
     setHotState(msg.busy ? 'transcribing' : 'listening');
   });
   window.api?.onSttError?.((msg) => {
+    if (rowDraft) finishRow(rowDraft, true);
     if (msg && msg.message) showWarning(msg.message, t('voice.title'));
   });
 }

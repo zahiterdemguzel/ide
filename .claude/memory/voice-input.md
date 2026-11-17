@@ -1,10 +1,13 @@
 # Voice input
 
 Force Click a session pane or list row on macOS or right-click one on Windows.
-The gesture selects the session and starts dictation even when automatic
-focus-based dictation is off. Repeat the gesture or press Escape to stop.
-OpenAI Whisper large-v3-turbo transcribes on the device. Text goes into the
-session's terminal for review. Press Enter to submit it.
+A list row opens a transcript beside the row and keeps the current session on screen.
+Sidebar drafts have unique recognition targets. Local Whisper previews the current phrase during
+speech and replaces each provisional guess with the decoded final segment. After VAD ends speech and observes a
+further second of silence, or when the user clicks away, the renderer flushes the
+last phrase and submits the draft through the background prompt channel. Escape
+and Backspace discard the draft, including during the final decode. Pane gestures
+select the terminal and type speech into its prompt for review and Enter.
 
 ## The parts
 
@@ -35,8 +38,8 @@ session's terminal for review. Press Enter to submit it.
 
 ## How arming is decided
 
-`sessions.js` resolves either gesture to a session and selects its terminal. A
-saved active row waits for its PTY to resume. An archived row requires the usual
+`sessions.js` resolves the hit to a row or a terminal. Only a pane gesture selects its terminal. A
+saved active row resumes in the background on submission. An archived row requires the usual
 restore action. On Windows the capture-phase context menu handler takes precedence
 over xterm's right-click clipboard action on live session panes. On macOS the
 Node-API addon in `src/native/force-click.mm` observes AppKit stage-two pressure

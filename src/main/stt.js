@@ -42,6 +42,7 @@ let audioErrorReported = false; // report a broken audio path once, not per chun
 // rather than a hand-rolled promise chain: each task settles on its own promise, so
 // one failed decode can't poison the queue for the rest of the session.
 const decodeQueue = createLimiter(1);
+const activeDecodes = new Set();
 
 // Electron's paths never change after ready, so resolve the model tree once.
 let modelRoot = null;
@@ -128,8 +129,16 @@ async function decodeOnce(samples, language) {
   // Padded: a segment whose audio stops on the final phoneme loses that syllable
   // ("kaydet" -> "kay"). See TAIL_PADDING_SECONDS.
   stream.acceptWaveform({ samples: withTailPadding(samples, TAIL_PADDING), sampleRate: SAMPLE_RATE });
-  const result = await recognizer.decodeAsync(stream);
-  return { text: (result && result.text) || '', lang: (result && result.lang) || '' };
+  // sherpa's async worker holds raw native pointers. Keep both JS owners alive
+  // until it returns, including if the capture is cancelled or released.
+  const decoding = { recognizer, stream };
+  activeDecodes.add(decoding);
+  try {
+    const result = await decoding.recognizer.decodeAsync(stream);
+    return { text: (result && result.text) || '', lang: (result && result.lang) || '' };
+  } finally {
+    activeDecodes.delete(decoding);
+  }
 }
 
 // One phrase in the capture's language setting. An English-only model is always
@@ -263,12 +272,56 @@ bridge.handle('stt-warm', async (_e, { modelId } = {}) => {
 
 // Arm a capture for one session. Cheap once warmed — it only points the recognizer
 // at a session and resets the VAD.
+let rowSilence = null;
+let rowPreview = null;
+
+function newRowPreview() {
+  return { chunks: [], length: 0, sincePreview: 0, decoding: false };
+}
+
+// Whisper revises its guess as a phrase grows. Only final VAD segments are sent
+// as stt-text. A segment boundary invalidates any unfinished preview.
+function previewSpeech(samples) {
+  const preview = rowPreview;
+  if (!preview || !target) return;
+  if (!vad.isEmpty()) {
+    rowPreview = newRowPreview();
+    return;
+  }
+  preview.chunks.push(samples);
+  preview.length += samples.length;
+  const speaking = vad.isDetected();
+  const limit = (speaking ? VAD_CONFIG.maxSpeechDuration : 0.5) * SAMPLE_RATE;
+  while (preview.length > limit && preview.chunks.length > 1) {
+    preview.length -= preview.chunks.shift().length;
+  }
+  preview.sincePreview += samples.length;
+  if (!speaking || preview.decoding || preview.sincePreview < SAMPLE_RATE || preview.length < SAMPLE_RATE) return;
+  const sessionId = target;
+  const language = targetLanguage;
+  const audio = concatSamples(preview.chunks);
+  preview.sincePreview = 0;
+  preview.decoding = true;
+  decodeQueue(async () => {
+    if (preview !== rowPreview || target !== sessionId) return;
+    const result = await decodeSegment(audio, language);
+    const text = normalizeTranscript(result.text);
+    if (preview === rowPreview && target === sessionId && shouldEmit(text)) {
+      sendToRenderer('stt-row-preview', { sessionId, text });
+    }
+  }).catch(err => console.warn('[voice] preview failed:', err.message))
+    .finally(() => { preview.decoding = false; });
+}
+
 bridge.handle('stt-start', async (_e, { sessionId, modelId, language } = {}) => {
   try {
     const id = pickModelId(modelId);
     const lang = pickLanguage(language);
     await ensureRecognizer(id);
+    const isRow = typeof sessionId === 'string' && sessionId.startsWith('row-draft:');
     ensureVad();
+    rowPreview = isRow ? newRowPreview() : null;
+    rowSilence = null;
     vad.reset();
     audioErrorReported = false;
     target = sessionId || null;
@@ -284,6 +337,15 @@ bridge.on('stt-audio', (_e, samples) => {
   if (!vad || !target || !samples || !samples.length) return;
   try {
     vad.acceptWaveform(samples);
+    if (rowPreview) {
+      previewSpeech(samples);
+      if (vad.isDetected() || !vad.isEmpty()) rowSilence = 0;
+      else if (rowSilence !== null) rowSilence += samples.length;
+      if (rowSilence >= SAMPLE_RATE) {
+        sendToRenderer('stt-row-silence', target);
+        rowSilence = null;
+      }
+    }
     drain();
   } catch (err) {
     console.error('[voice] accepting audio failed:', err && err.message);
@@ -332,6 +394,7 @@ bridge.handle('stt-transcribe-clip', async (_e, { clips, language } = {}) => {
 // the user stopped hovering mid-sentence, but they still said the words. Resolves
 // once that last phrase has been decoded and its `stt-text` sent.
 function stopCapture() {
+  rowPreview = null;
   const stopping = target;
   if (!vad) { target = null; return Promise.resolve(); }
   try { vad.flush(); drain(); } catch (err) { console.error('[voice] flush failed:', err && err.message); }
@@ -353,6 +416,7 @@ bridge.handle('stt-finish', async () => {
 // Free the weights (hundreds of MB of RAM) when voice input is switched off, and
 // on quit.
 function stopStt() {
+  rowPreview = null;
   target = null;
   vad = null;
   recognizer = null;
