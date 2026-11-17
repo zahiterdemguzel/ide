@@ -24,14 +24,14 @@ import { contextBadge, cleanContextBadgeMode } from './shared/context-gauge.js';
 import { QUICK_GPT_MODELS, QUICK_CLAUDE_MODELS, initQuickModelGestures } from './shared/quick-models.js';
 import { t } from '../i18n/index.js';
 import { isWorktreeMode, prepareWorktree } from './worktrees.js';
-import { initHoldToTalk, toggleSessionDictation, stopSessionDictation } from './voice.js';
+import { initHoldToTalk, startRowDictation, toggleSessionDictation, stopSessionDictation } from './voice.js';
 import { showSeenImagesFor } from './seen-images.js';
 import { showQuickPromptsFor } from './quick-prompts.js';
 import { promptTypingDelay, promptSubmitDelay, TUI_READY_MS } from './shared/prompt-timing.js';
 
 // Each session owns its own xterm.js Terminal in a hidden container div;
 // switching sessions toggles which container is visible, preserving scrollback.
-const sessions = new Map(); // id -> { id, term, fit, container, li, dot, label, state, firstPrompt, name, fileCount, archived }
+const sessions = new Map(); // id -> session state, terminal, and sidebar row
 let activeId = null;
 let pendingDictation = null;
 export const getActiveId = () => activeId;
@@ -108,9 +108,8 @@ function applyScope(s) {
 // shows only archived, 'all' shows everything.
 let currentTab = 'active';
 
-// Compiled query terms for the Archived-tab search bar (empty = no filter). The
-// matching mirrors the explorer's filename search (shared/name-match.js).
-let archivedTerms = [];
+let sessionTerms = [];
+let sessionSearchTimer;
 
 // Sessions are scoped to the project folder they were created in: only the open
 // folder's sessions are shown. Switching folders (setSessionsRepo) re-filters the
@@ -182,6 +181,7 @@ export function setOsNotificationsEnabled(on) {
 const listEl = document.getElementById('session-list');
 const sessionTabs = document.getElementById('session-tabs');
 const sessionSearch = document.getElementById('session-search');
+const sessionSearchEmpty = document.getElementById('session-search-empty');
 const hostEl = document.getElementById('terminal-host');
 const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
@@ -226,20 +226,24 @@ const TRASH_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="1
 const STATE_LABEL = {
   idle: 'Idle',
   working: 'Working',
-  'needs-input': 'Needs input',
   completed: 'Completed',
   'bg-agents': 'Ready — background agents running',
   pushed: 'Committed / pushed',
   interrupted: 'Interrupted',
 };
 
+function renderSessionState(s) {
+  s.dot.className = 'dot ' + s.state;
+  s.dot.title = STATE_LABEL[s.state] || '';
+  s.attention.hidden = s.state !== 'needs-input';
+}
+
 function setState(id, state) {
   const s = sessions.get(id);
   if (!s) return;
   const prev = s.state;
   s.state = state;
-  s.dot.className = 'dot ' + state;
-  s.dot.title = STATE_LABEL[state] || state;
+  renderSessionState(s);
   // A session that was working has just finished — pull the user's eye back with a
   // one-shot row/dot animation and a chime, since the result is likely off-screen.
   if (isCompletionTransition(prev, state)) celebrateFinish(s);
@@ -366,22 +370,18 @@ function sessionInTab(s) {
   return !s.archived; // 'active'
 }
 
-// A row is shown only when it both belongs to the open project and matches the
-// active tab. currentRepo is undefined until restoreSessions resolves the open
-// folder; treat that startup window as "no filter yet" so nothing is hidden
-// prematurely. A resolved null (no project open) hides every session.
-// A session's searchable text: its generated title plus its first prompt — the
-// same identity a sidebar row shows, so a query matches what the user reads.
-function sessionHaystack(s) {
-  return `${s.name || ''} ${s.firstPrompt || ''}`;
+function sessionInProject(s) {
+  return currentRepo === undefined || s.repo === currentRepo;
 }
 
-function sessionVisible(s) {
-  if (currentRepo !== undefined && s.repo !== currentRepo) return false;
-  if (!sessionInTab(s)) return false;
-  // The search bar only filters the Archived tab (where it's shown).
-  if (currentTab === 'archived' && archivedTerms.length) return matchesTerms(archivedTerms, sessionHaystack(s));
-  return true;
+function sessionInView(s) {
+  return sessionInProject(s) && sessionInTab(s);
+}
+
+function matchesSessionSearch(s) {
+  if (!sessionTerms.length) return true;
+  const text = `${s.name || ''} ${s.firstPrompt || ''}`.trim() || t('session.unnamed');
+  return matchesTerms(sessionTerms, text);
 }
 
 // Show/hide rows for the current tab + project and keep each row's archived
@@ -391,9 +391,10 @@ function applyTabFilter() {
   const rows = [...sessions.values()];
   if (currentTab === 'archived') rows.reverse();
   for (const s of rows) {
-    s.li.style.display = sessionVisible(s) ? '' : 'none';
+    s.li.style.display = sessionInView(s) && matchesSessionSearch(s) ? '' : 'none';
     s.li.classList.toggle('archived', s.archived);
   }
+  sessionSearchEmpty.hidden = !sessionTerms.length || rows.some((s) => s.li.style.display !== 'none');
   // Re-order the rows to match the active tab's sort — but only when the order
   // actually changed: this runs on every sessions-changed broadcast, and O(N)
   // unconditional appendChild reflows were a per-event tax with many sessions.
@@ -420,26 +421,54 @@ function selectFirstVisible() {
   updateSessionBar();
 }
 
-function setTab(tab) {
+function clearSessionSearch() {
+  clearTimeout(sessionSearchTimer);
+  sessionSearch.value = '';
+  sessionTerms = [];
+}
+
+function setTab(tab, revealId) {
+  const target = sessions.get(revealId);
+  if (currentTab !== tab || (target && !matchesSessionSearch(target))) clearSessionSearch();
   currentTab = tab;
   for (const btn of sessionTabs.children) btn.classList.toggle('active', btn.dataset.tab === tab);
-  // The search bar lives on the Archived tab only; leaving it clears the filter.
-  const onArchived = tab === 'archived';
-  sessionSearch.hidden = !onArchived;
-  if (!onArchived && archivedTerms.length) { sessionSearch.value = ''; archivedTerms = []; }
+  sessionSearch.hidden = tab === 'all';
   applyTabFilter();
+  if (target) {
+    selectSession(revealId);
+    target.li.scrollIntoView({ block: 'nearest' });
+    return;
+  }
   // The selected session may not belong to the new tab anymore.
   const s = sessions.get(activeId);
-  if (!s || !sessionVisible(s)) selectFirstVisible();
+  if (!s || !sessionInView(s)) selectFirstVisible();
+}
+
+export function selectNextWaitingSession() {
+  const isWaiting = (s) => s?.state === 'needs-input' && !s.archived && sessionInProject(s);
+  // Include the active row as the starting point even if it is not waiting.
+  const candidates = [...sessions.values()].filter((s) => s.id === activeId || isWaiting(s));
+  const next = nextSessionId(candidates.map((s) => s.id), activeId);
+  const target = next ?? (isWaiting(sessions.get(activeId)) ? activeId : null);
+  if (target !== null) {
+    setTab('active', target);
+    return;
+  }
+  openDialog({
+    title: t('command.nextWaitingSession'),
+    body: t('sessions.noneWaiting'),
+    buttons: [{ label: t('warn.ok'), value: true, variant: 'primary' }],
+  });
 }
 
 // Re-point the list at a different project folder: re-filter and fall back to the
 // new folder's first session (or the empty hint) when the selection moved away.
 export function setSessionsRepo(repo) {
+  if (currentRepo !== repo) clearSessionSearch();
   currentRepo = repo;
   applyTabFilter();
   const s = sessions.get(activeId);
-  if (!s || !sessionVisible(s)) selectFirstVisible();
+  if (!s || !sessionInView(s)) selectFirstVisible();
 }
 
 // Archive a row immediately in the UI; main is told in the same tick. The
@@ -465,7 +494,7 @@ async function setArchived(id, archived) {
     s.archived = false;
   }
   applyTabFilter();
-  if (activeId === id && !sessionVisible(s)) selectFirstVisible();
+  if (activeId === id && !sessionInView(s)) selectFirstVisible();
   else if (!archived && activeId === id) selectSession(id); // re-fit the rebuilt terminal
   // Unarchiving reveals the badge — its stat was skipped while archived, so pull
   // it now (no-op when it has no tracked work).
@@ -520,11 +549,7 @@ function updateSessionBar() {
 // terminal is mirrored back onto the badge (see onSessionModel). An empty/absent
 // value means the CLI default, shown as "Default".
 function modelId(s) {
-  const v = s && s.model;
-  if (!v || v === 'default') return 'default';
-  // Known Claude alias or installed Ollama model; an unknown/uninstalled id shows
-  // as Default (the record still carries it — the menu self-heals when it lists).
-  return getMergedModels().some((m) => m.id === v) ? v : 'default';
+  return s?.model || 'default';
 }
 // The pill keeps the "Default (inherit)" wording short — it's just "Default" here.
 function modelBadgeText(id) {
@@ -912,7 +937,15 @@ function sessionForDictation(target) {
   return s && !s.archived ? s : null;
 }
 
-function dictateIntoSession(s) {
+let forceClickedRow = null;
+window.addEventListener('pointerdown', () => { forceClickedRow = null; }, true);
+
+function dictateIntoSession(s, target, forceClick = false) {
+  if (s.li.contains(target)) {
+    if (forceClick) forceClickedRow = s.li;
+    startRowDictation(s.id, s.li);
+    return;
+  }
   if (pendingDictation?.id === s.id) {
     pendingDictation = null;
     return;
@@ -941,12 +974,13 @@ if (navigator.platform.toLowerCase().startsWith('win')) {
     if (!s) return;
     e.preventDefault();
     e.stopPropagation();
-    dictateIntoSession(s);
+    dictateIntoSession(s, e.target);
   }, true);
 }
 window.api.onSessionForceClick(({ x, y }) => {
-  const s = sessionForDictation(document.elementFromPoint(x, y));
-  if (s) dictateIntoSession(s);
+  const target = document.elementFromPoint(x, y);
+  const s = sessionForDictation(target);
+  if (s) dictateIntoSession(s, target, true);
 });
 window.addEventListener('blur', () => { pendingDictation = null; });
 
@@ -1059,11 +1093,23 @@ function resumeSessionUI(s) {
 function makeRow(id) {
   const li = document.createElement('li');
   li.dataset.id = id;
+  const indicator = document.createElement('span');
+  indicator.className = 'sess-indicator';
   const dot = document.createElement('span');
   dot.className = 'dot idle';
+  dot.title = STATE_LABEL.idle;
+  indicator.appendChild(dot);
+  const rowText = document.createElement('span');
+  rowText.className = 'sess-row-text';
   const label = document.createElement('span');
   label.className = 'sess-label';
   label.textContent = t('session.unnamed');
+  const attention = document.createElement('span');
+  attention.className = 'sess-attention';
+  attention.dataset.i18n = 'session.stateNeedsInput';
+  attention.textContent = t(attention.dataset.i18n);
+  attention.hidden = true;
+  rowText.append(label, attention);
   const diffBadge = document.createElement('span');
   diffBadge.className = 'sess-diff';
   diffBadge.style.display = 'none';
@@ -1109,13 +1155,16 @@ function makeRow(id) {
     hideArmHint();
     closeSession(id);
   };
-  li.append(dot, label, wtMark, diffBadge, restore, del, close);
-  li.onclick = (e) => onRowClick(id, e);
+  li.append(indicator, rowText, wtMark, diffBadge, restore, del, close);
+  li.onclick = (e) => {
+    if (forceClickedRow === li) { forceClickedRow = null; return; }
+    onRowClick(id, e);
+  };
   // Shift+click would otherwise extend a text selection across the rows.
   li.onmousedown = (e) => { if (e.shiftKey && doubleSessionEnabled) e.preventDefault(); };
   li.onauxclick = (e) => { if (e.button === 1) { e.preventDefault(); archiveOrDelete(); } };
   listEl.appendChild(li);
-  return { li, dot, label, diffBadge, wtMark, closeBtn: close };
+  return { li, dot, label, attention, diffBadge, wtMark, closeBtn: close };
 }
 
 // Replace a container's contents with the "archived, restore to continue" hint
@@ -1177,13 +1226,11 @@ export async function newSession(opts = {}) {
   // (both paths build the same live row) — reuse it rather than duplicating it.
   if (!sessions.has(id)) {
     const { container, term, fit: fitAddon } = buildTerminal(id, repo);
-    const { li, dot, label, diffBadge, wtMark, closeBtn } = makeRow(id);
-    sessions.set(id, { id, repo, term, fit: fitAddon, container, li, dot, label, diffBadge, wtMark, closeBtn, state: 'idle', firstPrompt: '', name: '', fileCount: 0, archived: false, suspended: false, model, effort: res.effort || '', worktree: res.worktree || '', branch: res.branch || '', worktreeState: res.worktreeState || '' });
+    const row = makeRow(id);
+    sessions.set(id, { id, repo, term, fit: fitAddon, container, ...row, state: 'idle', firstPrompt: '', name: '', fileCount: 0, archived: false, suspended: false, model: res.model || model, effort: res.effort || '', worktree: res.worktree || '', branch: res.branch || '', worktreeState: res.worktreeState || '' });
+    if (opts.select === false) applyTabFilter();
   }
-  if (opts.select !== false) {
-    setTab('active');
-    selectSession(id);
-  }
+  if (opts.select !== false) setTab('active', id);
   return id;
 }
 
@@ -1221,13 +1268,12 @@ export function startVoiceDraft(opts = {}) {
   return {
     async reveal() {
       const id = await background;
-      if (id && !discarded && sessions.has(id)) { setTab('active'); selectSession(id); }
+      if (id && !discarded && sessions.has(id)) setTab('active', id);
     },
     async submit(text) {
       const id = await background;
       if (id && sessions.has(id)) {
-        setTab('active');
-        selectSession(id);
+        setTab('active', id);
         submitPromptWhenReady(id, text);
       } else {
         await newSessionWithPrompt(text, opts);
@@ -1251,18 +1297,17 @@ function restoreSessionRow(meta) {
   showSuspendedHint(container, archived
     ? 'Session archived — restore it to continue.'
     : 'Session restored — select to resume.');
-  const { li, dot, label, diffBadge, wtMark, closeBtn } = makeRow(id);
+  const row = makeRow(id);
   const shown = name || (firstPrompt && firstPrompt.split('\n')[0]);
-  if (shown) label.textContent = shown;
+  if (shown) row.label.textContent = shown;
   // Carry the persisted status dot across the restart: finished stays green,
   // committed stays purple, an untouched session stays gray, and only a session
   // that was actively running reopens red (interrupted). Selecting it resumes the
   // Claude process, which then drives the dot live again.
-  const st = state || 'idle';
-  dot.className = 'dot ' + st;
-  dot.title = STATE_LABEL[st] || st;
-  sessions.set(id, { id, repo: repo || '', term: null, fit: null, container, li, dot, label, diffBadge, wtMark, closeBtn, state: st, firstPrompt: firstPrompt || '', name: name || '', fileCount: fileCount || 0, archived, suspended: true, model: model || '', effort: effort || '', worktree: worktree || '', branch: branch || '', worktreeState: worktreeState || '' });
-  renderRowDiff(sessions.get(id));
+  const s = { id, repo: repo || '', term: null, fit: null, container, ...row, state: state || 'idle', firstPrompt: firstPrompt || '', name: name || '', fileCount: fileCount || 0, archived, suspended: true, model: model || '', effort: effort || '', worktree: worktree || '', branch: branch || '', worktreeState: worktreeState || '' };
+  sessions.set(id, s);
+  renderSessionState(s);
+  renderRowDiff(s);
 }
 
 // On startup, pull the persisted sessions from main and rebuild the list, then
@@ -1295,19 +1340,18 @@ export async function restoreSessions() {
 function adoptSession(meta) {
   const repo = meta.repo || currentRepo || '';
   const { container, term, fit } = buildTerminal(meta.id, repo);
-  const { li, dot, label, diffBadge, wtMark, closeBtn } = makeRow(meta.id);
-  const state = meta.state || 'idle';
+  const row = makeRow(meta.id);
   const shown = meta.name || (meta.firstPrompt && meta.firstPrompt.split('\n')[0]);
-  if (shown) label.textContent = shown;
-  dot.className = 'dot ' + state;
-  dot.title = STATE_LABEL[state] || state;
-  sessions.set(meta.id, {
-    id: meta.id, repo, term, fit, container, li, dot, label, diffBadge, wtMark, closeBtn, state,
+  if (shown) row.label.textContent = shown;
+  const s = {
+    id: meta.id, repo, term, fit, container, ...row, state: meta.state || 'idle',
     firstPrompt: meta.firstPrompt || '', name: meta.name || '', fileCount: meta.fileCount || 0,
     archived: false, suspended: false, model: meta.model || '', effort: meta.effort || '',
     worktree: meta.worktree || '', branch: meta.branch || '', worktreeState: meta.worktreeState || '',
-  });
-  renderRowDiff(sessions.get(meta.id));
+  };
+  sessions.set(meta.id, s);
+  renderSessionState(s);
+  renderRowDiff(s);
 }
 
 // Main owns the session set and pushes the whole list whenever it changes, so a
@@ -1356,7 +1400,7 @@ function syncSessions(list) {
   for (const id of [...sessions.keys()]) if (!seen.has(id)) removeSessionUI(id);
   applyTabFilter();
   const cur = sessions.get(activeId);
-  if (!cur || !sessionVisible(cur)) selectFirstVisible();
+  if (!cur || !sessionInView(cur)) selectFirstVisible();
 }
 
 // Tear down a session's UI without telling main to kill it (used both for an
@@ -1906,16 +1950,11 @@ window.addEventListener('keydown', (e) => {
   }
 }, true);
 
-// Archived-tab search: debounced like the explorer's file search (150ms), then
-// re-run the tab filter so non-matching archived rows hide. Selection is left
-// alone while typing — the filter is transient and non-destructive.
-let sessionSearchTimer;
+// Update row visibility after typing settles, without moving the active terminal.
 sessionSearch.oninput = () => {
+  sessionTerms = compileQuery(sessionSearch.value);
   clearTimeout(sessionSearchTimer);
-  sessionSearchTimer = setTimeout(() => {
-    archivedTerms = compileQuery(sessionSearch.value);
-    applyTabFilter();
-  }, 150);
+  sessionSearchTimer = setTimeout(applyTabFilter, 150);
 };
 
 // Accept file drops into the active session. Two sources:
@@ -2007,8 +2046,10 @@ window.api.onSelectSession((id) => selectSession(id));
 window.api.onSessionMeta(({ id, firstPrompt, files }) => {
   const s = sessions.get(id);
   if (!s) return;
+  const promptChanged = s.firstPrompt !== firstPrompt;
   s.firstPrompt = firstPrompt;
   s.fileCount = files.length;
+  if (promptChanged && sessionTerms.length) applyTabFilter();
   if (id === activeId) updateSessionBar();
   // session-meta fires for background sessions too, so refreshing the diff stat
   // here keeps an out-of-view session's badge current.
@@ -2032,6 +2073,7 @@ window.api.onSessionName(({ id, name }) => {
   if (!s) return;
   s.name = name;
   s.label.textContent = name;
+  if (sessionTerms.length) applyTabFilter();
   if (id === activeId) updateSessionBar();
 });
 // The session's model changed under us — mirror it onto the badge. Two origins reach

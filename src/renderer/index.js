@@ -5,7 +5,7 @@ import './shared/bootstrap.js';
 import './shared/storage-sync.js'; // before any module that writes settings
 import { onClose, onTakeover, refreshDiagram } from './viewer/center.js';
 import { onEditorRepoChanged } from './viewer/file.js';
-import { showActiveSession, restoreSessions, setSessionsRepo, newSession, sessionNameForWorktree, setSessionScope, submitToActiveSession, endSplit } from './sessions.js';
+import { showActiveSession, restoreSessions, setSessionsRepo, newSession, selectNextWaitingSession, sessionNameForWorktree, setSessionScope, submitToActiveSession, endSplit } from './sessions.js';
 import { refreshGit, autoFetch } from './git-pane.js';
 import { refreshTree } from './explorer/tree.js';
 import './explorer/search.js';
@@ -210,6 +210,7 @@ window.addEventListener('keydown', (e) => {
 // palette re-localizes them each time it opens.
 registerCommands([
   { id: 'new-session', titleKey: 'command.newSession', keywordsKey: 'command.newSession.kw', run: newSession },
+  { id: 'next-waiting-session', titleKey: 'command.nextWaitingSession', keywordsKey: 'command.nextWaitingSession.kw', run: selectNextWaitingSession },
   { id: 'go-to-file', titleKey: 'command.goToFile', keywordsKey: 'command.goToFile.kw', run: openQuickOpen },
   { id: 'open-folder', titleKey: 'command.openFolder', keywordsKey: 'command.openFolder.kw', run: browseForFolder },
   { id: 'open-settings', titleKey: 'command.openSettings', keywordsKey: 'command.openSettings.kw', run: () => document.getElementById('settings-btn').click() },

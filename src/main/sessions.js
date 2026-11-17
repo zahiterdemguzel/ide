@@ -21,7 +21,7 @@ const { latestCodexModel } = require('./codex-latest');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
 const { installGuide: codexInstallGuide } = require('./codex-install');
 const { draftSafeSlashCommand } = require('./slash-command');
-const { cleanEffort, effortArgs, codexEffortValue, defaultEffortFor } = require('./agent-effort');
+const { cleanEffort, effortArgs, codexEffortValue, codexEffortKeys, defaultEffortFor } = require('./agent-effort');
 const { feedSessionCommand } = require('./session-cmd-parse');
 const { editOp, diffStat } = require('./edit-ops');
 const { LIMITS, hashContent, looksBinary, deriveOp } = require('./fs-content');
@@ -508,16 +508,6 @@ function setSessionState(id, state) {
   if (state !== 'working') s.tool = null;
   persistSession(id);
   moveToActiveAccountIfSettled(id, state);
-  if (s.pendingCodexEffort && (state === 'completed' || state === 'interrupted')) {
-    // Let the Stop hook return before replacing its CLI, and recheck in case a
-    // new turn started in the meantime.
-    setTimeout(() => {
-      const cur = sessions.get(id);
-      if (!cur || !cur.pendingCodexEffort || !cur.pty || !['completed', 'interrupted'].includes(cur.state)) return;
-      cur.pendingCodexEffort = false;
-      respawnSession(id, cur, 'applying deferred effort switch');
-    }, 500);
-  }
 }
 
 // Paint and persist a state the main process derived itself (not the hook stream,
@@ -1412,7 +1402,13 @@ async function spawnPty(id, cols, rows, resume) {
     // agent id the hooks reported; without one there is no conversation to
     // resume, so it starts fresh under the same IDE id.
     exe = await resolveCodex();
-    if (s) s.model = await latestCodexModel(exe, s.model);
+    if (s) {
+      const resolved = await latestCodexModel(exe, s.model);
+      if (resolved !== s.model) {
+        s.model = resolved;
+        sendToRenderer('session-model', { id, model: resolved });
+      }
+    }
     args = codexSpawnArgs({
       resume, agentSessionId: s && s.agentSessionId, model: s && s.model,
       effort: s && s.effort, port: hookServer.getHookPort(), ideId: id,
@@ -1696,7 +1692,7 @@ bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows
   // onto a row this call is about to create.
   const created = sessions.get(id);
   return {
-    id, repo, effort: created.effort,
+    id, repo, model: created.model, effort: created.effort,
     // The tree this session ended up in, so the client can draw it as a worktree
     // session (Merge instead of Commit) without waiting for the next list push.
     worktree: created.worktree || '', branch: created.branch || '', worktreeState: created.worktreeState || '',
@@ -1913,7 +1909,7 @@ bridge.handle('resume-session', guard('restoring a session', async (_e, { id, co
 // menu, or the phone's chat sheet) and both draw it: without the push, a switch made on
 // one leaves the other showing the model the session is no longer running.
 // Restart a session's PTY in place (same id, resumed conversation) so a change
-// that only a fresh spawn can apply — a Codex model or effort switch, whose
+// that only a fresh spawn can apply — a Codex model switch, whose
 // values ride on the argv — takes effect immediately. `respawning` makes the
 // dying PTY's onExit skip teardown (see spawnPty).
 function respawnSession(id, s, context) {
@@ -1970,18 +1966,11 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
   if (!s) return;
   const chosen = typeof effort === 'string' ? effort.trim().toLowerCase() : '';
   if (modelFamily(s.model) === 'codex') {
-    // Codex has its own ladder (low…xhigh, no max) and takes the level as a
-    // spawn-time config override, so — like its model switch above — a live
-    // change is a conversation-preserving respawn.
-    if (!codexEffortValue(chosen)) return;
-    if (chosen === s.effort) return;
+    if (!codexEffortValue(chosen) || chosen === s.effort) return;
+    // Native reasoning shortcuts leave the composer's draft, cursor and attachments in place.
+    if (s.pty) s.pty.write(codexEffortKeys(s.effort, chosen));
     s.effort = chosen;
     persistSession(id);
-    if (s.pty && ['working', 'bg-agents', 'needs-input'].includes(s.state)) s.pendingCodexEffort = true;
-    else if (s.pty) {
-      s.pendingCodexEffort = false;
-      respawnSession(id, s, 'respawning for effort switch');
-    }
     sendToRenderer('session-effort', { id, effort: chosen });
     return;
   }

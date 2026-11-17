@@ -67,7 +67,9 @@
           <button class="sess-tab" data-tab="archived" data-i18n="sessions.tab.archived">Archived</button>
           <button class="sess-tab" data-tab="all" data-i18n="sessions.tab.all">All</button>
         </div>
-        <input id="session-search" type="search" hidden data-i18n-placeholder="sessions.search" placeholder="Search archived…" />
+        <span id="session-search-label" hidden data-i18n="sessions.search">Search sessions…</span>
+        <input id="session-search" type="search" aria-labelledby="session-search-label" data-i18n-placeholder="sessions.search" placeholder="Search sessions…" />
+        <p id="session-search-empty" role="status" hidden data-i18n="sessions.searchEmpty">No matching sessions</p>
         <ul id="session-list"></ul>
         <div class="sidebar-actions">
           <div class="new-session-wrap">
@@ -209,6 +211,7 @@
             <div class="welcome-eyebrow" data-i18n="session.welcomeLegend">Session status</div>
             <ul class="welcome-legend">
               <li><span class="legend-dot lg-working"></span><span data-i18n="session.stateWorking">Working</span></li>
+              <li><span class="dot needs-input" aria-hidden="true"></span><span data-i18n="session.stateNeedsInput">Needs input</span></li>
               <li><span class="legend-dot lg-done"></span><span data-i18n="session.stateDone">Done</span></li>
               <li><span class="legend-dot lg-committed"></span><span data-i18n="session.stateCommitted">Committed</span></li>
               <li><span class="legend-dot lg-interrupted"></span><span data-i18n="session.stateInterrupted">Interrupted</span></li>
@@ -993,7 +996,7 @@
         <section class="settings-page" data-page="voice" role="tabpanel" id="voice-input">
           <header class="settings-page-head">
             <h2 data-i18n="voice.title">Voice input</h2>
-            <p data-i18n="voice.hint">Force-click on macOS or right-click on Windows to dictate into a session pane or list item. Repeat the gesture or press Esc to stop. Whisper transcribes on this device. Press Enter to send the text.</p>
+            <p data-i18n="voice.hint">Force-click on macOS or right-click on Windows. On a session row, pause or click elsewhere to send the transcript. Esc or Backspace cancels. In a terminal pane, press Enter to send.</p>
           </header>
           <div class="settings-group">
             <div class="settings-card">

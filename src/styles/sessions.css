@@ -13,8 +13,7 @@
 .sess-tab:hover { color: var(--fg); }
 .sess-tab.active { color: var(--on-accent); background: var(--accent); }
 
-/* archived-sessions search bar — same look as the explorer's #file-search, and
-   the same matching logic (shared/name-match.js). Shown only on the Archived tab. */
+/* Session search shares the look of the explorer's #file-search. */
 #session-search {
   margin: 0 12px 8px; padding: 6px 8px; font-size: 12px;
   background: var(--bg-3); color: var(--fg);
@@ -35,6 +34,7 @@
 }
 #session-search::-webkit-search-cancel-button:hover { background-color: var(--fg); transform: scale(1.2); }
 #session-search::-webkit-search-cancel-button:active { transform: scale(.95); }
+#session-search-empty { margin: 4px 12px; font-size: 12px; color: var(--fg-dim); }
 
 /* session list */
 #session-list { list-style: none; margin: 0; padding: 0; flex: 1; overflow-y: auto; }
@@ -62,7 +62,11 @@
 #session-list li.scoped:hover { background: color-mix(in srgb, var(--list-sel) 88%, var(--fg)); }
 #session-list li.scoped.active { border-left-color: var(--accent-hi); }
 #session-list li.scoped .sess-wt { opacity: 1; }
-.sess-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-indicator { flex: 0 0 14px; display: grid; place-items: center; }
+.sess-row-text { flex: 1; min-width: 0; }
+.sess-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess-attention { display: block; margin-top: 2px; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+.sess-attention[hidden], #session-list li.archived .sess-attention { display: none; }
 /* Optional per-row diff badge (sessions list) — toggled in settings. */
 .sess-diff {
   flex: none; display: inline-flex; gap: 6px;
@@ -133,9 +137,10 @@
 @keyframes sess-dot-spin {
   to { transform: rotate(360deg); }
 }
-/* Needs-input and completed share one green signal — both mean "this session
-   wants your attention". The glow keeps an input request a touch more eye-catching. */
-.dot.needs-input { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot.needs-input {
+  width: 14px; height: 14px; background: var(--yellow);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='6.4'/%3E%3Cpath d='M8 4.7v3.7m0 2.8h.01'/%3E%3C/svg%3E") center / contain no-repeat;
+}
 .dot.completed { background: var(--green); }
 .dot.pushed { background: var(--purple); }
 /* A session that was mid-flight when the app last closed: its Claude process can't
@@ -521,4 +526,20 @@ body.on-worktree #toolbar { box-shadow: inset 0 -2px 0 var(--accent); }
 .broadcast-count {
   flex: none; color: var(--fg-dim);
   font-family: Consolas, monospace; font-variant-numeric: tabular-nums;
+}
+
+.row-dictation {
+  position: fixed;
+  z-index: 10000;
+  width: min(320px, calc(100vw - 24px));
+  max-height: 35vh;
+  overflow: auto;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px #0004;
+  overflow-wrap: anywhere;
 }
