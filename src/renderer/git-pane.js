@@ -986,13 +986,6 @@ async function smartCommit() {
       return;
     }
     snapshotToken = plan.token;
-    const summary = plan.commits.map((c, i) => `${i + 1}. ${c.message}\n   ${c.files.join(', ')}`).join('\n\n');
-    const confirmed = await confirmDialog({
-      title: 'Smart commit plan',
-      message: `${plan.commits.length} commit${plan.commits.length === 1 ? '' : 's'} from the current changes:\n\n${summary}\n\nCreate these commits?`,
-      ok: 'Create commits',
-    });
-    if (!confirmed) { await window.api.gitSmartCommitCancel(plan.token); snapshotToken = null; clearGitMsg(); return; }
     showGitMsg(`Creating ${plan.commits.length} smart commit${plan.commits.length === 1 ? '' : 's'}…`, true);
     const result = await window.api.gitSmartCommit({ token: plan.token, commits: plan.commits });
     snapshotToken = null;

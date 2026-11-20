@@ -107,4 +107,5 @@
 
 /* The toolbar's per-config Debug button (beside ▶). */
 .tool-btn.debug-btn { padding: 0 6px; }
+.tool-btn.debug-btn .ico-svg { display: block; width: 14px; height: 14px; }
 .tool-btn.debug-btn.debugging { color: var(--yellow); }
