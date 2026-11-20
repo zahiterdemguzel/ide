@@ -227,7 +227,7 @@ const STATE_LABEL = {
   idle: 'Idle',
   working: 'Working',
   completed: 'Completed',
-  'bg-agents': 'Ready — background agents running',
+  'bg-agents': 'Ready — background work in progress',
   pushed: 'Committed / pushed',
   interrupted: 'Interrupted',
 };

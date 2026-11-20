@@ -275,8 +275,41 @@ test('deriveStatus: subagent-context events never drive the dot while the chat i
   ]);
   assert.deepEqual(states, ['working', null, null, null, null, 'bg-agents']);
   assert.deepEqual(tracking, {
-    subagents: 0, agents: [{ id: 'sub-1', at: 0 }], active: [], stopped: true, stoppedIds: [],
+    subagents: 0, agents: [{ id: 'sub-1', at: null }], active: [], stopped: true, stoppedIds: [],
   });
+});
+
+test('deriveStatus: quiet subagents survive multiple main turns and finish by id', () => {
+  const later = ORIGIN_STALE_MS + 100;
+  const { states } = runEvents([
+    { hook_event_name: 'PreToolUse', tool_name: 'Agent', at: 1 },
+    { hook_event_name: 'SubagentStart', agent_id: 'build', at: 2 },
+    { hook_event_name: 'PreToolUse', tool_name: 'Agent', at: 3 },
+    { hook_event_name: 'SubagentStart', agent_id: 'test', at: 4 },
+    { hook_event_name: 'Stop', at: 5 },
+    { hook_event_name: 'UserPromptSubmit', at: later },
+    { hook_event_name: 'Stop', at: later + 1 },
+    { hook_event_name: 'SubagentStop', agent_id: 'test', at: later + 2 },
+    { hook_event_name: 'Stop', agent_id: 'test', at: later + 3 },
+    { hook_event_name: 'SubagentStop', agent_id: 'build', at: later + 4 },
+  ]);
+  assert.deepEqual(states, [
+    'working', 'working', 'working', 'working', 'bg-agents',
+    'working', 'bg-agents', 'bg-agents', null, 'completed',
+  ]);
+});
+
+test('deriveStatus: a resumed subagent spins green while the main chat is ready', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'SubagentStart', agent_id: 'build' },
+    { hook_event_name: 'SubagentStop', agent_id: 'build' },
+    { hook_event_name: 'Stop' },
+    { hook_event_name: 'SubagentStart', agent_id: 'build' },
+    { hook_event_name: 'PreToolUse', tool_name: 'Bash', agent_id: 'build' },
+    { hook_event_name: 'SubagentStop', agent_id: 'build' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'working', 'completed', 'bg-agents', 'bg-agents', 'completed']);
 });
 
 test('deriveStatus: a /fork the main thread never announced still spins the dot', () => {
@@ -499,7 +532,7 @@ test('shouldApplyState: idle does NOT downgrade a meaningful current state (resu
 test('hooksSettings: wires every tracked event to a curl POST on the given port', () => {
   const cfg = JSON.parse(hooksSettings(54321));
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
-    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStop'];
+    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStart', 'SubagentStop'];
   assert.deepEqual(Object.keys(cfg.hooks).sort(), [...events].sort());
   for (const e of events) {
     const cmd = cfg.hooks[e][0].hooks[0].command;
@@ -529,7 +562,7 @@ test('hooksSettings: light mode narrows only the tool hooks', () => {
     assert.ok(!matches('PostToolUse', tool), `Post ${tool}`);
   }
   assert.ok(!matches('PreToolUse', 'Bash'), 'no Bash Pre: its working-tree snapshot is the expensive half');
-  for (const e of ['SessionStart', 'UserPromptSubmit', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStop']) {
+  for (const e of ['SessionStart', 'UserPromptSubmit', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStart', 'SubagentStop']) {
     assert.equal(cfg.hooks[e][0].matcher, '*', e);
   }
 });

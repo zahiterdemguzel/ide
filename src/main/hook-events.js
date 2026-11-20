@@ -107,9 +107,8 @@ const ORIGIN_STALE_MS = 5 * 60 * 1000;
 // LAST agent in a session, not the first. Two different things can outlive the
 // main agent's turn, and both must hold the session yellow:
 //
-//  - **Subagents** (`Task`/`Agent` tool spawns, Codex `SubagentStart`). They run
-//    inside the session and announce themselves with `agent_id`, so they're
-//    counted: spawns against subagent stops.
+//  - **Subagents** start and stop by `agent_id`. Older tool hooks can announce
+//    a spawn without an id; the first event from that agent claims its slot.
 //  - **Forked conversations** (`/fork`). These are not subagents at all — the CLI
 //    runs each one as a *separate conversation with its own session_id*, so their
 //    hooks carry no `agent_id` and, once `normalizeHookPayload` maps them back
@@ -122,7 +121,7 @@ const ORIGIN_STALE_MS = 5 * 60 * 1000;
 //    activity adds it, each conversation's `Stop` removes only itself.
 //
 // `tracking` is the caller-held per-session bookkeeping
-// { subagents, active: [{id, at}], stoppedIds }. `opts` is { originId, now }.
+// { subagents, agents, active, stopped, stoppedIds }. `opts` is { originId, now }.
 // deriveStatus returns the state to apply (or null to leave the dot unchanged)
 // alongside the next tracking. Pure and unit-tested (test/hook-events.test.js).
 function deriveStatus(payload, tracking = {}, opts = {}) {
@@ -145,15 +144,10 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
   // settling the session (and ringing the chime) while another background agent
   // is still running. Only the first stop per agent_id may decrement.
   let stoppedIds = tracking.stoppedIds || [];
-  // Background agents we know are alive because we've *seen* them: any event
-  // carrying an `agent_id`. Counting spawns alone misses everything the main
-  // thread never announced with a `Task`/`Agent` PreToolUse — above all a `/fork`,
-  // which the CLI starts as a slash command and then runs as its own agent
-  // context. Those forks fired nothing but agent_id events, every one of which hit
-  // the early-return below, so the count stayed 0 and a session with a fork still
-  // working sat flat green. Stamped like `active` so an agent that dies without a
-  // stop ages out instead of spinning forever.
-  let agents = (tracking.agents || []).filter((a) => !now || now - a.at < ORIGIN_STALE_MS);
+  // A confirmed subagent (at: null) stays live until its stop. A long model
+  // response or shell command can go minutes without emitting another hook.
+  // Context-only sightings can be forks with no matching stop, so those expire.
+  let agents = (tracking.agents || []).filter((a) => a.at === null || !now || now - a.at < ORIGIN_STALE_MS);
   const failed = payload.hook_event_name === 'StopFailure';
   const ev = failed ? 'Stop' : payload.hook_event_name;
   const subagentStopped = isSubagentStop(payload);
@@ -178,45 +172,29 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
     }
     // Deliberately no touchOrigin(): a subagent finishing says nothing about
     // whether its parent conversation is still running.
-  } else if (ev === 'SubagentStart') {
-    // Codex announces a subagent spawning as its own event (Claude signals it via
-    // the Task/Agent PreToolUse below). Counted before the agent_id early-return
-    // so the count balances its SubagentStop regardless of which context Codex
-    // fires it from; a spawn also proves the main agent is running.
-    subagents += 1;
-    touchOrigin();
-    return { state: 'working', tracking: { subagents, agents, active, stopped, stoppedIds } };
-  } else if (payload.agent_id) {
-    // An event from inside an agent's own context. It must not drive the dot the
-    // way a main-thread event does — its UserPromptSubmit would wipe the in-flight
-    // count, its Stop would fake the main agent stopping, its tool activity says
-    // nothing about what the chat is doing. But it *does* prove that agent is
-    // alive, which is the one thing the spawn count can't tell us about an agent
-    // the main thread never announced (a `/fork`). So: register it, touch nothing
-    // else. A first sighting claims an unmatched spawn slot if one is open, so a
-    // `Task` subagent counted at PreToolUse isn't counted twice.
+  } else if (ev === 'SubagentStart' || payload.agent_id) {
+    const started = ev === 'SubagentStart';
     const id = payload.agent_id;
-    if (!stoppedIds.includes(id)) {
-      if (agents.some((a) => a.id === id)) {
-        agents = agents.map((a) => (a.id === id ? { id, at: now } : a));
-      } else {
-        if (subagents > 0) subagents -= 1;
-        agents = [...agents, { id, at: now }];
-      }
+    if (started) {
+      // A resumed agent can start again under the same id. Its start says
+      // nothing about whether the main chat is busy.
+      stoppedIds = stoppedIds.filter((stoppedId) => stoppedId !== id);
+      if (!id) subagents += 1;
+      if (!active.length) stopped = true;
     }
-    agentContext = true;
+    if (id && !stoppedIds.includes(id)) {
+      const known = agents.find((a) => a.id === id);
+      const claimsSpawn = !known && subagents > 0;
+      if (claimsSpawn) subagents -= 1;
+      const at = started || claimsSpawn || known?.at === null ? null : now;
+      agents = [...agents.filter((a) => a.id !== id), { id, at }];
+    }
+    agentContext = !started;
   } else if (ev === 'UserPromptSubmit') {
-    // A fresh user turn clears stale bookkeeping so a prior turn's counts (e.g.
-    // an orphaned subagent stop we never saw) can't leak into this one — but only
-    // when nothing is in flight. A fork prompting itself mid-run is not a fresh
-    // turn for the session, and wiping the counts there is what would settle it
-    // while its siblings are still working.
-    // Only the *main* conversation starting a turn is a fresh turn for the session.
-    // A fork's own prompt must not clear `stopped` either: that flag is what says
-    // the chat is free, and wiping it is what made a fork's background work read as
-    // the main agent being busy (yellow) instead of the green spinner.
-    if (!active.length && origin === MAIN_ORIGIN) {
-      subagents = 0; agents = []; stoppedIds = []; stopped = false;
+    // An unmatched legacy spawn may never have started (e.g. a denied tool).
+    // An identified agent can still be working across several main turns.
+    if (!active.length && !agents.length && origin === MAIN_ORIGIN) {
+      subagents = 0; stoppedIds = []; stopped = false;
     }
     touchOrigin();
   } else if (ev === 'PreToolUse' || ev === 'PostToolUse') {
@@ -245,6 +223,8 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
   const mainBusy = active.some((a) => a.id === MAIN_ORIGIN);
   // Work of any kind is still in flight, but not in the main conversation.
   const backgroundOnly = stopped && !mainBusy && (active.length > 0 || inFlight > 0);
+
+  if (ev === 'SubagentStart') return { state: mainBusy ? 'working' : 'bg-agents', tracking: next };
 
   // An agent-context event never paints the chat, but it can reveal that background
   // work is running under a chat that already settled — which is exactly the green
@@ -363,7 +343,7 @@ function hooksSettings(port, statusLineCommand, ideId, { detailedToolHooks = tru
   const cmd = `curl -s -X POST "${url}" -d @-`;
   const entry = (matcher) => [{ matcher, hooks: [{ type: 'command', command: cmd }] }];
   const events = ['SessionStart', 'UserPromptSubmit', 'PreToolUse',
-    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStop'];
+    'PostToolUse', 'Notification', 'PermissionRequest', 'Stop', 'StopFailure', 'SubagentStart', 'SubagentStop'];
   const matchers = detailedToolHooks ? {} : lightToolMatchers();
   const hooks = {};
   for (const e of events) hooks[e] = entry(matchers[e] || '*');

@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  processListCommand, parseProcessList, baseProcessName, isShellProcess, descendantsOf, hasBackgroundWork,
+  processListCommand, parseProcessList, baseProcessName, isShellProcess, descendantsOf, hasBackgroundWork, hasClaudeToolShell,
 } = require('../src/main/background-work-lib');
 
 test('parseProcessList: reads pid, ppid and a name that may contain spaces', () => {
@@ -53,4 +53,26 @@ test('processListCommand: ps on POSIX, PowerShell CIM on Windows', () => {
   assert.equal(processListCommand('darwin').file, 'ps');
   assert.equal(processListCommand('linux').file, 'ps');
   assert.equal(processListCommand('win32').file, 'powershell.exe');
+});
+
+test('hasClaudeToolShell: only running tool shells under this session hold completion', () => {
+  const idle = [
+    '10 1 /bin/zsh -l',
+    '11 10 claude',
+    '12 11 /bin/zsh -c curl -s -X POST http://127.0.0.1/hook -d @-',
+    '13 11 /bin/zsh -c node "/app/statusline-script.js"',
+    '14 11 /bin/zsh -c npm exec example-mcp',
+    '30 1 /bin/zsh -c eval sleep && pwd -P >| /tmp/claude-aaaa-cwd',
+    '15 11',
+  ];
+  const bash = '20 15 /bin/zsh -c source "/home/user/.claude/shell-snapshots/snapshot.sh" && eval "sleep 60" && pwd -P >| /tmp/claude-123a-cwd';
+  const sandboxedBash = '21 11 /bin/bash -c eval "sleep 60" && pwd -P >| "/tmp/sandbox dir/cwd-bbbb"';
+  const powershell = '(Get-Location).Path | Out-File -FilePath \'C:\\Temp Path\\claude-pwd-ps-432b\' -Encoding utf8 -NoNewline';
+  const encoded = Buffer.from(powershell, 'utf16le').toString('base64');
+  const shells = [bash, sandboxedBash, `22 11 pwsh -Command ${powershell}`, `23 11 pwsh -EncodedCommand ${encoded}`];
+  for (const shell of shells) {
+    const processes = parseProcessList([...idle, shell].join('\n'), { commandLine: true });
+    assert.equal(hasClaudeToolShell(processes, 10), true);
+  }
+  assert.equal(hasClaudeToolShell(parseProcessList(idle.join('\n'), { commandLine: true }), 10), false);
 });

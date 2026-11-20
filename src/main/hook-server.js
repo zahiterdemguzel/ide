@@ -1,4 +1,6 @@
 const http = require('http');
+const { execFile } = require('child_process');
+const execFileAsync = require('util').promisify(execFile);
 const { sendToRenderer } = require('./window');
 // Pure event->state mapping, resume-downgrade rule, and settings JSON live in the
 // Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
@@ -7,6 +9,7 @@ const { statusLineCommand } = require('./statusline');
 const { sanitizeContextReport } = require('./statusline-lib');
 const { seenImagesFromPayload } = require('./seen-images-lib');
 const { modelFamily } = require('./agent-providers');
+const { processListCommand, parseProcessList, hasClaudeToolShell } = require('./background-work-lib');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
 // circular require is safe. Access via the module object, never destructure at top.
@@ -32,16 +35,85 @@ const debugLog = (line) => {
   } catch {}
 };
 
-// Per-session agent bookkeeping for deriveStatus:
-// { subagents, active: [{id, at}], stopped, stoppedIds }. In-memory only —
-// nothing is running across a restart, so there's nothing to persist. Keyed by
-// session_id; reset each turn by deriveStatus itself.
 const subagentTracking = new Map();
 const getTracking = (id) => subagentTracking.get(id) || {};
 // A session's PTY dying takes every agent in it down with it — drop the
 // bookkeeping so a later resume (same session id) starts from a clean slate
 // instead of inheriting a stale in-flight count.
-const clearTracking = (id) => subagentTracking.delete(id);
+function clearTracking(id) {
+  subagentTracking.delete(id);
+  pendingCompletions.delete(id);
+}
+
+function publishState(id, state) {
+  if (state === sessions.getSessionState(id)) return;
+  sendToRenderer('status', { id, state });
+  sessions.setSessionState(id, state);
+}
+
+// Claude can stop its chat while a tool shell is still running. Hold completion
+// until one process scan confirms the shell is gone, so we don't ring the chime
+// before the release/build finishes. One scan serves all pending sessions.
+const pendingCompletions = new Map();
+const SHELL_CHECK_INTERVAL_MS = 2000;
+const processOptions = { commandLine: true };
+let shellCheckTimer;
+let checkingShells = false;
+
+function scheduleShellCheck(delay) {
+  if (checkingShells || shellCheckTimer || !pendingCompletions.size) return;
+  shellCheckTimer = setTimeout(checkShells, delay);
+  shellCheckTimer.unref();
+}
+
+async function checkShells() {
+  shellCheckTimer = null;
+  if (!pendingCompletions.size) return;
+  checkingShells = true;
+  const pending = [...pendingCompletions];
+  const { file, args } = processListCommand(process.platform, processOptions);
+  let processes;
+  try {
+    const { stdout } = await execFileAsync(file, args, { windowsHide: true, timeout: 5000, maxBuffer: 16 * 1024 * 1024 });
+    processes = parseProcessList(stdout, processOptions);
+  } catch {
+    // A failed listing cannot settle a shell we already observed running.
+  }
+  for (const [id, entry] of pending) {
+    if (pendingCompletions.get(id) !== entry) continue;
+    const session = sessions.sessions.get(id);
+    if (session?.pty !== entry.pty || session.state !== entry.lastState) {
+      pendingCompletions.delete(id);
+      continue;
+    }
+    if (processes && hasClaudeToolShell(processes, entry.pty.pid)) {
+      entry.running = true;
+      entry.lastState = 'bg-agents';
+      publishState(id, 'bg-agents');
+    } else if (processes || !entry.running) {
+      pendingCompletions.delete(id);
+      publishState(id, 'completed');
+    }
+  }
+  checkingShells = false;
+  scheduleShellCheck(SHELL_CHECK_INTERVAL_MS);
+}
+
+function applyHookState(id, state) {
+  const session = sessions.sessions.get(id);
+  if (!session || !shouldApplyState(state, session.state)) return;
+  const pty = session?.pty;
+  if (state === 'completed' && Number.isInteger(pty?.pid) && modelFamily(session.model) !== 'codex') {
+    const pending = pendingCompletions.get(id);
+    if (pending?.pty !== pty || pending.lastState !== session.state) {
+      pendingCompletions.set(id, { pty, running: false, lastState: session.state });
+    }
+    scheduleShellCheck(0);
+    return;
+  }
+  pendingCompletions.delete(id);
+  publishState(id, state);
+}
 
 // --- hooks injected per session via `claude --settings <json>` ---
 // Every event posts its raw stdin payload to our local server, which derives
@@ -122,11 +194,6 @@ function startHookServer() {
         if (normalized.agentSessionId) sessions.noteAgentSessionId(ideId, normalized.agentSessionId);
         let state = null;
         if (payload.session_id) {
-          // Agent-aware gating: a session with background subagents — or forked
-          // conversations, which run under their own session ids — still in flight
-          // stays "working" through one agent's Stop, so the finish chime waits
-          // for the last one out (see deriveStatus). `originId` is which
-          // conversation this payload came from.
           // Codex generates its own ID even for the main conversation. It must
           // represent the main origin, not a Claude-style fork.
           const session = sessions.sessions.get(payload.session_id);
@@ -139,19 +206,7 @@ function startHookServer() {
           state = sessions.resolveInterrupt(payload, derived);
           if (DEBUG_LOG_ENABLED) debugLog(`ev=${payload.hook_event_name} tool=${payload.tool_name || '-'} agent=${payload.agent_id || '-'} origin=${normalized.agentSessionId || '-'} derived=${derived} final=${state} track=${JSON.stringify(tracking)}`);
         }
-        if (state && payload.session_id) {
-          // Don't let a resume's SessionStart → idle wipe the meaningful colour a
-          // session was reopened with (completed/pushed/interrupted); shouldApplyState
-          // encodes that rule (see test/hook-events.test.js).
-          // An unchanged state is not re-sent: most hooks of a busy session (every
-          // subagent tool call) derive the `working` it already shows, and each
-          // push is an IPC message plus a broadcast to paired phones.
-          const cur = sessions.getSessionState(payload.session_id);
-          if (state !== cur && shouldApplyState(state, cur)) {
-            sendToRenderer('status', { id: payload.session_id, state });
-            sessions.setSessionState(payload.session_id, state); // persist so it survives a restart
-          }
-        }
+        if (state && payload.session_id) applyHookState(payload.session_id, state);
         // Await before answering the hook: on PreToolUse this snapshots the
         // working tree, and the command hook blocks the tool from running until
         // we respond — so the "before" snapshot is guaranteed to predate the

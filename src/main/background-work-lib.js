@@ -1,9 +1,8 @@
 // Pure, Electron-free rules for telling whether an agent session still has
 // background work alive: a background Bash terminal (`run_in_background`) or a
 // Monitor. Claude Code runs both as shell processes under the CLI, and no hook
-// reports when they end, so the process tree is the source of truth. Archiving
-// kills the CLI and every child with it, so the sidebar's bulk "clear" must skip
-// a session that still owns one.
+// reports when they end, so the process tree supplies that signal to the
+// session indicator and bulk clear.
 
 // Process names that are shells. The agent's Bash and Monitor tools run their
 // commands through one; MCP servers and the CLI itself are node/python/native
@@ -14,25 +13,30 @@ const SHELL_NAMES = new Set([
 ]);
 
 // The process listing command per platform. Each prints one `pid ppid name`
-// line per process.
-function processListCommand(platform) {
+// line per process. The status indicator requests the full command line so it
+// can distinguish Claude's tool shells from hook and MCP subprocesses.
+function processListCommand(platform, { commandLine = false } = {}) {
   if (platform === 'win32') {
+    const column = commandLine ? String.raw`$_.CommandLine -replace "[\r\n]", " "` : '$_.Name';
     return {
       file: 'powershell.exe',
       args: ['-NoProfile', '-NonInteractive', '-Command',
-        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.Name)" }'],
+        `Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $(${column})" }`],
     };
   }
+  if (commandLine) return { file: 'ps', args: ['-ww', '-A', '-o', 'pid=,ppid=,args='] };
   return { file: 'ps', args: ['-A', '-o', 'pid=,ppid=,comm='] };
 }
 
-// Parse `pid ppid name` lines. The name may be a full path containing spaces
-// (macOS `comm`), so everything after the second column is the name.
-function parseProcessList(text) {
+// Everything after the two IDs is the executable name or full command line.
+function parseProcessList(text, { commandLine = false } = {}) {
   const processes = [];
+  const column = commandLine ? 'commandLine' : 'name';
   for (const line of String(text || '').split(/\r?\n/)) {
-    const match = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
-    if (match) processes.push({ pid: Number(match[1]), ppid: Number(match[2]), name: match[3] });
+    const match = /^\s*(\d+)\s+(\d+)(?:\s+(.+?))?\s*$/.exec(line);
+    if (match && (commandLine || match[3])) {
+      processes.push({ pid: Number(match[1]), ppid: Number(match[2]), [column]: match[3] || '' });
+    }
   }
   return processes;
 }
@@ -73,6 +77,19 @@ function hasBackgroundWork(processes, rootPid) {
   return descendantsOf(processes, rootPid).some((proc) => isShellProcess(proc.name));
 }
 
+// Claude's shell tools write their final working directory to a per-call temp
+// file. The wrapper stays alive for the command's whole run, including when the
+// TUI backgrounds it. Hooks, status-line refreshes and MCP launches use other
+// wrappers, so counting every child shell here would report activity at idle.
+function hasClaudeToolShell(processes, rootPid) {
+  return descendantsOf(processes, rootPid).some(({ commandLine }) => {
+    if (/\bpwd -P >\| [^\r\n]*[/\\](?:claude-[\da-f]+-cwd|cwd-[\da-f]+)\b/.test(commandLine)) return true;
+    const encoded = /\s-EncodedCommand\s+([a-z\d+/=]+)/i.exec(commandLine);
+    const script = encoded ? Buffer.from(encoded[1], 'base64').toString('utf16le') : commandLine;
+    return /\| Out-File -FilePath [^\r\n]*[/\\]claude-pwd-ps-[\da-f]+\b/.test(script);
+  });
+}
+
 module.exports = {
-  processListCommand, parseProcessList, baseProcessName, isShellProcess, descendantsOf, hasBackgroundWork,
+  processListCommand, parseProcessList, baseProcessName, isShellProcess, descendantsOf, hasBackgroundWork, hasClaudeToolShell,
 };
