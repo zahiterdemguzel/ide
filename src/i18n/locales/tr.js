@@ -606,6 +606,8 @@ export default {
 
 
     'models.codexDivider': 'Codex',
+    "models.evrenDivider": "Evren",
+    "models.chatgptDivider": "Claude Code ile ChatGPT",
 
     'settings.agentsPage': 'Ajanlar',
     'settings.page.agents': 'Bu projenin Claude Code ve Codex ajanlarını oluşturun ve yönetin.',
@@ -747,6 +749,18 @@ export default {
     'accounts.buttonTitle': "Claude hesabı — değiştirmek için tıklayın",
     'accounts.buttonTitleEmail': "Claude hesabı: {email} — değiştirmek için tıklayın",
     'accounts.menuTitle': "Claude hesapları",
+    "accounts.tab.codex": "Codex",
+    "accounts.tab.claude": "Claude",
+    "accounts.tab.evren": "Evren",
+    "accounts.loading": "Yükleniyor…",
+    "accounts.note.codex": "Codex oturumları seçili hesapla çalışır. Geçiş açık oturumlara da yeniden başlatmadan uygulanır.",
+    "accounts.note.evren": "Evren oturumları seçili anahtarı kullanır (Claude Code ile GLM 5.3). Geçiş açık oturumlara anında uygulanır.",
+    "accounts.addEvrenKey": "Evren API anahtarı ekle",
+    "accounts.addCodex": "Codex hesabı ekle",
+    "accounts.evrenKeyBody": "Bir Evren API anahtarı yapıştırın (evren_llm_ ile başlar). Bu bilgisayarda şifreli saklanır.",
+    "accounts.evrenKeyInvalid": "Bu bir Evren API anahtarına benzemiyor (evren_llm_ ile başlamalı).",
+    "accounts.evrenNamePlaceholder": "örn. Evren ana",
+    "accounts.switchBodyCodex": "Açık Codex oturumları bir sonraki isteklerinden itibaren bu hesabı kullanır.",
     'accounts.signedOut': "Oturum açılmadı",
     'accounts.add': "Hesap ekle",
     'accounts.addTitle': "Claude hesabı ekle",

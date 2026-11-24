@@ -606,6 +606,8 @@ export default {
 
 
     'models.codexDivider': 'Codex',
+    "models.evrenDivider": "Evren",
+    "models.chatgptDivider": "ChatGPT con Claude Code",
 
     'settings.agentsPage': 'Agentes',
     'settings.page.agents': 'Crea y gestiona los agentes de Claude Code y Codex de este proyecto.',
@@ -747,6 +749,18 @@ export default {
     'accounts.buttonTitle': "Cuenta de Claude — haz clic para cambiar",
     'accounts.buttonTitleEmail': "Cuenta de Claude: {email} — haz clic para cambiar",
     'accounts.menuTitle': "Cuentas de Claude",
+    "accounts.tab.codex": "Codex",
+    "accounts.tab.claude": "Claude",
+    "accounts.tab.evren": "Evren",
+    "accounts.loading": "Cargando…",
+    "accounts.note.codex": "Las sesiones de Codex se ejecutan con la cuenta seleccionada. El cambio también afecta a las sesiones abiertas, sin reiniciar.",
+    "accounts.note.evren": "Las sesiones de Evren usan la clave seleccionada (GLM 5.3 con Claude Code). El cambio se aplica al instante a las sesiones abiertas.",
+    "accounts.addEvrenKey": "Añadir clave de API de Evren",
+    "accounts.addCodex": "Añadir cuenta de Codex",
+    "accounts.evrenKeyBody": "Pega una clave de API de Evren (empieza por evren_llm_). Se guarda cifrada en este equipo.",
+    "accounts.evrenKeyInvalid": "Eso no parece una clave de API de Evren (empieza por evren_llm_).",
+    "accounts.evrenNamePlaceholder": "p. ej. Evren principal",
+    "accounts.switchBodyCodex": "Las sesiones de Codex abiertas la usarán desde su próxima solicitud.",
     'accounts.signedOut': "Sin sesión iniciada",
     'accounts.add': "Añadir cuenta",
     'accounts.addTitle': "Añadir una cuenta de Claude",

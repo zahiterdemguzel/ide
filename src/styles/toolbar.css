@@ -222,3 +222,13 @@
 .acct-renew:hover { background: color-mix(in srgb, var(--red) 24%, transparent); border-color: var(--red); }
 .acct-menu .acct-row:hover .acct-renew { display: none; }
 .acct-wrap.is-expired .acct-btn .acct-avatar { box-shadow: 0 0 0 2px var(--red); }
+
+/* Account menu tabs: Codex · Claude · Evren, each with its own selected entry. */
+.acct-tabs { display: flex; gap: 2px; padding: 2px; margin-bottom: 6px; border-radius: 7px; background: var(--bg-3); }
+.acct-tab {
+  flex: 1; padding: 5px 8px; border: 0; border-radius: 5px; background: transparent;
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--fg-dim); cursor: pointer;
+}
+.acct-tab:hover { color: var(--fg); }
+.acct-tab.is-active { background: var(--bg-1, var(--bg-2)); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, .25); }
+.acct-menu-note, .acct-menu-empty { padding: 2px 8px 8px; font-size: 11.5px; line-height: 1.4; color: var(--fg-dim); }

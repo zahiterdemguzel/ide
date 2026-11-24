@@ -67,6 +67,20 @@ export const CODEX_MODELS = [
   { id: 'codex:terra', name: 'Terra (latest, Codex)' },
   { id: 'codex:luna', name: 'Luna (latest, Codex)' },
 ];
+// SSB's Evren LLM platform, run through the `claude` CLI (see provider-accounts-lib.js).
+// Frozen for life like a local model: the endpoint and model names are baked into the spawn env.
+export const EVREN_MODELS = [
+  { id: 'evren:glm-5.3', name: 'GLM 5.3 (Evren)' },
+  { id: 'evren:deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash (Evren)' },
+];
+// Claude Code running on a ChatGPT login: the account proxy translates to the Codex
+// backend (see chatgpt-translate-lib.js). Frozen for life like an Evren model.
+export const CHATGPT_MODELS = [
+  { id: 'chatgpt:sol', name: 'Sol (ChatGPT via Claude Code)' },
+  { id: 'chatgpt:astra', name: 'Astra (ChatGPT via Claude Code)' },
+  { id: 'chatgpt:terra', name: 'Terra (ChatGPT via Claude Code)' },
+  { id: 'chatgpt:luna', name: 'Luna (ChatGPT via Claude Code)' },
+];
 const DEFAULT_MODEL = 'default';
 // Where a saved Codex default lands once its model leaves CODEX_MODELS (retired),
 // so someone who runs Codex isn't silently moved onto Claude. Codex CLI's own default.
@@ -107,6 +121,8 @@ export function setToolHooksEnabled(on) {
 // check so the renderer doesn't reach into the main-process ollama-models-lib.
 const isOllamaId = (v) => typeof v === 'string' && v.startsWith('ollama:');
 const isCodexId = (v) => typeof v === 'string' && v.startsWith('codex:');
+const isEvrenId = (v) => typeof v === 'string' && v.startsWith('evren:');
+const isChatgptId = (v) => typeof v === 'string' && v.startsWith('chatgpt:');
 
 // Which CLI family a model id runs on — the renderer mirror of the main
 // process's agent-providers.modelFamily. A session may only switch models
@@ -115,11 +131,13 @@ const isCodexId = (v) => typeof v === 'string' && v.startsWith('codex:');
 export function modelFamily(id) {
   if (isCodexId(id)) return 'codex';
   if (isOllamaId(id)) return 'ollama';
+  if (isEvrenId(id)) return 'evren';
+  if (isChatgptId(id)) return 'chatgpt';
   return 'claude';
 }
 export function switchableModels(currentId) {
   const family = modelFamily(currentId);
-  if (family === 'ollama') return []; // a local model is fixed for life
+  if (family === 'ollama' || family === 'evren' || family === 'chatgpt') return []; // a local or Evren model is fixed for life
   return getMergedModels().filter((m) => modelFamily(m.id) === family);
 }
 
@@ -146,10 +164,10 @@ export async function refreshOllamaModels() {
 }
 // The full list the model UIs draw from: static Claude models, Codex models,
 // then installed Ollama models. Ids are namespaced so they never collide.
-export function getMergedModels() { return [...MODELS, ...CODEX_MODELS, ...ollamaModels]; }
+export function getMergedModels() { return [...MODELS, ...CODEX_MODELS, ...EVREN_MODELS, ...CHATGPT_MODELS, ...ollamaModels]; }
 // Human label for any model id (Claude alias, `codex:<model>` or `ollama:<name>`).
 export function modelLabel(id) {
-  const known = MODELS.find((m) => m.id === id) || CODEX_MODELS.find((m) => m.id === id);
+  const known = MODELS.find((m) => m.id === id) || CODEX_MODELS.find((m) => m.id === id) || EVREN_MODELS.find((m) => m.id === id) || CHATGPT_MODELS.find((m) => m.id === id);
   if (known) return known.name;
   if (isCodexId(id)) return id.slice('codex:'.length);
   if (isOllamaId(id)) return id.slice('ollama:'.length);
@@ -165,7 +183,7 @@ export function modelLabel(id) {
 function readModel(key) {
   const saved = localStorage.getItem(key);
   const v = saved?.replace(/^codex:gpt-\d+(?:\.\d+)*-(sol|astra|terra|luna)$/, 'codex:$1');
-  if (MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v;
+  if (MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || EVREN_MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v;
   return isCodexId(v) ? DEFAULT_CODEX_MODEL : DEFAULT_MODEL;
 }
 export function getSessionModel() { return readModel(STORE.model); }
@@ -174,7 +192,7 @@ export function getSubagentModel() { return readModel(STORE.subagentModel); }
 // Remember the last model chosen from the per-session picker so it sticks as the
 // default for the next session. Unknown ids fall back to the inherit default.
 export function setSessionModel(id) {
-  const ok = MODELS.some((m) => m.id === id) || CODEX_MODELS.some((m) => m.id === id) || isOllamaId(id);
+  const ok = MODELS.some((m) => m.id === id) || CODEX_MODELS.some((m) => m.id === id) || EVREN_MODELS.some((m) => m.id === id) || CHATGPT_MODELS.some((m) => m.id === id) || isOllamaId(id);
   localStorage.setItem(STORE.model, ok ? id : DEFAULT_MODEL);
 }
 

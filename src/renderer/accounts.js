@@ -173,9 +173,43 @@ const ICON_REMOVE = '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>';
 const ICON_LIMIT = '<path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>';
 const ICON_KEY = '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>';
 
+// The menu's three tabs, each with its own independently chosen entry: the Codex
+// account, the Claude account (the toolbar pill and usage meter follow this one) and
+// the Evren API key. Claude is the default.
+const TABS = ['codex', 'claude', 'evren'];
+let activeTab = 'claude';
+const providerState = { codex: null, evren: null };
+
+function renderTabs() {
+  const bar = el('div', 'acct-tabs');
+  bar.setAttribute('role', 'tablist');
+  for (const id of TABS) {
+    const tab = el('button', 'acct-tab', t(`accounts.tab.${id}`));
+    tab.type = 'button';
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', String(id === activeTab));
+    tab.classList.toggle('is-active', id === activeTab);
+    tab.addEventListener('click', () => selectTab(id));
+    bar.append(tab);
+  }
+  return bar;
+}
+
+async function selectTab(id) {
+  activeTab = id;
+  renderMenu();
+  if (id !== 'claude') await refreshProvider(id);
+}
+
+async function refreshProvider(provider) {
+  try { providerState[provider] = await window.api.listProviderAccounts(provider); } catch { return; }
+  if (!menu.hidden && activeTab === provider) renderMenu();
+}
+
 function renderMenu() {
   menu.replaceChildren();
-  menu.append(el('div', 'acct-menu-head', t('accounts.menuTitle')));
+  menu.append(renderTabs());
+  if (activeTab !== 'claude') { renderProviderMenu(activeTab); return; }
   for (const account of state.accounts) {
     const active = account.id === state.activeId;
     const row = accountRow(account, usageById[account.id], { active });
@@ -216,6 +250,142 @@ function renderMenu() {
   menu.append(el('div', 'acct-menu-sep'), add);
 }
 
+// --- Evren keys and Codex accounts ---
+
+function providerRow(provider, entry, active) {
+  const row = el('div', 'acct-row');
+  if (active) row.classList.add('is-active');
+  const text = el('span', 'acct-text');
+  text.append(el('span', 'acct-row-name', entry.id === 'default' && entry.name === 'Default' ? t('accounts.default') : entry.name));
+  const expired = entry.login === 'expired';
+  const sub = el('span', 'acct-row-sub', entry.loggedIn ? entry.detail : expired ? t('accounts.loginExpired') : t('accounts.signedOut'));
+  if (expired) sub.classList.add('is-error');
+  else if (!entry.loggedIn) sub.classList.add('is-warn');
+  text.append(sub);
+  row.append(el('span', 'acct-avatar', accountInitials(entry.name)), text);
+  row.setAttribute('role', 'menuitemradio');
+  row.setAttribute('aria-checked', String(active));
+  row.tabIndex = 0;
+  const actions = el('span', 'acct-actions');
+  const reauth = () => (provider === 'evren' ? changeEvrenKey(entry) : signInCodex(entry));
+  actions.append(iconButton(provider === 'evren' ? ICON_KEY : ICON_SIGN_IN, t(provider === 'evren' ? 'accounts.changeApiKey' : 'accounts.signIn'), reauth));
+  actions.append(iconButton(ICON_RENAME, t('accounts.rename'), () => renameProviderEntry(provider, entry)));
+  if (entry.id !== 'default') actions.append(iconButton(ICON_REMOVE, t('accounts.remove'), () => removeProviderEntry(provider, entry)));
+  row.append(actions);
+  const pick = () => (entry.loggedIn ? switchProviderTo(provider, entry.id) : reauth());
+  row.addEventListener('click', pick);
+  row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
+  return row;
+}
+
+function renderProviderMenu(provider) {
+  const view = providerState[provider];
+  if (!view) { menu.append(el('div', 'acct-menu-empty', t('accounts.loading'))); return; }
+  menu.append(el('div', 'acct-menu-note', t(`accounts.note.${provider}`)));
+  for (const entry of view.entries) menu.append(providerRow(provider, entry, entry.id === view.activeId));
+  const add = el('button', 'acct-add');
+  add.type = 'button';
+  add.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
+  add.append(el('span', '', t(provider === 'evren' ? 'accounts.addEvrenKey' : 'accounts.addCodex')));
+  add.addEventListener('click', () => { closeMenu(); (provider === 'evren' ? addEvrenKey() : addCodexAccount()); });
+  menu.append(el('div', 'acct-menu-sep'), add);
+}
+
+async function switchProviderTo(provider, id) {
+  closeMenu();
+  const view = providerState[provider];
+  if (view && id === view.activeId) return;
+  await window.api.setActiveProviderAccount(provider, id);
+}
+
+// Asks for an Evren key until main accepts it or the user cancels.
+async function askForEvrenKey({ title, save }) {
+  let error = '';
+  for (;;) {
+    const key = await openDialog({
+      title, body: t('accounts.evrenKeyBody'), label: t('accounts.apiKeyLabel'),
+      input: { placeholder: 'evren_llm_…', error, type: 'password' },
+      cancelValue: null,
+      buttons: [
+        { label: t('accounts.cancel'), value: null, variant: 'secondary' },
+        { label: t('accounts.saveApiKey'), value: (text) => text || null, variant: 'primary' },
+      ],
+    });
+    if (!key) return false;
+    const result = await save(key);
+    if (!result || !result.error) { await refreshProvider('evren'); return true; }
+    error = t(result.error === 'rejected' ? 'accounts.apiKeyRejected' : 'accounts.evrenKeyInvalid');
+  }
+}
+
+async function addEvrenKey() {
+  const name = await promptText({
+    title: t('accounts.addEvrenKey'), label: t('accounts.nameLabel'),
+    placeholder: t('accounts.evrenNamePlaceholder'), ok: t('accounts.next'),
+  });
+  if (!name) return false;
+  return askForEvrenKey({ title: t('accounts.addEvrenKey'), save: (key) => window.api.addProviderAccount('evren', name, key) });
+}
+
+// A new Evren session needs a key: with none saved, the add-key dialog opens first.
+export async function ensureEvrenKey() {
+  let view = null;
+  try { view = await window.api.listProviderAccounts('evren'); } catch { return true; }
+  if (view && view.entries.some((e) => e.loggedIn)) return true;
+  providerState.evren = view;
+  return addEvrenKey();
+}
+
+async function changeEvrenKey(entry) {
+  closeMenu();
+  await askForEvrenKey({
+    title: t('accounts.changeApiKeyTitle').replace('{name}', entry.name),
+    save: (key) => window.api.setProviderKey(entry.id, key),
+  });
+}
+
+async function signInCodex(entry) {
+  closeMenu();
+  const command = await window.api.providerLoginCommand(entry.id);
+  if (!command) return;
+  await runLoginTerminal({ title: t('accounts.signInTitle').replace('{name}', entry.name), command, termName: 'Codex login' });
+  await refreshProvider('codex');
+  const signedIn = providerState.codex && providerState.codex.entries.find((e) => e.id === entry.id);
+  if (signedIn && signedIn.loggedIn && signedIn.id !== providerState.codex.activeId) {
+    const go = await confirmDialog({
+      title: t('accounts.switchNowTitle').replace('{name}', signedIn.name), message: t('accounts.switchBodyCodex'), ok: t('accounts.switch'),
+    });
+    if (go) await window.api.setActiveProviderAccount('codex', signedIn.id);
+  }
+}
+
+async function addCodexAccount() {
+  const name = await promptText({
+    title: t('accounts.addCodex'), label: t('accounts.nameLabel'),
+    placeholder: t('accounts.namePlaceholder'), ok: t('accounts.addOk'),
+  });
+  if (!name) return;
+  const { entry } = await window.api.addProviderAccount('codex', name);
+  await refreshProvider('codex');
+  const added = providerState.codex && providerState.codex.entries.find((e) => e.id === entry.id);
+  if (added) await signInCodex(added);
+}
+
+async function renameProviderEntry(provider, entry) {
+  closeMenu();
+  const name = await promptText({ title: t('accounts.renameTitle'), label: t('accounts.nameLabel'), value: entry.name, ok: t('accounts.renameOk') });
+  if (!name) return;
+  providerState[provider] = await window.api.renameProviderAccount(provider, entry.id, name);
+}
+
+async function removeProviderEntry(provider, entry) {
+  closeMenu();
+  const ok = await confirmDialog({
+    title: t('accounts.removeTitle').replace('{name}', entry.name), message: t('accounts.removeBody'), ok: t('accounts.remove'), danger: true,
+  });
+  if (ok) providerState[provider] = await window.api.removeProviderAccount(provider, entry.id);
+}
+
 // The per-account "may the 98% auto-switch pick this one" toggle (manual switching
 // is never affected).
 function autoSwitchToggle(account) {
@@ -252,6 +422,7 @@ function openMenu() {
   // Statuses and usage are fetched on open (one tiny call per account), then the
   // rows repaint in place.
   refreshAccounts();
+  if (activeTab !== 'claude') refreshProvider(activeTab);
   window.api.accountsUsage().then((u) => { usageById = u || {}; if (!menu.hidden) renderMenu(); }).catch(() => {});
 }
 
@@ -398,23 +569,13 @@ async function remove(account) {
   renderButton();
 }
 
-// The sign-in dialog's embedded terminal. One at a time; the term-data/term-exit
-// listeners are registered once (initAccounts) and route by its id.
-const login = { termId: null, term: null, close: null };
-
-// Sign an account in with `claude auth login` in a terminal embedded in a dialog.
-// The command exits once the browser login completes; the dialog then closes on
-// its own and, if the account isn't the active one, offers to switch to it.
-async function signIn(account) {
-  if (isApiKey(account)) { await changeApiKey(account); return; }
-  closeMenu();
-  const command = await window.api.accountLoginCommand(account.id);
-  if (!command) return;
+// Runs a sign-in command in a terminal embedded in a dialog and resolves once the
+// dialog closed (the command exits after the browser login, which closes it too).
+async function runLoginTerminal({ title, command, termName }) {
   const host = el('div', 'acct-term');
   let renderer = null;
-
   await openDialog({
-    title: t('accounts.signInTitle').replace('{name}', displayName(account)),
+    title,
     body: t('accounts.signInBody'),
     content: host,
     buttons: [{ label: t('accounts.done'), value: true, variant: 'primary' }],
@@ -434,18 +595,32 @@ async function signIn(account) {
       requestAnimationFrame(async () => {
         try { fit.fit(); } catch { /* not laid out yet */ }
         const res = await window.api.termCreate({
-          cols: term.cols || 80, rows: term.rows || 20, name: 'Claude login', kind: 'login', ...command,
+          cols: term.cols || 80, rows: term.rows || 20, name: termName, kind: 'login', ...command,
         });
         login.termId = res && res.id;
         term.focus();
       });
     },
   });
-
   if (login.termId) window.api.termKill(login.termId);
   if (renderer) renderer.dispose();
   if (login.term) { untrackTermTheme(login.term); login.term.dispose(); }
   Object.assign(login, { termId: null, term: null, close: null });
+}
+
+// The sign-in dialog's embedded terminal. One at a time; the term-data/term-exit
+// listeners are registered once (initAccounts) and route by its id.
+const login = { termId: null, term: null, close: null };
+
+// Sign an account in with `claude auth login` in a terminal embedded in a dialog.
+// The command exits once the browser login completes; the dialog then closes on
+// its own and, if the account isn't the active one, offers to switch to it.
+async function signIn(account) {
+  if (isApiKey(account)) { await changeApiKey(account); return; }
+  closeMenu();
+  const command = await window.api.accountLoginCommand(account.id);
+  if (!command) return;
+  await runLoginTerminal({ title: t('accounts.signInTitle').replace('{name}', displayName(account)), command, termName: 'Claude login' });
 
   await refreshAccounts({ recheck: true });
   const signedIn = state.accounts.find((a) => a.id === account.id);
@@ -649,6 +824,7 @@ export function initAccounts() {
     await refreshAccounts();
     window.dispatchEvent(new CustomEvent('account-changed'));
   });
+  window.api.onProviderAccountChanged(({ provider } = {}) => { if (provider) refreshProvider(provider); });
   window.api.onTermData(({ id, data }) => { if (id === login.termId && login.term) login.term.write(data); });
   window.api.onTermExit(({ id }) => {
     if (id !== login.termId) return;

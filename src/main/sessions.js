@@ -16,6 +16,7 @@ const { planAccountMove, shouldMoveAfterState, isApiKeyAccount } = require('./ac
 const { ensureAccountProxy } = require('./account-proxy');
 const { canRouteThroughProxy, canMeterThroughProxy, proxyRouteEnv } = require('./account-proxy-lib');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
+const { evrenSpawnEnv, chatgptSpawnEnv } = require('./provider-accounts-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
 const { latestCodexModel } = require('./codex-latest');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
@@ -1002,6 +1003,30 @@ async function ollamaRoute(s) {
   };
 }
 
+// A session whose model is an `evren:<name>` id (or `chatgpt:<family>`) runs the `claude` CLI against SSB's
+// Evren LLM platform (Anthropic-compatible) through the account proxy, which puts
+// the Evren key active in this instance on every request — so switching keys needs
+// no restart. {} for any other model, and when the proxy can't start (the session
+// would then have no key to send).
+async function evrenRoute(s) {
+  const family = s ? modelFamily(s.model) : '';
+  if (family !== 'evren' && family !== 'chatgpt') return {};
+  const port = await ensureAccountProxy();
+  if (!port) return {};
+  // A `chatgpt:` session is the same shape: the claude CLI against the proxy's translating route.
+  const spawnEnv = family === 'evren' ? evrenSpawnEnv : chatgptSpawnEnv;
+  return spawnEnv({ port, model: s.model, subagentModel: s.subagentModel });
+}
+
+// An Evren session authenticates with the placeholder token the proxy swaps; a
+// leftover API key from an API-key Claude account would take precedence over it.
+function withoutKeyForEvren(family, env) {
+  if (family !== 'evren' && family !== 'chatgpt') return env;
+  const rest = { ...env };
+  delete rest.ANTHROPIC_API_KEY;
+  return rest;
+}
+
 // Remember the session UUID a Codex CLI invented for one of our sessions (the
 // hook server learns it from the `?ide=` rewrite — see normalizeHookPayload).
 // Persisted immediately: it's the one handle `codex resume` accepts, so losing
@@ -1356,7 +1381,7 @@ async function spawnPty(id, cols, rows, resume) {
     args = codexSpawnArgs({
       resume, agentSessionId: s && s.agentSessionId, model: s && s.model,
       effort: s && s.effort, port: hookServer.getHookPort(), ideId: id,
-      platform: process.platform,
+      platform: process.platform, proxyPort: await ensureAccountProxy(),
     });
   } else {
     // The session's reasoning effort is a *launch flag*, not an env var like the model —
@@ -1378,6 +1403,7 @@ async function spawnPty(id, cols, rows, resume) {
   const route = family === 'codex' ? {} : {
     ...(await accountProxyRoute(s, { ...sessionEnv(s), ...accountEnvFor(s) }, s && accounts.accountById(s.accountId)?.configDir)),
     ...(await ollamaRoute(s)),
+    ...(await evrenRoute(s)),
   };
   const p = pty.spawn(exe, args, {
     name: PTY_TERM_NAME,
@@ -1390,7 +1416,7 @@ async function spawnPty(id, cols, rows, resume) {
     // (bare name) and adds the base-url/auth for an Ollama session. A Codex spawn
     // needs neither — its model rides on the argv above — so it gets the plain
     // cleaned env.
-    env: terminalEnv(family === 'codex' ? cleanEnv(process.env) : { ...sessionEnv(s), ...accountEnvFor(s), ...route }),
+    env: terminalEnv(family === 'codex' ? cleanEnv(process.env) : withoutKeyForEvren(family, { ...sessionEnv(s), ...accountEnvFor(s), ...route })),
   });
   // A fresh PTY draws its own screen from scratch, so anything retained from a
   // previous run of this session is stale — start the tail empty on every spawn.

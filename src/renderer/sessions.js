@@ -8,6 +8,7 @@ import { openDialog } from './shared/dialog.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude, ensureCodex } from './claude-setup.js';
+import { ensureEvrenKey } from './accounts.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
@@ -582,6 +583,8 @@ function buildModelMenuItems(container, current, onPick, itemClass, models = get
   container.replaceChildren();
   let ollamaHeaderDone = false;
   let codexHeaderDone = false;
+  let evrenHeaderDone = false;
+  let chatgptHeaderDone = false;
   for (const m of models) {
     if (m.id === 'default') continue; // inherit sentinel isn't a picker choice
     const isOllama = m.id.startsWith('ollama:');
@@ -599,6 +602,21 @@ function buildModelMenuItems(container, current, onPick, itemClass, models = get
       const div = document.createElement('div');
       div.className = 'model-menu-divider';
       div.textContent = t('models.codexDivider');
+      container.appendChild(div);
+    }
+    // An "Evren" divider before the first Evren row, same rule as Codex above.
+    if (m.id.startsWith('evren:') && !evrenHeaderDone && models.some((x) => !x.id.startsWith('evren:'))) {
+      evrenHeaderDone = true;
+      const div = document.createElement('div');
+      div.className = 'model-menu-divider';
+      div.textContent = t('models.evrenDivider');
+      container.appendChild(div);
+    }
+    if (m.id.startsWith('chatgpt:') && !chatgptHeaderDone && models.some((x) => !x.id.startsWith('chatgpt:'))) {
+      chatgptHeaderDone = true;
+      const div = document.createElement('div');
+      div.className = 'model-menu-divider';
+      div.textContent = t('models.chatgptDivider');
       container.appendChild(div);
     }
     const item = document.createElement('button');
@@ -1189,7 +1207,9 @@ export async function newSession(opts = {}) {
   // A codex: model needs the Codex CLI too — its gate is optional: closing the
   // wizard means "not now", and the session simply isn't created (the user picks
   // another model instead).
-  if (modelFamily(model) === 'codex' && !(await ensureCodex())) return;
+  if ((modelFamily(model) === 'codex' || modelFamily(model) === 'chatgpt') && !(await ensureCodex())) return;
+  // An evren: model needs an Evren API key; the add-key dialog opens when there is none.
+  if (modelFamily(model) === 'evren' && !(await ensureEvrenKey())) return;
   const subagentModel = opts.subagentModel || getSubagentModel();
   // Worktree mode: ask what to skip, then keep a progress dialog up for the whole
   // copy. `forceMainTree` is how the merge-conflict hand-off (and anything else

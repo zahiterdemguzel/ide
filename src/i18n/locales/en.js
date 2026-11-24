@@ -607,6 +607,8 @@ export default {
 
 
     'models.codexDivider': 'Codex',
+    "models.evrenDivider": "Evren",
+    "models.chatgptDivider": "ChatGPT via Claude Code",
 
     'settings.agentsPage': 'Agents',
     'settings.page.agents': 'Create and manage the Claude Code and Codex agents of this project.',
@@ -748,6 +750,18 @@ export default {
     'accounts.buttonTitle': "Claude account — click to switch",
     'accounts.buttonTitleEmail': "Claude account: {email} — click to switch",
     'accounts.menuTitle': "Claude accounts",
+    "accounts.tab.codex": "Codex",
+    "accounts.tab.claude": "Claude",
+    "accounts.tab.evren": "Evren",
+    "accounts.loading": "Loading…",
+    "accounts.note.codex": "Codex sessions run as the selected account. Switching moves running sessions too, no restart.",
+    "accounts.note.evren": "Evren sessions use the selected key (GLM 5.3 via Claude Code). Switching applies to running sessions at once.",
+    "accounts.addEvrenKey": "Add Evren API key",
+    "accounts.addCodex": "Add Codex account",
+    "accounts.evrenKeyBody": "Paste an Evren API key (starts with evren_llm_). It is stored encrypted on this computer.",
+    "accounts.evrenKeyInvalid": "That does not look like an Evren API key (it starts with evren_llm_).",
+    "accounts.evrenNamePlaceholder": "e.g. Evren main",
+    "accounts.switchBodyCodex": "Running Codex sessions will use it from their next request.",
     'accounts.signedOut': "Not signed in",
     'accounts.add': "Add account",
     'accounts.addTitle': "Add a Claude account",

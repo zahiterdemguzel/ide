@@ -9,6 +9,7 @@
 
 const { isOllamaId } = require('./ollama-models-lib');
 const { codexEffortValue } = require('./agent-effort');
+const { isEvrenId, isChatgptId, codexProxyOverride } = require('./provider-accounts-lib');
 
 const CODEX_PREFIX = 'codex:';
 const isCodexId = (id) => typeof id === 'string' && id.startsWith(CODEX_PREFIX);
@@ -64,17 +65,19 @@ function resolveCurrentModelId(id) {
 function modelFamily(id) {
   if (isCodexId(id)) return 'codex';
   if (isOllamaId(id)) return 'ollama';
+  if (isEvrenId(id)) return 'evren';
+  if (isChatgptId(id)) return 'chatgpt';
   return 'claude';
 }
 
 // A session's model may only move within its family: a Codex conversation lives
 // in ~/.codex and a Claude one in ~/.claude, so switching CLIs mid-session would
-// abandon the conversation. Ollama sessions are additionally frozen: their proxy
+// abandon the conversation. Ollama and Evren sessions are additionally frozen: their proxy
 // routing is baked into the spawned env, and the product decision is that a
 // local-model session keeps its model for life.
 function canSwitchModel(from, to) {
   const f = modelFamily(from);
-  return f === modelFamily(to) && f !== 'ollama';
+  return f === modelFamily(to) && f !== 'ollama' && f !== 'evren' && f !== 'chatgpt';
 }
 
 // The hook events Codex fires that our status/tracking pipeline consumes — the
@@ -113,9 +116,11 @@ function codexHookOverrides(port, ideId, platform) {
 // --resume. `--dangerously-bypass-hook-trust` is required for the hooks injected
 // above to run without an interactive trust prompt; they only ever point at our
 // own localhost server.
-function codexSpawnArgs({ resume, agentSessionId, model, effort, port, ideId, platform }) {
+function codexSpawnArgs({ resume, agentSessionId, model, effort, port, ideId, platform, proxyPort }) {
   const args = [];
   if (resume && agentSessionId) args.push('resume', agentSessionId);
+  // Through the account proxy, the active Codex account's login goes out with every request.
+  if (proxyPort) args.push(...codexProxyOverride(proxyPort));
   const bare = codexModelName(resolveCurrentModelId(model));
   if (bare) args.push('--model', bare);
   const e = codexEffortValue(effort);

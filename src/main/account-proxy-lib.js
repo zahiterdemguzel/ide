@@ -120,7 +120,7 @@ function isLoginRefused(status) {
 }
 
 module.exports = {
-  UPSTREAM_HOST, LOGIN_REREAD_MS, LOGIN_EXPIRY_MARGIN_MS, FOREIGN_ROUTE_ENV,
+  UPSTREAM_HOST, HOP_BY_HOP_HEADERS, LOGIN_REREAD_MS, LOGIN_EXPIRY_MARGIN_MS, FOREIGN_ROUTE_ENV,
   canRouteThroughProxy, proxyRouteEnv, carriesClaudeLogin, upstreamHeaders,
   splitMeteredPath, isBilledMessagesRequest, canMeterThroughProxy,
   isCachedLoginFresh, loginAction, isLoginRefused,

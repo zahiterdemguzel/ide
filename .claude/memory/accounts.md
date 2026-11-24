@@ -233,3 +233,44 @@ Each menu row's hover actions include a lightning toggle (`autoSwitchToggle` →
 of the 98% auto-switch; manual switching ignores it. An opted-out row shows a
 struck-through lightning mark (`.acct-noauto`) when not hovered.
 The sign-in dialog widens itself with `.dlg.is-wide` (`base.css`). Strings: `accounts.*`.
+
+## Codex and Evren tabs
+
+The account menu has three tabs — **Codex · Claude · Evren** — each with its own
+selected entry per app instance, so the three are chosen independently. Claude (the
+default tab) is everything above; the toolbar pill and usage meter follow only it.
+Code: `provider-accounts.js` (disk + IPC `providers-*`), pure `provider-accounts-lib.js`
+(tested), list in `~/.claude-accounts/providers.json` (mode 0600).
+
+Both providers reuse the account proxy: its routes `/e/…` (Evren) and `/c/…` (Codex) forward
+byte for byte to the provider with the **active entry's credentials** in place of the session's
+own, so a switch needs no restart. Sessions always run in the default config (`~/.claude`,
+`~/.codex`); only credentials differ.
+
+- **Evren**: keys stored encrypted (`safeStorage`) in `providers.json`. A model id `evren:<name>`
+  (`EVREN_MODELS` in `renderer/settings.js`) is family `evren` (frozen for life like `ollama:`):
+  it spawns the `claude` CLI with `evrenSpawnEnv` — `ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/e`,
+  a placeholder `ANTHROPIC_AUTH_TOKEN` the proxy swaps for `Authorization: Bearer <active key>`,
+  every Claude alias mapped to `glm-5.3` (haiku → `qwen3.8-flash-next`). Upstream
+  `evren-llmapi.ssyz.org.tr`. Key check is `GET /v1/quota` (only 401 = rejected; 403
+  `terms_not_accepted` means the owner must accept Evren's terms first). Picking an Evren model with
+  no key opens the add-key dialog (`ensureEvrenKey`). No usage/quota display yet (`GET /v1/quota` exists).
+- **Codex**: an account is a `CODEX_HOME` folder under `~/.codex-accounts/<name>` holding a
+  `codex login`; the default entry is `~/.codex`. Codex spawns get
+  `-c chatgpt_base_url="http://127.0.0.1:<port>/c/backend-api/"` (verified with codex 0.171: all
+  backend traffic then carries `Authorization` + `chatgpt-account-id`, which the proxy replaces from the
+  active account's `auth.json`). A token that ran out is renewed by running `codex login status` as that
+  home — never refreshed by the proxy. No usable login → the session's own credentials pass through.
+  A WebSocket upgrade on `/c/` is tunneled. **Not verified**: a full `/codex/responses` turn through the
+  proxy, and logins kept in the OS keyring instead of `auth.json` (those read as signed out).
+- Mobile app: still sees `evren:` ids as Claude family (not ported).
+- **ChatGPT in Claude Code** (`chatgpt:sol|astra|terra|luna`, family `chatgpt`, frozen for life): the
+  `claude` CLI against the proxy's `/g` route (`chatgptSpawnEnv`; aliases `sol…luna` are the model names the CLI
+  sends). `chatgpt-translate-lib.js` (tested) turns Anthropic Messages into the Codex backend's Responses request
+  (`chatgpt.com/backend-api/codex/responses`: `store:false`, `stream:true`, non-empty `instructions` — all
+  required, a bad body gets `400 Store must be set to false`) and the SSE stream back (text, function calls →
+  `tool_use`, usage; reasoning events dropped, thinking blocks never replayed). Uses the **Codex tab's active
+  account**. `count_tokens` is estimated locally (chars/4). Model = `resolveCurrentModelId('codex:<family>')`.
+  **Not verified live**: the request shape passes the backend's validation, but a full answer stream was never
+  seen (the account was at its weekly limit) — response event names follow the public Responses API.
+  Using a ChatGPT subscription token outside the Codex CLI may conflict with OpenAI's terms; unchecked.
