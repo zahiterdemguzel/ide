@@ -1,0 +1,31 @@
+# FreeCAD 1.1's DXF exporter can finish at the last F in EOF. LibreDWG
+# 0.14 requires a line ending there. Normalize FreeCAD's intermediate in a
+# private copy, keeping the drawing and FreeCAD's selected converter intact.
+import os
+import shutil
+import tempfile
+import importDWG
+
+
+def _ide_dwg_conversion(convert):
+    def convert_dxf(source, destination):
+        with open(source, "rb") as drawing:
+            drawing.seek(0, os.SEEK_END)
+            if drawing.tell() < 3:
+                return convert(source, destination)
+            drawing.seek(-3, os.SEEK_END)
+            if drawing.read() != b"EOF":
+                return convert(source, destination)
+            with tempfile.TemporaryDirectory() as work:
+                copy = os.path.join(work, os.path.basename(source))
+                drawing.seek(0)
+                with open(copy, "wb") as output:
+                    shutil.copyfileobj(drawing, output)
+                    output.write(b"\n")
+                return convert(copy, destination)
+    return convert_dxf
+
+
+if not getattr(importDWG, "_ide_dxf_terminator", False):
+    importDWG.convertToDwg = _ide_dwg_conversion(importDWG.convertToDwg)
+    importDWG._ide_dxf_terminator = True

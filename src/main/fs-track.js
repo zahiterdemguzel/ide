@@ -151,14 +151,12 @@ function changedPaths(beforeCodes, afterCodes) {
 function serialFsPlan(payload, hasBaseline) {
   const ev = payload.hook_event_name;
   if (ev === 'PreToolUse' && tracksFs(payload)) return hasBaseline ? 'diff-and-snapshot' : 'snapshot';
-  if ((ev === 'PostToolUse' || ev === 'Stop' || ev === 'StopFailure') && hasBaseline) return 'diff';
+  if (hasBaseline && ['PostToolUse', 'Stop', 'StopFailure', 'TurnInterrupted'].includes(ev)) return 'diff';
   return null;
 }
 
-// Hook events that end a stretch of agent work: the main agent finished its
-// answer (Stop), its turn died on an API error (StopFailure), or a
-// subagent/sidechain finished (SubagentStop).
-const TURN_END_EVENTS = new Set(['Stop', 'StopFailure', 'SubagentStop']);
+// Events that settle a conversation or a subagent and flush its filesystem baseline.
+const TURN_END_EVENTS = new Set(['Stop', 'StopFailure', 'TurnInterrupted', 'SubagentStop']);
 
 // Snapshot/diff plan for the TURN-wide baseline — the second, coarser tracker
 // that catches files the CLI changes OUTSIDE any tool window. The per-tool

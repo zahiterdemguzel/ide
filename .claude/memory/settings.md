@@ -177,8 +177,8 @@ the default model (`getSessionModel()`, i.e. the last caret/badge/Settings pick)
 
 **Quick model buttons.** Own toggle (Settings → General → *Quick model buttons*,
 `#settings-quick-model`, `ide.quickModelButtons`, off by default): a row under
-the split button (`#new-session-quick-models`) with Sol / Luna / Astra on the left and
-Sonnet / Opus / Fable on the right. The two rows meet at a one-pixel seam. Click a model
+the split button (`#new-session-quick-models`) with Sol / Astra on the left and
+Haiku / Sonnet / Opus / Fable on the right. The two rows meet at a one-pixel seam. Click a model
 to start at Mid effort. Press and drag up or down at least 12 px, then release to start
 at High or Low. The matching effort button lights up during the gesture, or an effort
 label appears if the quick-effort buttons are hidden. While a model button is focused,
@@ -515,6 +515,10 @@ matches).
     locale files, e.g. the empty-session hint)
   - `data-i18n-placeholder` → `placeholder`
   - `data-i18n-title` → `title`
+  - `data-i18n-label` → option-group label
+  - `data-i18n-aria-label` → accessible label
+
+  Dynamic controls can use `setTranslatedText(element, key, params)` to bind text that updates on language changes. Named placeholders such as `{file}` accept literal values. Remove `element.dataset.i18n` when replacing a bound message with a raw error.
 
   Buttons that mix an icon with text wrap the text in a `<span data-i18n="…">`
   so the SVG/`<img>` is preserved.

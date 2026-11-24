@@ -294,12 +294,11 @@ function requestRepoFocus(id) {
 
 export function selectSession(id) {
   const s = sessions.get(id);
-  if (!s) return;
+  if (!s || !hideAllOverlays()) return;
   requestRepoFocus(id);
   closeDiffDialog(); // the dialog belongs to whichever session was showing
   if (pendingDictation?.id !== id) pendingDictation = null;
   activeId = id;
-  hideAllOverlays();
   emptyHint.style.display = 'none';
   if (!splitStillValid(splitIds, id, isSplittableId)) splitIds = null;
   hostEl.classList.toggle('split', !!splitIds);

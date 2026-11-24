@@ -1,0 +1,41 @@
+/* Settings → Agents (src/renderer/agents-settings.js). Rows and fields reuse the
+   .settings-* shapes; this only adds what the agent list and form need. */
+.agent-head { padding: 12px 16px; }
+.agent-head strong { font-weight: 600; }
+.agent-list { display: flex; flex-direction: column; padding: 0; }
+.agent-list > * { padding: 10px 16px; }
+.agent-list > * + * { border-top: 1px solid var(--set-line); }
+.agent-row { display: flex; align-items: center; gap: 10px; }
+.agent-row .settings-label { flex: 1; min-width: 0; }
+.agent-name { font-weight: 600; }
+.agent-desc { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.agent-meta { display: flex; gap: 6px; }
+.agent-badge {
+  font-size: 11px; padding: 1px 8px; border-radius: 999px;
+  color: var(--fg-dim); border: 1px solid var(--border); background: var(--bg-2);
+}
+.agent-action { padding: 4px 12px; }
+.agent-delete:hover { color: var(--danger, #e5534b); }
+.agent-empty { font-size: 12.5px; color: var(--fg-dim); }
+.agent-foot { display: flex; padding: 12px 16px; }
+.agent-foot .settings-secondary { padding: 5px 14px; }
+
+.agent-field { align-items: start; }
+.agent-tools { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.agent-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.agent-chip {
+  font-size: 11.5px; padding: 2px 9px; border-radius: 999px; cursor: pointer;
+  color: var(--fg-dim); background: var(--bg-2); border: 1px solid var(--border);
+}
+.agent-chip:hover { color: var(--fg); }
+.agent-chip.active { color: var(--fg); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--bg-2)); }
+.agent-instructions-row { display: flex; flex-direction: column; gap: 6px; }
+.agent-instructions-title { font-size: 13px; color: var(--fg); }
+.agent-instructions {
+  width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px;
+  font: 12.5px/1.5 var(--font-mono, ui-monospace, Menlo, monospace);
+  background: var(--bg-2); color: var(--fg); border: 1px solid var(--border); border-radius: 6px;
+}
+.agent-instructions:focus { outline: none; border-color: var(--accent); box-shadow: var(--set-ring); }
+.agent-error { margin-top: 10px; font-size: 12.5px; color: var(--danger, #e5534b); }
+.agent-actions { display: flex; gap: 8px; margin-top: 14px; }

@@ -12,6 +12,7 @@ require('./instance');
 // Before anything spawns: a Dock/Finder launch lacks the user's PATH (see shell-path.js).
 require('./shell-path').adoptLoginShellPath();
 const { createWindow } = require('./window');
+const { installCadcraftProtocol } = require('./cadcraft-protocol');
 const { startHookServer } = require('./hook-server');
 const { killAllSessions, persistSessions } = require('./sessions');
 const { installCrashLogging } = require('./crashlog');
@@ -28,9 +29,11 @@ require('./session-commit');
 require('./worktrees'); // per-session git worktrees (create/seed/list/remove)
 require('./session-merge'); // a worktree session's Merge button
 require('./explorer');
+require('./cad');
 require('./db');
 require('./diagram'); // project structure diagrams (lazy — the worker spawns on first open)
 require('./run-configs');
+require('./agents');
 require('./debug'); // the DAP debugger (adapters spawn only when a debug session starts)
 require('./lsp'); // language servers for the editor (each spawns when a file of its language opens)
 require('./runners');
@@ -107,6 +110,7 @@ app.commandLine.appendSwitch('enable-zero-copy');
 // fighting over the disk cache.
 
 app.whenReady().then(() => {
+  installCadcraftProtocol();
   Menu.setApplicationMenu(null); // no native File/Edit/View menu — the in-app run toolbar replaces it
   startHookServer();
   createWindow();

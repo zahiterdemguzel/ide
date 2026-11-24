@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CADCraft drawing editor</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' blob: data:; font-src 'self' data:">
+  <style>
+    html, body, canvas { width: 100%; height: 100%; margin: 0; display: block; overflow: hidden; }
+    body { background: #22282f; color: #ddd; font: 14px system-ui; }
+    #cadcraft_loading { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+  </style>
+  <script type="module" src="/bridge.js"></script>
+</head>
+<body>
+  <canvas id="cadcraft_canvas" data-host="page"></canvas>
+  <div id="cadcraft_loading">Loading drawing editor…</div>
+</body>
+</html>

@@ -12,6 +12,7 @@
 // to the same value when the user undoes back to the saved state, so undoing all
 // edits clears the dirty dot, as in VS Code.
 
+import { CAD_EXT, extOf } from '../shared/ext.js';
 import { languageForFile } from './languages.js';
 
 let monaco = null;
@@ -73,6 +74,7 @@ export function looksBinary(text) { return text.includes('\u0000'); }
 // so external edits — a Claude session rewriting the file — show up on reopen.
 // Resolves { doc } or { error } / { binary: true }.
 export async function ensureDoc(file) {
+  if (CAD_EXT.has(extOf(file))) return { binary: true };
   const existing = docs.get(file);
   const r = await readFromDisk(file);
   if (!r || !r.ok) return existing ? { doc: existing } : { error: (r && r.error) || 'could not read' };
@@ -97,7 +99,7 @@ function createDoc(file, text) {
     model,
     diskText: text,
     savedVersionId: model.getAlternativeVersionId(),
-    readOnly: isAbsolutePath(file),
+    readOnly: isAbsolutePath(file) || CAD_EXT.has(extOf(file)),
     conflict: false, // the disk changed while the buffer had unsaved edits
     viewState: null,
     wasDirty: false,

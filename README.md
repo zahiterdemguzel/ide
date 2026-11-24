@@ -74,6 +74,14 @@ Search by title or first prompt in **Active** and **Archived**. Use **Next Waiti
 - **Project diagram:** classes, dependencies, calls and inheritance, extracted with tree-sitter and laid out automatically.
 - **Inline browser** with a Chrome-style console, for previewing what your agents built.
 
+### CAD editing
+
+Open a design from the Explorer or Quick Open. To open a file outside the project, choose **Open CAD design…** in the Command Palette.
+
+- **DWG drawings** open in CADCraft. Use **Drawing tools** to find drawing, modification, and annotation commands. The canvas and command line also support drafting, layers, and dimensions. Use **Save DWG as…** to choose a destination for the first save. The editor writes an AutoCAD 2000 DWG through LibreDWG. Choose a new filename for drawings with custom objects, since DXF interchange can omit unsupported entities.
+- **STEP models** (`.step`, `.stp`) open in a 3D solid editor. Move, rotate, scale, add or subtract a box, or drill a cylindrical hole. Use **Export STEP as…** to write the edited geometry. STEP export can flatten assembly structure and omit names, colors, and metadata.
+- **FreeCAD workbenches** are available through **Open in FreeCAD**. This opens the saved file in the installed desktop application. Save workbench features in a `.FCStd` document and reopen it directly from the IDE. For a custom installation, set `FREECAD_EXECUTABLE` to the executable's absolute path. FreeCAD can discover the bundled LibreDWG tools when launched from the IDE. [FreeCAD DWG setup](https://github.com/FreeCAD/FreeCAD-documentation/blob/main/wiki/FreeCAD_and_DWG_Import.md)
+
 ### 🧠 Models, your way
 - Pick the **model and reasoning effort per session**, and switch either one on a live session.
 - **OpenAI Codex CLI** sessions run side by side with Claude ones, with the same status dots and per-session commits.
@@ -124,7 +132,7 @@ npm install      # also fetches the offline voice model and fixes the Electron s
 npm start
 ```
 
-No native compile step and no bundler: the app is plain JavaScript loaded directly by Electron.
+The first start downloads the pinned CADCraft editor. Packaged builds include the DWG converters. For a source run, use GNU LibreDWG's `dwg2dxf` and `dxf2dwg` on your PATH, or prepare the same local bundle with `node scripts/prepare-libredwg.mjs mac` (use `win` or `linux` on those platforms). Source preparation on macOS and Linux requires a C compiler, Make, and pkg-config.
 
 **Open a specific folder on launch**
 
@@ -150,6 +158,7 @@ npm run build:linux   # Linux .AppImage
 | `npm run lint` | ESLint over the whole tree |
 | `npm run build` / `build:mac` / `build:linux` | Package with electron-builder |
 | `npm run build:android` | Build the mobile companion APK (needs a JDK and the Android SDK) |
+| `npm run fetch:cad` | Fetch the pinned offline CADCraft editor |
 | `npm run fetch:stt` | Re-download the offline speech-to-text model |
 | `npm run gen:mobile` | Regenerate the assets the mobile app shares with the desktop |
 

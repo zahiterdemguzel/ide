@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extOf, fileColor, IMG_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, HTML_EXT, SCENE_EXT } from '../src/renderer/shared/ext.js';
+import { extOf, fileColor, CAD_EXT, IMG_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, HTML_EXT, SCENE_EXT } from '../src/renderer/shared/ext.js';
 
 test('extOf: returns the lowercased extension after the last dot', () => {
   assert.equal(extOf('index.js'), 'js');
@@ -24,6 +24,11 @@ test('IMG_EXT / AUDIO_EXT / MODEL_EXT / VECTOR_EXT cover the asset-viewer types'
   for (const e of ['wav', 'ogg', 'mp3']) assert.ok(AUDIO_EXT.has(e));
   for (const e of ['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']) assert.ok(MODEL_EXT.has(e));
   for (const e of ['svg', 'ai']) assert.ok(VECTOR_EXT.has(e));
+});
+
+test('CAD design files use dedicated editing tools', () => {
+  for (const name of ['part.STEP', 'body.StP', 'frame.FCStd', 'plan.dwg']) assert.ok(CAD_EXT.has(extOf(name)));
+  assert.ok(!CAD_EXT.has(extOf('old.step.bak')));
 });
 
 test('VIDEO_EXT covers the web formats plus the common containers', () => {
@@ -59,7 +64,7 @@ test('SCENE_EXT routes Godot scenes only (.tres/.escn stay with the text editor)
 });
 
 test('the asset-viewer extension sets are disjoint (one routing per type)', () => {
-  const sets = [IMG_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SCENE_EXT];
+  const sets = [CAD_EXT, IMG_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SCENE_EXT];
   for (let i = 0; i < sets.length; i++)
     for (let j = i + 1; j < sets.length; j++)
       for (const e of sets[i]) assert.ok(!sets[j].has(e), `${e} is in two asset sets`);

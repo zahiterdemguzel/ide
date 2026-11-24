@@ -1,6 +1,6 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { t, setLocale, currentLocale, availableLocales, locales, BASE_LOCALE, pickLocale } from '../src/i18n/index.js';
+import { t, setTranslatedText, applyTranslations, setLocale, currentLocale, availableLocales, locales, BASE_LOCALE, pickLocale } from '../src/i18n/index.js';
 
 // setLocale touches document.documentElement; the engine is otherwise DOM-free.
 const doc = (globalThis.document = { documentElement: {} });
@@ -78,4 +78,23 @@ test('locale parity: every locale has exactly the base set of keys', () => {
     assert.deepEqual(missing, [], `${code} is missing keys: ${missing.join(', ')}`);
     assert.deepEqual(extra, [], `${code} has orphan keys not in ${BASE_LOCALE}: ${extra.join(', ')}`);
   }
+});
+
+test('bound CAD labels and saved filenames follow language changes without interpreting the filename', () => {
+  const label = { dataset: { i18nLabel: 'cad.toolModify' } };
+  const group = { dataset: { i18nAriaLabel: 'cad.tools' }, setAttribute(name, value) { this[name] = value; } };
+  const output = { dataset: {} };
+  const file = 'drive-$&-{file}.dwg';
+  setTranslatedText(output, 'cad.saved', { file });
+  assert.equal(output.textContent, 'Saved ' + file);
+
+  const elements = { '[data-i18n]': [output], '[data-i18n-label]': [label], '[data-i18n-aria-label]': [group] };
+  setLocale('tr');
+  applyTranslations({ querySelectorAll: (selector) => elements[selector] || [] });
+  assert.equal(output.textContent, file + ' kaydedildi');
+  assert.equal(label.label, 'Değiştir');
+  assert.equal(group['aria-label'], 'CAD araçları');
+
+  setTranslatedText(output, 'cad.ready');
+  assert.equal(output.textContent, 'Hazır');
 });

@@ -8,15 +8,18 @@
   "scripts": {
     "postinstall": "node scripts/fix-electron-signature.js && node scripts/fetch-stt-model.mjs",
     "fetch:stt": "node scripts/fetch-stt-model.mjs",
-    "prestart": "node scripts/build-force-click.js && node scripts/gen-icons.js",
+    "fetch:cad": "node scripts/fetch-cadcraft.mjs",
+    "prestart": "node scripts/fetch-cadcraft.mjs --optional && node scripts/build-force-click.js && node scripts/gen-icons.js",
     "start": "electron .",
+    "prebuild": "npm run fetch:cad && node scripts/prepare-libredwg.mjs win",
     "build": "electron-builder --win dir --publish never",
-    "prebuild:mac": "node scripts/build-force-click.js",
+    "prebuild:mac": "npm run fetch:cad && node scripts/prepare-libredwg.mjs mac && node scripts/build-force-click.js",
     "build:mac": "electron-builder --mac --publish never",
+    "prebuild:linux": "npm run fetch:cad && node scripts/prepare-libredwg.mjs linux",
     "build:linux": "electron-builder --linux AppImage --publish never",
     "build:android": "node scripts/build-android.mjs",
     "gen:mobile": "node scripts/gen-mobile-assets.mjs",
-    "test": "node --test --test-reporter=./scripts/test-reporter.js test/",
+    "test": "node --test --test-reporter=./scripts/test-reporter.js",
     "lint": "eslint ."
   },
   "build": {
@@ -28,6 +31,7 @@
       "index.html",
       "src/**/*",
       "server/**/*",
+      "vendor/cadcraft/cadcraft-web-0.20.1/**/*",
       "assets/**/*",
       "!assets/icon-dev.png",
       ".vscode/**/*",
@@ -49,6 +53,7 @@
       "node_modules/typescript-language-server/**"
     ],
     "extraResources": [
+      { "from": "resources/cad", "to": "cad" },
       {
         "from": "vendor/stt",
         "to": "stt",
@@ -59,13 +64,17 @@
       }
     ],
     "win": {
+      "extraResources": [{ "from": "vendor/libredwg/win/x64/0.14", "to": "libredwg" }],
       "target": "dir",
       "icon": "assets/icon.png"
     },
     "mac": {
       "target": "dmg",
       "icon": "assets/icon.png",
-      "extraResources": [{ "from": "vendor/force-click.node", "to": "force-click.node" }],
+      "extraResources": [
+        { "from": "vendor/force-click.node", "to": "force-click.node" },
+        { "from": "vendor/libredwg/mac/${arch}/0.14", "to": "libredwg" }
+      ],
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
@@ -73,6 +82,7 @@
       }
     },
     "linux": {
+      "extraResources": [{ "from": "vendor/libredwg/linux/${arch}/0.14", "to": "libredwg" }],
       "target": "AppImage",
       "icon": "assets/icon.png",
       "category": "Development"
@@ -98,6 +108,8 @@
     "pdfjs-dist": "^5.4.624",
     "pyright": "^1.1.414",
     "qrcode-generator": "^2.0.4",
+    "replicad": "1.2.1",
+    "replicad-opencascadejs": "1.2.1",
     "sherpa-onnx-node": "^1.13.4",
     "sql.js": "^1.14.1",
     "three": "^0.185.0",

@@ -102,7 +102,7 @@ function fromHook(payload, family) {
 // that was *rejected* — the tool never runs, so no PostToolUse ever comes.
 function clearsAsk(payload) {
   if (!payload || payload.agent_id) return false;
-  return payload.hook_event_name === 'PostToolUse' || payload.hook_event_name === 'Stop';
+  return ['PostToolUse', 'Stop', 'TurnInterrupted'].includes(payload.hook_event_name);
 }
 
 // An answer to one question: an option's key, or words typed instead of picking one.

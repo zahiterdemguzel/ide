@@ -73,6 +73,7 @@ export const EXT_ICON = {
   '3gp': 'video', m2ts: 'video',
   glb: 'model3d', gltf: 'model3d', fbx: 'model3d', obj: 'model3d',
   usdz: 'model3d', stl: 'model3d', ply: 'model3d',
+  step: 'model3d', stp: 'model3d', fcstd: 'model3d', dwg: 'model3d',
   zip: 'archive', tar: 'archive', gz: 'archive', tgz: 'archive',
   rar: 'archive', '7z': 'archive', bz2: 'archive', xz: 'archive',
 };

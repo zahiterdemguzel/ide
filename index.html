@@ -8,7 +8,7 @@
        change its bytes and silently break a hash; the nonce is content-independent.
        The matching nonce attribute is on the <script type="importmap"> tag. -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-threejsimportmap' 'wasm-unsafe-eval'; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data: blob:" />
+    content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'nonce-threejsimportmap' 'wasm-unsafe-eval'; frame-src 'self' cad-editor:; worker-src 'self' blob:; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' data: blob:" />
   <link rel="icon" href="assets/icon.png" />
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css" />
   <link rel="stylesheet" href="node_modules/@highlightjs/cdn-assets/styles/vs2015.min.css" />
@@ -18,6 +18,7 @@
   <link rel="stylesheet" href="src/styles/sessions.css" />
   <link rel="stylesheet" href="src/styles/seen-images.css" />
   <link rel="stylesheet" href="src/styles/quick-prompts.css" />
+  <link rel="stylesheet" href="src/styles/agents.css" />
   <link rel="stylesheet" href="src/styles/explorer.css" />
   <link rel="stylesheet" href="src/styles/diff.css" />
   <link rel="stylesheet" href="src/styles/editor.css" />
@@ -262,7 +263,7 @@
           <div id="asset-head">
             <span id="asset-file"></span>
             <div id="asset-tools"></div>
-            <button id="asset-close" title="Close">×</button>
+            <button id="asset-close" data-i18n-title="settings.close" title="Close"><span aria-hidden="true">×</span></button>
           </div>
           <div id="asset-body"></div>
         </div>
@@ -709,6 +710,10 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
           <span data-i18n="settings.sessions">Sessions</span>
         </button>
+        <button class="settings-nav-item" role="tab" data-page="agents">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span data-i18n="settings.agentsPage">Agents</span>
+        </button>
         <button class="settings-nav-item" role="tab" data-page="panels">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M9 15h12"/></svg>
           <span data-i18n="settings.panels">Panels</span>
@@ -923,6 +928,41 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <section class="settings-page" data-page="agents" role="tabpanel">
+          <header class="settings-page-head">
+            <h2 data-i18n="settings.agentsPage">Agents</h2>
+            <p data-i18n="settings.page.agents">Create and manage the Claude Code and Codex agents of this project.</p>
+          </header>
+          <div id="agents-groups">
+            <div class="settings-group">
+              <div class="settings-group-title"><span data-i18n="agents.claude.title">Claude Code agents</span></div>
+              <div class="settings-card agent-card">
+                <div class="agent-head" data-search-item>
+                  <span class="settings-label">
+                    <span><span data-i18n="agents.projectFor">Agents for</span> <strong id="agents-project"></strong></span>
+                    <small class="settings-desc" data-i18n="agents.claude.hint">Saved in .claude/agents of this project, so they travel with the repository.</small>
+                  </span>
+                </div>
+                <div id="agents-list-claude" class="agent-list"></div>
+                <div class="agent-foot"><button id="agents-add-claude" type="button" class="settings-secondary" data-i18n="agents.new">New agent</button></div>
+              </div>
+            </div>
+            <div class="settings-group">
+              <div class="settings-group-title"><span data-i18n="agents.codex.title">Codex agents</span></div>
+              <div class="settings-card agent-card">
+                <div class="agent-head" data-search-item>
+                  <span class="settings-label">
+                    <small class="settings-desc" data-i18n="agents.codex.hint">Saved in .codex/agents of this project, so they travel with the repository.</small>
+                  </span>
+                </div>
+                <div id="agents-list-codex" class="agent-list"></div>
+                <div class="agent-foot"><button id="agents-add-codex" type="button" class="settings-secondary" data-i18n="agents.new">New agent</button></div>
+              </div>
+            </div>
+          </div>
+          <div id="agents-editor" class="settings-group" hidden></div>
         </section>
 
         <section class="settings-page" data-page="panels" role="tabpanel">

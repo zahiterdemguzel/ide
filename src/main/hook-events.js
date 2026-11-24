@@ -25,7 +25,8 @@ function eventToState(payload) {
   if (payload.agent_id) return null;
   switch (payload.hook_event_name) {
     case 'Stop': return 'completed';
-    case 'StopFailure': return 'interrupted';
+    case 'StopFailure':
+    case 'TurnInterrupted': return 'interrupted';
     // Claude Code fires Notification for two very different things: a permission
     // prompt ("Claude needs your permission to use Bash") and the generic idle
     // notice ("Claude is waiting for your input"), which follows *every* finished
@@ -84,7 +85,7 @@ function isSubagentStop(payload) {
 // same, so it settles the session like a Stop — otherwise a session that hit its
 // limit sat yellow forever — but as `interrupted`: the work was cut off, not done.
 function isStopEvent(eventName) {
-  return eventName === 'Stop' || eventName === 'StopFailure';
+  return eventName === 'Stop' || eventName === 'StopFailure' || eventName === 'TurnInterrupted';
 }
 
 // Whether the main conversation's turn was just cut off by a usage limit. Such a
@@ -149,7 +150,8 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
   // Context-only sightings can be forks with no matching stop, so those expire.
   let agents = (tracking.agents || []).filter((a) => a.at === null || !now || now - a.at < ORIGIN_STALE_MS);
   const failed = payload.hook_event_name === 'StopFailure';
-  const ev = failed ? 'Stop' : payload.hook_event_name;
+  const ev = isStopEvent(payload.hook_event_name) ? 'Stop' : payload.hook_event_name;
+  let interrupted = Boolean(tracking.interrupted);
   const subagentStopped = isSubagentStop(payload);
   // Set for an event fired inside an agent's own context: it updates the
   // bookkeeping but never maps to a state of its own.
@@ -196,6 +198,7 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
     if (!active.length && !agents.length && origin === MAIN_ORIGIN) {
       subagents = 0; stoppedIds = []; stopped = false;
     }
+    if (origin === MAIN_ORIGIN || (!active.length && !agents.length && !subagents)) interrupted = false;
     touchOrigin();
   } else if (ev === 'PreToolUse' || ev === 'PostToolUse') {
     // Tool activity means this conversation is running (again) — e.g. a main
@@ -208,9 +211,11 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
     // must not stand in for the main agent's (or another fork's).
     dropOrigin();
     stopped = true;
+    if (payload.hook_event_name === 'TurnInterrupted') interrupted = true;
   }
 
   const next = { subagents, agents, active, stopped, stoppedIds };
+  if (interrupted) next.interrupted = true;
   // Every background agent in flight: ones counted from a spawn we saw, plus ones
   // we only know about because they've been firing events of their own.
   const inFlight = subagents + agents.length;
@@ -238,7 +243,7 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
   if (subagentStopped || ev === 'Stop') {
     if (backgroundOnly) return { state: 'bg-agents', tracking: next };
     if (!stopped || active.length || inFlight > 0) return { state: 'working', tracking: next };
-    return { state: failed ? 'interrupted' : 'completed', tracking: next };
+    return { state: failed || interrupted ? 'interrupted' : 'completed', tracking: next };
   }
   // A background conversation's own activity mustn't paint the chat yellow either:
   // a fork churning away after the main agent stopped leaves the chat free, so it
@@ -250,36 +255,6 @@ function deriveStatus(payload, tracking = {}, opts = {}) {
   if (state === 'pushed' && active.length) return { state: backgroundOnly ? 'bg-agents' : 'working', tracking: next };
   if (state === 'working' && backgroundOnly) return { state: 'bg-agents', tracking: next };
   return { state, tracking: next };
-}
-
-// A bare ESC (`\x1b`) or Ctrl+C (`\x03`) typed into a *working* session is a
-// *candidate* interrupt of the in-flight turn — not proof of one. The keystroke is
-// only ever a request: the TUI may swallow it (dismissing its own overlay,
-// clearing a half-typed prompt, a stray keypress while our dot is merely stale),
-// and the agent then keeps working while the dot has already gone red. So this
-// answers "is the user asking to interrupt", and the hook stream — the trusted
-// source — decides whether one actually happened (see interruptOutcome).
-//
-// Only a session that's currently working can be interrupted, the same bytes mean
-// other things in any other state, and arrow/function keys arrive as multi-byte
-// escape sequences (`\x1b[…`) so an exact match never catches them.
-function isInterruptKey(data, current) {
-  return current === 'working' && (data === '\x1b' || data === '\x03');
-}
-
-// Arbitrate a pending keystroke interrupt against the next hook event from the
-// session — the only account of what the agent is really doing.
-//
-//  - The turn ending right after the keystroke (`derived === 'completed'`) is the
-//    interrupt landing: the same event a natural finish produces, but here it was
-//    cut short, so it's red, not green — and no completion chime.
-//  - Any other event proves the agent kept running (a tool call, a new prompt, a
-//    permission ask), so the keystroke meant something else and the derived state
-//    stands untouched.
-//
-// Either way the pending interrupt is resolved; the caller drops it.
-function interruptOutcome(derived) {
-  return derived === 'completed' ? 'interrupted' : derived;
 }
 
 // Whether a derived state should overwrite the current one. Resuming a saved
@@ -392,6 +367,6 @@ function hookOriginId(family, agentSessionId) {
 }
 
 module.exports = {
-  eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState,
+  eventToState, deriveStatus, shouldApplyState,
   hooksSettings, normalizeHookPayload, hookOriginId, isUsageLimitStop, ORIGIN_STALE_MS,
 };

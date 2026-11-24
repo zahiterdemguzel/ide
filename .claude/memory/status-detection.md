@@ -12,7 +12,7 @@ The session dot follows CLI hooks and checks Claude Code’s tool processes when
 | Completed | green | The main turn ends and all background work has finished, or the PTY exits |
 | Background work | green (spinning) | The **main** conversation is ready for input while subagents, forks, or Claude tool shells are still running. State id `bg-agents` |
 | Committed / pushed | purple | a successful per-session **Commit changes**, or a `PostToolUse` whose Bash command matches `git push` |
-| Interrupted | red | `StopFailure` — the CLI fires it **instead of** `Stop` when an API error (usage limit, auth, overload) ends the turn; without it such a session sat yellow forever. Also: the agent was stopped while actively **working**: an ESC/Ctrl+C the CLI's hook stream then confirms cut the turn short, archiving a working session, or reopening one that was working when the app closed (see [Interrupting a turn](#interrupting-a-turn) and [Persistence](#persistence-across-restarts)) |
+| Interrupted | red | `StopFailure` — the CLI fires it **instead of** `Stop` when an API error (usage limit, auth, overload) ends the turn; without it such a session sat yellow forever. Also: the agent was stopped while actively **working**: an ESC/Ctrl+C followed by a fresh CLI transcript cancellation record, archiving a working session, or reopening one that was working when the app closed (see [Interrupting a turn](#interrupting-a-turn) and [Persistence](#persistence-across-restarts)) |
 
 A just-created session stays gray (idle) until the user submits the first prompt; yellow ("working") is reserved for an agent actively responding. The working dot animates as a ring spinner (a faint ring with one bright rotating segment) so an in-progress session is distinguishable from a paused one at a glance, not just by hue. A solid dot can't show rotation, so the gap in the ring is what makes the motion visible. It is intentionally **not** gated behind `prefers-reduced-motion` — it's the only liveness cue, and Windows reports "reduce" whenever the OS animation setting is off, which would silently hide it. (See `.dot.working` in `src/styles/sessions.css`.)
 
@@ -65,17 +65,9 @@ Two cheaper fixes apply in both modes: the hook server **doesn't re-send an unch
 
 ## Interrupting a turn
 
-Stopping an agent mid-response turns the dot **red (interrupted)**. Claude Code emits **no dedicated hook** for an interrupt, so this is the one state a keystroke has any say in — but **the keystroke alone is never believed**, because it is only a *request*. The TUI swallows ESC/Ctrl+C for its own reasons constantly (dismissing an overlay, clearing a half-typed prompt), and a stray press against a dot that is merely stale interrupts nothing at all — so trusting the keypress by itself painted still-running sessions red.
+Escape and Ctrl+C still go straight to the terminal. During active work or a blocking prompt, either key also starts a brief check of the current conversation’s transcript. Claude Code records a cancellation as a standalone user interruption marker. Codex records a `turn_aborted` event with reason `interrupted`. The check requires a fresh record and expires silently. A normal `Stop` keeps the completion path, and a new prompt cancels the old check.
 
-- **ESC / Ctrl+C while working.** The `pty-input` handler (`src/main/sessions.js`) runs each keystroke through the pure `isInterruptKey(data, current)` (`hook-events.js`): a bare ESC (`\x1b`) or Ctrl+C (`\x03`) counts **only when the session is currently `working`**, and arrow/function keys arrive as multi-byte sequences (`\x1b[…`) so an exact match never catches them. A hit does **not** move the dot — it opens a *pending interrupt* (`noteInterruptKey`), and the CLI's own hook stream, the source every other state comes from, arbitrates it (`resolveInterrupt`, called by the hook server for every payload before the state is applied):
-  - the turn **ends** right after (a `Stop`, i.e. derived `completed`) → the interrupt landed: red, and **no** completion chime (`interruptOutcome`);
-  - **anything else** arrives — a tool call, a new prompt, a permission ask → the agent is still running, so the keystroke wasn't an interrupt and the dot stays wherever the hooks put it;
-  - **nothing** arrives within `INTERRUPT_GRACE_MS` (2.5 s) → a session that went silent right after an interrupt request was interrupted. This fallback is what covers CLI versions that fire no `Stop` on an interrupt either.
-
-  Subagent-context payloads (`agent_id`) never resolve a pending interrupt — a subagent stopping says nothing about the session's own turn. A dying PTY clears it (the exit already settles the dot). The next prompt fires `UserPromptSubmit` → `working` again.
-- **Archiving an active session.** Suspending (archiving) a session kills its Claude process, so a session that was `working` can't keep running. The `suspend-session` handler reuses `persistedState()` (the same rule app-close applies) to collapse `working` (and `bg-agents`, whose background agents die with the process too) to `interrupted`; a `needs-input` session was only paused for the user, so it collapses to green (`completed`), and the settled states (`completed`/`pushed`/`idle`) pass through unchanged.
-
-Both paths are unit-tested via the pure helpers (`isInterruptKey` / `interruptOutcome` in `test/hook-events.test.js`; `persistedState` in `test/session-persist.test.js`).
+A confirmed interruption ends the conversation’s tracked turn and clears its blocking prompt. Background work keeps its spinner until it settles, at which point the interrupted turn shows red. Archiving or restarting during active work still uses `persistedState()` to restore the session as interrupted.
 
 ## Persistence across restarts
 

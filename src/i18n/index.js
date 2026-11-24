@@ -55,13 +55,33 @@ export function t(key) {
   return key;
 }
 
+// Values supplied by dynamic UI elements survive a language switch (for example,
+// a save result whose filename comes before the verb in some languages).
+const textParams = new WeakMap();
+function translatedText(el) {
+  const text = t(el.dataset.i18n);
+  const params = textParams.get(el);
+  if (!params) return text;
+  return text.replace(/\{(\w+)\}/g, (token, name) => Object.hasOwn(params, name) ? params[name] : token);
+}
+
+export function setTranslatedText(el, key, params) {
+  el.dataset.i18n = key;
+  if (params) textParams.set(el, params);
+  else textParams.delete(el);
+  el.textContent = translatedText(el);
+  return el;
+}
+
 // Re-render every translatable node under `root`. Elements opt in with:
 //   data-i18n            -> textContent
 //   data-i18n-html       -> innerHTML (use only for trusted markup in locales)
 //   data-i18n-placeholder-> placeholder attribute
 //   data-i18n-title      -> title attribute
 export function applyTranslations(root = document) {
-  root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
+  root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = translatedText(el); });
+  root.querySelectorAll('[data-i18n-label]').forEach((el) => { el.label = t(el.dataset.i18nLabel); });
+  root.querySelectorAll('[data-i18n-aria-label]').forEach((el) => { el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel)); });
   root.querySelectorAll('[data-i18n-html]').forEach((el) => { el.innerHTML = t(el.dataset.i18nHtml); });
   root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   root.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });

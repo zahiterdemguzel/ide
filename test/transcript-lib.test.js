@@ -1,10 +1,35 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { createState, feed, parseTranscript, toolTitle, userText } = require('../src/main/transcript-lib');
+const { createState, feed, parseTranscript, toolTitle, userText, hasTranscriptInterrupt } = require('../src/main/transcript-lib');
 
 const line = (o) => JSON.stringify(o) + '\n';
 const user = (text, extra = {}) => line({ type: 'user', uuid: 'u1', timestamp: 't', message: { role: 'user', content: text }, ...extra });
 const assistant = (content, extra = {}) => line({ type: 'assistant', uuid: 'a1', timestamp: 't', message: { role: 'assistant', content }, ...extra });
+
+test('Claude interruption detection requires a fresh, standalone user cancellation record', () => {
+  const timestamp = '2026-01-01T12:00:00.000Z';
+  const since = Date.parse(timestamp);
+  const marker = [{ type: 'text', text: '[Request interrupted by user]' }];
+  const matches = (text) => hasTranscriptInterrupt(text, 'claude', since);
+  const cancellation = user(marker, { timestamp });
+  assert.equal(matches(cancellation), true);
+  assert.equal(matches(user([{ type: 'text', text: '[Request interrupted by user for tool use]' }], { timestamp })), true);
+  assert.equal(matches(user(marker, { timestamp: '2026-01-01T11:59:59.999Z' })), false);
+  assert.equal(matches(user(marker, { timestamp, isSidechain: true })), false);
+  assert.equal(matches(user([{ type: 'tool_result', content: marker }], { timestamp })), false);
+  assert.equal(matches(assistant(marker, { timestamp })), false);
+  assert.equal(matches(cancellation.trimEnd()), false);
+  assert.equal(matches(''), false);
+});
+
+test('Codex interruption detection requires a fresh turn_aborted event with the interrupted reason', () => {
+  const timestamp = '2026-01-01T12:00:00.000Z';
+  const matches = (payload) => hasTranscriptInterrupt(line({ type: 'event_msg', timestamp, payload }), 'codex', Date.parse(timestamp));
+  assert.equal(matches({ type: 'turn_aborted', reason: 'interrupted' }), true);
+  assert.equal(matches({ type: 'turn_aborted', reason: 'replaced' }), false);
+  assert.equal(matches({ type: 'task_complete' }), false);
+  assert.equal(matches({ type: 'user_message', message: 'turn_aborted' }), false);
+});
 
 test('feed: a user turn and an assistant reply become chat messages', () => {
   const st = createState();

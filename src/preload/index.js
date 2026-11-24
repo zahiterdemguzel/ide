@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('api', {
   ...require('./db'),
   ...require('./diagram'),
   ...require('./run-configs'),
+  ...require('./agents'),
   ...require('./debug'),
   ...require('./lsp'),
   ...require('./runners'),

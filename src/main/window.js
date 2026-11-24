@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -114,6 +114,16 @@ function createWindow() {
       sandbox: false, // preload requires native node-pty
       webviewTag: true, // inline web browser for Ctrl+clicked links
     },
+  });
+  win.webContents.on('will-prevent-unload', (event) => {
+    const answer = dialog.showMessageBoxSync(win, {
+      type: 'question',
+      message: 'Discard unsaved changes and leave the editor?',
+      buttons: ['Keep editing', 'Discard changes'],
+      defaultId: 0,
+      cancelId: 0,
+    });
+    if (answer === 1) event.preventDefault();
   });
   watchForceClick(win);
   // First paint is ready — maximize while still hidden, then reveal in one step

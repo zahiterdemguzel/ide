@@ -198,6 +198,29 @@ const createState = () => ({ msgs: [], tools: new Map(), partial: '' });
 const CODEX_LINE_TYPES = new Set(['session_meta', 'response_item', 'event_msg', 'turn_context', 'compacted']);
 const isCodexEntry = (e) => Boolean(e && CODEX_LINE_TYPES.has(e.type) && (e.payload === undefined || typeof e.payload === 'object'));
 
+// Only consider complete records written since the interrupt key was sent.
+// Tool output and assistant text can quote these markers.
+function hasTranscriptInterrupt(text, family, since) {
+  const lines = text.split('\n');
+  lines.pop();
+  const marker = family === 'codex' ? '"turn_aborted"' : '[Request interrupted by user';
+  return lines.some((line) => {
+    if (!line.includes(marker)) return false;
+    let entry;
+    try { entry = JSON.parse(line); } catch { return false; }
+    if (!(Date.parse(entry?.timestamp) >= since)) return false;
+    if (family === 'codex') {
+      return entry.type === 'event_msg' && entry.payload?.type === 'turn_aborted'
+        && entry.payload.reason === 'interrupted';
+    }
+    const content = entry.message?.content;
+    return entry.type === 'user' && !entry.isSidechain && !entry.isMeta
+      && entry.message?.role === 'user' && Array.isArray(content) && content.length === 1
+      && content[0]?.type === 'text'
+      && ['[Request interrupted by user]', '[Request interrupted by user for tool use]'].includes(content[0].text);
+  });
+}
+
 // Codex's shell tools carry the command in a JSON `arguments` string; the argv
 // may be a string or an array.
 function codexToolTitle(name, input) {
@@ -340,4 +363,4 @@ function parseTranscript(text) {
   return state.msgs;
 }
 
-module.exports = { createState, feed, applyEntry, parseTranscript, toolTitle, userText, MAX_MESSAGES };
+module.exports = { createState, feed, applyEntry, parseTranscript, toolTitle, userText, hasTranscriptInterrupt, MAX_MESSAGES };

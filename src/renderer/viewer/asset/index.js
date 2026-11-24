@@ -1,4 +1,6 @@
-import { AUDIO_EXT, VIDEO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, SCENE_EXT } from '../../shared/ext.js';
+import { t } from '../../../i18n/index.js';
+import { launchCadEditor } from '../cad.js';
+import { CAD_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, EDITABLE_MODEL_EXT, VECTOR_EXT, EDITABLE_VECTOR_EXT, PDF_EXT, SCENE_EXT } from '../../shared/ext.js';
 import { renderAudio } from './audio.js';
 import { renderVideo } from './video.js';
 import { renderZoom } from './zoom.js';
@@ -11,26 +13,117 @@ import { assetBtn } from './ui.js';
 // Dispatches by file type. Peer overlays / session terminals are hidden by the
 // center coordinator before showAsset runs.
 const assetView = document.getElementById('asset-view');
-const assetBody = document.getElementById('asset-body');
-const assetTools = document.getElementById('asset-tools');
 const assetFile = document.getElementById('asset-file');
 
 // A sub-view (the pixel editor, the 3D viewer) can install a document-level
 // listener or an animation loop; it registers a teardown here so showing another
 // asset / hiding the view removes it.
-let activeCleanup = null;
-function runCleanup() { if (activeCleanup) { activeCleanup(); activeCleanup = null; } }
-const registerCleanup = (fn) => { activeCleanup = fn; };
+let active = null;
+window.addEventListener('beforeunload', event => {
+  if (active?.needsUnloadWarning?.()) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+});
 
-// Clearing the body removes any <audio>, stopping playback and freeing memory.
-export function hideAsset() { runCleanup(); assetView.style.display = 'none'; assetBody.innerHTML = ''; assetTools.innerHTML = ''; }
+export function hideAsset() {
+  if (active?.shouldClose && !active.shouldClose()) return false;
+  const previous = active;
+  active = null;
+  previous?.cleanup?.();
+  previous?.status?.remove();
+  assetView.classList.remove('cad-workspace');
+  assetView.style.display = 'none';
+  document.getElementById('asset-body').replaceChildren();
+  document.getElementById('asset-tools').replaceChildren();
+  return true;
+}
+
+// A late decoder or CAD import can only paint its own detached elements.
+function replaceSlot(id) {
+  const slot = document.createElement('div');
+  slot.id = id;
+  document.getElementById(id).replaceWith(slot);
+  return slot;
+}
+
+function createCadTools(toolbar, status) {
+  toolbar.setAttribute('role', 'group');
+  toolbar.dataset.i18nAriaLabel = 'cad.tools';
+  toolbar.setAttribute('aria-label', t('cad.tools'));
+  const tools = { status };
+  for (const name of ['file', 'edit', 'view', 'external']) {
+    const group = document.createElement('div');
+    group.className = 'cad-tool-group';
+    group.setAttribute('role', 'group');
+    const label = document.createElement('span');
+    label.id = 'cad-group-' + name;
+    label.className = 'cad-group-label';
+    label.dataset.i18n = 'cad.group.' + name;
+    label.textContent = t(label.dataset.i18n);
+    group.setAttribute('aria-labelledby', label.id);
+    const actions = document.createElement('div');
+    actions.className = 'cad-group-actions';
+    group.append(label, actions);
+    toolbar.append(group);
+    tools[name] = actions;
+  }
+  return tools;
+}
 
 export async function showAsset(file, ext) {
-  runCleanup();
+  if (active && !hideAsset()) return;
+  const session = {};
+  active = session;
+  const registerCleanup = (cleanup, shouldClose, needsUnloadWarning) => {
+    if (session !== active) { cleanup(); return; }
+    session.cleanup = cleanup;
+    session.shouldClose = shouldClose;
+    session.needsUnloadWarning = needsUnloadWarning;
+  };
+  const assetTools = replaceSlot('asset-tools');
+  const assetBody = replaceSlot('asset-body');
   assetFile.textContent = file;
-  assetTools.innerHTML = '';
-  assetBody.innerHTML = '';
+  assetFile.title = file;
   assetView.style.display = 'flex';
+
+  if (CAD_EXT.has(ext)) {
+    let currentFile = file;
+    const nativeButton = assetBtn(t('cad.freecad'), () => launchCadEditor(currentFile));
+    nativeButton.dataset.i18n = 'cad.freecad';
+    nativeButton.dataset.i18nTitle = 'cad.freecadHint';
+    nativeButton.title = t('cad.freecadHint');
+    assetView.classList.add('cad-workspace');
+    const status = document.createElement('output');
+    status.className = 'cad-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-atomic', 'true');
+    assetView.append(status);
+    session.status = status;
+    const tools = createCadTools(assetTools, status);
+    tools.setFile = path => {
+      if (session !== active) return;
+      currentFile = path;
+      assetFile.textContent = path.split(/[\\/]/).pop();
+      assetFile.title = path;
+    };
+    tools.setFile(file);
+    tools.external.append(nativeButton);
+    status.textContent = t('cad.loading');
+    try {
+      const [design, editor] = await Promise.all([
+        window.api.readCadDesign(file),
+        ext === 'dwg' ? import('./dwg-editor.js') : import('./step-editor.js'),
+      ]);
+      if (session !== active) return;
+      if (!design.ok) { status.textContent = design.error || t('cad.openFailed'); return; }
+      tools.setFile(design.file);
+      const render = ext === 'dwg' ? editor.renderDwgEditor : editor.renderStepEditor;
+      assetBody.replaceChildren();
+      await render(design.file, assetBody, tools, registerCleanup, design);
+    } catch (err) { status.textContent = err.message || t('cad.openFailed'); }
+    return;
+  }
 
   // "Open externally" is useful for every asset type — hand the file to the OS's
   // default program (a .glb in the system 3D viewer, an image in the photo app).
@@ -57,6 +150,7 @@ export async function showAsset(file, ext) {
   }
 
   const r = await window.api.readAsset(file);
+  if (session !== active) return;
   if (!r.ok) { assetBody.textContent = r.error || 'Could not read file'; return; }
 
   if (MODEL_EXT.has(ext)) {

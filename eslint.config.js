@@ -16,7 +16,7 @@ module.exports = [
   // .claude/worktrees holds per-session worktrees — each a full second checkout of
   // this same repo. Linting them re-reports every finding once per worktree, and
   // reports them against paths the user can't meaningfully fix from here.
-  { ignores: ['node_modules/**', 'dist/**', '.test-workspace/**', '.claude/worktrees/**'] },
+  { ignores: ['node_modules/**', 'dist/**', 'vendor/cadcraft/**', 'vendor/libredwg/**', '.test-workspace/**', '.claude/worktrees/**'] },
 
   js.configs.recommended,
   {

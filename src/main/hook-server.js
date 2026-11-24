@@ -1,6 +1,8 @@
 const http = require('http');
 const { execFile } = require('child_process');
 const execFileAsync = require('util').promisify(execFile);
+const { open } = require('fs/promises');
+const { setTimeout: delay } = require('timers/promises');
 const { sendToRenderer } = require('./window');
 // Pure event->state mapping, resume-downgrade rule, and settings JSON live in the
 // Electron-free sibling so they stay unit-tested (see test/hook-events.test.js).
@@ -9,6 +11,7 @@ const { statusLineCommand } = require('./statusline');
 const { sanitizeContextReport } = require('./statusline-lib');
 const { seenImagesFromPayload } = require('./seen-images-lib');
 const { modelFamily } = require('./agent-providers');
+const { hasTranscriptInterrupt } = require('./transcript-lib');
 const { processListCommand, parseProcessList, hasClaudeToolShell } = require('./background-work-lib');
 // Runtime-only seam: the request handler calls into sessions, and sessions calls
 // hooksSettings()/getHookPort() here — both happen well after module load, so the
@@ -37,12 +40,16 @@ const debugLog = (line) => {
 
 const subagentTracking = new Map();
 const getTracking = (id) => subagentTracking.get(id) || {};
+const interruptTargets = new Map();
+const interruptChecks = new Map();
 // A session's PTY dying takes every agent in it down with it — drop the
 // bookkeeping so a later resume (same session id) starts from a clean slate
 // instead of inheriting a stale in-flight count.
 function clearTracking(id) {
   subagentTracking.delete(id);
   pendingCompletions.delete(id);
+  interruptTargets.delete(id);
+  interruptChecks.delete(id);
 }
 
 function publishState(id, state) {
@@ -113,6 +120,82 @@ function applyHookState(id, state) {
   }
   pendingCompletions.delete(id);
   publishState(id, state);
+}
+
+function handleStatus(payload, originId) {
+  const id = payload.session_id;
+  const { state, tracking } = deriveStatus(payload, getTracking(id), { originId, now: Date.now() });
+  subagentTracking.set(id, tracking);
+  if (DEBUG_LOG_ENABLED) debugLog(`ev=${payload.hook_event_name} tool=${payload.tool_name || '-'} agent=${payload.agent_id || '-'} origin=${originId || '-'} state=${state} track=${JSON.stringify(tracking)}`);
+  if (state) applyHookState(id, state);
+}
+
+function noteInterruptTarget(payload, originId) {
+  const { session_id: id, hook_event_name: event, transcript_path: file, agent_id: agentId } = payload;
+  if (agentId || event === 'SubagentStart' || event === 'SubagentStop') return;
+  const target = interruptTargets.get(id);
+  if (event === 'SessionStart' || event === 'UserPromptSubmit') {
+    interruptChecks.delete(id);
+    if (file) interruptTargets.set(id, { file, originId });
+  } else if (!target && file) {
+    interruptTargets.set(id, { file, originId });
+  } else if (target?.originId === originId && (event === 'Stop' || event === 'StopFailure')) {
+    interruptChecks.delete(id);
+  }
+}
+
+const INTERRUPT_CHECK_MS = 4000;
+const INTERRUPT_POLL_MS = 200;
+const INTERRUPT_TAIL_BYTES = 128 * 1024;
+
+async function readTranscriptTail(file) {
+  const handle = await open(file, 'r');
+  try {
+    const { size } = await handle.stat();
+    const buffer = Buffer.alloc(Math.min(size, INTERRUPT_TAIL_BYTES));
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, size - buffer.length);
+    return buffer.toString('utf8', 0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+// Only poll briefly after a cancellation keystroke. This keeps transcript I/O
+// off the normal desktop typing path and lets the CLI take time to log the abort.
+async function checkInterruptInput(id, data) {
+  if (data !== '\x1b' && data !== '\x03') return;
+  const session = sessions.sessions.get(id);
+  const target = interruptTargets.get(id);
+  if (!target || !session?.pty || !['working', 'needs-input'].includes(session.state)) return;
+  const { pty } = session;
+  const existing = interruptChecks.get(id);
+  const since = Date.now();
+  if (existing?.pty === pty) {
+    existing.until = since + INTERRUPT_CHECK_MS;
+    return;
+  }
+  const check = { pty, until: since + INTERRUPT_CHECK_MS };
+  interruptChecks.set(id, check);
+  const isCurrent = () => interruptChecks.get(id) === check && session.pty === pty
+    && ['working', 'needs-input', 'bg-agents'].includes(session.state);
+  try {
+    while (isCurrent() && Date.now() < check.until) {
+      await delay(INTERRUPT_POLL_MS);
+      if (!isCurrent()) return;
+      const text = await readTranscriptTail(target.file).catch(() => '');
+      if (!isCurrent()) return;
+      if (!hasTranscriptInterrupt(text, modelFamily(session.model), since)) continue;
+      const payload = { session_id: id, hook_event_name: 'TurnInterrupted' };
+      handleStatus(payload, target.originId);
+      const meta = await sessions.recordSessionActivity(payload);
+      if (meta) sendToRenderer('session-meta', meta);
+      return;
+    }
+  } catch (err) {
+    sessions.reportSessionError('tracking a session interruption', err);
+  } finally {
+    if (interruptChecks.get(id) === check) interruptChecks.delete(id);
+  }
 }
 
 // --- hooks injected per session via `claude --settings <json>` ---
@@ -192,21 +275,14 @@ function startHookServer() {
         const normalized = normalizeHookPayload(payload, ideId);
         payload = normalized.payload;
         if (normalized.agentSessionId) sessions.noteAgentSessionId(ideId, normalized.agentSessionId);
-        let state = null;
         if (payload.session_id) {
           // Codex generates its own ID even for the main conversation. It must
           // represent the main origin, not a Claude-style fork.
           const session = sessions.sessions.get(payload.session_id);
           const originId = hookOriginId(modelFamily(session?.model), normalized.agentSessionId);
-          const opts = { originId, now: Date.now() };
-          const { state: derived, tracking } = deriveStatus(payload, getTracking(payload.session_id), opts);
-          subagentTracking.set(payload.session_id, tracking);
-          // An ESC/Ctrl+C keystroke on its own never moves the dot — this event is
-          // the trusted word on whether it actually cut the turn short.
-          state = sessions.resolveInterrupt(payload, derived);
-          if (DEBUG_LOG_ENABLED) debugLog(`ev=${payload.hook_event_name} tool=${payload.tool_name || '-'} agent=${payload.agent_id || '-'} origin=${normalized.agentSessionId || '-'} derived=${derived} final=${state} track=${JSON.stringify(tracking)}`);
+          if (session) noteInterruptTarget(payload, originId);
+          handleStatus(payload, originId);
         }
-        if (state && payload.session_id) applyHookState(payload.session_id, state);
         // Await before answering the hook: on PreToolUse this snapshots the
         // working tree, and the command hook blocks the tool from running until
         // we respond — so the "before" snapshot is guaranteed to predate the
@@ -236,4 +312,4 @@ function startHookServer() {
 // required before sessions (see main/index.js), so sessions captures this object
 // mid-load. Reassigning module.exports here would swap in a new object sessions
 // never sees, leaving hookServer.hooksSettings undefined at spawn time.
-Object.assign(module.exports, { startHookServer, getHookPort, hooksSettings, setDetailedToolHooks, clearTracking });
+Object.assign(module.exports, { startHookServer, getHookPort, hooksSettings, setDetailedToolHooks, clearTracking, checkInterruptInput });

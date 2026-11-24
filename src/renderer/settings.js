@@ -21,6 +21,7 @@ import { initVoice, refreshVoiceSection } from './voice.js';
 import { initEditorSettingsSection, refreshEditorSettingsSection } from './editor/settings-section.js';
 import { initSettingsNav } from './settings-nav.js';
 import { renderQuickPromptSettings } from './quick-prompts.js';
+import { initAgentsSettings, refreshAgentsSettings } from './agents-settings.js';
 
 // Theme registry — the source of truth for the dropdown. Each id must have a
 // matching [data-theme="<id>"] block in src/styles/themes.css (except "dark",
@@ -395,6 +396,7 @@ export function initSettings() {
     osNotifyBox.checked = isOsNotificationsEnabled();
     refreshEditorSettingsSection();
     renderQuickPromptSettings();
+    refreshAgentsSettings();
     resetSettingsNav();
     dialog.showModal();
     // Refresh installed Ollama models and the Custom Models section after the
@@ -420,6 +422,7 @@ export function initSettings() {
   // it only needs to be started once, from here, like the Custom Models section.
   initVoice();
   initEditorSettingsSection();
+  initAgentsSettings();
   const resetSettingsNav = initSettingsNav();
 
   initCustomModels(async () => {

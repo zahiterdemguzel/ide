@@ -1,4 +1,5 @@
-import { IMG_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SHEET_EXT, DB_EXT, SCENE_EXT, extOf } from '../shared/ext.js';
+import { launchCadEditor } from './cad.js';
+import { CAD_EXT, IMG_EXT, AUDIO_EXT, VIDEO_EXT, MODEL_EXT, VECTOR_EXT, PDF_EXT, SHEET_EXT, DB_EXT, SCENE_EXT, extOf } from '../shared/ext.js';
 import { hideDiff } from './code-render.js';
 import { showDiff, showCommit, showStash } from './diff.js';
 import { showFile } from './file.js';
@@ -37,13 +38,16 @@ async function load(key) {
 const emptyHint = document.getElementById('empty-hint');
 const sessionBar = document.getElementById('session-bar');
 
+let navigation = 0;
 export function hideAllOverlays() {
+  if (mod.asset && !mod.asset.hideAsset()) return false;
+  navigation++;
   hideDiff();
-  if (mod.asset) mod.asset.hideAsset();
   if (mod.sheet) mod.sheet.hideSheet();
   if (mod.db) mod.db.hideDb();
   if (mod.web) mod.web.hideWeb();
   if (mod.diagram) mod.diagram.hideDiagram();
+  return true;
 }
 
 // Whether a file/diff/asset/sheet/db/browser/diagram overlay currently fills the
@@ -73,48 +77,55 @@ let onTakeoverCb = null;
 export function onTakeover(fn) { onTakeoverCb = fn; }
 
 function clearCenter() {
+  if (!hideAllOverlays()) return false;
   if (onTakeoverCb) onTakeoverCb();
-  hideAllOverlays();
   hideSessionViews();
+  return true;
 }
 
-// Route a file opened from the tree/search: images/audio/video/3D-models/vector/
-// Godot scenes → asset viewer, everything else → read-only text view. `jump`
-// (optional { line, term }).
+// Navigation may change again while a viewer module loads.
+async function showLazy(key, method, ...args) {
+  const at = navigation;
+  const viewer = await load(key);
+  if (at === navigation) return viewer[method](...args);
+}
+
+// Route tree, search, quick-open and linked files to their editor.
 export async function openFromTree(file, jump) {
-  clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || VIDEO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext) || PDF_EXT.has(ext) || SCENE_EXT.has(ext)) (await load('asset')).showAsset(file, ext);
-  else if (SHEET_EXT.has(ext)) (await load('sheet')).showSheet(file, ext);
-  else if (DB_EXT.has(ext)) (await load('db')).showDb(file, ext);
-  else showFile(file, jump);
+  if (ext === 'fcstd') return launchCadEditor(file);
+  if (!clearCenter()) return;
+  if (CAD_EXT.has(ext) || IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || VIDEO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext) || PDF_EXT.has(ext) || SCENE_EXT.has(ext)) return showLazy('asset', 'showAsset', file, ext);
+  if (SHEET_EXT.has(ext)) return showLazy('sheet', 'showSheet', file, ext);
+  if (DB_EXT.has(ext)) return showLazy('db', 'showDb', file, ext);
+  return showFile(file, jump);
 }
 
 // Route a clicked git row: images/audio/video/3D-models/vector → asset viewer,
 // database files → the database viewer, else → diff.
 export async function openGitFile(file, status, staged) {
-  clearCenter();
   const ext = extOf(file);
-  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || VIDEO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext) || PDF_EXT.has(ext)) (await load('asset')).showAsset(file, ext);
-  else if (DB_EXT.has(ext)) (await load('db')).showDb(file, ext);
-  else showDiff(file, status, staged);
+  if (CAD_EXT.has(ext) && !staged && status !== 'D') return openFromTree(file);
+  if (!clearCenter()) return;
+  if (IMG_EXT.has(ext) || AUDIO_EXT.has(ext) || VIDEO_EXT.has(ext) || MODEL_EXT.has(ext) || VECTOR_EXT.has(ext) || PDF_EXT.has(ext)) return showLazy('asset', 'showAsset', file, ext);
+  if (DB_EXT.has(ext)) return showLazy('db', 'showDb', file, ext);
+  return showDiff(file, status, staged);
 }
 
 // Open a historical commit's patch (History tab) in the diff overlay.
-export function openCommit(hash, subject) { clearCenter(); showCommit(hash, subject); }
+export function openCommit(hash, subject) { if (clearCenter()) showCommit(hash, subject); }
 
 // Open a stash's patch (Stashes section) in the diff overlay.
-export function openStash(ref, message) { clearCenter(); showStash(ref, message); }
+export function openStash(ref, message) { if (clearCenter()) showStash(ref, message); }
 
-export async function showWeb(url) { clearCenter(); (await load('web')).showWeb(url); }
+export async function showWeb(url) { if (clearCenter()) return showLazy('web', 'showWeb', url); }
 
 // Toolbar browser button: toggle the (persistent) browser overlay. If it's
 // already showing, close it (back to the active session); the page keeps running
 // in the background — closing is not terminating. Otherwise reveal it.
 export async function toggleWeb() {
   if (mod.web && mod.web.isWebOpen()) { closeOverlay(); return; }
-  clearCenter();
-  (await load('web')).openWeb();
+  if (clearCenter()) return showLazy('web', 'openWeb');
 }
 
 // Toolbar diagram button: toggle the project-structure overlay. Unlike the
@@ -122,8 +133,7 @@ export async function toggleWeb() {
 // diagram that describes an older version of the project is worse than none.
 export async function toggleDiagram() {
   if (mod.diagram && mod.diagram.isDiagramOpen()) { closeOverlay(); return; }
-  clearCenter();
-  await (await load('diagram')).openDiagram();
+  if (clearCenter()) return showLazy('diagram', 'openDiagram');
 }
 
 // Command palette: re-scan the project without leaving the panel.
@@ -138,7 +148,7 @@ let onCloseCb = null;
 export function onClose(fn) { onCloseCb = fn; }
 export function closeOverlay() {
   if (onCloseCb && onCloseCb()) return; // returned true → an active session was shown
-  hideAllOverlays();
+  if (!hideAllOverlays()) return;
   hideSessionViews();
   emptyHint.style.display = 'flex';
 }

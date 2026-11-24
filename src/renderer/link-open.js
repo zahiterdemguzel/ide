@@ -6,6 +6,8 @@
 // `baseDir` is the absolute directory relative paths resolve against (a terminal's
 // cwd, or the open file's own folder) — it can differ from the currently open
 // folder, so callers pass it explicitly.
+import { CAD_EXT, extOf } from './shared/ext.js';
+
 export async function openLink(kind, raw, baseDir) {
   const { showWeb, openFromTree } = await import('./viewer/center.js');
   if (kind === 'url') { showWeb(raw); return; }
@@ -22,5 +24,6 @@ export async function openLink(kind, raw, baseDir) {
   }
   if (!r.isFile) return;
   if (r.inRepo) openFromTree(r.rel, line ? { line, term: null } : null);
+  else if (CAD_EXT.has(extOf(r.abs))) openFromTree(r.abs);
   else window.api.openExternal(r.abs);
 }

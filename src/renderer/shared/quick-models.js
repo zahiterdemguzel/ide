@@ -3,11 +3,11 @@ import { DEFAULT_EFFORT } from './effort-levels.js';
 // GPT on the left, Claude on the right. The model IDs match the lists in settings.js.
 export const QUICK_GPT_MODELS = [
   { id: 'codex:sol', label: 'Sol', hint: 'Best value' },
-  { id: 'codex:luna', label: 'Luna', hint: 'Cheapest' },
   { id: 'codex:astra', label: 'Astra', hint: 'Best' },
 ];
 
 export const QUICK_CLAUDE_MODELS = [
+  { id: 'haiku', label: 'Haiku' },
   { id: 'sonnet', label: 'Sonnet' },
   { id: 'opus', label: 'Opus' },
   { id: 'fable', label: 'Fable' },

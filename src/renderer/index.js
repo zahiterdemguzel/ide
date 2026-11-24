@@ -4,6 +4,7 @@
 import './shared/bootstrap.js';
 import './shared/storage-sync.js'; // before any module that writes settings
 import { onClose, onTakeover, refreshDiagram } from './viewer/center.js';
+import { pickCadDesign } from './viewer/cad.js';
 import { onEditorRepoChanged } from './viewer/file.js';
 import { showActiveSession, restoreSessions, setSessionsRepo, newSession, selectNextWaitingSession, sessionNameForWorktree, setSessionScope, submitToActiveSession, endSplit } from './sessions.js';
 import { refreshGit, autoFetch } from './git-pane.js';
@@ -22,6 +23,7 @@ import { initAccounts, wantsBackgroundUsage } from './accounts.js';
 import { initPanels } from './panels.js';
 import { refreshWorktreeToggle, setTreeScope } from './worktrees.js';
 import { initQuickPrompts, refreshQuickPrompts } from './quick-prompts.js';
+import { refreshAgentsSettings } from './agents-settings.js';
 import { initOnboarding, activateOnboarding, startTour, openCheatSheet } from './onboarding/index.js';
 import { onClaudeReady } from './claude-setup.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
@@ -86,6 +88,7 @@ function applyRepoChange(r) {
   if (projectChanged) resetConsoles();
   refreshWorktreeToggle();
   refreshQuickPrompts();
+  refreshAgentsSettings();
   refreshGit(); refreshTree(); loadToolbar(); autoFetch();
 }
 
@@ -212,6 +215,7 @@ registerCommands([
   { id: 'new-session', titleKey: 'command.newSession', keywordsKey: 'command.newSession.kw', run: newSession },
   { id: 'next-waiting-session', titleKey: 'command.nextWaitingSession', keywordsKey: 'command.nextWaitingSession.kw', run: selectNextWaitingSession },
   { id: 'go-to-file', titleKey: 'command.goToFile', keywordsKey: 'command.goToFile.kw', run: openQuickOpen },
+  { id: 'open-cad-design', titleKey: 'cad.open', keywordsKey: 'cad.formats', run: pickCadDesign },
   { id: 'open-folder', titleKey: 'command.openFolder', keywordsKey: 'command.openFolder.kw', run: browseForFolder },
   { id: 'open-settings', titleKey: 'command.openSettings', keywordsKey: 'command.openSettings.kw', run: () => document.getElementById('settings-btn').click() },
   { id: 'cycle-theme', titleKey: 'command.cycleTheme', keywordsKey: 'command.cycleTheme.kw', run: cycleTheme },

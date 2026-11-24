@@ -9,8 +9,8 @@ import { QUICK_GPT_MODELS, QUICK_CLAUDE_MODELS, quickModelDragEffort } from '../
 const settingsSource = readFileSync(new URL('../src/renderer/settings.js', import.meta.url), 'utf8');
 const listedIds = new Set([...settingsSource.matchAll(/\{ id: '([^']+)', name:/g)].map((m) => m[1]));
 
-test('three GPT buttons, all Codex models the app lists', () => {
-  assert.equal(QUICK_GPT_MODELS.length, 3);
+test('two GPT buttons, all Codex models the app lists', () => {
+  assert.equal(QUICK_GPT_MODELS.length, 2);
   assert.equal(QUICK_GPT_MODELS.at(-1).label, 'Astra');
   for (const m of QUICK_GPT_MODELS) {
     assert.ok(m.id.startsWith('codex:'), m.id);
@@ -24,7 +24,7 @@ test('model button drag shifts up to High, down to Low, or stays at Mid', () => 
   }
 });
 
-test('Claude buttons are Sonnet, Opus, Fable and all listed', () => {
-  assert.deepEqual(QUICK_CLAUDE_MODELS.map((m) => m.id), ['sonnet', 'opus', 'fable']);
+test('Claude buttons are Haiku, Sonnet, Opus, Fable and all listed', () => {
+  assert.deepEqual(QUICK_CLAUDE_MODELS.map((m) => m.id), ['haiku', 'sonnet', 'opus', 'fable']);
   for (const m of QUICK_CLAUDE_MODELS) assert.ok(listedIds.has(m.id), m.id);
 });

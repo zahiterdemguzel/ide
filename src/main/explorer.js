@@ -8,6 +8,7 @@ const { getRepoPath, onRepoChange } = require('./repo');
 const { git } = require('./git');
 const { shouldSkipDir, GREP_EXCLUDE_PATHSPECS } = require('./search-ignore');
 const { sendToRenderer } = require('./window');
+const { isCadFile } = require('./cad-files');
 const { withClipboardRetry } = require('./clipboard-lib');
 const { publishApk } = require('./apk-server');
 
@@ -191,6 +192,7 @@ ipcMain.handle('read-text-abs', async (_e, abs) => {
 ipcMain.handle('write-text-abs', async (_e, { abs, text }) => {
   try {
     if (!path.isAbsolute(abs)) return { ok: false, error: 'Not an absolute path' };
+    if (isCadFile(abs)) return { ok: false, error: 'Save this design from the CAD editor.' };
     await fs.promises.access(abs, fs.constants.W_OK);
     await fs.promises.writeFile(abs, text);
     return { ok: true };
@@ -205,6 +207,7 @@ bridge.handle('write-text', async (_e, { file, text }) => {
     const abs = path.join(repoPath, file);
     const inside = path.relative(repoPath, abs);
     if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) return { ok: false, error: 'Invalid path' };
+    if (isCadFile(abs)) return { ok: false, error: 'Save this design from the CAD editor.' };
     await fs.promises.writeFile(abs, text);
     return { ok: true };
   } catch (e) { return { ok: false, error: e.message }; }

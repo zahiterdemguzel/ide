@@ -20,6 +20,8 @@ export const VIDEO_EXT = new Set([
   'mp4', 'm4v', 'mov', 'webm', 'ogv',
   'mkv', 'avi', 'wmv', 'flv', 'mpg', 'mpeg', '3gp', 'm2ts',
 ]);
+// Solid models and drawings with a dedicated CAD editing workflow.
+export const CAD_EXT = new Set(['step', 'stp', 'dwg', 'fcstd']);
 // 3D model formats the three.js viewer can render (one loader per extension).
 export const MODEL_EXT = new Set(['glb', 'gltf', 'fbx', 'obj', 'usdz', 'stl', 'ply']);
 // Subset of MODEL_EXT the 3D editor can write back: only the glTF family round-trips
@@ -78,6 +80,7 @@ const FILE_COLORS = {
   mpg: '#5c6bc0', mpeg: '#5c6bc0', '3gp': '#5c6bc0', m2ts: '#5c6bc0',
   glb: '#ff7043', gltf: '#ff7043', fbx: '#ff7043', obj: '#ff7043',
   usdz: '#ff7043', stl: '#ff7043', ply: '#ff7043',
+  step: '#ff7043', stp: '#ff7043', fcstd: '#ff7043', dwg: '#ff7043',
   // Godot family — the engine's brand blue
   tscn: '#478cbf', tres: '#478cbf', escn: '#478cbf', gd: '#478cbf', godot: '#478cbf',
   ini: '#9e9e9e', env: '#9e9e9e', conf: '#9e9e9e', cfg: '#9e9e9e',

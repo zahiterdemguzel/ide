@@ -32,7 +32,7 @@ const { git } = require('./git');
 const { sharedDataDir } = require('./instance');
 const { serializeSession, deserializeSession, isSessionPersistable, sessionBytes, enforceLimit, persistedState } = require('./session-persist');
 const { DiskBackedMap, isUnloaded } = require('./disk-backed-map');
-const { isInterruptKey, interruptOutcome, isUsageLimitStop } = require('./hook-events');
+const { isUsageLimitStop } = require('./hook-events');
 const push = require('./push');
 const { querySessions, idleSessionIds, interruptedSessionIds } = require('./session-query-lib');
 const { fileStamp, planFileChange, idsToWriteOnQuit } = require('./session-sync-lib');
@@ -508,62 +508,6 @@ function setSessionState(id, state) {
   if (state !== 'working') s.tool = null;
   persistSession(id);
   moveToActiveAccountIfSettled(id, state);
-}
-
-// Paint and persist a state the main process derived itself (not the hook stream,
-// which pushes its own status event). Keeps the two in step.
-function applySessionState(id, state) {
-  setSessionState(id, state);
-  sendToRenderer('status', { id, state });
-}
-
-// --- keystroke interrupts, corroborated by the hook stream ---
-//
-// An ESC/Ctrl+C typed into a working session only *asks* to interrupt: the TUI
-// often swallows those bytes (dismissing its own overlay, clearing a half-typed
-// prompt), and a stray press against a dot that's merely stale interrupts nothing
-// at all. Believing the keystroke alone is what let a session go red while the
-// agent kept working. So the keystroke is held pending and the CLI's own hook
-// stream decides — the same source every other state comes from:
-//
-//   - the turn ends right after (a `Stop`, derived `completed`) → the interrupt
-//     landed: red, and no completion chime;
-//   - anything else arrives (a tool call, a new prompt, an ask) → the agent is
-//     still running, so the keystroke was not an interrupt and the dot is left
-//     wherever the hooks put it;
-//   - nothing arrives at all within the grace window → a session that has gone
-//     silent right after an interrupt request was interrupted. (Claude Code fires
-//     no dedicated hook for an interrupt, and some versions fire no `Stop`
-//     either, so this fallback is what covers them.)
-const INTERRUPT_GRACE_MS = 2500;
-
-function noteInterruptKey(id) {
-  const s = sessions.get(id);
-  if (!s) return;
-  if (s.interruptTimer) clearTimeout(s.interruptTimer);
-  s.interruptTimer = setTimeout(() => {
-    s.interruptTimer = null;
-    // Only still-working means the CLI went silent on us; any hook that landed in
-    // the window already resolved this through resolveInterrupt.
-    if (s.state === 'working' || s.state === 'bg-agents') applySessionState(id, 'interrupted');
-  }, INTERRUPT_GRACE_MS);
-}
-
-function clearInterruptKey(s) {
-  if (!s || !s.interruptTimer) return;
-  clearTimeout(s.interruptTimer);
-  s.interruptTimer = null;
-}
-
-// The state the hook stream should actually apply, given a keystroke interrupt
-// still awaiting corroboration. Called by the hook server for every payload.
-// Subagent-context events are ignored — a subagent stopping says nothing about
-// whether the user's keystroke cut the session's turn short.
-function resolveInterrupt(payload, state) {
-  const s = sessions.get(payload.session_id);
-  if (!s || !s.interruptTimer || payload.agent_id) return state;
-  clearInterruptKey(s);
-  return interruptOutcome(state);
 }
 
 // The session's current status-dot state (undefined for an unknown id). The hook
@@ -1326,10 +1270,10 @@ async function recordSessionActivity(payload) {
     s.lastActiveAt = Date.now();
   }
   if (!s.worktree && await trackFsChanges(s, payload, repo)) changed = true;
-  // A text edit whose Post never came (denied, interrupted) must not stay "in
-  // flight" and shield its file from every other session forever; the main
-  // agent's Stop ends the turn it belonged to.
-  if (payload.hook_event_name === 'Stop' && !payload.agent_id) s.pendingEdits.clear();
+  // A text edit without a Post must stop shielding its file when the turn ends.
+  if (!payload.agent_id && ['Stop', 'TurnInterrupted'].includes(payload.hook_event_name)) {
+    s.pendingEdits.clear();
+  }
   if (changed) schedulePersist(payload.session_id);
   return changed ? { id: payload.session_id, firstPrompt: s.firstPrompt || '', files: trackedFiles(s) } : null;
 }
@@ -1482,9 +1426,6 @@ async function spawnPty(id, cols, rows, resume) {
     // died — exit, archive, or close — so the hook server's subagent bookkeeping
     // for this session is stale either way.
     hookServer.clearTracking(id);
-    // A dead PTY can never corroborate a pending keystroke interrupt, and the
-    // exit itself already settles the dot below.
-    clearInterruptKey(s);
     // A suspend (archive) kills the PTY on purpose but keeps the entry and its
     // tracked-file state alive for a later resume — don't tear it down here.
     if (s && s.suspended) return;
@@ -1985,6 +1926,7 @@ bridge.on('set-session-effort', guardOn('changing session effort', (_e, { id, ef
 bridge.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
   const s = sessions.get(id);
   if (!s || !s.pty) return;
+  hookServer.checkInterruptInput(id, data);
   s.pty.write(data);
   // Track a `/model <id>` or `/effort <level>` typed straight into the chat (the menus
   // write via set-session-model / set-session-effort, which bypass this handler, so
@@ -2008,11 +1950,6 @@ bridge.on('pty-input', guardOn('writing to a session', (_e, { id, data }) => {
     persistSession(id);
     sendToRenderer('session-effort', { id, effort: cmd.effort });
   }
-  // ESC/Ctrl+C while the agent is working *asks* to interrupt the turn. The dot
-  // doesn't move yet — the CLI's hook stream gets to confirm it first, because the
-  // TUI swallows those bytes for its own reasons all the time (see
-  // noteInterruptKey / resolveInterrupt).
-  if (isInterruptKey(data, s.state)) noteInterruptKey(id);
 }));
 // Send a chat message to the session: type it into the TUI, then submit.
 //
@@ -2173,4 +2110,4 @@ function killAllSessions() {
   stopAll();
 }
 
-module.exports = { sessions, sessionCwd, recordSessionActivity, noteAgentSessionId, setSessionState, getSessionState, resolveInterrupt, trackedFiles, pathClaimedByOther, pathsClaimedByOthers, killAllSessions, persistSession, persistSessions, reportSessionError, guard };
+module.exports = { sessions, sessionCwd, recordSessionActivity, noteAgentSessionId, setSessionState, getSessionState, trackedFiles, pathClaimedByOther, pathsClaimedByOthers, killAllSessions, persistSession, persistSessions, reportSessionError, guard };

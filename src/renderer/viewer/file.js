@@ -1,5 +1,5 @@
 import { diffBody, diffView, showDiffContainer } from './code-render.js';
-import { extOf, HTML_EXT, SCENE_EXT } from '../shared/ext.js';
+import { CAD_EXT, extOf, HTML_EXT, SCENE_EXT } from '../shared/ext.js';
 import { jsonInsertion } from '../shared/json-edit.js';
 import { fold } from '../shared/text-fold.js';
 import { findTerminalLinks } from '../shared/terminal-links-parse.js';
@@ -224,6 +224,10 @@ function trackWithLsp(doc) {
 // `preview` opens a preview tab that the next preview open replaces (VS Code's
 // single-click behaviour); editing or double-clicking the tab pins it.
 export async function showFile(file, jump, { preview = true } = {}) {
+  if (CAD_EXT.has(extOf(file))) {
+    const { openFromTree } = await import('./center.js');
+    return openFromTree(file);
+  }
   activeFile = file;
   const token = ++showToken;
   showDiffContainer();

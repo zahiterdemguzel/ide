@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { eventToState, deriveStatus, isInterruptKey, interruptOutcome, shouldApplyState, hooksSettings, normalizeHookPayload, hookOriginId, isUsageLimitStop, ORIGIN_STALE_MS } = require('../src/main/hook-events');
+const { eventToState, deriveStatus, shouldApplyState, hooksSettings, normalizeHookPayload, hookOriginId, isUsageLimitStop, ORIGIN_STALE_MS } = require('../src/main/hook-events');
 
 test('eventToState: Stop -> completed', () => {
   assert.equal(eventToState({ hook_event_name: 'Stop' }), 'completed');
@@ -429,36 +429,24 @@ test('deriveStatus: non-terminal events fall through to eventToState', () => {
   );
 });
 
-test('isInterruptKey: ESC or Ctrl+C while working asks to interrupt', () => {
-  assert.equal(isInterruptKey('\x1b', 'working'), true);
-  assert.equal(isInterruptKey('\x03', 'working'), true);
+test('deriveStatus: a confirmed interruption settles without a completion and the next turn can finish', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'TurnInterrupted' },
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'Stop' },
+  ]);
+  assert.deepEqual(states, ['working', 'interrupted', 'working', 'completed']);
 });
 
-test('isInterruptKey: ESC/Ctrl+C only means interrupt in a working session', () => {
-  for (const state of ['idle', 'needs-input', 'completed', 'pushed', 'interrupted', undefined]) {
-    assert.equal(isInterruptKey('\x1b', state), false);
-    assert.equal(isInterruptKey('\x03', state), false);
-  }
-});
-
-test('isInterruptKey: ordinary input and multi-byte escape sequences are not interrupts', () => {
-  assert.equal(isInterruptKey('a', 'working'), false);
-  assert.equal(isInterruptKey('\r', 'working'), false);
-  // arrow/function keys arrive as multi-byte sequences, not a bare ESC
-  assert.equal(isInterruptKey('\x1b[A', 'working'), false);
-  assert.equal(isInterruptKey('\x1b[1;5C', 'working'), false);
-});
-
-test('interruptOutcome: a turn ending right after the keystroke is the interrupt landing', () => {
-  assert.equal(interruptOutcome('completed'), 'interrupted');
-});
-
-test('interruptOutcome: any other event proves the agent kept working — dot unchanged', () => {
-  // The keystroke was swallowed by the TUI (an overlay, a half-typed prompt);
-  // believing it alone is what used to paint a still-running session red.
-  for (const derived of ['working', 'needs-input', 'pushed', 'idle', null]) {
-    assert.equal(interruptOutcome(derived), derived);
-  }
+test('deriveStatus: background work can finish after the foreground interruption', () => {
+  const { states } = runEvents([
+    { hook_event_name: 'UserPromptSubmit' },
+    { hook_event_name: 'SubagentStart', agent_id: 'a' },
+    { hook_event_name: 'TurnInterrupted' },
+    { hook_event_name: 'SubagentStop', agent_id: 'a' },
+  ]);
+  assert.deepEqual(states, ['working', 'working', 'bg-agents', 'interrupted']);
 });
 
 // --- forked conversations (`/fork`): separate session ids, no agent_id ---
