@@ -19,8 +19,7 @@ const { isApiKeyAccount } = require('./accounts-lib');
 const spend = require('./api-spend-lib');
 const providers = require('./provider-accounts');
 const providerLib = require('./provider-accounts-lib');
-const chatgpt = require('./chatgpt-translate-lib');
-const { codexModelName, resolveCurrentModelId } = require('./agent-providers');
+const { handleChatgptRequest } = require('./chatgpt-route');
 
 // account config dir ('' = default account) -> { token, expiresAt, readAt }
 const loginCache = new Map();
@@ -158,90 +157,6 @@ async function handleProviderRequest(req, res, body, provider, path, track) {
   upstreamRes.pipe(res);
 }
 
-function sseWrite(res, event) {
-  res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-}
-
-function readText(stream) {
-  return new Promise((resolve) => {
-    let text = '';
-    stream.setEncoding('utf8');
-    stream.on('data', (d) => { text += d; });
-    stream.on('end', () => resolve(text));
-    stream.on('error', () => resolve(text));
-  });
-}
-
-let chatgptMessageSeq = 0;
-
-// Claude Code on a ChatGPT login (`/g/v1/messages`): the Anthropic request is
-// translated to the Codex backend's Responses API, sent with the active Codex
-// account's login, and the event stream translated back (chatgpt-translate-lib.js).
-async function handleChatgptRequest(req, res, body, path, track) {
-  if (req.method === 'GET' && path.startsWith('/v1/models')) { sendJsonError(res, 200, { data: [] }); return; }
-  let request;
-  try { request = JSON.parse(body.toString('utf8') || '{}'); } catch { request = null; }
-  if (req.method === 'POST' && /^\/v1\/messages\/count_tokens/.test(path)) {
-    sendJsonError(res, 200, { input_tokens: chatgpt.estimateInputTokens(request || {}) });
-    return;
-  }
-  if (req.method !== 'POST' || !/^\/v1\/messages(\?|$)/.test(path) || !request) {
-    sendJsonError(res, 404, { type: 'error', error: { type: 'not_found_error', message: `unsupported path ${path}` } });
-    return;
-  }
-  const credentials = await providers.activeCodexCredentials();
-  if (!credentials) {
-    sendJsonError(res, 401, chatgpt.anthropicErrorFor(401, JSON.stringify({ error: { message: 'No usable ChatGPT login: sign in under Account → Codex.' } })));
-    return;
-  }
-  const modelName = codexModelName(resolveCurrentModelId(`codex:${chatgpt.chatgptFamilyOf(request.model)}`));
-  const payload = Buffer.from(JSON.stringify(chatgpt.anthropicToResponses(request, modelName)));
-  const upstreamRes = await new Promise((resolve, reject) => {
-    const upstream = https.request({
-      host: providerLib.CODEX_UPSTREAM_HOST,
-      path: chatgpt.CODEX_RESPONSES_PATH,
-      method: 'POST',
-      headers: {
-        ...providerLib.credentialHeaders(providerLib.PROVIDER_CODEX, credentials),
-        'content-type': 'application/json', 'content-length': String(payload.length),
-        accept: 'text/event-stream', 'openai-beta': 'responses=experimental', originator: 'codex_cli_rs',
-      },
-    }, resolve);
-    upstream.on('error', reject);
-    track(upstream);
-    upstream.end(payload);
-  });
-  if (res.destroyed) { upstreamRes.resume(); return; }
-  if (upstreamRes.statusCode !== 200) {
-    const failure = chatgpt.anthropicErrorFor(upstreamRes.statusCode, await readText(upstreamRes));
-    sendJsonError(res, upstreamRes.statusCode, failure);
-    return;
-  }
-  const state = chatgpt.newStreamState({ messageId: `msg_gpt_${++chatgptMessageSeq}_${Date.now()}`, model: request.model });
-  const streaming = request.stream !== false;
-  const collected = [];
-  if (streaming) res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
-  upstreamRes.setEncoding('utf8');
-  const parser = chatgpt.createSseParser((event) => {
-    for (const out of chatgpt.responsesEventToAnthropic(event, state)) {
-      if (streaming) sseWrite(res, out); else collected.push(out);
-    }
-  });
-  upstreamRes.on('data', (chunk) => parser.feed(chunk));
-  await new Promise((resolve) => { upstreamRes.on('end', resolve); upstreamRes.on('close', resolve); });
-  // A stream that ended without its completed event still has to end properly for the CLI.
-  if (!state.finished) {
-    for (const out of chatgpt.responsesEventToAnthropic({ type: 'response.completed', response: {} }, state)) {
-      if (streaming) sseWrite(res, out); else collected.push(out);
-    }
-  }
-  if (streaming) { res.end(); return; }
-  const failed = collected.find((e) => e.type === 'error');
-  if (failed) { sendJsonError(res, 502, failed); return; }
-  const fresh = chatgpt.newStreamState({ messageId: state.messageId, model: request.model });
-  sendJsonError(res, 200, chatgpt.foldEventsToMessage(collected, fresh));
-}
-
 // Codex may open its streaming connection as a WebSocket: tunnel the upgrade to the
 // provider with the active account's credentials, then pipe both sockets.
 async function handleProviderUpgrade(req, socket, head) {
@@ -273,7 +188,7 @@ async function handleRequest(req, res) {
     const body = await readBody(req);
     const routed = providerLib.splitProviderPath(req.url);
     if (routed.provider === providerLib.ROUTE_CHATGPT) {
-      await handleChatgptRequest(req, res, body, routed.path, track);
+      await handleChatgptRequest(req, res, body, routed.path, { track, credentials: providers.activeCodexCredentials });
       return;
     }
     if (routed.provider) {

@@ -1,5 +1,7 @@
 # Codex CLI sessions (second agent provider)
 
+> **New sessions no longer start the Codex CLI.** GPT is offered only as `chatgpt:<family>` (Claude Code through the account proxy — see [accounts.md](accounts.md#codex-and-evren-tabs)). `CODEX_MODELS` is left out of `getMergedModels()` (desktop) and the phone's New-session menu, the GPT quick buttons are `chatgpt:sol|astra`, a saved `codex:` default/commit model reads back as the same `chatgpt:` family (`codexToChatgptId` in `settings.js`, mobile mirror in `models.ts`), and main's `new-session` maps any `codex:` request to `chatgpt:` (`chatgptIdForNewSession` in `provider-accounts-lib.js`, tested) for older phone builds. A `chatgpt:` commit model runs `runCli` with `chatgptSpawnEnv` overrides (`commit-model.js`, tested). Existing Codex CLI sessions still resume, switch within `CODEX_MODELS`, and everything below still applies to them.
+
 The app can drive **OpenAI's Codex CLI** as a session agent alongside Claude Code. A session's model id encodes its provider: `codex:<model>` (e.g. `codex:gpt-6.1-sol`) spawns the `codex` binary; `ollama:<name>` is the local-proxy route; everything else is the `claude` CLI. The seam is the pure module `src/main/agent-providers.js` (`modelFamily`, `canSwitchModel`, `codexSpawnArgs`), unit-tested in `test/agent-providers.test.js`.
 
 ## Family lock

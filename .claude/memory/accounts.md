@@ -266,10 +266,10 @@ own, so a switch needs no restart. Sessions always run in the default config (`~
 - Mobile app: still sees `evren:` ids as Claude family (not ported).
 - **ChatGPT in Claude Code** (`chatgpt:sol|astra|terra|luna`, family `chatgpt`, frozen for life): the
   `claude` CLI against the proxy's `/g` route (`chatgptSpawnEnv`; aliases `sol…luna` are the model names the CLI
-  sends). `chatgpt-translate-lib.js` (tested) turns Anthropic Messages into the Codex backend's Responses request
+  sends). The route is `chatgpt-route.js` (Electron-free, tested end to end against a fake backend in `test/chatgpt-route.test.js`); `chatgpt-translate-lib.js` (tested) turns Anthropic Messages into the Codex backend's Responses request
   (`chatgpt.com/backend-api/codex/responses`: `store:false`, `stream:true`, non-empty `instructions` — all
   required, a bad body gets `400 Store must be set to false`) and the SSE stream back (text, function calls →
-  `tool_use`, usage; reasoning events dropped, thinking blocks never replayed). Uses the **Codex tab's active
+  `tool_use`, usage; effort from `output_config.effort` or the thinking budget; reasoning events dropped, thinking blocks never replayed). Uses the **Codex tab's active
   account**. `count_tokens` is estimated locally (chars/4). Model = `resolveCurrentModelId('codex:<family>')`.
   **Not verified live**: the request shape passes the backend's validation, but a full answer stream was never
   seen (the account was at its weekly limit) — response event names follow the public Responses API.

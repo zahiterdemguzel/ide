@@ -38,6 +38,15 @@ const CHATGPT_FAST_FAMILY = 'luna';
 const isChatgptId = (id) => typeof id === 'string' && id.startsWith(CHATGPT_MODEL_PREFIX);
 const chatgptFamilyName = (id) => (isChatgptId(id) ? id.slice(CHATGPT_MODEL_PREFIX.length) : '');
 
+// GPT is only offered through Claude Code: a new session asked for on a Codex CLI
+// model (`codex:sol`, or a versioned `codex:gpt-5.4-sol`) gets the same family as a
+// `chatgpt:` model instead. Any other id passes through unchanged.
+function chatgptIdForNewSession(id) {
+  if (typeof id !== 'string' || !id.startsWith('codex:')) return id;
+  const family = CHATGPT_FAMILIES.find((f) => id.endsWith(f));
+  return CHATGPT_MODEL_PREFIX + (family || 'sol');
+}
+
 const isEvrenId = (id) => typeof id === 'string' && id.startsWith(EVREN_MODEL_PREFIX);
 const evrenModelName = (id) => (isEvrenId(id) ? id.slice(EVREN_MODEL_PREFIX.length) : String(id || ''));
 
@@ -214,7 +223,7 @@ module.exports = {
   PROVIDER_EVREN, PROVIDER_CODEX, PROVIDERS, DEFAULT_ENTRY_ID,
   EVREN_UPSTREAM_HOST, EVREN_KEY_PREFIX, EVREN_MODEL_PREFIX, CODEX_UPSTREAM_HOST,
   EVREN_MAIN_MODEL, EVREN_FAST_MODEL, EVREN_SESSION_MODELS,
-  CHATGPT_MODEL_PREFIX, CHATGPT_FAMILIES, ROUTE_CHATGPT, isChatgptId, chatgptFamilyName, chatgptSpawnEnv,
+  CHATGPT_MODEL_PREFIX, CHATGPT_FAMILIES, ROUTE_CHATGPT, isChatgptId, chatgptFamilyName, chatgptSpawnEnv, chatgptIdForNewSession,
   isEvrenId, evrenModelName, normalizeProviderStore, resolveActiveEntry,
   cleanEvrenKey, maskEvrenKey, evrenSpawnEnv, codexProxyOverride, splitProviderPath,
   codexLoginFromAuth, credentialHeaders, providerUpstreamHeaders, UPSTREAM_HOST,

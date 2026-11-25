@@ -16,7 +16,7 @@ const { planAccountMove, shouldMoveAfterState, isApiKeyAccount } = require('./ac
 const { ensureAccountProxy } = require('./account-proxy');
 const { canRouteThroughProxy, canMeterThroughProxy, proxyRouteEnv } = require('./account-proxy-lib');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
-const { evrenSpawnEnv, chatgptSpawnEnv } = require('./provider-accounts-lib');
+const { evrenSpawnEnv, chatgptSpawnEnv, chatgptIdForNewSession } = require('./provider-accounts-lib');
 const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
 const { latestCodexModel } = require('./codex-latest');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
@@ -1610,8 +1610,10 @@ bridge.on('set-statusline-enabled', (_e, on) => statusline.setEnabled(on));
 // shape as the token meter: off narrows the next session's tool hooks.
 bridge.on('set-tool-hooks-enabled', (_e, on) => hookServer.setDetailedToolHooks(on));
 
-bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows, model, subagentModel, effort, skip, forceMainTree }) => {
+bridge.handle('new-session', guard('creating a session', async (_e, { cols, rows, model: requestedModel, subagentModel, effort, skip, forceMainTree }) => {
   const id = crypto.randomUUID();
+  // New sessions never start the Codex CLI; an older client's `codex:` pick runs in Claude Code.
+  const model = chatgptIdForNewSession(requestedModel);
   // The PROJECT, never the active tree: a session created while a worktree
   // session is selected still belongs to the project, and `repo` is what the
   // session list filters on and what per-project settings key on. Where the

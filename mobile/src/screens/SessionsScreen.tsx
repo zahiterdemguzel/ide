@@ -34,7 +34,7 @@ import { HOLD_TO_TALK_MS, shouldCancelSlide } from '../lib/voice-capture';
 import { armVoice, cancelVoice, disarmVoice, finishVoice, revealVoice, slideVoice } from '../api/voice';
 import { shortAgo } from '../api/time';
 import {
-  MODELS, CODEX_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, getSessionEffort, modelSuffix, modelBadgeName,
+  MODELS, CHATGPT_MODELS, DEFAULT_MODEL, getSessionModel, setSessionModel, getSessionEffort, modelSuffix, modelBadgeName,
   OllamaModel,
 } from '../api/models';
 import {
@@ -787,7 +787,7 @@ export default function SessionsScreen({ navigation }: any) {
                 <MenuItem key={m.id} label={m.name} on={m.id === model} onPress={() => closeMenu(() => newSession(m.id))} />
               ))}
               <View style={styles.menuDivider} />
-              {CODEX_MODELS.map((m) => (
+              {CHATGPT_MODELS.map((m) => (
                 <MenuItem key={m.id} label={m.name} on={m.id === model} onPress={() => closeMenu(() => newSession(m.id))} />
               ))}
               {ollamaModels.length > 0 && <View style={styles.menuDivider} />}

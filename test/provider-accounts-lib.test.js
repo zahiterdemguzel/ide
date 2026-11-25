@@ -92,3 +92,14 @@ test('codexSpawnArgs adds the proxy override only when a proxy port is given', (
   assert.ok(!codexSpawnArgs(base).some((a) => String(a).includes('chatgpt_base_url')));
   assert.ok(codexSpawnArgs({ ...base, proxyPort: 4000 }).includes('chatgpt_base_url="http://127.0.0.1:4000/c/backend-api/"'));
 });
+
+test('a new session asked for on a Codex CLI model runs the same GPT family in Claude Code', () => {
+  const { chatgptIdForNewSession } = require('../src/main/provider-accounts-lib');
+  assert.equal(chatgptIdForNewSession('codex:sol'), 'chatgpt:sol');
+  assert.equal(chatgptIdForNewSession('codex:astra'), 'chatgpt:astra');
+  assert.equal(chatgptIdForNewSession('codex:gpt-5.4-luna'), 'chatgpt:luna');
+  assert.equal(chatgptIdForNewSession('codex:gpt-5.4-mini'), 'chatgpt:sol');
+  for (const id of ['opus', 'chatgpt:terra', 'evren:glm-5.3', 'ollama:llama3', '', undefined]) {
+    assert.equal(chatgptIdForNewSession(id), id);
+  }
+});

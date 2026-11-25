@@ -15,9 +15,19 @@ export const MODELS: Model[] = [
   { id: 'haiku', name: 'Haiku' },
 ];
 
-// The OpenAI Codex CLI's models — the mobile mirror of CODEX_MODELS in
-// src/renderer/settings.js (keep in step). A codex: session is locked to the
-// codex family; the pickers filter through switchableModels below.
+// GPT models run inside Claude Code through the desktop's account proxy — the mobile
+// mirror of CHATGPT_MODELS in src/renderer/settings.js (keep in step). Fixed for life,
+// like a local model.
+export const CHATGPT_MODELS: Model[] = [
+  { id: 'chatgpt:sol', name: 'Sol (ChatGPT via Claude Code)' },
+  { id: 'chatgpt:astra', name: 'Astra (ChatGPT via Claude Code)' },
+  { id: 'chatgpt:terra', name: 'Terra (ChatGPT via Claude Code)' },
+  { id: 'chatgpt:luna', name: 'Luna (ChatGPT via Claude Code)' },
+];
+
+// The OpenAI Codex CLI's models. No longer offered for new sessions (GPT runs through
+// Claude Code), but kept so a session started on the Codex CLI before still gets its
+// label and same-family switches.
 export const CODEX_MODELS: Model[] = [
   { id: 'codex:astra', name: 'Astra (latest, Codex)' },
   { id: 'codex:sol', name: 'Sol (latest, Codex)' },
@@ -26,25 +36,35 @@ export const CODEX_MODELS: Model[] = [
 ];
 
 export const DEFAULT_MODEL = 'default';
-// Where a saved Codex pick lands once its model leaves CODEX_MODELS (retired) —
-// mirror of DEFAULT_CODEX_MODEL in src/renderer/settings.js.
-const DEFAULT_CODEX_MODEL = 'codex:sol';
+// Where a saved GPT pick lands when its family isn't listed — mirror of
+// DEFAULT_CHATGPT_MODEL in src/renderer/settings.js.
+const DEFAULT_CHATGPT_MODEL = 'chatgpt:sol';
 
 export const isCodexId = (v: string | null | undefined): boolean => typeof v === 'string' && v.startsWith('codex:');
+export const isChatgptId = (v: string | null | undefined): boolean => typeof v === 'string' && v.startsWith('chatgpt:');
+
+// A saved Codex CLI pick becomes the same GPT family through Claude Code — mirror of
+// codexToChatgptId in src/renderer/settings.js.
+function codexToChatgptId(id: string | null | undefined): string | null | undefined {
+  if (!isCodexId(id)) return id;
+  const family = (id as string).match(/(sol|astra|terra|luna)$/)?.[1];
+  return family ? `chatgpt:${family}` : DEFAULT_CHATGPT_MODEL;
+}
 
 // Which CLI family a model id runs on — mirror of agent-providers.modelFamily.
-export type ModelFamily = 'claude' | 'codex' | 'ollama';
+export type ModelFamily = 'claude' | 'codex' | 'ollama' | 'chatgpt';
 export function modelFamily(id: string | null | undefined): ModelFamily {
   if (isCodexId(id)) return 'codex';
   if (isOllamaId(id)) return 'ollama';
+  if (isChatgptId(id)) return 'chatgpt';
   return 'claude';
 }
 
 // The models a session on `currentId` may switch to: its own family only, and a
-// local (ollama:) model is fixed for life. Main enforces the same rule.
+// local (ollama:) or ChatGPT model is fixed for life. Main enforces the same rule.
 export function switchableModels(currentId: string | null | undefined, all: Model[]): Model[] {
   const family = modelFamily(currentId);
-  if (family === 'ollama') return [];
+  if (family === 'ollama' || family === 'chatgpt') return [];
   return all.filter((m) => modelFamily(m.id) === family);
 }
 
@@ -99,16 +119,17 @@ const KEY_EFFORT = storageKey('sessionEffort');
 export async function getSessionModel(): Promise<string> {
   try {
     const saved = await SecureStore.getItemAsync(KEY_MODEL);
-    const v = saved?.replace(/^codex:gpt-\d+(?:\.\d+)*-(sol|astra|terra|luna)$/, 'codex:$1');
-    if (MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v as string;
-    return isCodexId(v) ? DEFAULT_CODEX_MODEL : DEFAULT_MODEL;
+    const v = codexToChatgptId(saved);
+    if (MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v as string;
+    return isChatgptId(v) ? DEFAULT_CHATGPT_MODEL : DEFAULT_MODEL;
   } catch {
     return DEFAULT_MODEL;
   }
 }
 
 export async function setSessionModel(id: string): Promise<void> {
-  const known = MODELS.some((m) => m.id === id) || CODEX_MODELS.some((m) => m.id === id) || isOllamaId(id) ? id : DEFAULT_MODEL;
+  const v = codexToChatgptId(id) as string;
+  const known = MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v) ? v : DEFAULT_MODEL;
   try {
     await SecureStore.setItemAsync(KEY_MODEL, known);
   } catch {
@@ -121,7 +142,7 @@ export async function setSessionModel(id: string): Promise<void> {
 // resolves the model itself), and there's no name worth showing for that.
 export function modelSuffix(id: string): string {
   if (id === DEFAULT_MODEL) return '';
-  const m = MODELS.find((x) => x.id === id) ?? CODEX_MODELS.find((x) => x.id === id);
+  const m = MODELS.find((x) => x.id === id) ?? CHATGPT_MODELS.find((x) => x.id === id) ?? CODEX_MODELS.find((x) => x.id === id);
   if (m) return ` (${m.name})`;
   if (isOllamaId(id)) return ` (${ollamaLabel(id)})`;
   return '';
@@ -132,7 +153,7 @@ export function modelSuffix(id: string): string {
 // build doesn't know about still shows what it is running rather than lying about it.
 export function modelBadgeName(id: string): string {
   if (!id || id === DEFAULT_MODEL) return 'Default';
-  return MODELS.find((m) => m.id === id)?.name ?? CODEX_MODELS.find((m) => m.id === id)?.name ?? (isOllamaId(id) ? ollamaLabel(id) : id);
+  return MODELS.find((m) => m.id === id)?.name ?? CHATGPT_MODELS.find((m) => m.id === id)?.name ?? CODEX_MODELS.find((m) => m.id === id)?.name ?? (isOllamaId(id) ? ollamaLabel(id) : id);
 }
 
 // The last effort picked from the chat's badge, reused as the starting level for the

@@ -59,9 +59,10 @@ export const MODELS = [
   { id: 'haiku', name: 'Haiku' },
 ];
 // The OpenAI Codex CLI's models. A `codex:` id spawns the `codex` binary instead
-// of `claude` (see src/main/agent-providers.js), and the session is locked to
-// the codex family for life — the model menus only offer same-family switches.
-export const CODEX_MODELS = [
+// of `claude` (see src/main/agent-providers.js). No longer offered for new sessions —
+// GPT runs through Claude Code (CHATGPT_MODELS) — but kept so sessions started on
+// the Codex CLI before still get their label and same-family model switches.
+const CODEX_MODELS = [
   { id: 'codex:astra', name: 'Astra (latest, Codex)' },
   { id: 'codex:sol', name: 'Sol (latest, Codex)' },
   { id: 'codex:terra', name: 'Terra (latest, Codex)' },
@@ -82,9 +83,9 @@ export const CHATGPT_MODELS = [
   { id: 'chatgpt:luna', name: 'Luna (ChatGPT via Claude Code)' },
 ];
 const DEFAULT_MODEL = 'default';
-// Where a saved Codex default lands once its model leaves CODEX_MODELS (retired),
-// so someone who runs Codex isn't silently moved onto Claude. Codex CLI's own default.
-const DEFAULT_CODEX_MODEL = 'codex:sol';
+// Where a saved GPT default lands when its family isn't listed, so someone who runs
+// GPT isn't silently moved onto Claude.
+const DEFAULT_CHATGPT_MODEL = 'chatgpt:sol';
 
 const STORE = {
   theme: 'ide.theme', locale: 'ide.locale',
@@ -138,6 +139,7 @@ export function modelFamily(id) {
 export function switchableModels(currentId) {
   const family = modelFamily(currentId);
   if (family === 'ollama' || family === 'evren' || family === 'chatgpt') return []; // a local or Evren model is fixed for life
+  if (family === 'codex') return CODEX_MODELS; // an older Codex CLI session, hidden from new-session menus
   return getMergedModels().filter((m) => modelFamily(m.id) === family);
 }
 
@@ -162,9 +164,10 @@ export async function refreshOllamaModels() {
   catch { ollamaModels = []; }
   return ollamaModels;
 }
-// The full list the model UIs draw from: static Claude models, Codex models,
-// then installed Ollama models. Ids are namespaced so they never collide.
-export function getMergedModels() { return [...MODELS, ...CODEX_MODELS, ...EVREN_MODELS, ...CHATGPT_MODELS, ...ollamaModels]; }
+// The full list the model UIs draw from: static Claude models, Evren, ChatGPT via
+// Claude Code, then installed Ollama models. Ids are namespaced so they never collide.
+// Codex CLI models are left out: GPT is only offered through Claude Code.
+export function getMergedModels() { return [...MODELS, ...EVREN_MODELS, ...CHATGPT_MODELS, ...ollamaModels]; }
 // Human label for any model id (Claude alias, `codex:<model>` or `ollama:<name>`).
 export function modelLabel(id) {
   const known = MODELS.find((m) => m.id === id) || CODEX_MODELS.find((m) => m.id === id) || EVREN_MODELS.find((m) => m.id === id) || CHATGPT_MODELS.find((m) => m.id === id);
@@ -181,10 +184,17 @@ export function modelLabel(id) {
 // can't check installs synchronously); the session simply fails to route and the
 // user re-picks — the menu self-heals when it re-renders from the live list.
 function readModel(key) {
-  const saved = localStorage.getItem(key);
-  const v = saved?.replace(/^codex:gpt-\d+(?:\.\d+)*-(sol|astra|terra|luna)$/, 'codex:$1');
-  if (MODELS.some((m) => m.id === v) || CODEX_MODELS.some((m) => m.id === v) || EVREN_MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v;
-  return isCodexId(v) ? DEFAULT_CODEX_MODEL : DEFAULT_MODEL;
+  const v = codexToChatgptId(localStorage.getItem(key));
+  if (MODELS.some((m) => m.id === v) || EVREN_MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v;
+  return isChatgptId(v) ? DEFAULT_CHATGPT_MODEL : DEFAULT_MODEL;
+}
+
+// A saved Codex CLI pick (`codex:sol`, or an older versioned `codex:gpt-5.4-sol`)
+// becomes the same family through Claude Code. Anything else passes through.
+export function codexToChatgptId(id) {
+  if (!isCodexId(id)) return id;
+  const family = id.match(/(sol|astra|terra|luna)$/)?.[1];
+  return family ? `chatgpt:${family}` : DEFAULT_CHATGPT_MODEL;
 }
 export function getSessionModel() { return readModel(STORE.model); }
 export function getSubagentModel() { return readModel(STORE.subagentModel); }
@@ -192,8 +202,9 @@ export function getSubagentModel() { return readModel(STORE.subagentModel); }
 // Remember the last model chosen from the per-session picker so it sticks as the
 // default for the next session. Unknown ids fall back to the inherit default.
 export function setSessionModel(id) {
-  const ok = MODELS.some((m) => m.id === id) || CODEX_MODELS.some((m) => m.id === id) || EVREN_MODELS.some((m) => m.id === id) || CHATGPT_MODELS.some((m) => m.id === id) || isOllamaId(id);
-  localStorage.setItem(STORE.model, ok ? id : DEFAULT_MODEL);
+  const v = codexToChatgptId(id);
+  const ok = MODELS.some((m) => m.id === v) || EVREN_MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v);
+  localStorage.setItem(STORE.model, ok ? v : DEFAULT_MODEL);
 }
 
 // The last effort chosen from the per-session badge, reused as the starting level for
@@ -367,15 +378,13 @@ export function initSettings() {
     window.api?.settingsStoreChanges?.({ set: { [STORE.commitModel]: commitSel.value } });
   };
 
-  // Fill both default-model dropdowns from the merged Claude + Codex + Ollama
-  // list. Kept in one place so an Ollama install/uninstall re-renders both
-  // consistently. The subagent dropdown skips codex: models — Codex has no
-  // subagent-model override, so offering one there would be a lie.
+  // Fill the default-model dropdowns from the merged list. Kept in one place so an
+  // Ollama install/uninstall re-renders them consistently.
   const fillModelSelects = () => {
     const opts = getMergedModels().map((m) => ({ value: m.id, label: modelLabel(m.id) }));
     fillSelect(modelSel, opts, getSessionModel());
-    fillSelect(subagentSel, opts.filter((o) => modelFamily(o.value) !== 'codex'), getSubagentModel());
-    const selected = localStorage.getItem(STORE.commitModel) || 'auto';
+    fillSelect(subagentSel, opts, getSubagentModel());
+    const selected = codexToChatgptId(localStorage.getItem(STORE.commitModel) || 'auto');
     const commitOpts = [{ value: 'auto', label: t('settings.commitModelAuto') }, ...opts.filter((o) => o.value !== 'default')];
     if (!commitOpts.some((o) => o.value === selected)) commitOpts.push({ value: selected, label: modelLabel(selected) });
     fillSelect(commitSel, commitOpts, selected);

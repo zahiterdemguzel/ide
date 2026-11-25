@@ -9,12 +9,12 @@ import { QUICK_GPT_MODELS, QUICK_CLAUDE_MODELS, quickModelDragEffort } from '../
 const settingsSource = readFileSync(new URL('../src/renderer/settings.js', import.meta.url), 'utf8');
 const listedIds = new Set([...settingsSource.matchAll(/\{ id: '([^']+)', name:/g)].map((m) => m[1]));
 
-test('two GPT buttons, all Codex models the app lists', () => {
+test('two GPT buttons, all ChatGPT-via-Claude-Code models the app lists', () => {
   assert.equal(QUICK_GPT_MODELS.length, 2);
   assert.equal(QUICK_GPT_MODELS.at(-1).label, 'Astra');
   for (const m of QUICK_GPT_MODELS) {
-    assert.ok(m.id.startsWith('codex:'), m.id);
-    assert.ok(listedIds.has(m.id), `${m.id} not in CODEX_MODELS`);
+    assert.ok(m.id.startsWith('chatgpt:'), m.id);
+    assert.ok(listedIds.has(m.id), `${m.id} not in CHATGPT_MODELS`);
   }
 });
 

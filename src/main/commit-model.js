@@ -1,12 +1,8 @@
 // Model selection for both commit-message generation paths.
-const { execFile } = require('child_process');
-const os = require('os');
 const { runHaiku, runCli } = require('./claude');
-const { latestCodexModel } = require('./codex-latest');
-const { resolveCodex } = require('./codex');
 const { readStore } = require('./settings-store');
-const { codexModelName } = require('./agent-providers');
 const { pickCommitModel } = require('./commit-msg');
+const { isChatgptId, chatgptFamilyName, chatgptSpawnEnv, chatgptIdForNewSession } = require('./provider-accounts-lib');
 
 async function runLocal(prompt, name) {
   const eng = require('./llama-engine');
@@ -16,27 +12,20 @@ async function runLocal(prompt, name) {
   return res?.message?.content || null;
 }
 
-async function runCodex(prompt, model) {
-  const exe = await resolveCodex();
-  model = codexModelName(await latestCodexModel(exe, 'codex:' + model));
-  return new Promise((resolve) => {
-    const win32 = process.platform === 'win32';
-    const args = ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '--model', model, '-'];
-    // The model comes from the settings menu; never interpolate it into shell syntax.
-    if (win32 && !/^[\w.-]+$/.test(model)) return resolve(null);
-    const child = execFile(win32 ? `"${exe}"` : exe, win32 ? args.map((a) => `"${a}"`) : args,
-      { cwd: os.tmpdir(), shell: win32, timeout: 120000, maxBuffer: 4 * 1024 * 1024 },
-      (err, stdout) => resolve(err ? null : stdout.trim()));
-    child.stdin.on('error', () => {});
-    child.stdin.end(prompt);
-  });
+// GPT through Claude Code: the claude CLI against the account proxy's ChatGPT route.
+async function runChatgpt(prompt, model) {
+  const { ensureAccountProxy } = require('./account-proxy'); // lazy: keeps the proxy out of startup for non-GPT users
+  const port = await ensureAccountProxy();
+  if (!port) return null;
+  return runCli(prompt, { model: chatgptFamilyName(model), envOverrides: chatgptSpawnEnv({ port, model }) });
 }
 
 async function runCommitModel(prompt) {
-  const selected = (readStore() || {})['ide.commitModel'] || 'auto';
+  // A commit model saved back when GPT ran on the Codex CLI now runs through Claude Code too.
+  const selected = chatgptIdForNewSession((readStore() || {})['ide.commitModel'] || 'auto');
   try {
     if (selected.startsWith('ollama:')) return await runLocal(prompt, selected.slice(7));
-    if (selected.startsWith('codex:')) return await runCodex(prompt, selected.slice(6));
+    if (isChatgptId(selected)) return await runChatgpt(prompt, selected);
     if (selected !== 'auto') return selected === 'haiku' ? await runHaiku(prompt) : await runCli(prompt, { model: selected });
     const out = await runLocal(prompt);
     if (out?.trim()) return out;

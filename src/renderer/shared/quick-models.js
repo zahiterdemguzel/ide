@@ -1,9 +1,10 @@
 import { DEFAULT_EFFORT } from './effort-levels.js';
 
-// GPT on the left, Claude on the right. The model IDs match the lists in settings.js.
+// GPT on the left, Claude on the right. The model IDs match the lists in settings.js;
+// GPT runs inside Claude Code (chatgpt:), never the Codex CLI.
 export const QUICK_GPT_MODELS = [
-  { id: 'codex:sol', label: 'Sol', hint: 'Best value' },
-  { id: 'codex:astra', label: 'Astra', hint: 'Best' },
+  { id: 'chatgpt:sol', label: 'Sol', hint: 'Best value' },
+  { id: 'chatgpt:astra', label: 'Astra', hint: 'Best' },
 ];
 
 export const QUICK_CLAUDE_MODELS = [

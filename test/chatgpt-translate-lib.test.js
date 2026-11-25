@@ -138,3 +138,11 @@ test('anthropicErrorFor names the error type the CLI reacts to', () => {
 test('estimateInputTokens grows with the request size', () => {
   assert.ok(lib.estimateInputTokens({ messages: [{ role: 'user', content: 'x'.repeat(4000) }] }) >= 1000);
 });
+
+test('reasoning effort follows the CLI effort, then the thinking budget, else medium', () => {
+  const effortOf = (request) => lib.anthropicToResponses({ messages: [], ...request }, 'm').reasoning.effort;
+  assert.equal(effortOf({ output_config: { effort: 'high' } }), 'high');
+  assert.equal(effortOf({ output_config: { effort: 'max' } }), 'xhigh');
+  assert.equal(effortOf({ thinking: { type: 'enabled', budget_tokens: 32000 } }), 'high');
+  assert.equal(effortOf({}), 'medium');
+});

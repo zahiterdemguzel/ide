@@ -287,6 +287,12 @@ async function runApi(token, prompt) {
 // replace the system prompt, drop the tools, and run from a neutral cwd so no
 // project context is discovered. (`--bare` would do this in one flag, but it
 // refuses the OAuth token that this fallback exists to refresh.)
+function cliEnv(configDir, envOverrides) {
+  const env = { ...process.env, ...cliAccountEnv(configDir), MAX_THINKING_TOKENS: '0', ...envOverrides };
+  if (envOverrides?.ANTHROPIC_AUTH_TOKEN) delete env.ANTHROPIC_API_KEY;
+  return env;
+}
+
 function leanArgs(model, systemPrompt) {
   return [
     '-p', '--model', model,
@@ -302,7 +308,9 @@ const DEFAULT_CLI_SYSTEM = `${CC_IDENTITY} ${OUTPUT_RULE}`;
 // edit fallback passes `sonnet` and its own system prompt. The system prompt
 // must not contain a double quote (see the Windows quoting note below).
 // `signal` (an AbortSignal) kills the child; it then resolves null.
-async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYSTEM, signal, configDir = activeConfigDir() } = {}) {
+// `envOverrides` points the CLI elsewhere (e.g. GPT through the account proxy); a proxy
+// token there must not lose to an API-key account's ANTHROPIC_API_KEY.
+async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYSTEM, signal, configDir = activeConfigDir(), envOverrides } = {}) {
   const exe = await resolveClaude();
   if (signal?.aborted) return null;
   return new Promise((resolve) => {
@@ -317,7 +325,7 @@ async function runCli(prompt, { model = 'haiku', systemPrompt = DEFAULT_CLI_SYST
       // Run as the active account (unless told otherwise), so a fallback call bills
       // the same login the sessions use.
       { cwd: os.tmpdir(), maxBuffer: 4 * 1024 * 1024, shell: win32, // MAX_THINKING_TOKENS=0 turns extended thinking off: these are short one-shot generations.
-      env: { ...process.env, ...cliAccountEnv(configDir), MAX_THINKING_TOKENS: '0' } },
+      env: cliEnv(configDir, envOverrides) },
       (err, stdout) => {
         signal?.removeEventListener('abort', kill);
         resolve(err ? null : stdout.trim());

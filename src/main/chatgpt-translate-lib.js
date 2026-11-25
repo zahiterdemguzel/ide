@@ -88,6 +88,10 @@ function toolChoiceToResponses(choice) {
 
 // Claude Code's thinking budget → a reasoning effort. No thinking asked = medium.
 function reasoningEffortOf(request) {
+  // The CLI's own effort level, when it sends one (`max` is Claude-only: top of the Codex ladder).
+  const asked = request.output_config && request.output_config.effort;
+  if (['low', 'medium', 'high', 'xhigh'].includes(asked)) return asked;
+  if (asked === 'max') return 'xhigh';
   const thinking = request.thinking;
   if (thinking && thinking.type === 'enabled') {
     const budget = Number(thinking.budget_tokens) || 0;
