@@ -18,10 +18,12 @@ select the terminal and type speech into its prompt for review and Enter.
    imports the *same* registry and the *same* `statSize` the main process uses — the
    downloader and the engine must never disagree about a filename or about what
    "installed" means. Tested in `test/stt-lib.test.js`.
-2. **Engine + IPC** — `src/main/stt.js`, a thin shell over
+2. **Engine + IPC** — `src/main/stt.js`, a thin shell over two decoders (see
+   [Two engines](#two-engines-gpu-on-macos-cpu-elsewhere)): the whisper.cpp GPU sidecar
+   (`src/main/stt-gpu.js`) on macOS, and
    [`sherpa-onnx-node`](https://www.npmjs.com/package/sherpa-onnx-node) (npm dep with
-   prebuilt binaries per platform; no compiler, `npmRebuild` stays false). Holds an
-   LRU-of-1 `OfflineRecognizer` plus a Silero `Vad`. Channels: `stt-status`,
+   prebuilt binaries per platform; no compiler, `npmRebuild` stays false) on the CPU
+   everywhere else. Holds an LRU-of-1 recognizer plus a Silero `Vad` (always sherpa's). Channels: `stt-status`,
    `stt-warm`, `stt-start`, `stt-audio`, `stt-stop`, `stt-finish` (an awaited stop, for the
    New session hold), `stt-release`; pushes `stt-text`,
    `stt-busy` and `stt-error`. Decodes run one at a time (the addon is not reentrant)
@@ -81,16 +83,70 @@ around each decode batch. The listening terminal also gets an inset ring
 when arming never completed — a leftover "starting" pill would claim the mic is live
 when it isn't.
 
+## Two engines: GPU on macOS, CPU elsewhere
+
+**Why it changed (measured Nov 2026, M3 Max, fast TTS at 290 wpm, Turkish/English/mixed).**
+The sherpa-onnx int8 decode **cut long, fast phrases off mid-sentence** ("…scroll position
+and then add a" — "unit test for the restore logic" lost), turned a whole Turkish sentence
+into "Düzelt", and invented one ("Bu dizinin betimlemesi için teşekkür ederim") — that was
+the "can't keep up when I talk fast" complaint. whisper.cpp with the *same* model
+(large-v3-turbo, ggml q8_0) transcribed every clip in full. Neither the Claude Code nor the
+Codex CLI has a local engine to borrow: Claude's `/voice` streams to
+`wss://api.anthropic.com/api/ws/speech_to_text/voice_stream`, Codex's voice host is WebRTC
+to OpenAI's realtime service — both cloud.
+
+- **GPU engine** (`ENGINE_GPU`, macOS only): `vendor/stt/bin/whisper-server` (whisper.cpp
+  `GPU_ENGINE.tag`, Metal) + `vendor/stt/ggml/ggml-large-v3-turbo-q8_0.bin` (874 MB).
+  `stt-gpu.js` spawns it on `127.0.0.1` at a port picked free per instance, polls `GET /`
+  until it serves, and POSTs each phrase as a 16-bit WAV to `/inference` with
+  `response_format=verbose_json` (for `language_probabilities`), `temperature=0`, the
+  phrase's language and a prompt. A dead sidecar is relaunched by the next decode, and a decode that takes over 30 s is aborted
+  and the sidecar killed (decodes are serialized, so a stall would block every later phrase); if the
+  sidecar won't start and no ONNX model is installed, its own error is shown rather than "model missing";
+  `stopStt` (switch-off, idle release, quit) kills it. First launch on a machine compiles
+  the embedded Metal shaders (~15 s); later launches ~1 s (macOS caches them), so the
+  ready wait is 90 s. ~0.5 s per pinned phrase on an idle machine, ~1 s with detection.
+- **CPU engine** (`ENGINE_CPU`): sherpa-onnx as before — Windows/Linux, or macOS when the
+  build/download failed or the sidecar won't start (`loadRecognizer` falls back with a
+  warning rather than failing dictation).
+- `pickEngine`/`gpuEngineReady` (stt-lib, tested) decide; `stt-status` reports `engine`.
+  The model id stays `turbo` either way, so the renderer and stored settings are untouched;
+  `modelStates(..., platform)` counts a model ready when either engine has it.
+
+**What the GPU engine does differently** (all in stt-lib, tested):
+
+- **Context prompt** — `decodePrompt(previousText)`: `VOCABULARY_PROMPT` (one sentence in the
+  user's own mix: "Şu pull request'i incele, merge conflict varsa çöz…") plus the last 200
+  chars this capture already emitted (`captureContext`, reset per `stt-start`; the clip path
+  keeps its own). Measured: "pullukı … merke konflikt" → "pull request'i … merge conflict".
+  A bare *word list* prompt made Whisper echo it and loop — don't go back to one.
+- **Echo and loop guards** — `shouldEmit(text, prompt)` drops a result that is nothing but
+  prompt words (≥2 words; a lone "push" is kept). `hasRepetitionLoop` → the phrase is
+  re-decoded **without** the prompt, and `collapseRepetitions` cuts what's left.
+- **Lead padding** — `LEAD_PADDING_SECONDS` (0.2 s) before every phrase: a VAD phrase starts
+  on its first syllable, and with a prompt whisper.cpp then skipped ahead (a 12 s phrase came
+  back as only its last sentence). 0.5 s truncated a different phrase.
+- **Timestamps stay on** — `no_timestamps` also lost the start of long phrases. The
+  mid-word segment splits timestamps cause ("gün|celle") are undone by `joinSegmentTexts`:
+  a segment continuing a word has no leading space, so segment texts are glued with nothing.
+- **Fence by probability** — `pinnedRetryLanguage(id, detected, probabilities)` retries in
+  whichever fenced language scored higher (a fast mixed phrase detected as `ru` had tr 0.19 vs
+  en 0.12), falling back to `fallback` without scores (the CPU engine).
+- **Longer phrases** — `vadConfigFor(ENGINE_GPU)` = `GPU_VAD_CONFIG`: `minSilenceDuration` 0.5,
+  `maxSpeechDuration` 20. Whisper reads a phrase with its neighbours far better than a
+  fragment (the fast mixed sentence alone was noise; inside a longer clip it was right), and
+  the faster decode pays for the extra wait. The CPU engine keeps `VAD_CONFIG` (0.35 / 12).
+
 ## Why phrase-at-a-pause, not word-by-word
 
 Whisper is not a streaming model, so text can't appear word by word. Silero VAD cuts
-the stream on natural pauses (`minSilenceDuration: 0.35`, tuned for a fast talker)
-and each segment is decoded whole; `maxSpeechDuration: 12` force-cuts a monologue
+the stream on natural pauses (`minSilenceDuration` 0.35 on the CPU engine, 0.5 on the GPU
+one) and each segment is decoded whole; `maxSpeechDuration` (12 / 20) force-cuts a monologue
 that never pauses. Losing focus mid-phrase **flushes** rather than discards — the user
 lost focus, but they still said the words. True word-by-word streaming would
 need a transducer (Parakeet), i.e. a second model format and decode path.
 
-## Latency: thread count is the only lever
+## Latency on the CPU engine: thread count is the only lever
 
 Whisper always encodes a **padded 30-second window**, so a phrase costs about the
 same to decode however short it is. Measured on turbo int8:
@@ -138,11 +194,13 @@ box is for. Other punctuation (`?`, `!`, `:`) is untouched.
 works. It is the highest-quality Whisper that fits the 1 GB budget for bundled
 weights: `large-v3` int8 is ~1.5 GB, and fp16 turbo ~1.6 GB.
 
-**Only one model ships**, which is why the Voice model dropdown has a single row. A
-second one would have to fit in the remaining ~35 MB and none does (even `tiny.en` is
-~50 MB). Everything downstream is already plural — adding a model later is one entry
-in `MODELS` plus the fetch. `test/stt-lib.test.js` asserts the budget so a future
-entry can't silently blow it.
+**Only one model ships**, which is why the Voice model dropdown has a single row — one
+model, two formats: macOS carries the ggml q8_0 file (874 MB) *instead of* the ONNX archive
+(564 MB compressed), every other platform the ONNX one. `bundledModelBytes(platform)` is what
+`test/stt-lib.test.js` holds under 1 GB per platform, so a future entry can't silently blow
+it. Everything downstream is already plural — adding a model is one entry in `MODELS` plus
+the fetch. (A mac that already had the ONNX tree from before keeps it in `vendor/stt`, and a
+build from that machine would ship both — delete `vendor/stt/turbo` before a release build.)
 
 `decodingMethod` is `greedy_search`, and `task` is always `'transcribe'` — never
 `'translate'`, so the user gets back what they actually said.
@@ -191,7 +249,18 @@ cheap insurance, but don't expect it to transform real dictation.
 ## Install & build
 
 The weights are **not committed** (`vendor/` is gitignored). `scripts/fetch-stt-model.mjs`
-runs from **`postinstall`** and downloads them once per machine:
+runs from **`postinstall`** and downloads them once per machine. **On macOS** it first sets up
+the GPU engine: `scripts/build-whisper-server.mjs` downloads the pinned whisper.cpp source
+tarball and builds `whisper-server` with cmake (`BUILD_SHARED_LIBS=OFF`, `GGML_NATIVE=OFF` for
+portability, `GGML_METAL_EMBED_LIBRARY=ON` → one binary linking only system frameworks,
+`CMAKE_OSX_ARCHITECTURES=arm64;x86_64` → universal, because the mac build targets both and an Intel
+install has no ONNX fallback), then
+the ggml weights are downloaded (exact-size checked, resumable like the rest). Needs cmake +
+Xcode command-line tools; any failure is logged and the ONNX model is fetched instead.
+`SKIP_STT_GPU=1` forces the CPU engine; `node scripts/build-whisper-server.mjs --force`
+rebuilds. The binary ships via the same `vendor/stt` → `<resources>/stt` extraResources entry
+and is signed with the rest of the bundle by electron-builder (not yet verified in a signed
+build). For the ONNX model:
 
 - Idempotent — an already-present, non-empty model is skipped, so repeat installs cost
   nothing.

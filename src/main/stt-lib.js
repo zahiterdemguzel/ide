@@ -28,6 +28,12 @@ const statSize = (file) => { try { return fs.statSync(file).size; } catch { retu
 // exact-size match plus a successful bzip2 extraction is the strongest gate
 // available without hand-maintaining digests that would silently rot when k2-fsa
 // re-uploads the tag.
+//
+// `ggml` is the same model for the GPU engine (whisper.cpp on Metal, macOS only — see
+// GPU_ENGINE below). q8_0 rather than the ONNX int8: measured on fast speech, the
+// sherpa-onnx int8 decode cut long phrases off mid-sentence ("…then add a") and
+// invented text for others, while the ggml q8_0 decode was complete — and ~0.5 s on
+// an M3 Max GPU instead of 1.5–7 s on 12 CPU threads.
 const MODELS = [
   {
     id: 'turbo',
@@ -35,8 +41,86 @@ const MODELS = [
     archive: 'sherpa-onnx-whisper-turbo.tar.bz2',
     bytes: 563790207,
     multilingual: true,
+    ggml: {
+      name: 'ggml-large-v3-turbo-q8_0.bin',
+      url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin',
+      bytes: 874188075,
+    },
   },
 ];
+
+// --- GPU engine (whisper.cpp on Metal) ---------------------------------------
+//
+// On macOS, phrases are decoded by a whisper.cpp `whisper-server` sidecar built from
+// source at install time (scripts/build-whisper-server.mjs) with the Metal backend
+// and its shader library embedded, so it is one self-contained binary that links
+// only system frameworks. Everywhere else — or when the build or the ggml download
+// failed — the sherpa-onnx CPU engine is used, as before. sherpa-onnx stays loaded on
+// macOS either way: its Silero VAD still cuts the stream into phrases.
+const ENGINE_GPU = 'whisper.cpp';
+const ENGINE_CPU = 'sherpa-onnx';
+
+const GPU_ENGINE = {
+  tag: 'v1.9.6',
+  sourceUrl: 'https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.9.6.tar.gz',
+  binary: 'whisper-server',
+  // The GPU does the work, so the sidecar needs few CPU threads.
+  threads: 4,
+};
+
+const gpuEngineSupported = (platform) => platform === 'darwin';
+
+function gpuEngineFiles(root, id, join) {
+  const model = findModel(id);
+  return {
+    binary: join(root, 'bin', GPU_ENGINE.binary),
+    model: model && model.ggml ? join(root, 'ggml', model.ggml.name) : null,
+  };
+}
+
+// The GPU engine is usable when the platform supports it, the server binary is
+// there and the ggml weights are complete (exact size — a cut download must read as
+// missing, not as a model that loads garbage).
+function gpuEngineReady(root, id, statSize, join, platform) {
+  const model = findModel(id);
+  if (!gpuEngineSupported(platform) || !model || !model.ggml) return false;
+  const files = gpuEngineFiles(root, id, join);
+  return (statSize(files.binary) || 0) > 0 && statSize(files.model) === model.ggml.bytes;
+}
+
+// Which engine decodes `id`: the GPU one when it's ready, the CPU one otherwise,
+// null when neither is installed.
+function pickEngine({ gpuReady, cpuReady }) {
+  if (gpuReady) return ENGINE_GPU;
+  if (cpuReady) return ENGINE_CPU;
+  return null;
+}
+
+// What each platform's installer carries for the bundled models — the number the
+// 1 GB budget is about. macOS ships the ggml weights instead of the ONNX archive.
+function bundledModelBytes(platform) {
+  return MODELS.reduce((sum, m) => sum + (gpuEngineSupported(platform) && m.ggml ? m.ggml.bytes : m.bytes), 0);
+}
+
+// The sidecar's command line. Loopback only, on a port picked free per app instance
+// (several instances may run). `-l auto` is only the default — every request sends
+// its own language.
+function whisperServerArgs({ model, port, threads = GPU_ENGINE.threads }) {
+  return ['-m', model, '--host', '127.0.0.1', '--port', String(port), '-t', String(threads), '-l', 'auto'];
+}
+
+// The language whisper.cpp should decode a phrase in: '' (detect) becomes 'auto'.
+const serverLanguage = (whisper) => whisper || 'auto';
+
+// The most likely language in whisper.cpp's `language_probabilities` (code → p), or ''.
+function topLanguage(probabilities) {
+  let best = '';
+  let bestP = -1;
+  for (const [code, p] of Object.entries(probabilities || {})) {
+    if (typeof p === 'number' && p > bestP) { best = code; bestP = p; }
+  }
+  return best;
+}
 
 const DEFAULT_MODEL_ID = 'turbo';
 
@@ -84,11 +168,17 @@ function whisperLanguage(id) {
 
 // After a decode in `id`'s mode: the Whisper code to decode the phrase again with, or
 // null to keep the result. Only a fenced mode retries, and only when the detected
-// language (`result.lang`) falls outside its fence.
-function pinnedRetryLanguage(id, detected) {
+// language (`result.lang`) falls outside its fence. With the per-language
+// probabilities whisper.cpp reports, the retry goes to whichever fenced language
+// scored higher — measured: a fast mixed Turkish/English phrase detected as Russian
+// had tr 0.19 vs en 0.12 — and to `fallback` without them.
+function pinnedRetryLanguage(id, detected, probabilities = null) {
   const lang = findLanguage(id);
   if (!lang || !lang.fence || !detected) return null;
-  return lang.fence.includes(detected) ? null : lang.fallback;
+  if (lang.fence.includes(detected)) return null;
+  const scored = lang.fence.filter((code) => typeof (probabilities || {})[code] === 'number');
+  if (!scored.length) return lang.fallback;
+  return scored.reduce((best, code) => (probabilities[code] > probabilities[best] ? code : best));
 }
 
 // Silero VAD — segments the mic stream on natural pauses so each phrase is
@@ -162,11 +252,13 @@ function modelReady(root, id, statSize, join) {
 // Which models are installed, for the settings dropdown. Every model is always
 // listed; `ready: false` rows are shown but not selectable, so a failed
 // install-time fetch is visible rather than a silently empty menu.
-function modelStates(root, statSize, join) {
+// A model counts as ready when either engine can decode it (`platform` decides
+// whether the GPU one is an option).
+function modelStates(root, statSize, join, platform = '') {
   return MODELS.map((m) => ({
     id: m.id,
     label: m.label,
-    ready: modelReady(root, m.id, statSize, join),
+    ready: modelReady(root, m.id, statSize, join) || gpuEngineReady(root, m.id, statSize, join, platform),
   }));
 }
 
@@ -182,10 +274,23 @@ const TAIL_PADDING_SECONDS = 0.4;
 // A copy of `samples` with `padSamples` zeros appended. Returns the input untouched
 // when there's nothing to add, so the common path allocates only when it must.
 function withTailPadding(samples, padSamples) {
+  return withSilence(samples, 0, padSamples);
+}
+
+// Silence put in front of every phrase for the GPU engine. A VAD phrase starts right
+// on its first syllable, and with a prompt whisper.cpp then sometimes skipped ahead —
+// measured: a 12 s phrase came back as only its last sentence, and the same audio
+// with 0.2 s of lead-in came back whole. 0.5 s cut another phrase short, so 0.2.
+const LEAD_PADDING_SECONDS = 0.2;
+
+// `samples` with `lead` zeros before and `tail` zeros after (counts in samples).
+function withSilence(samples, lead, tail) {
   if (!samples || !samples.length) return samples;
-  if (!(padSamples > 0)) return samples;
-  const out = new Float32Array(samples.length + padSamples);
-  out.set(samples, 0);
+  const before = lead > 0 ? lead : 0;
+  const after = tail > 0 ? tail : 0;
+  if (!before && !after) return samples;
+  const out = new Float32Array(before + samples.length + after);
+  out.set(samples, before);
   return out;
 }
 
@@ -204,8 +309,20 @@ const VAD_CONFIG = {
 const SAMPLE_RATE = 16000;
 const VAD_BUFFER_SECONDS = 30;
 
+// With the GPU engine a phrase decodes in ~0.5 s, so some of that saving goes into
+// longer phrases: Whisper reads a phrase with its neighbours far better than a
+// fragment cut at every breath (measured: a fast mixed sentence alone came back as
+// noise, the same audio inside a longer clip came back right). A fast talker's
+// in-sentence gaps are under half a second, so they no longer end a phrase.
+const GPU_VAD_CONFIG = { ...VAD_CONFIG, minSilenceDuration: 0.5, maxSpeechDuration: 20 };
+
+function vadConfigFor(engine) {
+  return engine === ENGINE_GPU ? GPU_VAD_CONFIG : VAD_CONFIG;
+}
+
+// CPU engine only (the GPU engine runs on GPU_ENGINE.threads).
 // Whisper always encodes a padded 30-second window, so a phrase costs about the
-// same to decode however short it is — thread count is the only real lever on how
+// same to decode however short it is — on the CPU, thread count is the only lever on how
 // long the user waits for their words. Measured on turbo int8: 2 threads 3.2s,
 // 4 → 2.7s, 8 → 1.6s, 12 → 1.1s, and it plateaus after that. Two cores are left
 // for the IDE itself so dictation can't make the rest of the app stutter.
@@ -278,11 +395,133 @@ function speechKey(text) {
 }
 
 // Should this segment be typed into the session? Guards empty results, pure
-// punctuation, and the silence hallucinations above.
-function shouldEmit(text) {
+// punctuation, and the silence hallucinations above, and — when the decode was
+// given a prompt — Whisper echoing that prompt back for audio it couldn't read.
+function shouldEmit(text, prompt = '') {
   const key = speechKey(text);
   if (!key) return false;
-  return !HALLUCINATIONS.includes(key);
+  if (HALLUCINATIONS.includes(key)) return false;
+  return !echoesPrompt(key, prompt);
+}
+
+// --- decode context (GPU engine) ---------------------------------------------
+
+// The vocabulary the dictation is full of, given to Whisper as its prompt. Spoken in
+// a Turkish sentence these come back phonetically spelled without it — measured:
+// "pull request'i … merge conflict" decoded as "pullukı … merke konflikt", and right
+// with this prompt. Written as a sentence in the speaker's own mix rather than a word
+// list: Whisper reads a prompt as the transcript so far, and a bare list made it echo
+// the list and loop ("Pull request merge conflict march march march…") on a fast
+// phrase, where this sentence read it right. Kept short for the same reason.
+const VOCABULARY_PROMPT = "Şu pull request'i incele, merge conflict varsa çöz, commit'le ve branch'i push et. Then run lint and the tests.";
+
+// How much of what was already said in this capture rides along as context.
+const CONTEXT_PROMPT_CHARS = 200;
+
+// The prompt for the next phrase: the vocabulary, then the tail of the capture so far
+// (cut at a word boundary), so a phrase split at a pause still reads as one sentence.
+function decodePrompt(previousText = '') {
+  const said = String(previousText || '').replace(/\s+/g, ' ').trim();
+  if (!said) return VOCABULARY_PROMPT;
+  let tail = said.length > CONTEXT_PROMPT_CHARS ? said.slice(-CONTEXT_PROMPT_CHARS) : said;
+  if (tail.length < said.length) tail = tail.replace(/^\S*\s/, '');
+  return `${VOCABULARY_PROMPT} ${tail}`;
+}
+
+// Did Whisper just repeat its vocabulary sentence instead of transcribing? Checked
+// against VOCABULARY_PROMPT only — never the context tail, or saying a phrase twice
+// in one capture would drop the second — and only for a result that is a long run of
+// it: the vocabulary is exactly what this user says, so "merge conflict varsa çöz"
+// or "run lint" must survive.
+// An echo has to cover at least half the sentence (10 of its 20 words).
+const ECHO_MIN_SHARE = 0.5;
+
+function echoesPrompt(key, prompt) {
+  if (!prompt) return false;
+  const vocabulary = speechKey(VOCABULARY_PROMPT);
+  const minWords = Math.ceil(vocabulary.split(' ').length * ECHO_MIN_SHARE);
+  if (key.split(' ').length < minWords) return false;
+  return ` ${vocabulary} `.includes(` ${key} `);
+}
+
+// Whisper's other failure on unclear audio: a word or short phrase repeated over and
+// over. Up to three-word groups, repeated `minRuns` times in a row.
+const MAX_LOOP_WORDS = 3;
+
+function repetitionRun(words, at, size) {
+  let runs = 1;
+  const unit = words.slice(at, at + size).join(' ');
+  while (words.slice(at + runs * size, at + (runs + 1) * size).join(' ') === unit) runs++;
+  return runs;
+}
+
+function hasRepetitionLoop(text, minRuns = 4) {
+  const words = speechKey(String(text || '')).split(' ').filter(Boolean);
+  for (let size = 1; size <= MAX_LOOP_WORDS; size++) {
+    for (let at = 0; at + size * minRuns <= words.length; at++) {
+      if (repetitionRun(words, at, size) >= minRuns) return true;
+    }
+  }
+  return false;
+}
+
+// The last resort when a loop survives a re-decode: each run of three or more
+// repeats is cut to one occurrence, so the user gets the phrase once, not a wall.
+function collapseRepetitions(text, minRuns = 3) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const key = (w) => speechKey(w);
+  const out = [];
+  for (let at = 0; at < words.length;) {
+    let collapsed = false;
+    for (let size = MAX_LOOP_WORDS; size >= 1 && !collapsed; size--) {
+      const unit = words.slice(at, at + size).map(key).join(' ');
+      let runs = 1;
+      while (at + (runs + 1) * size <= words.length
+        && words.slice(at + runs * size, at + (runs + 1) * size).map(key).join(' ') === unit) runs++;
+      if (runs >= minRuns) {
+        out.push(...words.slice(at, at + size));
+        at += runs * size;
+        collapsed = true;
+      }
+    }
+    if (!collapsed) { out.push(words[at]); at++; }
+  }
+  return out.join(' ');
+}
+
+// A whisper-server `verbose_json` answer as one string. Its `text` puts a newline
+// between segments, and segments can break mid-word ("gün" | "celle"); a segment
+// that starts a new word carries its own leading space, so gluing the segment texts
+// together with nothing between them restores the words.
+function joinSegmentTexts(json) {
+  if (!json) return '';
+  const segments = Array.isArray(json.segments) ? json.segments : [];
+  if (!segments.length) return typeof json.text === 'string' ? json.text : '';
+  return segments.map((s) => (s && typeof s.text === 'string' ? s.text : '')).join('');
+}
+
+// Mono Float32 samples → a 16-bit PCM WAV file, the upload whisper-server expects.
+function samplesToWav16(samples, rate = SAMPLE_RATE) {
+  const data = samples.length * 2;
+  const buf = Buffer.alloc(44 + data);
+  buf.write('RIFF', 0, 'ascii');
+  buf.writeUInt32LE(36 + data, 4);
+  buf.write('WAVE', 8, 'ascii');
+  buf.write('fmt ', 12, 'ascii');
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20); // PCM
+  buf.writeUInt16LE(1, 22); // mono
+  buf.writeUInt32LE(rate, 24);
+  buf.writeUInt32LE(rate * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write('data', 36, 'ascii');
+  buf.writeUInt32LE(data, 40);
+  for (let i = 0; i < samples.length; i++) {
+    const clamped = Math.max(-1, Math.min(1, samples[i]));
+    buf.writeInt16LE(Math.round(clamped * 32767), 44 + i * 2);
+  }
+  return buf;
 }
 
 // --- clips recorded on a paired phone ----------------------------------------
@@ -370,13 +609,40 @@ function concatSamples(parts) {
 
 // The decoded phrases of a clip as one prompt, with hallucinated/empty ones dropped
 // exactly as live dictation drops them.
-function joinClipPhrases(texts) {
-  return texts.map(normalizeTranscript).filter(shouldEmit).join(' ').replace(/\s+/g, ' ').trim();
+// A phrase may arrive as `{ text, prompt }` so its prompt-echo check uses the prompt
+// that phrase was decoded with.
+function joinClipPhrases(phrases) {
+  return phrases
+    .map((p) => (p && typeof p === 'object' ? p : { text: p, prompt: '' }))
+    .map((p) => ({ text: normalizeTranscript(p.text), prompt: p.prompt || '' }))
+    .filter((p) => shouldEmit(p.text, p.prompt))
+    .map((p) => p.text)
+    .join(' ').replace(/\s+/g, ' ').trim();
 }
 
 module.exports = {
   MODELS,
   DEFAULT_MODEL_ID,
+  ENGINE_GPU,
+  ENGINE_CPU,
+  GPU_ENGINE,
+  gpuEngineSupported,
+  gpuEngineFiles,
+  gpuEngineReady,
+  pickEngine,
+  bundledModelBytes,
+  whisperServerArgs,
+  serverLanguage,
+  topLanguage,
+  GPU_VAD_CONFIG,
+  vadConfigFor,
+  VOCABULARY_PROMPT,
+  decodePrompt,
+  echoesPrompt,
+  hasRepetitionLoop,
+  collapseRepetitions,
+  joinSegmentTexts,
+  samplesToWav16,
   LANGUAGES,
   DEFAULT_LANGUAGE,
   findLanguage,
@@ -389,6 +655,8 @@ module.exports = {
   SAMPLE_RATE,
   TAIL_PADDING_SECONDS,
   withTailPadding,
+  LEAD_PADDING_SECONDS,
+  withSilence,
   recognizerThreads,
   statSize,
   assetUrl,

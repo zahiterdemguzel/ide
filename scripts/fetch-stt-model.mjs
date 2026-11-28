@@ -16,10 +16,11 @@ import { pipeline } from 'node:stream/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import stt from '../src/main/stt-lib.js';
+import { buildWhisperServer } from './build-whisper-server.mjs';
 
 // statSize comes from the shared lib too, so the downloader and the engine can't
 // drift on what counts as an installed model.
-const { MODELS, VAD_ASSET, assetUrl, modelFiles, modelReady, statSize } = stt;
+const { MODELS, VAD_ASSET, assetUrl, modelFiles, modelReady, statSize, gpuEngineSupported, gpuEngineFiles, gpuEngineReady } = stt;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = path.join(repoRoot, 'vendor', 'stt');
@@ -133,11 +134,37 @@ async function fetchVad() {
   log('silero VAD ready');
 }
 
+// macOS: the GPU engine — whisper-server built from source plus the ggml weights.
+// Resolves whether it ended up usable; a failure only means the CPU engine is used.
+async function setUpGpuEngine(model) {
+  if (!gpuEngineSupported(process.platform) || !model.ggml) return false;
+  if (process.env.SKIP_STT_GPU === '1') { log('SKIP_STT_GPU=1 — using the CPU engine'); return false; }
+  try {
+    await buildWhisperServer();
+    const { model: weights } = gpuEngineFiles(root, model.id, path.join);
+    if (statSize(weights) !== model.ggml.bytes) {
+      log(`fetching ${model.label} for the GPU engine (${(model.ggml.bytes / 1e6).toFixed(0)} MB)`);
+      fs.mkdirSync(path.dirname(weights), { recursive: true });
+      await download(model.ggml.url, weights, model.ggml.bytes);
+    } else {
+      log(`${model.id} GPU weights already present — skipping`);
+    }
+    return gpuEngineReady(root, model.id, statSize, path.join, process.platform);
+  } catch (err) {
+    log(`GPU engine unavailable, falling back to the CPU one: ${err && err.message ? err.message : err}`);
+    return false;
+  }
+}
+
 async function main() {
   if (process.env.SKIP_STT_MODEL === '1') { log('SKIP_STT_MODEL=1 — skipping voice-input models'); return; }
   fs.mkdirSync(root, { recursive: true });
   await fetchVad();
-  for (const model of MODELS) await fetchModel(model);
+  for (const model of MODELS) {
+    // With the GPU engine ready the ONNX weights would only be dead weight in the installer.
+    if (await setUpGpuEngine(model)) continue;
+    await fetchModel(model);
+  }
   fs.rmSync(cacheDir, { recursive: true, force: true });
   log('voice input ready');
 }

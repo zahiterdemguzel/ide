@@ -4,7 +4,8 @@
 //
 // Why the split: the renderer captures the audio (only it has getUserMedia and the
 // cursor state that decides *when* to listen) and decides what to do with the
-// text; main does the recognition, because the native addon and the ~770 MB of
+// text; main does the recognition (sherpa-onnx on the CPU, or the whisper.cpp GPU
+// sidecar in stt-gpu.js on macOS), because the native addon and the ~1 GB of
 // weights belong nowhere near the renderer sandbox. All pure decisions — paths,
 // model registry, which transcripts are worth typing — live in stt-lib.js.
 //
@@ -20,12 +21,16 @@ const { createLimiter } = require('./concurrency');
 const {
   pickModelId, findModel, modelsRoot, modelFiles, vadPath, modelReady, modelStates,
   normalizeTranscript, shouldEmit, statSize, pickLanguage, whisperLanguage, pinnedRetryLanguage, LANGUAGES,
-  SAMPLE_RATE, VAD_CONFIG, VAD_BUFFER_SECONDS, recognizerThreads,
-  TAIL_PADDING_SECONDS, withTailPadding,
+  SAMPLE_RATE, VAD_BUFFER_SECONDS, recognizerThreads,
+  TAIL_PADDING_SECONDS, withTailPadding, LEAD_PADDING_SECONDS, withSilence,
   MAX_CLIP_SECONDS, wavToSamples, concatSamples, joinClipPhrases,
+  ENGINE_GPU, ENGINE_CPU, gpuEngineReady, gpuEngineFiles, pickEngine, serverLanguage, vadConfigFor, decodePrompt,
+  hasRepetitionLoop, collapseRepetitions,
 } = require('./stt-lib');
+const { createGpuEngine } = require('./stt-gpu');
 
 const TAIL_PADDING = Math.round(SAMPLE_RATE * TAIL_PADDING_SECONDS);
+const LEAD_PADDING = Math.round(SAMPLE_RATE * LEAD_PADDING_SECONDS);
 
 let sherpa = null;      // the native module, loaded on first use
 let loadError = null;   // why it couldn't load (reported as unavailable, not thrown)
@@ -33,7 +38,11 @@ let recognizer = null;  // LRU-of-1: loading Whisper weights is the expensive st
 let recognizerModel = null; // the model id the loaded recognizer holds
 let recognizerConfig = null; // its full config — setConfig() must be handed it whole
 let loading = null;     // in-flight load, so warm + first arm share one
+let engine = null;      // ENGINE_GPU or ENGINE_CPU: which one the loaded recognizer is
+let gpu = null;         // the whisper.cpp sidecar when the GPU engine is in use
 let vad = null;
+let vadEngine = null;   // the engine `vad` was tuned for (see vadConfigFor)
+let captureContext = { text: '' }; // what this capture has said so far, the next phrase's prompt
 let target = null;      // the session id the current capture is dictating into
 let targetLanguage = null; // the spoken-language setting that capture was started with
 let audioErrorReported = false; // report a broken audio path once, not per chunk
@@ -83,7 +92,34 @@ function ensureRecognizer(modelId) {
   return promise;
 }
 
+// The GPU engine when it's installed and starts; the CPU engine otherwise — a sidecar
+// that won't start must cost the user their dictation speed, not their dictation.
 async function loadRecognizer(modelId) {
+  const dir = root();
+  if (gpuEngineReady(dir, modelId, statSize, path.join, process.platform)) {
+    const candidate = createGpuEngine(gpuEngineFiles(dir, modelId, path.join));
+    try {
+      await candidate.start();
+      if (gpu && gpu !== candidate) gpu.stop();
+      gpu = candidate;
+      engine = ENGINE_GPU;
+      recognizer = candidate;
+      recognizerModel = modelId;
+      recognizerConfig = null;
+      return recognizer;
+    } catch (err) {
+      candidate.stop();
+      // On a Mac with the GPU engine installed the CPU model usually isn't (the fetch
+      // skips it), and "the voice model is missing" would send the user after the
+      // wrong problem — so the GPU engine's own error is what they see.
+      if (!modelReady(dir, modelId, statSize, path.join)) throw err;
+      console.warn('[voice] GPU engine failed, falling back to the CPU one:', err && err.message);
+    }
+  }
+  return loadCpuRecognizer(modelId);
+}
+
+async function loadCpuRecognizer(modelId) {
   const lib = load();
   if (!lib) throw new Error(`speech recognition is unavailable on this platform: ${loadError}`);
   const dir = root();
@@ -110,6 +146,7 @@ async function loadRecognizer(modelId) {
   recognizer = await lib.OfflineRecognizer.createAsync(config);
   recognizerModel = modelId;
   recognizerConfig = config;
+  engine = ENGINE_CPU;
   return recognizer;
 }
 
@@ -123,7 +160,10 @@ function setWhisperLanguage(language) {
   recognizerConfig = next;
 }
 
-async function decodeOnce(samples, language) {
+async function decodeOnce(samples, language, prompt) {
+  if (engine === ENGINE_GPU) {
+    return gpu.decode(withSilence(samples, LEAD_PADDING, TAIL_PADDING), serverLanguage(language), prompt);
+  }
   setWhisperLanguage(language);
   const stream = recognizer.createStream();
   // Padded: a segment whose audio stops on the final phoneme loses that syllable
@@ -144,12 +184,25 @@ async function decodeOnce(samples, language) {
 // One phrase in the capture's language setting. An English-only model is always
 // pinned to `en` — letting one of those guess produces garbage. In the Turkish +
 // English mode a phrase detected as anything else is decoded again pinned.
-async function decodeSegment(samples, languageId) {
+// `context` is what the capture already said: the GPU engine reads it (plus the
+// vocabulary) as its prompt; the CPU engine has no prompt input. Resolves the decode
+// plus the `prompt` it used, for shouldEmit's echo check.
+async function decodeSegment(samples, languageId, context = '') {
+  const prompt = engine === ENGINE_GPU ? decodePrompt(context) : '';
+  const result = await decodeInLanguage(samples, languageId, prompt);
+  if (!prompt || !hasRepetitionLoop(result.text)) return { ...result, prompt };
+  // A prompt can tip unclear audio into a loop; the same phrase without one usually
+  // reads clean. Whatever loop is left is cut to a single occurrence.
+  const plain = await decodeInLanguage(samples, languageId, '');
+  return { ...plain, text: collapseRepetitions(plain.text), prompt: '' };
+}
+
+async function decodeInLanguage(samples, languageId, prompt) {
   const multilingual = !!(findModel(recognizerModel) || {}).multilingual;
-  if (!multilingual) return decodeOnce(samples, 'en');
-  const first = await decodeOnce(samples, whisperLanguage(languageId));
-  const retry = pinnedRetryLanguage(languageId, first.lang);
-  return retry ? decodeOnce(samples, retry) : first;
+  if (!multilingual) return decodeOnce(samples, 'en', prompt);
+  const first = await decodeOnce(samples, whisperLanguage(languageId), prompt);
+  const retry = pinnedRetryLanguage(languageId, first.lang, first.probabilities);
+  return retry ? decodeOnce(samples, retry, prompt) : first;
 }
 
 function createVad() {
@@ -158,7 +211,7 @@ function createVad() {
   const model = vadPath(root(), path.join);
   if (!statSize(model)) throw new Error('the voice activity model is missing — run "npm run fetch:stt"');
   return new lib.Vad({
-    sileroVad: { model, ...VAD_CONFIG },
+    sileroVad: { model, ...vadConfigFor(engine) },
     sampleRate: SAMPLE_RATE,
     numThreads: 1,
     provider: 'cpu',
@@ -167,7 +220,10 @@ function createVad() {
 }
 
 function ensureVad() {
-  if (!vad) vad = createVad();
+  if (!vad || vadEngine !== engine) {
+    vad = createVad();
+    vadEngine = engine;
+  }
   return vad;
 }
 
@@ -185,7 +241,7 @@ function popSegments(v, into) {
 function clipSegments(samples) {
   const v = createVad();
   const segments = [];
-  const window = VAD_CONFIG.windowSize;
+  const window = vadConfigFor(engine).windowSize;
   for (let at = 0; at < samples.length; at += window) {
     v.acceptWaveform(samples.subarray(at, at + window));
     popSegments(v, segments);
@@ -214,6 +270,7 @@ function drain() {
   if (!segments.length) return;
   const forSession = target;
   const language = targetLanguage;
+  const context = captureContext;
   decodeQueue(async () => {
     // Decoding a phrase takes ~1s, which reads as "nothing happened" unless the
     // indicator says otherwise — so the renderer is told when we're working.
@@ -222,11 +279,14 @@ function drain() {
       for (const samples of segments) {
         // A stop mid-decode means the user has moved on; drop the rest.
         if (target !== forSession) return;
-        const result = await decodeSegment(samples, language);
+        const result = await decodeSegment(samples, language, context.text);
         // Filter here rather than in the renderer so a silence hallucination never
         // crosses the IPC boundary at all; the renderer only decides spacing.
         const text = normalizeTranscript(result && result.text);
-        if (shouldEmit(text)) sendToRenderer('stt-text', { sessionId: forSession, text });
+        if (shouldEmit(text, result.prompt)) {
+          context.text = `${context.text} ${text}`.trim();
+          sendToRenderer('stt-text', { sessionId: forSession, text });
+        }
       }
     } catch (err) {
       console.error('[voice] decode failed:', err && err.message);
@@ -245,12 +305,18 @@ function drain() {
 
 bridge.handle('stt-status', async () => {
   const dir = root();
-  const models = modelStates(dir, statSize, path.join);
+  const models = modelStates(dir, statSize, path.join, process.platform);
   const vadReady = !!statSize(vadPath(dir, path.join));
   const lib = load();
+  const modelId = pickModelId(recognizerModel);
   return {
     available: !!lib && vadReady && models.some((m) => m.ready),
     models,
+    // Which engine decodes (or will): the loaded one, else the best installed.
+    engine: engine || pickEngine({
+      gpuReady: gpuEngineReady(dir, modelId, statSize, path.join, process.platform),
+      cpuReady: modelReady(dir, modelId, statSize, path.join),
+    }),
     languages: LANGUAGES.map(({ id, labelKey }) => ({ id, labelKey })),
     error: lib ? null : loadError,
   };
@@ -291,7 +357,7 @@ function previewSpeech(samples) {
   preview.chunks.push(samples);
   preview.length += samples.length;
   const speaking = vad.isDetected();
-  const limit = (speaking ? VAD_CONFIG.maxSpeechDuration : 0.5) * SAMPLE_RATE;
+  const limit = (speaking ? vadConfigFor(engine).maxSpeechDuration : 0.5) * SAMPLE_RATE;
   while (preview.length > limit && preview.chunks.length > 1) {
     preview.length -= preview.chunks.shift().length;
   }
@@ -299,14 +365,15 @@ function previewSpeech(samples) {
   if (!speaking || preview.decoding || preview.sincePreview < SAMPLE_RATE || preview.length < SAMPLE_RATE) return;
   const sessionId = target;
   const language = targetLanguage;
+  const context = captureContext;
   const audio = concatSamples(preview.chunks);
   preview.sincePreview = 0;
   preview.decoding = true;
   decodeQueue(async () => {
     if (preview !== rowPreview || target !== sessionId) return;
-    const result = await decodeSegment(audio, language);
+    const result = await decodeSegment(audio, language, context.text);
     const text = normalizeTranscript(result.text);
-    if (preview === rowPreview && target === sessionId && shouldEmit(text)) {
+    if (preview === rowPreview && target === sessionId && shouldEmit(text, result.prompt)) {
       sendToRenderer('stt-row-preview', { sessionId, text });
     }
   }).catch(err => console.warn('[voice] preview failed:', err.message))
@@ -324,6 +391,7 @@ bridge.handle('stt-start', async (_e, { sessionId, modelId, language } = {}) => 
     rowSilence = null;
     vad.reset();
     audioErrorReported = false;
+    captureContext = { text: '' };
     target = sessionId || null;
     targetLanguage = lang;
     return { ok: true, modelId: id, language: lang };
@@ -377,9 +445,11 @@ bridge.handle('stt-transcribe-clip', async (_e, { clips, language } = {}) => {
     const segments = clipSegments(samples);
     const texts = await decodeQueue(async () => {
       const out = [];
+      let said = '';
       for (const seg of segments) {
-        const result = await decodeSegment(seg, lang);
-        out.push(result && result.text);
+        const result = await decodeSegment(seg, lang, said);
+        out.push({ text: result && result.text, prompt: result && result.prompt });
+        said = `${said} ${normalizeTranscript(result && result.text)}`.trim();
       }
       return out;
     });
@@ -419,6 +489,10 @@ function stopStt() {
   rowPreview = null;
   target = null;
   vad = null;
+  vadEngine = null;
+  if (gpu) gpu.stop();
+  gpu = null;
+  engine = null;
   recognizer = null;
   recognizerModel = null;
   recognizerConfig = null;
