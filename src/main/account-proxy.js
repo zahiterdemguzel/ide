@@ -130,13 +130,15 @@ async function handleMeteredRequest(req, res, body, accountId, path, track) {
 // The credentials of the entry active in this instance for a provider route, or
 // null to leave the session's own in place.
 async function providerCredentials(provider) {
-  return provider === providerLib.PROVIDER_EVREN ? providers.activeEvrenCredentials() : providers.activeCodexCredentials();
+  if (provider === providerLib.PROVIDER_EVREN) return providers.activeEvrenCredentials();
+  if (provider === providerLib.PROVIDER_DEEPSEEK) return providers.activeDeepseekCredentials();
+  return providers.activeCodexCredentials();
 }
 
 function providerRequestOptions(req, provider, path, credentials, bodyLength) {
   return {
     host: providerLib.UPSTREAM_HOST[provider],
-    path,
+    path: providerLib.upstreamPath(provider, path),
     method: req.method,
     headers: providerLib.providerUpstreamHeaders(req.headers, provider, credentials, bodyLength, lib.HOP_BY_HOP_HEADERS),
   };

@@ -9,7 +9,7 @@
 
 const { isOllamaId } = require('./ollama-models-lib');
 const { codexEffortValue } = require('./agent-effort');
-const { isEvrenId, isChatgptId, codexProxyOverride } = require('./provider-accounts-lib');
+const { isEvrenId, isDeepseekId, isChatgptId, codexProxyOverride } = require('./provider-accounts-lib');
 
 const CODEX_PREFIX = 'codex:';
 const isCodexId = (id) => typeof id === 'string' && id.startsWith(CODEX_PREFIX);
@@ -48,16 +48,39 @@ function currentModelId(id, models = []) {
   }
   return CODEX_PREFIX + latest;
 }
-function resolveCurrentModelId(id) {
-  if (!isCodexId(id)) return id;
+function readCodexCatalog() {
   try {
     const path = require('path');
     const home = process.env.CODEX_HOME || path.join(require('os').homedir(), '.codex');
     const catalog = JSON.parse(require('fs').readFileSync(path.join(home, 'models_cache.json'), 'utf8'));
-    return currentModelId(id, Array.isArray(catalog.models) ? catalog.models : []);
+    return Array.isArray(catalog.models) ? catalog.models : [];
   } catch {
-    return currentModelId(id);
+    return [];
   }
+}
+
+function resolveCurrentModelId(id) {
+  if (!isCodexId(id)) return id;
+  return currentModelId(id, readCodexCatalog());
+}
+
+// Used when the Codex catalog is missing or doesn't list the model: the smallest window
+// any current GPT family has, so Claude Code compacts early rather than overflowing.
+const FALLBACK_CONTEXT_TOKENS = 258000;
+
+// The usable context window of a `codex:` model in tokens, as the Codex catalog states
+// it (`context_window` scaled by `effective_context_window_percent`).
+function codexContextTokens(id, models = []) {
+  const slug = codexModelName(currentModelId(id, models));
+  const entry = models.find((m) => m?.slug === slug);
+  const window = Number(entry?.context_window);
+  if (!(window > 0)) return FALLBACK_CONTEXT_TOKENS;
+  const percent = Number(entry.effective_context_window_percent) || 100;
+  return Math.floor((window * percent) / 100);
+}
+
+function resolveContextTokens(id) {
+  return codexContextTokens(id, readCodexCatalog());
 }
 
 // Which CLI family a model id belongs to. An empty/`default` selection is a
@@ -66,6 +89,7 @@ function modelFamily(id) {
   if (isCodexId(id)) return 'codex';
   if (isOllamaId(id)) return 'ollama';
   if (isEvrenId(id)) return 'evren';
+  if (isDeepseekId(id)) return 'deepseek';
   if (isChatgptId(id)) return 'chatgpt';
   return 'claude';
 }
@@ -77,7 +101,7 @@ function modelFamily(id) {
 // local-model session keeps its model for life.
 function canSwitchModel(from, to) {
   const f = modelFamily(from);
-  return f === modelFamily(to) && f !== 'ollama' && f !== 'evren' && f !== 'chatgpt';
+  return f === modelFamily(to) && f !== 'ollama' && f !== 'evren' && f !== 'deepseek' && f !== 'chatgpt';
 }
 
 // The hook events Codex fires that our status/tracking pipeline consumes — the
@@ -133,4 +157,4 @@ function codexSpawnArgs({ resume, agentSessionId, model, effort, port, ideId, pl
   return args;
 }
 
-module.exports = { modelFamily, canSwitchModel, isCodexId, codexModelName, currentModelId, resolveCurrentModelId, codexSpawnArgs, codexHookCommand, CODEX_HOOK_EVENTS };
+module.exports = { modelFamily, canSwitchModel, isCodexId, codexModelName, currentModelId, resolveCurrentModelId, codexContextTokens, resolveContextTokens, codexSpawnArgs, codexHookCommand, CODEX_HOOK_EVENTS };

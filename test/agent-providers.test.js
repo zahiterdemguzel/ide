@@ -114,3 +114,15 @@ test('catalog advances each family numerically without downgrading or crossing f
   assert.equal(currentModelId('codex:gpt-8-sol', models), 'codex:gpt-8-sol');
   assert.equal(currentModelId('codex:custom', models), 'codex:custom');
 });
+
+test('a GPT model\'s context window comes from the Codex catalog, scaled to its usable share', () => {
+  const { codexContextTokens } = require('../src/main/agent-providers');
+  const catalog = [
+    { slug: 'gpt-6.2-sol', context_window: 500000, effective_context_window_percent: 95 },
+    { slug: 'gpt-6.2-astra', context_window: 272000 },
+  ];
+  assert.equal(codexContextTokens('codex:sol', catalog), 475000);
+  assert.equal(codexContextTokens('codex:astra', catalog), 272000);
+  assert.equal(codexContextTokens('codex:luna', catalog), 258000); // not listed: the safe fallback
+  assert.equal(codexContextTokens('codex:sol', []), 258000);
+});

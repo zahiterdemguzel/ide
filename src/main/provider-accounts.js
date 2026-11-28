@@ -1,4 +1,4 @@
-// Evren API keys and Codex accounts, the two other tabs of the account menu next to
+// Evren and DeepSeek API keys and Codex accounts, the other tabs of the account menu next to
 // the Claude accounts (see .claude/memory/accounts.md). Each provider keeps a list of
 // credentials with one active entry per app instance, and the account proxy
 // (account-proxy.js) puts the active entry's credentials on every request — so a
@@ -42,10 +42,9 @@ function saveStore(store) {
 }
 
 // Which entry *this* instance runs as, per provider; set from the stored choice at launch.
-const instanceActiveId = {
-  [lib.PROVIDER_EVREN]: loadStore()[lib.PROVIDER_EVREN].activeId,
-  [lib.PROVIDER_CODEX]: loadStore()[lib.PROVIDER_CODEX].activeId,
-};
+const instanceActiveId = Object.fromEntries(
+  Object.entries(loadStore()).map(([provider, state]) => [provider, state.activeId]),
+);
 
 function defaultCodexEntry(store) {
   return { id: lib.DEFAULT_ENTRY_ID, name: store[lib.PROVIDER_CODEX].defaultName || 'Default', homeDir: DEFAULT_CODEX_HOME };
@@ -56,69 +55,99 @@ function activeEntry(provider) {
   return lib.resolveActiveEntry(store, provider, instanceActiveId[provider], defaultCodexEntry(store));
 }
 
-// --- Evren ---
+// --- API-key providers (Evren, DeepSeek) ---
 
-function evrenKeyOf(entry) {
+const KEY_PROVIDER = {
+  [lib.PROVIDER_EVREN]: {
+    clean: lib.cleanEvrenKey, mask: lib.maskEvrenKey, label: 'Evren',
+    probe: { host: lib.EVREN_UPSTREAM_HOST, path: '/v1/quota' },
+  },
+  [lib.PROVIDER_DEEPSEEK]: {
+    clean: lib.cleanDeepseekKey, mask: lib.maskDeepseekKey, label: 'DeepSeek',
+    probe: { host: lib.DEEPSEEK_UPSTREAM_HOST, path: '/user/balance' },
+  },
+};
+
+function keyOf(entry) {
   return entry ? decodeStoredApiKey(entry.secret, safeStorage) : '';
 }
 
-// The credentials the proxy sends for the active Evren key; null when there is none.
-function activeEvrenCredentials() {
-  const key = evrenKeyOf(activeEntry(lib.PROVIDER_EVREN));
+// The credentials the proxy sends for the provider's active key; null when there is none.
+function activeKeyCredentials(provider) {
+  const key = keyOf(activeEntry(provider));
   return key ? { key } : null;
 }
+const activeEvrenCredentials = () => activeKeyCredentials(lib.PROVIDER_EVREN);
+const activeDeepseekCredentials = () => activeKeyCredentials(lib.PROVIDER_DEEPSEEK);
 
-// HTTP status of a free call made with the key; 0 = unreachable.
-function probeEvrenKey(key) {
+// { status, body } of a free, read-only call made with the key (Evren quota, DeepSeek
+// balance); status 0 = unreachable, body = parsed JSON or null.
+function probeKey(provider, key) {
   return new Promise((resolve) => {
     const https = require('https');
+    const { host, path: probePath } = KEY_PROVIDER[provider].probe;
     const req = https.request({
-      host: lib.EVREN_UPSTREAM_HOST, path: '/v1/quota', method: 'GET', timeout: 15000,
+      host, path: probePath, method: 'GET', timeout: 15000,
       headers: { authorization: `Bearer ${key}` },
-    }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode || 0)); });
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        let body = null;
+        try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch {}
+        resolve({ status: res.statusCode || 0, body });
+      });
+    });
     req.on('timeout', () => req.destroy());
-    req.on('error', () => resolve(0));
+    req.on('error', () => resolve({ status: 0, body: null }));
     req.end();
   });
 }
 
 // '' when the key looks usable, else an error code for the renderer to translate.
 // Offline counts as usable: the first session checks it again.
-async function evrenKeyProblem(key) {
+async function keyProblem(provider, key) {
   if (!key) return 'invalidFormat';
-  const status = await probeEvrenKey(key);
-  // 403 is a valid key whose owner has not accepted Evren's terms yet (terms_not_accepted).
+  const { status } = await probeKey(provider, key);
+  // Evren 403 is a valid key whose owner has not accepted Evren's terms yet (terms_not_accepted).
   return status === 401 ? 'rejected' : '';
 }
 
-async function addEvrenKey(name, rawKey) {
-  const key = lib.cleanEvrenKey(rawKey);
-  const problem = await evrenKeyProblem(key);
+async function addKey(provider, name, rawKey) {
+  const key = KEY_PROVIDER[provider].clean(rawKey);
+  const problem = await keyProblem(provider, key);
   if (problem) return { error: problem };
   const store = loadStore();
-  const evren = store[lib.PROVIDER_EVREN];
+  const state = store[provider];
   const entry = {
     id: crypto.randomUUID(),
-    name: String(name || '').trim() || `Evren ${evren.entries.length + 1}`,
+    name: String(name || '').trim() || `${KEY_PROVIDER[provider].label} ${state.entries.length + 1}`,
     secret: encodeStoredApiKey(key, safeStorage),
   };
-  evren.entries.push(entry);
-  if (!evren.activeId) evren.activeId = entry.id;
+  state.entries.push(entry);
+  if (!state.activeId) state.activeId = entry.id;
   saveStore(store);
-  if (!instanceActiveId[lib.PROVIDER_EVREN]) instanceActiveId[lib.PROVIDER_EVREN] = entry.id;
+  if (!instanceActiveId[provider]) instanceActiveId[provider] = entry.id;
   return { entry: { id: entry.id } };
 }
 
-async function setEvrenKey(id, rawKey) {
-  const key = lib.cleanEvrenKey(rawKey);
-  const problem = await evrenKeyProblem(key);
+async function setKey(provider, id, rawKey) {
+  const key = KEY_PROVIDER[provider].clean(rawKey);
+  const problem = await keyProblem(provider, key);
   if (problem) return { error: problem };
   const store = loadStore();
-  const entry = store[lib.PROVIDER_EVREN].entries.find((e) => e.id === id);
+  const entry = store[provider].entries.find((e) => e.id === id);
   if (!entry) return { error: 'unknownEntry' };
   entry.secret = encodeStoredApiKey(key, safeStorage);
   saveStore(store);
   return { ok: true };
+}
+
+// The balance line shown under a DeepSeek key ('' when it can't be read right now).
+async function deepseekBalanceText(key) {
+  if (!key) return '';
+  const { status, body } = await probeKey(lib.PROVIDER_DEEPSEEK, key);
+  return status === 200 ? lib.formatDeepseekBalance(lib.parseDeepseekBalance(body)) : '';
 }
 
 // --- Codex ---
@@ -138,6 +167,27 @@ async function renewCodexLogin(homeDir) {
     execFile(exe, ['login', 'status'], {
       env: { ...cleanEnv(process.env), CODEX_HOME: homeDir }, timeout: 30000,
     }, () => resolve());
+  });
+}
+
+// Usage of a Codex account's plan (its 5-hour and/or weekly window), read with the
+// account's own token. null when signed out, offline or the call fails.
+function fetchCodexUsage(login) {
+  return new Promise((resolve) => {
+    const https = require('https');
+    const headers = { authorization: `Bearer ${login.accessToken}` };
+    if (login.accountId) headers['chatgpt-account-id'] = login.accountId;
+    const req = https.request({ host: lib.CODEX_UPSTREAM_HOST, path: '/backend-api/wham/usage', method: 'GET', timeout: 15000, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try { resolve(res.statusCode === 200 ? lib.parseCodexUsage(JSON.parse(Buffer.concat(chunks).toString('utf8'))) : null); }
+        catch { resolve(null); }
+      });
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => resolve(null));
+    req.end();
   });
 }
 
@@ -178,28 +228,31 @@ function codexLoginCommand(id) {
 
 // --- shared ---
 
-function describeProvider(provider) {
+async function describeProvider(provider) {
   const store = loadStore();
   const state = store[provider];
   const active = lib.resolveActiveEntry(store, provider, instanceActiveId[provider], defaultCodexEntry(store));
   const activeId = active ? active.id : '';
-  if (provider === lib.PROVIDER_EVREN) {
-    return {
-      provider, activeId,
-      entries: state.entries.map((e) => {
-        const key = evrenKeyOf(e);
-        return { id: e.id, name: e.name, loggedIn: !!key, detail: lib.maskEvrenKey(key) };
-      }),
-    };
+  if (lib.API_KEY_PROVIDERS.includes(provider)) {
+    const entries = await Promise.all(state.entries.map(async (e) => {
+      const key = keyOf(e);
+      const detail = KEY_PROVIDER[provider].mask(key);
+      // DeepSeek is prepaid: the remaining balance is the usage figure worth showing.
+      const balance = provider === lib.PROVIDER_DEEPSEEK ? await deepseekBalanceText(key) : '';
+      return { id: e.id, name: e.name, loggedIn: !!key, detail, balance };
+    }));
+    return { provider, activeId, entries };
   }
-  const entries = [defaultCodexEntry(store), ...state.entries].map((e) => {
+  const entries = await Promise.all([defaultCodexEntry(store), ...state.entries].map(async (e) => {
     const login = readCodexLogin(e.homeDir);
     const usable = !!login && (!login.expired || login.hasRefreshToken);
+    // An expired token can't be used for the reading; the sign-in prompt shows instead.
+    const usage = login && !login.expired ? await fetchCodexUsage(login) : null;
     return {
       id: e.id, name: e.name, loggedIn: usable, detail: login ? login.email : '',
-      login: !login ? 'none' : usable ? 'ok' : 'expired',
+      login: !login ? 'none' : usable ? 'ok' : 'expired', usage,
     };
-  });
+  }));
   return { provider, activeId, entries };
 }
 
@@ -243,14 +296,16 @@ function renameEntry(provider, id, name) {
 
 ipcMain.handle('providers-list', (_e, provider) => (lib.PROVIDERS.includes(provider) ? describeProvider(provider) : null));
 ipcMain.handle('providers-add', (_e, { provider, name, apiKey }) => (
-  provider === lib.PROVIDER_EVREN ? addEvrenKey(name, apiKey) : addCodexAccount(name)));
-ipcMain.handle('providers-set-key', (_e, { id, apiKey }) => setEvrenKey(id, apiKey));
+  lib.API_KEY_PROVIDERS.includes(provider) ? addKey(provider, name, apiKey) : addCodexAccount(name)));
+ipcMain.handle('providers-set-key', (_e, { provider = lib.PROVIDER_EVREN, id, apiKey }) => (
+  lib.API_KEY_PROVIDERS.includes(provider) ? setKey(provider, id, apiKey) : { error: 'unknownProvider' }));
 ipcMain.handle('providers-remove', (_e, { provider, id }) => { removeEntry(provider, id); return describeProvider(provider); });
 ipcMain.handle('providers-rename', (_e, { provider, id, name }) => { renameEntry(provider, id, name); return describeProvider(provider); });
 ipcMain.handle('providers-set-active', (_e, { provider, id }) => setActive(provider, id));
 ipcMain.handle('providers-login-command', (_e, id) => codexLoginCommand(id));
 
 module.exports = {
-  activeEvrenCredentials, activeCodexCredentials,
+  activeEvrenCredentials, activeCodexCredentials, activeDeepseekCredentials,
   hasEvrenKey: () => !!activeEvrenCredentials(),
+  hasDeepseekKey: () => !!activeDeepseekCredentials(),
 };

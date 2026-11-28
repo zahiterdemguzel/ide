@@ -234,10 +234,10 @@ of the 98% auto-switch; manual switching ignores it. An opted-out row shows a
 struck-through lightning mark (`.acct-noauto`) when not hovered.
 The sign-in dialog widens itself with `.dlg.is-wide` (`base.css`). Strings: `accounts.*`.
 
-## Codex and Evren tabs
+## Codex, Evren and DeepSeek tabs
 
-The account menu has three tabs — **Codex · Claude · Evren** — each with its own
-selected entry per app instance, so the three are chosen independently. Claude (the
+The account menu has four tabs — **Codex · Claude · Evren · DeepSeek** — each with its own
+selected entry per app instance, so they are chosen independently. Claude (the
 default tab) is everything above; the toolbar pill and usage meter follow only it.
 Code: `provider-accounts.js` (disk + IPC `providers-*`), pure `provider-accounts-lib.js`
 (tested), list in `~/.claude-accounts/providers.json` (mode 0600).
@@ -255,6 +255,11 @@ own, so a switch needs no restart. Sessions always run in the default config (`~
   `evren-llmapi.ssyz.org.tr`. Key check is `GET /v1/quota` (only 401 = rejected; 403
   `terms_not_accepted` means the owner must accept Evren's terms first). Picking an Evren model with
   no key opens the add-key dialog (`ensureEvrenKey`). No usage/quota display yet (`GET /v1/quota` exists).
+- **Codex usage**: each Codex row shows its plan windows with the same meter as Claude rows. Main reads
+  `GET chatgpt.com/backend-api/wham/usage` with that account's own token (`fetchCodexUsage`, skipped when the token
+  is expired) and `parseCodexUsage` (tested) maps `rate_limit.primary_window`/`secondary_window` to `5h`/`7d` by
+  `limit_window_seconds`. Some plans (e.g. prolite) have only the weekly window, so only one bar shows. Refreshed
+  whenever the tab opens.
 - **Codex**: an account is a `CODEX_HOME` folder under `~/.codex-accounts/<name>` holding a
   `codex login`; the default entry is `~/.codex`. Codex spawns get
   `-c chatgpt_base_url="http://127.0.0.1:<port>/c/backend-api/"` (verified with codex 0.171: all
@@ -263,14 +268,36 @@ own, so a switch needs no restart. Sessions always run in the default config (`~
   home — never refreshed by the proxy. No usable login → the session's own credentials pass through.
   A WebSocket upgrade on `/c/` is tunneled. **Not verified**: a full `/codex/responses` turn through the
   proxy, and logins kept in the OS keyring instead of `auth.json` (those read as signed out).
-- Mobile app: still sees `evren:` ids as Claude family (not ported).
+- **DeepSeek**: same shape as Evren (keys encrypted in `providers.json`, `API_KEY_PROVIDERS` in the lib share the
+  add/set/probe code in `provider-accounts.js`). A model id `deepseek:<name>` (`DEEPSEEK_MODELS` in
+  `renderer/settings.js`: `deepseek-v4-pro`, `deepseek-flash`) is family `deepseek` (frozen for life) and spawns the
+  `claude` CLI with `deepseekSpawnEnv` against proxy route `/d`, which forwards to `api.deepseek.com` under
+  `/anthropic` (`upstreamPath`) with `Authorization: Bearer <active key>`. Key check and the **usage figure** are
+  `GET /user/balance` (401 = rejected); each key row shows its masked key plus the remaining prepaid balance
+  (`balance`, refreshed whenever the tab opens). Picking a DeepSeek model with no key opens the add-key dialog
+  (`ensureDeepseekKey`). Verified live: `claude -p` on `deepseek-v4-pro` through the Anthropic endpoint. No spend
+  history or limits yet, only the balance.
+- Mobile app: still sees `evren:` and `deepseek:` ids as Claude family (not ported).
 - **ChatGPT in Claude Code** (`chatgpt:sol|astra|terra|luna`, family `chatgpt`, frozen for life): the
   `claude` CLI against the proxy's `/g` route (`chatgptSpawnEnv`; aliases `sol…luna` are the model names the CLI
   sends). The route is `chatgpt-route.js` (Electron-free, tested end to end against a fake backend in `test/chatgpt-route.test.js`); `chatgpt-translate-lib.js` (tested) turns Anthropic Messages into the Codex backend's Responses request
   (`chatgpt.com/backend-api/codex/responses`: `store:false`, `stream:true`, non-empty `instructions` — all
   required, a bad body gets `400 Store must be set to false`) and the SSE stream back (text, function calls →
   `tool_use`, usage; effort from `output_config.effort` or the thinking budget; reasoning events dropped, thinking blocks never replayed). Uses the **Codex tab's active
-  account**. `count_tokens` is estimated locally (chars/4). Model = `resolveCurrentModelId('codex:<family>')`.
+  account**. The spawn also gets `--model <family>` (`chatgptModelArgs`, outranks a `model` in the user's
+  settings) and `CLAUDE_CODE_MAX_CONTEXT_TOKENS` = the model's usable window from the Codex catalog
+  (`resolveContextTokens` in `agent-providers.js`; 258000 fallback), which silences Claude Code's
+  "model isn't recognized · assumed 200k" warning. If the proxy can't start, the spawn throws rather
+  than falling back to the Claude login. `count_tokens` is estimated locally (chars/4). Model = `resolveCurrentModelId('codex:<family>')`.
+  **`/voice` works in GPT sessions**: when the session's Claude account holds a claude.ai login
+  (`hasClaudeAiLogin` in `sessions.js` — not an API-key account, OAuth creds present), `chatgptSpawnEnv({claudeLogin})`
+  leaves out the placeholder `ANTHROPIC_AUTH_TOKEN`. Claude Code offers voice only to a claude.ai login (its
+  auth check turns off whenever `ANTHROPIC_AUTH_TOKEN` is set), and its voice stream goes straight to
+  `wss://api.anthropic.com/api/ws/speech_to_text/voice_stream` with the CLI's own OAuth token, not through
+  `ANTHROPIC_BASE_URL`. The chat still goes to `/g` carrying the Claude bearer, which the route ignores (it always
+  sends the Codex login). Without a claude.ai login (API-key account, or Codex-only user) the placeholder stays,
+  otherwise the CLI would stop at its login screen. Chat routing with the login kept was verified with CLI 2.1.322
+  against a mock `/g` server; that `/voice` then turns on is read from the CLI's code (its auth gate), not yet observed.
   **Not verified live**: the request shape passes the backend's validation, but a full answer stream was never
   seen (the account was at its weekly limit) — response event names follow the public Responses API.
   Using a ChatGPT subscription token outside the Codex CLI may conflict with OpenAI's terms; unchecked.

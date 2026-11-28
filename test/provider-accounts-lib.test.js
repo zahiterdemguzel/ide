@@ -103,3 +103,88 @@ test('a new session asked for on a Codex CLI model runs the same GPT family in C
     assert.equal(chatgptIdForNewSession(id), id);
   }
 });
+
+test('parseCodexUsage reads a weekly-only plan and a two-window plan', () => {
+  const now = Date.UTC(2026, 10, 28, 12, 0, 0);
+  const weekly = lib.parseCodexUsage({ rate_limit: { primary_window: { used_percent: 84, limit_window_seconds: 604800, reset_after_seconds: 533786, reset_at: now / 1000 + 86400 * 2 }, secondary_window: null } }, now);
+  assert.deepEqual(weekly.windows.map((w) => [w.key, w.utilization, w.resetIn]), [['7d', 0.84, '2d']]);
+  const both = lib.parseCodexUsage({ rate_limit: {
+    primary_window: { used_percent: 10, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+    secondary_window: { used_percent: 150, limit_window_seconds: 604800, reset_after_seconds: 86400 * 3 },
+  } }, now);
+  assert.deepEqual(both.windows.map((w) => [w.key, w.utilization, w.resetIn]), [['5h', 0.1, '1h'], ['7d', 1, '3d']]);
+  assert.equal(lib.parseCodexUsage({ rate_limit: null }, now), null);
+  assert.equal(lib.parseCodexUsage({ rate_limit: { primary_window: { used_percent: 5, limit_window_seconds: 99 } } }, now), null);
+});
+
+test('deepseek model ids are their own frozen family', () => {
+  assert.equal(modelFamily('deepseek:deepseek-v4-pro'), 'deepseek');
+  assert.equal(lib.deepseekModelName('deepseek:deepseek-flash'), 'deepseek-flash');
+  assert.equal(canSwitchModel('deepseek:deepseek-v4-pro', 'deepseek:deepseek-flash'), false);
+  assert.equal(canSwitchModel('deepseek:deepseek-v4-pro', 'opus'), false);
+});
+
+test('cleanDeepseekKey only accepts sk- keys without whitespace', () => {
+  assert.equal(lib.cleanDeepseekKey('  sk-0123456789abcdef '), 'sk-0123456789abcdef');
+  assert.equal(lib.cleanDeepseekKey('evren_llm_abcdefgh12345'), '');
+  assert.equal(lib.cleanDeepseekKey('sk-short'), '');
+  assert.equal(lib.cleanDeepseekKey('sk-0123456789 abcdef'), '');
+  assert.equal(lib.maskDeepseekKey('sk-0123456789abcdef'), 'sk-…cdef');
+});
+
+test('deepseekSpawnEnv routes through the /d proxy route and maps every Claude alias', () => {
+  const env = lib.deepseekSpawnEnv({ port: 4000, model: 'deepseek:deepseek-v4-pro', subagentModel: 'default' });
+  assert.equal(env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:4000/d');
+  assert.equal(env.ANTHROPIC_MODEL, 'deepseek-v4-pro');
+  assert.equal(env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'deepseek-v4-pro');
+  assert.equal(env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'deepseek-flash');
+  assert.equal(env.CLAUDE_CODE_SUBAGENT_MODEL, 'deepseek-v4-pro');
+  assert.equal(lib.deepseekSpawnEnv({ port: 1, model: 'deepseek:deepseek-v4-pro', subagentModel: 'deepseek:deepseek-flash' }).CLAUDE_CODE_SUBAGENT_MODEL, 'deepseek-flash');
+});
+
+test('the /d route is sent upstream below DeepSeek\'s /anthropic path with the key as bearer', () => {
+  assert.deepEqual(lib.splitProviderPath('/d/v1/messages?beta=true'), { provider: 'deepseek', path: '/v1/messages?beta=true' });
+  assert.equal(lib.upstreamPath('deepseek', '/v1/messages'), '/anthropic/v1/messages');
+  assert.equal(lib.upstreamPath('evren', '/v1/messages'), '/v1/messages');
+  const headers = lib.providerUpstreamHeaders({ 'x-api-key': 'session', host: '127.0.0.1' }, 'deepseek', { key: 'sk-abc' }, 0, HOP_BY_HOP_HEADERS);
+  assert.equal(headers.host, 'api.deepseek.com');
+  assert.equal(headers.authorization, 'Bearer sk-abc');
+  assert.equal(headers['x-api-key'], undefined);
+});
+
+test('normalizeProviderStore keeps DeepSeek key entries separate from Evren ones', () => {
+  const store = lib.normalizeProviderStore({ deepseek: { activeId: 'b', entries: [{ id: 'a', name: 'A', secret: 's1' }, { id: 'b', secret: 's2' }, { id: 'c' }] } });
+  assert.deepEqual(store.deepseek.entries.map((e) => e.id), ['a', 'b']);
+  assert.equal(store.deepseek.activeId, 'b');
+  assert.deepEqual(store.evren.entries, []);
+});
+
+test('DeepSeek balance readings parse and format per currency', () => {
+  const balance = lib.parseDeepseekBalance({ is_available: true, balance_infos: [{ currency: 'USD', total_balance: '1.58', granted_balance: '0.00', topped_up_balance: '1.58' }] });
+  assert.deepEqual(balance, { available: true, balances: [{ currency: 'USD', total: 1.58, granted: 0, toppedUp: 1.58 }] });
+  assert.equal(lib.formatDeepseekBalance(balance), '$1.58');
+  assert.equal(lib.formatDeepseekBalance({ available: true, balances: [{ currency: 'CNY', total: 12, granted: 0, toppedUp: 12 }, { currency: 'EUR', total: 3, granted: 0, toppedUp: 3 }] }), '¥12.00 · 3.00 EUR');
+  assert.equal(lib.parseDeepseekBalance({ error: 'x' }), null);
+  assert.equal(lib.formatDeepseekBalance(null), '');
+});
+
+test('a GPT session pins its model on the command line; other sessions get no flag', () => {
+  const { chatgptModelArgs } = require('../src/main/provider-accounts-lib');
+  assert.deepEqual(chatgptModelArgs('chatgpt:sol'), ['--model', 'sol']);
+  assert.deepEqual(chatgptModelArgs('chatgpt:astra'), ['--model', 'astra']);
+  for (const id of ['opus', 'evren:glm-5.3', 'codex:sol', '', undefined]) assert.deepEqual(chatgptModelArgs(id), []);
+});
+
+test('a GPT session tells Claude Code its model\'s context window when one is known', () => {
+  const { chatgptSpawnEnv } = require('../src/main/provider-accounts-lib');
+  assert.equal(chatgptSpawnEnv({ port: 1, model: 'chatgpt:sol', contextTokens: 475000 }).CLAUDE_CODE_MAX_CONTEXT_TOKENS, '475000');
+  assert.equal('CLAUDE_CODE_MAX_CONTEXT_TOKENS' in chatgptSpawnEnv({ port: 1, model: 'chatgpt:sol' }), false);
+});
+
+test('a GPT session keeps its claude.ai login (so /voice works) and only falls back to the placeholder token without one', () => {
+  const { chatgptSpawnEnv } = require('../src/main/provider-accounts-lib');
+  const withLogin = chatgptSpawnEnv({ port: 7, model: 'chatgpt:sol', claudeLogin: true });
+  assert.equal('ANTHROPIC_AUTH_TOKEN' in withLogin, false);
+  assert.equal(withLogin.ANTHROPIC_BASE_URL, 'http://127.0.0.1:7/g');
+  assert.equal(chatgptSpawnEnv({ port: 7, model: 'chatgpt:sol' }).ANTHROPIC_AUTH_TOKEN, 'chatgpt-via-account-proxy');
+});

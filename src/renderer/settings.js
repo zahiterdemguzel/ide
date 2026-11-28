@@ -74,6 +74,12 @@ export const EVREN_MODELS = [
   { id: 'evren:glm-5.3', name: 'GLM 5.3 (Evren)' },
   { id: 'evren:deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash (Evren)' },
 ];
+// DeepSeek's own API (Anthropic-compatible), run through the `claude` CLI and billed to
+// the DeepSeek key active in the account menu. Frozen for life like an Evren model.
+export const DEEPSEEK_MODELS = [
+  { id: 'deepseek:deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
+  { id: 'deepseek:deepseek-flash', name: 'DeepSeek V4.1 Flash' },
+];
 // Claude Code running on a ChatGPT login: the account proxy translates to the Codex
 // backend (see chatgpt-translate-lib.js). Frozen for life like an Evren model.
 export const CHATGPT_MODELS = [
@@ -123,6 +129,7 @@ export function setToolHooksEnabled(on) {
 const isOllamaId = (v) => typeof v === 'string' && v.startsWith('ollama:');
 const isCodexId = (v) => typeof v === 'string' && v.startsWith('codex:');
 const isEvrenId = (v) => typeof v === 'string' && v.startsWith('evren:');
+const isDeepseekId = (v) => typeof v === 'string' && v.startsWith('deepseek:');
 const isChatgptId = (v) => typeof v === 'string' && v.startsWith('chatgpt:');
 
 // Which CLI family a model id runs on — the renderer mirror of the main
@@ -133,12 +140,13 @@ export function modelFamily(id) {
   if (isCodexId(id)) return 'codex';
   if (isOllamaId(id)) return 'ollama';
   if (isEvrenId(id)) return 'evren';
+  if (isDeepseekId(id)) return 'deepseek';
   if (isChatgptId(id)) return 'chatgpt';
   return 'claude';
 }
 export function switchableModels(currentId) {
   const family = modelFamily(currentId);
-  if (family === 'ollama' || family === 'evren' || family === 'chatgpt') return []; // a local or Evren model is fixed for life
+  if (family === 'ollama' || family === 'evren' || family === 'deepseek' || family === 'chatgpt') return []; // a local or Evren model is fixed for life
   if (family === 'codex') return CODEX_MODELS; // an older Codex CLI session, hidden from new-session menus
   return getMergedModels().filter((m) => modelFamily(m.id) === family);
 }
@@ -167,10 +175,10 @@ export async function refreshOllamaModels() {
 // The full list the model UIs draw from: static Claude models, Evren, ChatGPT via
 // Claude Code, then installed Ollama models. Ids are namespaced so they never collide.
 // Codex CLI models are left out: GPT is only offered through Claude Code.
-export function getMergedModels() { return [...MODELS, ...EVREN_MODELS, ...CHATGPT_MODELS, ...ollamaModels]; }
+export function getMergedModels() { return [...MODELS, ...EVREN_MODELS, ...DEEPSEEK_MODELS, ...CHATGPT_MODELS, ...ollamaModels]; }
 // Human label for any model id (Claude alias, `codex:<model>` or `ollama:<name>`).
 export function modelLabel(id) {
-  const known = MODELS.find((m) => m.id === id) || CODEX_MODELS.find((m) => m.id === id) || EVREN_MODELS.find((m) => m.id === id) || CHATGPT_MODELS.find((m) => m.id === id);
+  const known = MODELS.find((m) => m.id === id) || CODEX_MODELS.find((m) => m.id === id) || EVREN_MODELS.find((m) => m.id === id) || DEEPSEEK_MODELS.find((m) => m.id === id) || CHATGPT_MODELS.find((m) => m.id === id);
   if (known) return known.name;
   if (isCodexId(id)) return id.slice('codex:'.length);
   if (isOllamaId(id)) return id.slice('ollama:'.length);
@@ -185,7 +193,7 @@ export function modelLabel(id) {
 // user re-picks — the menu self-heals when it re-renders from the live list.
 function readModel(key) {
   const v = codexToChatgptId(localStorage.getItem(key));
-  if (MODELS.some((m) => m.id === v) || EVREN_MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v;
+  if (MODELS.some((m) => m.id === v) || EVREN_MODELS.some((m) => m.id === v) || DEEPSEEK_MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v)) return v;
   return isChatgptId(v) ? DEFAULT_CHATGPT_MODEL : DEFAULT_MODEL;
 }
 
@@ -203,7 +211,7 @@ export function getSubagentModel() { return readModel(STORE.subagentModel); }
 // default for the next session. Unknown ids fall back to the inherit default.
 export function setSessionModel(id) {
   const v = codexToChatgptId(id);
-  const ok = MODELS.some((m) => m.id === v) || EVREN_MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v);
+  const ok = MODELS.some((m) => m.id === v) || EVREN_MODELS.some((m) => m.id === v) || DEEPSEEK_MODELS.some((m) => m.id === v) || CHATGPT_MODELS.some((m) => m.id === v) || isOllamaId(v);
   localStorage.setItem(STORE.model, ok ? v : DEFAULT_MODEL);
 }
 

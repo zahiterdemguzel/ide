@@ -175,10 +175,17 @@ const ICON_KEY = '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><
 
 // The menu's three tabs, each with its own independently chosen entry: the Codex
 // account, the Claude account (the toolbar pill and usage meter follow this one) and
-// the Evren API key. Claude is the default.
-const TABS = ['codex', 'claude', 'evren'];
+// the Evren and DeepSeek API keys. Claude is the default.
+const TABS = ['codex', 'claude', 'evren', 'deepseek'];
 let activeTab = 'claude';
-const providerState = { codex: null, evren: null };
+const providerState = { codex: null, evren: null, deepseek: null };
+
+// What differs between the API-key tabs: the key's placeholder and the strings to show.
+const KEY_TABS = {
+  evren: { placeholder: 'evren_llm_…', addTitle: 'accounts.addEvrenKey', namePlaceholder: 'accounts.evrenNamePlaceholder', body: 'accounts.evrenKeyBody', invalid: 'accounts.evrenKeyInvalid' },
+  deepseek: { placeholder: 'sk-…', addTitle: 'accounts.addDeepseekKey', namePlaceholder: 'accounts.deepseekNamePlaceholder', body: 'accounts.deepseekKeyBody', invalid: 'accounts.deepseekKeyInvalid' },
+};
+const isKeyTab = (provider) => provider in KEY_TABS;
 
 function renderTabs() {
   const bar = el('div', 'acct-tabs');
@@ -258,17 +265,22 @@ function providerRow(provider, entry, active) {
   const text = el('span', 'acct-text');
   text.append(el('span', 'acct-row-name', entry.id === 'default' && entry.name === 'Default' ? t('accounts.default') : entry.name));
   const expired = entry.login === 'expired';
-  const sub = el('span', 'acct-row-sub', entry.loggedIn ? entry.detail : expired ? t('accounts.loginExpired') : t('accounts.signedOut'));
+  // A DeepSeek key shows its remaining prepaid balance next to the masked key.
+  const signedInText = [entry.detail, entry.balance && t('accounts.balanceLeft').replace('{amount}', entry.balance)].filter(Boolean).join(' · ');
+  const sub = el('span', 'acct-row-sub', entry.loggedIn ? signedInText : expired ? t('accounts.loginExpired') : t('accounts.signedOut'));
   if (expired) sub.classList.add('is-error');
   else if (!entry.loggedIn) sub.classList.add('is-warn');
   text.append(sub);
   row.append(el('span', 'acct-avatar', accountInitials(entry.name)), text);
+  // A Codex account shows its plan windows (weekly, and 5-hour where the plan has one) like a Claude row.
+  const meter = usageMeter(entry.usage);
+  if (meter) row.append(meter);
   row.setAttribute('role', 'menuitemradio');
   row.setAttribute('aria-checked', String(active));
   row.tabIndex = 0;
   const actions = el('span', 'acct-actions');
-  const reauth = () => (provider === 'evren' ? changeEvrenKey(entry) : signInCodex(entry));
-  actions.append(iconButton(provider === 'evren' ? ICON_KEY : ICON_SIGN_IN, t(provider === 'evren' ? 'accounts.changeApiKey' : 'accounts.signIn'), reauth));
+  const reauth = () => (isKeyTab(provider) ? changeProviderKey(provider, entry) : signInCodex(entry));
+  actions.append(iconButton(isKeyTab(provider) ? ICON_KEY : ICON_SIGN_IN, t(isKeyTab(provider) ? 'accounts.changeApiKey' : 'accounts.signIn'), reauth));
   actions.append(iconButton(ICON_RENAME, t('accounts.rename'), () => renameProviderEntry(provider, entry)));
   if (entry.id !== 'default') actions.append(iconButton(ICON_REMOVE, t('accounts.remove'), () => removeProviderEntry(provider, entry)));
   row.append(actions);
@@ -286,8 +298,8 @@ function renderProviderMenu(provider) {
   const add = el('button', 'acct-add');
   add.type = 'button';
   add.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
-  add.append(el('span', '', t(provider === 'evren' ? 'accounts.addEvrenKey' : 'accounts.addCodex')));
-  add.addEventListener('click', () => { closeMenu(); (provider === 'evren' ? addEvrenKey() : addCodexAccount()); });
+  add.append(el('span', '', t(isKeyTab(provider) ? KEY_TABS[provider].addTitle : 'accounts.addCodex')));
+  add.addEventListener('click', () => { closeMenu(); (isKeyTab(provider) ? addProviderKey(provider) : addCodexAccount()); });
   menu.append(el('div', 'acct-menu-sep'), add);
 }
 
@@ -298,49 +310,53 @@ async function switchProviderTo(provider, id) {
   await window.api.setActiveProviderAccount(provider, id);
 }
 
-// Asks for an Evren key until main accepts it or the user cancels.
-async function askForEvrenKey({ title, save }) {
+// Asks for an API key until main accepts it or the user cancels.
+async function askForProviderKey(provider, { title, save }) {
+  const text = KEY_TABS[provider];
   let error = '';
   for (;;) {
     const key = await openDialog({
-      title, body: t('accounts.evrenKeyBody'), label: t('accounts.apiKeyLabel'),
-      input: { placeholder: 'evren_llm_…', error, type: 'password' },
+      title, body: t(text.body), label: t('accounts.apiKeyLabel'),
+      input: { placeholder: text.placeholder, error, type: 'password' },
       cancelValue: null,
       buttons: [
         { label: t('accounts.cancel'), value: null, variant: 'secondary' },
-        { label: t('accounts.saveApiKey'), value: (text) => text || null, variant: 'primary' },
+        { label: t('accounts.saveApiKey'), value: (value) => value || null, variant: 'primary' },
       ],
     });
     if (!key) return false;
     const result = await save(key);
-    if (!result || !result.error) { await refreshProvider('evren'); return true; }
-    error = t(result.error === 'rejected' ? 'accounts.apiKeyRejected' : 'accounts.evrenKeyInvalid');
+    if (!result || !result.error) { await refreshProvider(provider); return true; }
+    error = t(result.error === 'rejected' ? 'accounts.apiKeyRejected' : text.invalid);
   }
 }
 
-async function addEvrenKey() {
+async function addProviderKey(provider) {
+  const text = KEY_TABS[provider];
   const name = await promptText({
-    title: t('accounts.addEvrenKey'), label: t('accounts.nameLabel'),
-    placeholder: t('accounts.evrenNamePlaceholder'), ok: t('accounts.next'),
+    title: t(text.addTitle), label: t('accounts.nameLabel'),
+    placeholder: t(text.namePlaceholder), ok: t('accounts.next'),
   });
   if (!name) return false;
-  return askForEvrenKey({ title: t('accounts.addEvrenKey'), save: (key) => window.api.addProviderAccount('evren', name, key) });
+  return askForProviderKey(provider, { title: t(text.addTitle), save: (key) => window.api.addProviderAccount(provider, name, key) });
 }
 
-// A new Evren session needs a key: with none saved, the add-key dialog opens first.
-export async function ensureEvrenKey() {
+// A new session on a key provider's model needs a key: with none saved, the add-key dialog opens first.
+async function ensureProviderKey(provider) {
   let view = null;
-  try { view = await window.api.listProviderAccounts('evren'); } catch { return true; }
+  try { view = await window.api.listProviderAccounts(provider); } catch { return true; }
   if (view && view.entries.some((e) => e.loggedIn)) return true;
-  providerState.evren = view;
-  return addEvrenKey();
+  providerState[provider] = view;
+  return addProviderKey(provider);
 }
+export const ensureEvrenKey = () => ensureProviderKey('evren');
+export const ensureDeepseekKey = () => ensureProviderKey('deepseek');
 
-async function changeEvrenKey(entry) {
+async function changeProviderKey(provider, entry) {
   closeMenu();
-  await askForEvrenKey({
+  await askForProviderKey(provider, {
     title: t('accounts.changeApiKeyTitle').replace('{name}', entry.name),
-    save: (key) => window.api.setProviderKey(entry.id, key),
+    save: (key) => window.api.setProviderKey(entry.id, key, provider),
   });
 }
 

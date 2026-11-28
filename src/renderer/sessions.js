@@ -8,7 +8,7 @@ import { openDialog } from './shared/dialog.js';
 import { showArmHint, hideArmHint } from './shared/arm-hint.js';
 import { showWarning } from './shared/warn.js';
 import { ensureClaude, ensureCodex } from './claude-setup.js';
-import { ensureEvrenKey } from './accounts.js';
+import { ensureEvrenKey, ensureDeepseekKey } from './accounts.js';
 import { isCompletionTransition, playNotification } from './shared/notify.js';
 import { compileQuery, matchesTerms } from './shared/name-match.js';
 import { nextSessionId } from './shared/session-cycle.js';
@@ -584,6 +584,7 @@ function buildModelMenuItems(container, current, onPick, itemClass, models = get
   let ollamaHeaderDone = false;
   let codexHeaderDone = false;
   let evrenHeaderDone = false;
+  let deepseekHeaderDone = false;
   let chatgptHeaderDone = false;
   for (const m of models) {
     if (m.id === 'default') continue; // inherit sentinel isn't a picker choice
@@ -610,6 +611,13 @@ function buildModelMenuItems(container, current, onPick, itemClass, models = get
       const div = document.createElement('div');
       div.className = 'model-menu-divider';
       div.textContent = t('models.evrenDivider');
+      container.appendChild(div);
+    }
+    if (m.id.startsWith('deepseek:') && !deepseekHeaderDone && models.some((x) => !x.id.startsWith('deepseek:'))) {
+      deepseekHeaderDone = true;
+      const div = document.createElement('div');
+      div.className = 'model-menu-divider';
+      div.textContent = t('models.deepseekDivider');
       container.appendChild(div);
     }
     if (m.id.startsWith('chatgpt:') && !chatgptHeaderDone && models.some((x) => !x.id.startsWith('chatgpt:'))) {
@@ -1210,6 +1218,7 @@ export async function newSession(opts = {}) {
   if ((modelFamily(model) === 'codex' || modelFamily(model) === 'chatgpt') && !(await ensureCodex())) return;
   // An evren: model needs an Evren API key; the add-key dialog opens when there is none.
   if (modelFamily(model) === 'evren' && !(await ensureEvrenKey())) return;
+  if (modelFamily(model) === 'deepseek' && !(await ensureDeepseekKey())) return;
   const subagentModel = opts.subagentModel || getSubagentModel();
   // Worktree mode: ask what to skip, then keep a progress dialog up for the whole
   // copy. `forceMainTree` is how the merge-conflict hand-off (and anything else

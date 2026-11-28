@@ -6,7 +6,7 @@ const fs = require('fs');
 const execFileAsync = require('util').promisify(require('child_process').execFile);
 const { sendToRenderer } = require('./window');
 const { getRepoPath, getMainRepoPath, setActiveWorktree } = require('./repo');
-const { resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable } = require('./claude');
+const { resolveClaude, ensureFolderTrusted, runHaiku, claudeAvailable, readOauthCredsAsync } = require('./claude');
 const { installGuide } = require('./claude-install');
 const { cleanEnv } = require('./proc-env');
 const { terminalEnv, PTY_TERM_NAME } = require('./terminal-env');
@@ -16,8 +16,8 @@ const { planAccountMove, shouldMoveAfterState, isApiKeyAccount } = require('./ac
 const { ensureAccountProxy } = require('./account-proxy');
 const { canRouteThroughProxy, canMeterThroughProxy, proxyRouteEnv } = require('./account-proxy-lib');
 const { isOllamaId, ollamaName } = require('./ollama-models-lib');
-const { evrenSpawnEnv, chatgptSpawnEnv, chatgptIdForNewSession } = require('./provider-accounts-lib');
-const { modelFamily, canSwitchModel, codexSpawnArgs } = require('./agent-providers');
+const { evrenSpawnEnv, deepseekSpawnEnv, chatgptSpawnEnv, chatgptModelArgs, chatgptFamilyName, chatgptIdForNewSession } = require('./provider-accounts-lib');
+const { modelFamily, canSwitchModel, codexSpawnArgs, resolveContextTokens } = require('./agent-providers');
 const { latestCodexModel } = require('./codex-latest');
 const { resolveCodex, codexAvailable, codexLoggedIn } = require('./codex');
 const { installGuide: codexInstallGuide } = require('./codex-install');
@@ -1003,25 +1003,43 @@ async function ollamaRoute(s) {
   };
 }
 
-// A session whose model is an `evren:<name>` id (or `chatgpt:<family>`) runs the `claude` CLI against SSB's
+// Model families that run the `claude` CLI against the account proxy with a placeholder token.
+const PROXY_ROUTED_FAMILIES = ['evren', 'deepseek', 'chatgpt'];
+
+// A session whose model is an `evren:<name>` or `deepseek:<name>` id (or `chatgpt:<family>`) runs the `claude` CLI against SSB's
 // Evren LLM platform (Anthropic-compatible) through the account proxy, which puts
 // the Evren key active in this instance on every request — so switching keys needs
 // no restart. {} for any other model, and when the proxy can't start (the session
 // would then have no key to send).
 async function evrenRoute(s) {
   const family = s ? modelFamily(s.model) : '';
-  if (family !== 'evren' && family !== 'chatgpt') return {};
+  if (!PROXY_ROUTED_FAMILIES.includes(family)) return {};
   const port = await ensureAccountProxy();
-  if (!port) return {};
+  // Without the proxy the CLI would fall back to the Claude login and quietly answer
+  // with a Claude model, so a proxy-routed session refuses to start instead.
+  if (!port) throw new Error(`The account proxy could not start, so this ${family} session can't reach its model.`);
   // A `chatgpt:` session is the same shape: the claude CLI against the proxy's translating route.
-  const spawnEnv = family === 'evren' ? evrenSpawnEnv : chatgptSpawnEnv;
-  return spawnEnv({ port, model: s.model, subagentModel: s.subagentModel });
+  const spawnEnv = { evren: evrenSpawnEnv, deepseek: deepseekSpawnEnv, chatgpt: chatgptSpawnEnv }[family];
+  // The GPT model's real window, read from the Codex catalog, so Claude Code neither
+  // warns about the unknown alias nor assumes 200k.
+  const contextTokens = family === 'chatgpt' ? resolveContextTokens(`codex:${chatgptFamilyName(s.model)}`) : undefined;
+  const claudeLogin = family === 'chatgpt' ? await hasClaudeAiLogin(s) : false;
+  return spawnEnv({ port, model: s.model, subagentModel: s.subagentModel, contextTokens, claudeLogin });
+}
+
+// Does the session's Claude account hold a claude.ai login the CLI can keep? A GPT
+// session that keeps it gets Claude Code's /voice (see chatgptSpawnEnv). An expired
+// login still counts — the CLI renews it with the stored refresh token.
+async function hasClaudeAiLogin(s) {
+  const account = (s && s.accountId && accounts.accountById(s.accountId)) || accounts.activeAccount();
+  if (!account || isApiKeyAccount(account)) return false;
+  return !!(await readOauthCredsAsync(account.configDir));
 }
 
 // An Evren session authenticates with the placeholder token the proxy swaps; a
 // leftover API key from an API-key Claude account would take precedence over it.
 function withoutKeyForEvren(family, env) {
-  if (family !== 'evren' && family !== 'chatgpt') return env;
+  if (!PROXY_ROUTED_FAMILIES.includes(family)) return env;
   const rest = { ...env };
   delete rest.ANTHROPIC_API_KEY;
   return rest;
@@ -1395,7 +1413,7 @@ async function spawnPty(id, cols, rows, resume) {
     accounts.linkSharedConfig(account);
     if (s) s.accountId = account.id;
     ensureFolderTrusted(sessionCwd(s), account.configDir);
-    args = [...startArg, ...effortArgs(s && s.effort), '--settings', hookServer.hooksSettings(id)];
+    args = [...startArg, ...effortArgs(s && s.effort), ...chatgptModelArgs(s && s.model), '--settings', hookServer.hooksSettings(id)];
   }
   // An Ollama model routes the CLI through the local proxy; a Claude model through
   // the account proxy; a Codex model adds nothing. Computed before the spawn

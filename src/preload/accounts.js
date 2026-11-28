@@ -14,10 +14,10 @@ module.exports = {
   setActiveAccount: (id) => ipcRenderer.invoke('accounts-set-active', id),
   accountLoginCommand: (id) => ipcRenderer.invoke('accounts-login-command', id),
   accountsUsage: () => ipcRenderer.invoke('accounts-usage'),
-  // Evren API keys and Codex accounts (the other two tabs of the account menu).
+  // Evren and DeepSeek API keys and Codex accounts (the other tabs of the account menu).
   listProviderAccounts: (provider) => ipcRenderer.invoke('providers-list', provider),
   addProviderAccount: (provider, name, apiKey) => ipcRenderer.invoke('providers-add', { provider, name, apiKey }),
-  setProviderKey: (id, apiKey) => ipcRenderer.invoke('providers-set-key', { id, apiKey }),
+  setProviderKey: (id, apiKey, provider) => ipcRenderer.invoke('providers-set-key', { provider, id, apiKey }),
   removeProviderAccount: (provider, id) => ipcRenderer.invoke('providers-remove', { provider, id }),
   renameProviderAccount: (provider, id, name) => ipcRenderer.invoke('providers-rename', { provider, id, name }),
   setActiveProviderAccount: (provider, id) => ipcRenderer.invoke('providers-set-active', { provider, id }),
